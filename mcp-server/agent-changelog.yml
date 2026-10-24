@@ -5,6 +5,28 @@
 window_days: 6
 
 entries:
+  - date: "2026-10-23"
+    summary: "Custom redirect targets can read {{ entry.field }} from the visited entry"
+    agent_impact:
+      - "A custom-redirects.yml to of {{ entry.field }} (or legacy {{ single.field }}) is filled on the visit from the entry that URL belongs to, any content type. Empty, missing, or a value that is not a site path or http(s) URL does not redirect. test_redirect resolves the same way."
+      - "Workshop redirectTo is a content-type function. It is the representative session URL, or empty on that session and when there is no series. The /en|es/workshop/:slug rule is status 302."
+    tools_changed: false
+    paths:
+      - server/redirects.ts
+      - mcp-server/explain/redirects.md
+  - date: "2026-10-23"
+    summary: "Database content types can gate pages with entry_filters and fill a field from other rows with rows_filters"
+    agent_impact:
+      - "entry_filters on a content type (item_property_slug + value, all must match) decides which cached rows are pages. Fixed text only. The database screen still lists every cached row. A row that fails has no URL."
+      - "field_mapping { rows_filters: [{ rows_property_slug, value_from_current_row }] } fills a field with other rows of the same cache before functions run. The YAML stores column names. Empty current-row column or more than 50 matches stores []. Functions then read item.<field> (workshop group_sessions → series_index, series_total, is_representative)."
+      - "Workshop pages are status ACTIVE. Finished sessions stay in the cache for the day number and are not pages. The events API has no featured field."
+    tools_changed: false
+    paths:
+      - server/database-single-loader.ts
+      - server/entry-layer.ts
+      - shared/validateEditorFieldTypes.ts
+      - server/content-types.ts
+      - mcp-server/explain/content_system.md
   - date: "2026-10-22"
     summary: "Proposal drafts: system writes no longer make a co-author; revise_entries restarts the draft again; no phantom remove op for nested nulls"
     agent_impact:

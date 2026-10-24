@@ -8,6 +8,7 @@ import {
   getLookupKey,
   getFieldMapping,
   getFullFieldMapping,
+  getRowsFilterFields,
   getLocaleKey,
   getLocaleSource,
   RESERVED_IMAGE_FIELD,
@@ -21,6 +22,7 @@ import {
   resolveEntryUpdatedAt,
 } from "./content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "./transform";
+import { ROWS_FILTER_MAX, type RowsFilter } from "@shared/validateEditorFieldTypes";
 import { readSectionAnchors, writeSectionAnchors } from "./utils/sectionAnchors";
 import { canonicalSectionId, sectionIdCandidates } from "./utils/sectionIdentity";
 import { applyPerEntryLayer, type PerEntryAccum } from "./section-merge";
@@ -305,6 +307,92 @@ export function hasStaticSharedLayoutEntryLocale(
   return fs.existsSync(entryLocalePath);
 }
 
+type RowsFilterField = {
+  field: string;
+  filters: RowsFilter[];
+};
+
+const EMPTY_ROWS_BUCKET: readonly Record<string, unknown>[] = Object.freeze([]);
+
+function rowsFilterCell(item: Record<string, unknown>, key: string): string {
+  const value = item[key];
+  if (value == null || typeof value === "object") return "";
+  return String(value).trim();
+}
+
+function rowsFilterBucketKey(
+  item: Record<string, unknown>,
+  filters: RowsFilter[],
+  side: "rows" | "current",
+): string | null {
+  const parts: string[] = [];
+  for (const filter of filters) {
+    const slug = side === "rows" ? filter.rows_property_slug : filter.value_from_current_row;
+    const text = rowsFilterCell(item, slug);
+    if (!text) return null;
+    parts.push(text);
+  }
+  return parts.join("\0");
+}
+
+function attachRowsFilterField(
+  items: Record<string, unknown>[],
+  spec: RowsFilterField,
+  contentType?: string,
+): { field: string; values: unknown[] } {
+  const values: unknown[] = new Array(items.length);
+  if (spec.filters.length === 0) {
+    values.fill(EMPTY_ROWS_BUCKET);
+    return { field: spec.field, values };
+  }
+
+  const buckets = new Map<string, Record<string, unknown>[]>();
+  for (const item of items) {
+    const key = rowsFilterBucketKey(item, spec.filters, "rows");
+    if (!key) continue;
+    const list = buckets.get(key);
+    if (list) list.push(item);
+    else buckets.set(key, [item]);
+  }
+
+  const frozen = new Map<string, readonly Record<string, unknown>[]>();
+  for (const [key, list] of buckets) {
+    if (list.length > ROWS_FILTER_MAX) {
+      log.warn(
+        `[rows_filters] ${contentType ? contentType + "." : ""}${spec.field} matched ${list.length} rows (max ${ROWS_FILTER_MAX}); field left empty`,
+      );
+      frozen.set(key, EMPTY_ROWS_BUCKET);
+    } else {
+      frozen.set(key, Object.freeze(list.slice()));
+    }
+  }
+
+  for (let i = 0; i < items.length; i++) {
+    const key = rowsFilterBucketKey(items[i]!, spec.filters, "current");
+    values[i] = key ? (frozen.get(key) ?? EMPTY_ROWS_BUCKET) : EMPTY_ROWS_BUCKET;
+  }
+  return { field: spec.field, values };
+}
+
+/**
+ * Fill rows_filters fields from the full cache, before content-type functions.
+ * One group shares one frozen array. More than 50 rows, or an empty current-row
+ * column, stores `[]`. Cache rows are not mutated.
+ */
+export function applyRowsFilterFields(
+  items: Record<string, unknown>[],
+  fields: RowsFilterField[],
+  context?: { contentType?: string },
+): Record<string, unknown>[] {
+  if (fields.length === 0) return items;
+  const attached = fields.map((spec) => attachRowsFilterField(items, spec, context?.contentType));
+  return items.map((item, index) => {
+    const next: Record<string, unknown> = { ...item };
+    for (const field of attached) next[field.field] = field.values[index];
+    return next;
+  });
+}
+
 /**
  * Apply the content type's field mapping and reserved aliases (slug, locale,
  * image, updated_at) to database items that already went through the
@@ -318,9 +406,11 @@ export function mapDatabaseItemsForEntry(
   const lookupKey = getLookupKey(contentType, contentRoot) || "slug";
   const fieldMapping = getFieldMapping(contentType, contentRoot);
   const fullMapping = getFullFieldMapping(contentType, contentRoot);
+  const rowsFields = getRowsFilterFields(contentType, contentRoot);
 
   if (
     !fieldMapping &&
+    rowsFields.length === 0 &&
     !fullMapping?.[RESERVED_IMAGE_FIELD] &&
     !fullMapping?.[RESERVED_SLUG_FIELD] &&
     !fullMapping?.[RESERVED_UPDATED_AT_FIELD]
@@ -328,7 +418,9 @@ export function mapDatabaseItemsForEntry(
     return items;
   }
 
-  return items.map((item) => {
+  const enriched = applyRowsFilterFields(items, rowsFields, { contentType });
+
+  return enriched.map((item) => {
     const mapped: Record<string, unknown> = { ...item };
     const itemSlug = String(item[lookupKey] ?? item.slug ?? "unknown");
     if (fieldMapping) {

@@ -124,6 +124,8 @@ import {
   decodeFunctionMapping,
   encodeFunctionMapping,
 } from "@shared/functionEncoding";
+import { fieldMappingSource, isRowsFilterMapping, parseRowsFilters, rowsFilterSummary, type RowsFilter } from "@shared/validateEditorFieldTypes";
+import { RowsFiltersDialog } from "@/components/editing/RowsFiltersDialog";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
@@ -289,7 +291,7 @@ interface ContentTypeConfig {
   name: string;
   label: string;
   directory: string;
-  field_mapping?: Record<string, string | { source: string; default: string | null }>;
+  field_mapping?: Record<string, string | { source: string; default: string | null } | { rows_filters: RowsFilter[] }>;
   editor?: Record<string, {
     type?: string;
     options?: (string | { value: string; label: string })[];
@@ -1711,6 +1713,7 @@ function DataSourceDialog({
         const modes: Record<string, boolean> = {};
         for (const [k, v] of Object.entries(config.field_mapping)) {
           if (!k.startsWith("_")) {
+            if (isRowsFilterMapping(v)) continue;
             const raw = typeof v === "object" ? v.source : v;
             if (raw && raw.startsWith("function:")) {
               try {
@@ -1728,7 +1731,7 @@ function DataSourceDialog({
         setTransformerModes(modes);
 
         const sm = config.field_mapping._slug;
-        const smVal = sm ? (typeof sm === "object" ? sm.source : sm) : "";
+        const smVal = fieldMappingSource(sm) ?? "";
         if (smVal && smVal.startsWith("function:")) {
           try {
             setSlugField(decodeFunctionMapping(smVal));
@@ -1742,7 +1745,7 @@ function DataSourceDialog({
         }
 
         const lm = config.field_mapping._locale;
-        const lmVal = lm ? (typeof lm === "object" ? lm.source : lm) : "";
+        const lmVal = fieldMappingSource(lm) ?? "";
         if (lmVal && lmVal.startsWith("function:")) {
           try {
             setLocaleField(decodeFunctionMapping(lmVal));
@@ -1756,7 +1759,7 @@ function DataSourceDialog({
         }
 
         const hm = config.field_mapping._hreflangs;
-        const hmVal = hm ? (typeof hm === "object" ? hm.source : hm) : "";
+        const hmVal = fieldMappingSource(hm) ?? "";
         if (hmVal && hmVal.startsWith("function:")) {
           try {
             setHreflangsField(decodeFunctionMapping(hmVal));
@@ -1882,7 +1885,7 @@ function DataSourceDialog({
   const handleSave = async () => {
     setSaving(true);
     try {
-      const fullMapping: Record<string, string> = {};
+      const fullMapping: Record<string, string | { rows_filters: RowsFilter[] }> = {};
       if (slugField) {
         fullMapping._slug = slugIsTransformer ? encodeFunctionMapping(slugField) : slugField;
       }
@@ -1905,6 +1908,12 @@ function DataSourceDialog({
           if (!transformerModes[k] && localeSource && v === localeSource) continue;
           if (!transformerModes[k] && hreflangsSource && v === hreflangsSource) continue;
           fullMapping[k] = transformerModes[k] ? encodeFunctionMapping(v) : v;
+        }
+      }
+
+      if (config?.field_mapping) {
+        for (const [k, v] of Object.entries(config.field_mapping)) {
+          if (isRowsFilterMapping(v)) fullMapping[k] = v;
         }
       }
 
@@ -3440,13 +3449,16 @@ function ComputeModeMenu({
   onNotComputed,
   onPickField,
   onPickFunction,
+  onPickRows,
   testId,
 }: {
   fieldKey: string;
-  mode: "none" | "field" | "function";
+  mode: "none" | "field" | "function" | "rows";
   onNotComputed: () => void;
   onPickField: () => void;
   onPickFunction: () => void;
+  /** Other rows from this database. Omitted in the setup wizard. */
+  onPickRows?: () => void;
   /** Override trigger test id (wizard uses button-toggle-transform-*). */
   testId?: string;
 }) {
@@ -3458,7 +3470,7 @@ function ComputeModeMenu({
   };
 
   const items: {
-    id: "none" | "field" | "function";
+    id: "none" | "field" | "function" | "rows";
     label: string;
     info: string;
     testIdSuffix: string;
@@ -3485,6 +3497,15 @@ function ComputeModeMenu({
       testIdSuffix: "function",
       onSelect: onPickFunction,
     },
+    ...(onPickRows
+      ? [{
+          id: "rows" as const,
+          label: "Rows from database",
+          info: "Fill this field with other rows from the same database that match column filters. At most 50 rows.",
+          testIdSuffix: "rows",
+          onSelect: onPickRows,
+        }]
+      : []),
   ];
 
   return (
@@ -3664,6 +3685,9 @@ function FieldMappingDialog({
   const [showAddField, setShowAddField] = useState(false);
   const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
   const [transformerModes, setTransformerModes] = useState<Record<string, boolean>>({});
+  const [rowsFilterModes, setRowsFilterModes] = useState<Record<string, boolean>>({});
+  const [rowsFilters, setRowsFilters] = useState<Record<string, RowsFilter[]>>({});
+  const [rowsFilterDialogField, setRowsFilterDialogField] = useState<string | null>(null);
   const [customModes, setCustomModes] = useState<Record<string, boolean>>({});
   /** YAML: show source picker for a field (map from another field). */
   const [remapModes, setRemapModes] = useState<Record<string, boolean>>({});
@@ -3764,10 +3788,18 @@ function FieldMappingDialog({
     }
     const fm: Record<string, string> = {};
     const tmodes: Record<string, boolean> = {};
+    const rowModes: Record<string, boolean> = {};
+    const rowFilters: Record<string, RowsFilter[]> = {};
     const optFields: Record<string, boolean> = {};
     const defaults: Record<string, string | null> = {};
     if (config.field_mapping) {
       for (const [k, v] of Object.entries(config.field_mapping)) {
+        if (isRowsFilterMapping(v)) {
+          fm[k] = "";
+          rowModes[k] = true;
+          rowFilters[k] = parseRowsFilters(v);
+          continue;
+        }
         if (typeof v === "string") {
           if (v.startsWith("function:")) {
             fm[k] = decodeFunctionMapping(v);
@@ -3821,6 +3853,8 @@ function FieldMappingDialog({
     setMappings(fm);
     setFieldDefaults(defaults);
     setTransformerModes(tmodes);
+    setRowsFilterModes(rowModes);
+    setRowsFilters(rowFilters);
     setOptionalFields(optFields);
     setNewOptional(false);
     // A source is "custom" if it contains a dot (dotted path like author.name)
@@ -4029,10 +4063,14 @@ function FieldMappingDialog({
   const handleSave = async () => {
     setSaving(true);
     try {
-      const fullMapping: Record<string, string | { source: string; default: string | null }> = {};
+      const fullMapping: Record<string, string | { source: string; default: string | null } | { rows_filters: RowsFilter[] }> = {};
       for (const [k, v] of Object.entries(mappings)) {
         if (FORBIDDEN_SCHEMA_FIELDS.has(k)) continue;
         if (k.startsWith("seo.") || k === "seo.pillar") continue;
+        if (rowsFilterModes[k]) {
+          fullMapping[k] = { rows_filters: rowsFilters[k] ?? [] };
+          continue;
+        }
         // Static regular fields: force identity (no rename)
         const sourceValue = !isDbBacked && !k.startsWith("_") && !transformerModes[k] && !SEO_DB_MAPPING_KEYS.has(k)
           ? k
@@ -4211,7 +4249,40 @@ function FieldMappingDialog({
     return "(value, item) => value";
   };
 
+  const clearRowsMode = (key: string) => {
+    setRowsFilterModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const enterRowsMode = (key: string) => {
+    setTransformerModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setRemapModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setCustomModes((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setRowsFilterModes((prev) => ({ ...prev, [key]: true }));
+    setRowsFilters((prev) => ({
+      ...prev,
+      [key]: prev[key]?.length ? prev[key] : [{ rows_property_slug: "", value_from_current_row: "" }],
+    }));
+    setRowsFilterDialogField(key);
+  };
+
   const enterFunctionMode = (key: string) => {
+    clearRowsMode(key);
     setCustomModes((prev) => {
       const next = { ...prev };
       delete next[key];
@@ -4260,6 +4331,7 @@ function FieldMappingDialog({
   };
 
   const enterRemapMode = (key: string) => {
+    clearRowsMode(key);
     setTransformerModes((prev) => {
       const next = { ...prev };
       delete next[key];
@@ -4280,6 +4352,7 @@ function FieldMappingDialog({
   };
 
   const resetComputeMode = (key: string) => {
+    clearRowsMode(key);
     setTransformerModes((prev) => {
       const next = { ...prev };
       delete next[key];
@@ -4891,8 +4964,9 @@ function FieldMappingDialog({
                 <div className="space-y-1">
                   {regularKeys.map((key) => {
                     const isFn = !!transformerModes[key];
+                    const isRows = !!rowsFilterModes[key];
                     const isRemap = !!remapModes[key] || showSourceEditor;
-                    const showComputeEditor = isFn || isRemap;
+                    const showComputeEditor = !isRows && (isFn || isRemap);
                     const vResult = isFn ? null : validation[key];
                     const currentSrc = mappings[key] || "";
                     const deprecatedCfg = parseDeprecated(editorHints[key]);
@@ -4908,7 +4982,16 @@ function FieldMappingDialog({
                             {key}
                           </span>
                           <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                          {showComputeEditor ? (
+                          {isRows ? (
+                            <button
+                              type="button"
+                              className="flex-1 min-w-0 text-left text-xs font-mono truncate rounded-md border px-2 py-1.5 hover:bg-muted"
+                              onClick={() => setRowsFilterDialogField(key)}
+                              data-testid={`button-rows-summary-${key}`}
+                            >
+                              {rowsFilterSummary(rowsFilters[key] ?? [])}
+                            </button>
+                          ) : showComputeEditor ? (
                             <div className="flex-1 flex flex-col gap-1 min-w-0">
                               <div className="flex items-center gap-2 min-w-0">
                                 {renderSourceEditor(key)}
@@ -4935,15 +5018,18 @@ function FieldMappingDialog({
                           <ComputeModeMenu
                             fieldKey={key}
                             mode={
-                              isFn
-                                ? "function"
-                                : !!remapModes[key] || (showSourceEditor && currentSrc !== key)
-                                  ? "field"
-                                  : "none"
+                              isRows
+                                ? "rows"
+                                : isFn
+                                  ? "function"
+                                  : !!remapModes[key] || (showSourceEditor && currentSrc !== key)
+                                    ? "field"
+                                    : "none"
                             }
                             onNotComputed={() => resetComputeMode(key)}
                             onPickField={() => enterRemapMode(key)}
                             onPickFunction={() => enterFunctionMode(key)}
+                            onPickRows={isDbBacked ? () => enterRowsMode(key) : undefined}
                           />
                           {(isDbBacked || isFn || currentSrc === key || !showComputeEditor) && (
                             <FieldValidationIndicator result={vResult} optional={optionalFields[key]} />
@@ -5364,6 +5450,21 @@ function FieldMappingDialog({
           return { ...prev, [field]: merged };
         });
         setHintDialogField(null);
+      }}
+    />
+    <RowsFiltersDialog
+      fieldName={rowsFilterDialogField ?? ""}
+      open={rowsFilterDialogField !== null}
+      columns={mergedSourceOptions}
+      initial={rowsFilterDialogField ? (rowsFilters[rowsFilterDialogField] ?? []) : []}
+      onOpenChange={(next) => {
+        if (!next) setRowsFilterDialogField(null);
+      }}
+      onApply={(filters) => {
+        const field = rowsFilterDialogField;
+        if (!field) return;
+        setRowsFilterModes((prev) => ({ ...prev, [field]: true }));
+        setRowsFilters((prev) => ({ ...prev, [field]: filters }));
       }}
     />
     <RequiredFieldConfirmDialog
@@ -6726,7 +6827,7 @@ export default function ContentTypeManagePage() {
     const staticFallback = typeConfig?.database?.slug ? null : "lang";
     const raw = typeConfig?.field_mapping?._locale;
     if (!raw) return staticFallback;
-    const val = typeof raw === "object" ? raw.source : raw;
+    const val = fieldMappingSource(raw);
     if (typeof val === "string" && val.startsWith("function:")) {
       const fm = typeConfig?.field_mapping || {};
       const localeLike = ["lang", "locale", "language"];
@@ -6741,7 +6842,7 @@ export default function ContentTypeManagePage() {
   const hreflangsSource = (() => {
     const raw = typeConfig?.field_mapping?._hreflangs;
     if (!raw) return "translations";
-    const val = typeof raw === "object" ? raw.source : raw;
+    const val = fieldMappingSource(raw);
     if (typeof val === "string" && val.startsWith("function:")) return "translations";
     return typeof val === "string" && val.trim() ? val : "translations";
   })();

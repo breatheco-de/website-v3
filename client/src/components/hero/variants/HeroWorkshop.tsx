@@ -5,12 +5,15 @@
  */
 
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { LeadFormData } from "@shared/schema";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { UniversalImage } from "@/components/UniversalImage";
 import { getIcon } from "@/lib/icons";
 import { coerceToText, resolveTemplateFallback } from "@/lib/variable-manager";
+import { HoverCard, HoverCardContent, HoverCardPortal, HoverCardTrigger } from "@/components/ui/hover-card";
 import { ResponsiveRichText } from "@/components/ui/responsive-rich-text";
 import {
   Tooltip,
@@ -71,13 +74,6 @@ function formatEventDate(iso: string, locale: string): string {
   } catch {
     return d.toISOString();
   }
-}
-
-function splitParagraphs(text: string): string[] {
-  return text
-    .split(/\n\n+/)
-    .map((p) => p.trim())
-    .filter(Boolean);
 }
 
 function normalizeStringList(raw: unknown): string[] {
@@ -161,6 +157,11 @@ export interface HeroWorkshopData {
   back_label?: string;
   back_url?: string;
   badge?: string;
+  /** 1-based day in the series. Shown with series_total when the series has 2 or more sessions. */
+  series_index?: string | number;
+  series_total?: string | number;
+  /** Popover copy on the day badge. Empty hides the popover. */
+  series_note?: string;
   title?: string;
   description?: string;
   date?: {
@@ -218,17 +219,54 @@ interface HeroWorkshopProps {
   data: HeroWorkshopData;
 }
 
+const SERIES_DAY_GREEN = "#25BF6C";
+
+/** Day label for a series. Hidden unless the series has at least two sessions. */
+function seriesDayBadge(index: unknown, total: unknown, locale: string): { label: string } | null {
+  const day = Number(index);
+  const count = Number(total);
+  if (!Number.isFinite(day) || !Number.isFinite(count) || count < 2 || day < 1) return null;
+  const es = locale.toLowerCase().startsWith("es");
+  const label = es ? `Día ${Math.floor(day)}` : `Day ${Math.floor(day)}`;
+  return { label };
+}
+
+function SeriesDayBadge({ label, note, testId }: { label: string; note?: string; testId: string }) {
+  const text = (note ?? "").trim();
+  const className =
+    "inline-flex items-center rounded-full px-2.5 py-[5.5px] text-xs font-bold leading-none text-white";
+  if (!text) {
+    return (
+      <span className={className} style={{ backgroundColor: SERIES_DAY_GREEN }} data-testid={testId}>
+        {label}
+      </span>
+    );
+  }
+  return (
+    <HoverCard openDelay={200} closeDelay={100}>
+      <HoverCardTrigger asChild>
+        <button type="button" className={className} style={{ backgroundColor: SERIES_DAY_GREEN }} data-testid={testId}>
+          {label}
+        </button>
+      </HoverCardTrigger>
+      <HoverCardPortal>
+        <HoverCardContent side="top" collisionPadding={12} className="z-50 w-72 text-center text-sm">
+          {text}
+        </HoverCardContent>
+      </HoverCardPortal>
+    </HoverCard>
+  );
+}
+
 export default function HeroWorkshop({ data }: HeroWorkshopProps) {
   const locale = pageLocale();
 
   const titleHtml = typeof data.title === "string" ? data.title : "";
   const badge = coerceToText(data.badge);
+  const seriesDay = seriesDayBadge(data.series_index, data.series_total, locale);
+  const seriesNote = coerceToText(data.series_note);
   // back_label / back_url kept on data for now; UI link hidden
   const description = coerceToText(data.description);
-  const paragraphs = useMemo(
-    () => (description ? splitParagraphs(description) : []),
-    [description],
-  );
   const durationLabel = coerceToText(data.duration?.label);
   const durationSuffix = coerceToText(data.duration?.suffix);
   const dateIconName = coerceToText(data.date?.icon);
@@ -365,6 +403,7 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
 
   const showTitleBlock =
     !!badge ||
+    !!seriesDay ||
     !!(eventState === "live" && liveNowLabel) ||
     !!titleHtml ||
     !!dateLine ||
@@ -509,6 +548,13 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
                 )}
               </div>
             )}
+            {seriesDay ? (
+              <SeriesDayBadge
+                label={seriesDay.label}
+                note={seriesNote}
+                testId="text-workshop-series-day"
+              />
+            ) : null}
           </div>
         ) : null}
 
@@ -836,17 +882,13 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
           </div>
         ) : null}
 
-        {paragraphs.length > 0 ? (
+        {description ? (
           <div
-            className="order-3 min-w-0 space-y-3 text-[15px] leading-relaxed text-foreground/70 md:order-none md:pt-0"
+            className="order-3 min-w-0 text-[15px] leading-relaxed text-foreground/70 md:order-none md:pt-0 prose prose-sm max-w-none prose-p:my-3 prose-p:text-[15px] prose-p:leading-relaxed prose-p:text-foreground/70 prose-headings:text-base prose-headings:font-semibold prose-hr:my-4 prose-a:text-primary prose-strong:text-foreground"
             data-workshop-desc
             data-testid="text-workshop-description"
           >
-            {paragraphs.map((p, i) => (
-              <p key={i} className="whitespace-pre-line">
-                {p}
-              </p>
-            ))}
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{description}</ReactMarkdown>
           </div>
         ) : null}
 

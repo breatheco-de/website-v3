@@ -32,6 +32,8 @@ Apply with `update_redirect` `action: add`, `from` = removed page URL, `to` = su
 
 Exact `before` → regex `before` → fallbacks → canonical soft-match. `conflicts[].kind`: `duplicate_from` \| `regex_shadowed` \| `overwrites_content`.
 
+A custom `to` may be `{{ entry.field }}` (legacy `{{ single.field }}` too). On the visit, that field is read from the entry the URL belongs to — whichever content type `url_pattern` matches, not a type named on the rule. The same `resolveSingleVars` pass pages use fills it in. Empty, missing, or anything that is not a site path or `http(s)` URL does not redirect; the page is served. `status: 302` stays temporary. Workshop series sessions use this: non-representative days store the representative URL on `redirectTo`.
+
 Custom regex fallbacks (`custom-redirects.yml`, `priority: fallback`) only fire when the destination reaches a live page or external URL; otherwise the next rule is tried, then 404. A destination needing a blog category fix, or that is itself a redirect (max 3 hops), resolves to the final URL in one 301. Exact fallbacks, `before` rules, and page `meta.redirects` fallbacks are not guarded. `test_redirect` reports the same final `resolvedTo`.
 
 `overwrites_content` uses **`contentIndex.isKnownUrl` only** (not the SEO sitemap). Locale-home aliases (`/`, `/en`, `/es`, `/us` — see `shared/public-app-routes.ts` `LOCALE_HOME_ALIASES`) are **not** live; they must 301 to the canonical homepage per locale (`/en/home`, `/es/inicio`). After app routing changes, re-run validation / clear diagnostics cache if stale overwrite issues linger.

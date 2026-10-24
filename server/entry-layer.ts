@@ -35,6 +35,7 @@ import {
   mergeEntryOwnedPage,
   mergeSingleTemplate,
 } from "./database-single-loader";
+import { applyFilters, type QueryFilter } from "./query-entries";
 import { applyFieldOverridesToItem, readFieldOverrides, readLiveFieldOverrides } from "./field-overrides";
 import { layoutInfoForEntry } from "./layout-owner";
 import { applyPerEntryLayer, type PerEntryAccum } from "./section-merge";
@@ -163,6 +164,36 @@ export function loadItemsForType(ci: EntrySourceRoot, contentType: string): Type
   return value;
 }
 
+type EntryFilter = {
+  item_property_slug: string;
+  value: unknown;
+};
+
+/** Content-type page gate. Empty or missing means every cached row can be a page. */
+function readEntryFilters(contentType: string, contentRoot?: string): QueryFilter[] | null {
+  const raw = getContentTypeConfig(contentType, contentRoot)?.entry_filters;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const filters: QueryFilter[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const field = String((entry as EntryFilter).item_property_slug ?? "").trim();
+    if (!field) continue;
+    filters.push({ field, value: (entry as EntryFilter).value });
+  }
+  return filters.length > 0 ? filters : null;
+}
+
+/** Drop rows that are not pages. The database cache itself is unchanged. */
+export function applyEntryFilters(
+  items: Record<string, unknown>[],
+  contentType: string,
+  contentRoot?: string,
+): Record<string, unknown>[] {
+  const filters = readEntryFilters(contentType, contentRoot);
+  if (!filters) return items;
+  return applyFilters(items, filters);
+}
+
 /** One database item for a slug + locale (same lookup listEntryKeys uses), or undefined. */
 export function findEntryItem(
   ci: EntrySourceRoot,
@@ -172,7 +203,8 @@ export function findEntryItem(
 ): Record<string, unknown> | undefined {
   const typeItems = loadItemsForType(ci, contentType);
   if (!typeItems) return undefined;
-  return findDatabaseItemForEntry(typeItems.items, contentType, slug, locale, ci.contentRoot);
+  const pages = applyEntryFilters(typeItems.items, contentType, ci.contentRoot);
+  return findDatabaseItemForEntry(pages, contentType, slug, locale, ci.contentRoot);
 }
 
 /** Static entries (folders) plus cached database items, one key per content type + slug. */
@@ -216,7 +248,7 @@ export function listEntryKeys(ci: ContentIndex): EntryKeyList {
       else staleDatabases.push({ name: dbName, fetchedAt: typeItems.fetchedAt, ageMs: typeItems.ageMs, contentTypes: [contentType] });
     }
 
-    const items = typeItems.items;
+    const items = applyEntryFilters(typeItems.items, contentType, contentRoot);
     itemsByType.set(contentType, items);
     const lookupKey = getLookupKey(contentType, contentRoot) || "slug";
     for (const item of items) {
@@ -289,7 +321,8 @@ export function listTypePages(ci: EntrySourceRoot, contentType: string): ListedT
   const lookupKey = getLookupKey(contentType, contentRoot) || "slug";
   const folders = entryFolderSlugs(contentType, contentRoot);
   const pages: ListedPage[] = [];
-  for (const item of typeItems.items) {
+  const pageItems = applyEntryFilters(typeItems.items, contentType, contentRoot);
+  for (const item of pageItems) {
     const slug = String(item[lookupKey] ?? item.slug ?? "");
     if (!slug) continue;
     for (const locale of itemLocales(item, contentType, contentRoot)) {
@@ -314,7 +347,8 @@ export function listTypeRows(
 ): ListingRows | null {
   const listing = db.getListingItems(contentType);
   if (!listing) return null;
-  return { ...listing, items: applyListingOverrides(ci, contentType, listing.items) };
+  const overridden = applyListingOverrides(ci, contentType, listing.items);
+  return { ...listing, items: applyEntryFilters(overridden, contentType, ci.contentRoot) };
 }
 
 /**
@@ -376,11 +410,12 @@ export function findEntryPresence(ci: ContentIndex, contentType: string, slug: s
     for (const locale of folder?.locales ?? []) if (isEntryLocale(locale)) localeSlugs[locale] = folder!.slug;
   } else {
     const lookupKey = getLookupKey(contentType, ci.contentRoot) || "slug";
-    const matches = typeItems.items.filter((item) => String(item[lookupKey] ?? item.slug ?? "") === slug);
+    const pageItems = applyEntryFilters(typeItems.items, contentType, ci.contentRoot);
+    const matches = pageItems.filter((item) => String(item[lookupKey] ?? item.slug ?? "") === slug);
     const first = matches[0];
     const group = first ? resolveHreflangsFromRecord(first, contentType, ci.contentRoot) : null;
     const slugsInGroup = new Set([slug, ...Object.values(group || {})]);
-    for (const item of typeItems.items) {
+    for (const item of pageItems) {
       const itemSlug = String(item[lookupKey] ?? item.slug ?? "");
       if (!itemSlug || !slugsInGroup.has(itemSlug)) continue;
       for (const locale of itemLocales(item, contentType, ci.contentRoot)) {

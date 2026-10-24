@@ -23,7 +23,7 @@ vi.mock("./content-types", async (importOriginal) => {
   };
 });
 
-import { fallbackRedirectMiddleware, findCanonicalSoftMatch, inspectRedirect, isLivePublicUrl, isSelfRedirectTarget, mergeQueryIntoTarget, resolveRedirectRequestLocale, testRedirect } from "./redirects";
+import { fallbackRedirectMiddleware, findCanonicalSoftMatch, inspectRedirect, isLivePublicUrl, isSelfRedirectTarget, mergeQueryIntoTarget, redirectTargetFromEntryBag, resolveRedirectRequestLocale, testRedirect } from "./redirects";
 import { canonicalizePillarPath } from "./seo-fields";
 import { applyRedirectTraceCookie } from "./redirect-trace-cookie";
 import {
@@ -58,6 +58,29 @@ function makeCi(opts: {
     refreshCustomRedirects: () => redirects,
   } as unknown as typeof ContentIndexType;
 }
+
+describe("redirectTargetFromEntryBag", () => {
+  it("leaves a fixed destination unchanged", () => {
+    expect(redirectTargetFromEntryBag("/en/home", null)).toBe("/en/home");
+  });
+
+  it("reads the visited entry field", () => {
+    expect(redirectTargetFromEntryBag("{{ entry.redirectTo }}", { redirectTo: "/en/workshop/day-1" })).toBe(
+      "/en/workshop/day-1",
+    );
+  });
+
+  it("does not redirect when the field is empty or missing", () => {
+    expect(redirectTargetFromEntryBag("{{ entry.redirectTo }}", { redirectTo: "" })).toBeNull();
+    expect(redirectTargetFromEntryBag("{{ entry.redirectTo }}", {})).toBeNull();
+    expect(redirectTargetFromEntryBag("{{ entry.redirectTo }}", null)).toBeNull();
+  });
+
+  it("rejects a destination that is not a site path or http(s) URL", () => {
+    expect(redirectTargetFromEntryBag("{{ entry.redirectTo }}", { redirectTo: "javascript:alert(1)" })).toBeNull();
+    expect(redirectTargetFromEntryBag("{{ entry.redirectTo }}", { redirectTo: "//evil.example/phish" })).toBeNull();
+  });
+});
 
 describe("isSelfRedirectTarget", () => {
   const host = "business.4geeks.com";
