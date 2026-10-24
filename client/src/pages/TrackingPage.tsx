@@ -31,6 +31,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { SettingsShell, type SettingsSecondaryTab } from "@/components/settings/SettingsShell";
 import { AbTestingPanel } from "@/components/settings/AbTestingPanel";
+import { ProductPersonaTrackingCard } from "@/components/settings/ProductPersonaTrackingCard";
 import { AB_TESTING_HREF } from "@/lib/settings-tab";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1431,7 +1432,27 @@ interface EventGroup {
   events: TrackingEvent[];
 }
 
-const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = {
+/** Page product / persona codes merged into every event once the site's switch is on. */
+const SAMPLE_PAGE_TRACKING = {
+  product: "aie",
+  persona: "cc",
+  product_persona: "aie:cc",
+  funnel_stage: "decision",
+  content_key: "landing:apply",
+};
+
+function withPageTracking(
+  payloads: Record<string, Record<string, unknown>>,
+): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
+    Object.entries(payloads).map(([name, p]) => {
+      const { event, user_id, ...rest } = p;
+      return [name, { event, user_id, ...SAMPLE_PAGE_TRACKING, ...rest }];
+    }),
+  );
+}
+
+const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = withPageTracking({
   page_view: {
     event: "page_view",
     user_id: SAMPLE_USER_ID,
@@ -1500,7 +1521,7 @@ const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = {
     section_type: "features_grid",
     section_index: 3,
   },
-};
+});
 
 const GENERAL_EVENT_TRIGGERS: Record<string, string> = {
   cta_click: "Click on a link or button inside a page section (section-tracking.ts)",
@@ -1611,8 +1632,15 @@ function EventsSection() {
 
   const routeEvents: TrackingEvent[] = [
     {
+      name: "page tracking context object",
+      trigger:
+        "Every content page (no event): written by the server before Tag Manager on first load, then on each navigation. Keys a page doesn't have are pushed empty so the previous page's values clear.",
+      payload: { ...SAMPLE_PAGE_TRACKING, tracking_truncated: undefined },
+    },
+    {
       name: "website-route-change",
-      trigger: "Client-side navigation (not first load)",
+      trigger:
+        "Client-side navigation (not first load), sent once the new page's product / persona are known (at most ~2s, or right away when the visitor leaves)",
       payload: {
         event: "website-route-change",
         pagePath: "/en/apply",
@@ -2134,6 +2162,7 @@ function TrackingPageInner({ activeTab }: { activeTab: TrackingTab }) {
                   <li>client/src/lib/tracking</li>
                 </ul>
               </details>
+              <ProductPersonaTrackingCard />
               <EventsSection />
             </div>
           )}

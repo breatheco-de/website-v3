@@ -25,8 +25,9 @@ import { buildLeadAdContext, newSubmissionId, staffLeadHeaders } from "@/lib/lea
 import { getApiPath } from "@shared/api-paths";
 import type { Country } from "react-phone-number-input";
 import { trackFormSubmission, trackConversion, resolveWebhook, hashEmail, getEcommerceProductLookup, type ConversionName, type FormSubmissionTrackingData, type TrackingSettingsResponse } from "@/lib/tracking";
-import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
+import { ensureEcommerceProductLookup, ensureTrackingKeys } from "@/lib/ecommerceProductMap";
 import { usePageFunnel } from "@/contexts/PageFunnelContext";
+import { resolveFormTrackingContext, type PageTrackingContext } from "@shared/tracking-context";
 import {
   DEFAULT_ECOMMERCE_PRODUCT_FIELD,
   resolveConversionProduct,
@@ -1526,6 +1527,30 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     return resolved;
   };
 
+  /**
+   * Product / persona for this submit: the page funnel, unless the form overrides them with
+   * hidden `product` / `persona` fields (full id or short code). GTM gets codes once the site's
+   * tracking switch is on; the lead ledger / CRM always get full ids.
+   */
+  const resolveLeadTracking = async (fields: Record<string, LeadFormFieldDefault>) => {
+    const { ready, keys } = await ensureTrackingKeys();
+    const override = {
+      product: typeof fields.product === "string" ? fields.product : undefined,
+      persona: typeof fields.persona === "string" ? fields.persona : undefined,
+    };
+    const page = { contentType: contentType || "page", contentSlug: slug || "" };
+    const pick = (ctx: PageTrackingContext) =>
+      Object.fromEntries(
+        (["product", "persona", "product_persona", "tracking_truncated"] as const)
+          .filter((k) => ctx[k] !== undefined)
+          .map((k) => [k, ctx[k]]),
+      ) as Record<string, string | boolean>;
+    return {
+      codes: ready ? pick(resolveFormTrackingContext(pageFunnel, page, keys, override)) : null,
+      ids: pick(resolveFormTrackingContext(pageFunnel, page, keys, override, { mode: "ids" })),
+    };
+  };
+
   /** Same dataLayer body for signup and every other form conversion. */
   const trackLeadConversion = async (
     eventName: ConversionName,
@@ -1534,6 +1559,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     submissionId: string,
   ) => {
     const resolvedProduct = await resolveSubmitProduct(fields);
+    const leadTracking = await resolveLeadTracking(fields);
     const tracking: FormSubmissionTrackingData = {
       email: formValues.email,
       first_name: formValues.first_name,
@@ -1564,6 +1590,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       ...Object.fromEntries(
         Object.entries(fields).filter(([, value]) => isNonEmptyLeadFormWireScalar(value)),
       ),
+      ...(leadTracking.codes ?? {}),
       submission_id: submissionId,
     };
     await trackFormSubmission(eventName, tracking);
@@ -1593,6 +1620,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       );
       const submissionId = newSubmissionId();
       const submitProduct = await resolveSubmitProduct(fields);
+      const leadTracking = await resolveLeadTracking(fields);
       const payload = {
         ...restValues,
         ...fieldScalars,
@@ -1630,6 +1658,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         ...(submitProduct.ok
           ? { ledger_product_id: submitProduct.item_id, ledger_product_slug: submitProduct.program_id }
           : {}),
+        ...leadTracking.ids,
       };
 
       // Token written during this submit (signup) — cookie may lag React state; prefer this.

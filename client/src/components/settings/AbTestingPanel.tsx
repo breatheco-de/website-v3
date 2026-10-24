@@ -446,6 +446,31 @@ function AnalyticsCard({ canManage }: { canManage: boolean }) {
     },
   });
 
+  const testConnection = async () => {
+    const { data: result, error } = await refetch();
+    if (!result || error) {
+      toast({
+        title: "Couldn't reach Google Analytics",
+        description: error instanceof Error ? error.message : "Try again in a moment.",
+        variant: "destructive",
+      });
+    } else if (result.ok) {
+      toast({ title: "Connected", description: "Both dimensions are registered in Google Analytics." });
+    } else if (result.step || result.error) {
+      toast({
+        title: "Couldn't reach Google Analytics",
+        description: result.fix ?? result.error,
+        variant: "destructive",
+      });
+    } else {
+      const n = result.missing.length;
+      toast({
+        title: `Connected, ${n} dimension${n === 1 ? "" : "s"} missing`,
+        description: canManage ? "Use Create them to add them." : "A steward can add them with Create them.",
+      });
+    }
+  };
+
   return (
     <Card id="ab-analytics" className="scroll-mt-6" data-testid="panel-ab-analytics">
       <CardHeader className="flex flex-row items-center justify-between gap-2 pb-4">
@@ -453,7 +478,7 @@ function AnalyticsCard({ canManage }: { canManage: boolean }) {
           <IconBrandGoogleAnalytics className="h-5 w-5 text-muted-foreground" />
           <CardTitle className="text-base">Variant reporting</CardTitle>
         </div>
-        <Button variant="secondary" onClick={() => void refetch()} disabled={isFetching} data-testid="button-ab-ga4-test">
+        <Button variant="secondary" onClick={() => void testConnection()} disabled={isFetching} data-testid="button-ab-ga4-test">
           {isFetching ? <IconLoader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <IconPlugConnected className="mr-1.5 h-4 w-4" />}
           {isFetching ? "Testing…" : "Test connection"}
         </Button>

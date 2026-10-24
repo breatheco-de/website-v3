@@ -5,6 +5,95 @@
 
 import { getUserIdFromCookie } from "./sessionBootstrap";
 import { useQuery } from "@tanstack/react-query";
+import { PAGE_TRACKING_KEYS, type PageTrackingContext } from "@shared/tracking-context";
+
+let pageContext: PageTrackingContext | null = null;
+let pageContextPath: string | null = null;
+const EMPTY_CONTEXT_SIGNATURE = JSON.stringify(PAGE_TRACKING_KEYS.map(() => null));
+let lastContextPush = EMPTY_CONTEXT_SIGNATURE;
+const contextListeners = new Set<(pathname: string) => void>();
+
+function currentPathname(): string {
+  return typeof window === "undefined" ? "" : window.location.pathname;
+}
+
+/** Product / persona context for the page currently shown (empty during a route change). */
+export function getPageTrackingContext(): PageTrackingContext {
+  return pageContext && pageContextPath === currentPathname() ? pageContext : {};
+}
+
+/** True once the page at `pathname` has set (or explicitly cleared) its context. */
+export function isPageContextSet(pathname: string): boolean {
+  return pageContextPath === pathname;
+}
+
+/**
+ * Set the product / persona values for the page at `pathname` (null = this page has none).
+ * Pushes every key, with `undefined` for missing ones, so GTM drops the previous page's values.
+ */
+export function setPageTrackingContext(
+  ctx: PageTrackingContext | null,
+  pathname: string = currentPathname(),
+): void {
+  pageContext = ctx ? { ...ctx } : null;
+  pageContextPath = pathname;
+  seedContextSignatureFromServerPush();
+  const payload: Record<string, unknown> = {};
+  for (const key of PAGE_TRACKING_KEYS) payload[key] = ctx?.[key];
+  const signature = JSON.stringify(PAGE_TRACKING_KEYS.map((k) => payload[k] ?? null));
+  if (signature !== lastContextPush) {
+    lastContextPush = signature;
+    pushToDataLayer(payload);
+  }
+  for (const listener of Array.from(contextListeners)) listener(pathname);
+}
+
+let seededFromServer = false;
+
+/** The server writes the first page's values before GTM; don't push them a second time. */
+function seedContextSignatureFromServerPush(): void {
+  if (seededFromServer || typeof window === "undefined") return;
+  seededFromServer = true;
+  const layer = window.dataLayer ?? [];
+  for (let i = layer.length - 1; i >= 0; i--) {
+    const entry = layer[i];
+    if (entry && !("event" in entry) && "content_key" in entry) {
+      lastContextPush = JSON.stringify(PAGE_TRACKING_KEYS.map((k) => (entry[k] as unknown) ?? null));
+      return;
+    }
+  }
+}
+
+/** Resolve when the page at `pathname` sets its context, or after `timeoutMs`. */
+export function onPageContextSet(pathname: string, cb: () => void): () => void {
+  if (isPageContextSet(pathname)) {
+    cb();
+    return () => {};
+  }
+  const listener = (p: string) => {
+    if (p !== pathname) return;
+    contextListeners.delete(listener);
+    cb();
+  };
+  contextListeners.add(listener);
+  return () => contextListeners.delete(listener);
+}
+
+/** Promise form of {@link onPageContextSet} with a fallback timer. */
+export function waitForPageContext(pathname: string, timeoutMs: number): Promise<"ready" | "timeout"> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (r: "ready" | "timeout") => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      off();
+      resolve(r);
+    };
+    const timer = setTimeout(() => finish("timeout"), timeoutMs);
+    const off = onPageContextSet(pathname, () => finish("ready"));
+  });
+}
 
 export type ConversionName = string;
 
@@ -135,6 +224,7 @@ export function trackEcommerce(
   pushToDataLayer({
     event: eventName,
     user_id: getUserIdFromCookie() ?? undefined,
+    ...getPageTrackingContext(),
     ...payload,
     item_id: itemId,
     item_name: itemName,
@@ -411,6 +501,7 @@ export function trackConversion(
     event: eventName,
     user_id: getUserIdFromCookie() ?? undefined,
     ...visitExperimentFields(),
+    ...getPageTrackingContext(),
     ...payload,
   });
 
@@ -427,6 +518,7 @@ export function track(
   pushToDataLayer({
     event: eventName,
     user_id: getUserIdFromCookie() ?? undefined,
+    ...getPageTrackingContext(),
     ...payload,
   });
 
@@ -515,6 +607,10 @@ export const SAMPLE_LEAD_PAYLOAD: Record<string, unknown> = {
   last_name: "Doe",
   phone: "+13055550100",
   program: "ai-engineering",
+  /** Full ids (the CRM / ledger never get short codes); "all" / "none" sentinels. */
+  product: "ai-engineering",
+  persona: "the-career-changer",
+  product_persona: "ai-engineering:the-career-changer",
   location: "miami-usa",
   region: "us",
   coupon: "",

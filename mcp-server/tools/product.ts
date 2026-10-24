@@ -333,12 +333,22 @@ export function registerProductTools(
       "purchasable / actively_selling need product_manage (make sellable, remove, pause/resume). " +
       "Preview unless confirm:true. " +
       "Persona ids immutable while funnel pages bind; cannot remove last persona while bound. " +
+      "Tracking short_key (product + personas): missing keys are filled with a suggestion on every write; " +
+      "saved keys are locked unless rename_short_key: true (old key retired, never reused). " +
       "Not update_fields — sidecar only.",
     {
       slug: z.string(),
       content_type: z.string().optional().describe("Default program"),
       product_id: z.string().optional(),
       name: z.string().optional(),
+      short_key: z
+        .string()
+        .optional()
+        .describe("Product tracking code for GA4: 2-6 [a-z0-9], unique among the site's products; not all/none"),
+      rename_short_key: z
+        .boolean()
+        .optional()
+        .describe("Allow changing saved product/persona short_key; the old key is retired (old reports keep it)"),
       description: z.union([z.string(), z.null()]).optional(),
       offer: z
         .object({
@@ -353,6 +363,10 @@ export function registerProductTools(
         .array(
           z.object({
             id: z.string(),
+            short_key: z
+              .string()
+              .optional()
+              .describe("Persona tracking code: 2-6 [a-z0-9], unique across ALL personas on the site"),
             label: z.string().optional(),
             role: z.string().optional(),
             industry_or_context: z.string().optional(),
@@ -393,7 +407,8 @@ export function registerProductTools(
         args.replace_personas === true ||
         args.name !== undefined ||
         args.description !== undefined ||
-        args.product_id !== undefined;
+        args.product_id !== undefined ||
+        args.short_key !== undefined;
 
       if (touchesSellable) {
         if (!(await checkCap(mcpToken || "", "product_manage", ct))) {
@@ -433,6 +448,8 @@ export function registerProductTools(
       };
       if (args.product_id !== undefined) patchBody.product_id = args.product_id;
       if (args.name !== undefined) patchBody.name = args.name;
+      if (args.short_key !== undefined) patchBody.short_key = args.short_key;
+      if (args.rename_short_key !== undefined) patchBody.rename_short_key = args.rename_short_key;
       if (args.description !== undefined) patchBody.description = args.description;
       if (args.offer !== undefined) patchBody.offer = args.offer;
       if (args.personas !== undefined) patchBody.personas = args.personas;
@@ -536,6 +553,32 @@ export function registerProductTools(
                   tool: "get_product",
                   args_hint: { slug: args.slug },
                   reason: "Review persona ids before retrying",
+                },
+              ],
+            );
+          }
+          if (code === "short_key_locked" || code === "short_key_conflict" || code === "invalid_short_key") {
+            return actionRequired(
+              {
+                action_required:
+                  code === "short_key_locked" ? "confirm_short_key_rename" : "pick_another_short_key",
+                message:
+                  (data.error as string) ||
+                  "Tracking key rejected. Keys are 2-6 [a-z0-9], unique per site (retired keys count), locked once saved.",
+                details: data.details,
+                property_path:
+                  (data.details as { persona?: string } | undefined)?.persona
+                    ? "_product.yml personas[].short_key"
+                    : "_product.yml short_key",
+              },
+              [
+                {
+                  tool: "get_product",
+                  args_hint: { slug: args.slug },
+                  reason:
+                    code === "short_key_locked"
+                      ? "Keep the saved key, or retry with rename_short_key: true (old key retired; reports split)"
+                      : "Read tracking_keys.taken_* to pick a free key",
                 },
               ],
             );

@@ -1,16 +1,27 @@
 /**
- * GA4 event-scoped custom dimensions for page tests (`experiment_id`, `variant`),
- * checked and created through the Google Analytics Admin API with the BigQuery
- * service account (same credentials as media / BigQuery).
+ * GA4 event-scoped custom dimensions (page tests: `experiment_id`, `variant`; product /
+ * persona tracking: `product`, `persona`, …), checked and created through the Google
+ * Analytics Admin API with the BigQuery service account (same credentials as media / BigQuery).
  */
 
 import { GoogleAuth } from "google-auth-library";
 import { getBigQuerySettings, resolveBigQueryCredentials } from "../ecommerce/bigquery-client";
 
-export const AB_GA4_DIMENSIONS = [
+export type Ga4DimensionDef = { parameterName: string; displayName: string; description: string };
+
+export const AB_GA4_DIMENSIONS: readonly Ga4DimensionDef[] = [
   { parameterName: "experiment_id", displayName: "Experiment ID", description: "Page test id (contentType:slug:locale@start)" },
   { parameterName: "variant", displayName: "Variant", description: "Page test version: a variant slug or default" },
-] as const;
+];
+
+export const TRACKING_GA4_DIMENSIONS: readonly Ga4DimensionDef[] = [
+  { parameterName: "product", displayName: "Product", description: "Page funnel product tracking codes, comma-joined (all / none)" },
+  { parameterName: "persona", displayName: "Persona", description: "Page funnel persona tracking codes, comma-joined (all / none)" },
+  { parameterName: "product_persona", displayName: "Product persona", description: "product:persona code pairs, comma-joined" },
+  { parameterName: "funnel_stage", displayName: "Funnel stage", description: "Page funnel stage (awareness, consideration, decision, post-enrollment)" },
+  { parameterName: "content_key", displayName: "Content key", description: "Page content type and slug (type:slug)" },
+  { parameterName: "tracking_truncated", displayName: "Tracking truncated", description: "true when a product/persona value was cut at 100 characters" },
+];
 
 const ADMIN_BASE = "https://analyticsadmin.googleapis.com/v1beta";
 const SCOPE_READ = "https://www.googleapis.com/auth/analytics.readonly";
@@ -102,7 +113,7 @@ interface Ctx {
   email: string | null;
 }
 
-function context(contentRoot?: string): Ctx | Ga4DimensionsStatus {
+function context(contentRoot: string | undefined, dims: readonly Ga4DimensionDef[]): Ctx | Ga4DimensionsStatus {
   const settings = getBigQuerySettings(contentRoot);
   const propertyId = resolveGa4PropertyId(settings);
   const email = serviceAccountEmail();
@@ -112,7 +123,7 @@ function context(contentRoot?: string): Ctx | Ga4DimensionsStatus {
       property_id: null,
       service_account: email,
       existing: [],
-      missing: AB_GA4_DIMENSIONS.map((d) => d.parameterName),
+      missing: dims.map((d) => d.parameterName),
       step: "configure_bigquery",
       error: "No GA4 property found.",
       fix: "Connect the GA4 BigQuery export in Tracking → GA4 (dataset analytics_<property id>), or set tracking.bigquery.ga4_property_id.",
@@ -121,7 +132,11 @@ function context(contentRoot?: string): Ctx | Ga4DimensionsStatus {
   return { propertyId, email };
 }
 
-async function listExisting(ctx: Ctx, request: AdminRequest): Promise<{ names: string[] } | Ga4DimensionsStatus> {
+async function listExisting(
+  ctx: Ctx,
+  request: AdminRequest,
+  dims: readonly Ga4DimensionDef[],
+): Promise<{ names: string[] } | Ga4DimensionsStatus> {
   const names: string[] = [];
   let pageToken = "";
   for (let i = 0; i < 10; i++) {
@@ -133,7 +148,7 @@ async function listExisting(ctx: Ctx, request: AdminRequest): Promise<{ names: s
         property_id: ctx.propertyId,
         service_account: ctx.email,
         existing: [],
-        missing: AB_GA4_DIMENSIONS.map((d) => d.parameterName),
+        missing: dims.map((d) => d.parameterName),
         ...explainError(res.status, res.data, ctx.propertyId, ctx.email),
       };
     }
@@ -147,24 +162,32 @@ async function listExisting(ctx: Ctx, request: AdminRequest): Promise<{ names: s
   return { names };
 }
 
-/** Which of the page-test dimensions already exist (needs Viewer). */
-export async function checkGa4Dimensions(contentRoot?: string, request: AdminRequest = defaultRequest): Promise<Ga4DimensionsStatus> {
-  const ctx = context(contentRoot);
+/** Which of the dimensions already exist (needs Viewer). Defaults to the page-test dimensions. */
+export async function checkGa4Dimensions(
+  contentRoot?: string,
+  request: AdminRequest = defaultRequest,
+  dims: readonly Ga4DimensionDef[] = AB_GA4_DIMENSIONS,
+): Promise<Ga4DimensionsStatus> {
+  const ctx = context(contentRoot, dims);
   if ("ok" in ctx) return ctx;
-  const listed = await listExisting(ctx, request);
+  const listed = await listExisting(ctx, request, dims);
   if ("ok" in listed) return listed;
-  const wanted = AB_GA4_DIMENSIONS.map((d) => d.parameterName as string);
+  const wanted = dims.map((d) => d.parameterName);
   const existing = wanted.filter((n) => listed.names.includes(n));
   const missing = wanted.filter((n) => !listed.names.includes(n));
   return { ok: missing.length === 0, property_id: ctx.propertyId, service_account: ctx.email, existing, missing };
 }
 
 /** Create missing dimensions; existing ones are skipped (needs Editor). */
-export async function createGa4Dimensions(contentRoot?: string, request: AdminRequest = defaultRequest): Promise<Ga4DimensionsStatus> {
-  const status = await checkGa4Dimensions(contentRoot, request);
+export async function createGa4Dimensions(
+  contentRoot?: string,
+  request: AdminRequest = defaultRequest,
+  dims: readonly Ga4DimensionDef[] = AB_GA4_DIMENSIONS,
+): Promise<Ga4DimensionsStatus> {
+  const status = await checkGa4Dimensions(contentRoot, request, dims);
   if (!status.property_id || status.step) return status;
   const created: string[] = [];
-  for (const dim of AB_GA4_DIMENSIONS) {
+  for (const dim of dims) {
     if (!status.missing.includes(dim.parameterName)) continue;
     const res = await request(SCOPE_EDIT, `${ADMIN_BASE}/properties/${status.property_id}/customDimensions`, {
       method: "POST",

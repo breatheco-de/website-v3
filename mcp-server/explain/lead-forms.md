@@ -216,6 +216,28 @@ Every submit (`/api/leads` and `/api/leads/webhook-delivery`) is enriched server
 - Lead counts by channel, source / medium, page, experiment or product: `get_leads_breakdown` (topic `ads` → Leads breakdown).
 - Same-site links with `utm_*` in content YAML raise `INTERNAL_LINK_HAS_UTM` (validator `internal-link-utm`, warning): they restart the GA4 session and overwrite the visitor's real source, so paid visits and leads can be credited to the wrong source. Links to other domains (including the org's other sites) are not flagged.
 
+## Product / persona on leads and events
+
+Every event and lead carries the page funnel's products / personas (topic `product` → Tracking short keys).
+
+| Destination | Values |
+|---|---|
+| dataLayer / GA4 (`product`, `persona`, `product_persona`, `funnel_stage`, `content_key`, `tracking_truncated`) | **Short codes** (`aie`, `cc`, `aie:cc`), comma-joined, cut at a whole code to 100 chars. Only once the site's tracking switch is on. |
+| Lead body → CRM webhook + ledger (`product`, `persona`, `product_persona`) | **Full ids** (`ai-engineering`, `the-career-changer`), never cut, always sent. Ledger stores `product` / `persona` columns (since launch; older rows null). |
+
+- Default: the page funnel (`effectiveBindings`; program page includes itself). `funnel.products: all` → `all`; content page without funnel → `none`.
+- Override per form with hidden fields (no schema change — `fields` accepts extra keys; also inside `form_overrides[].fields`):
+
+```yaml
+fields:
+  product: { visible: false, default: ai-flex }        # full id (preferred) or short code
+  persona: { visible: false, default: the-explorer }   # optional
+```
+
+- Product override without persona → only the personas the page funnel binds to those products (`"all"` page → none; no funnel → `none`).
+- Invalid overrides are **sent as written** (never corrected). Diagnostics (`forms` validator) warns: `FORM_UNKNOWN_TRACKING_PRODUCT`, `FORM_UNKNOWN_TRACKING_PERSONA`, `FORM_TRACKING_PERSONA_PRODUCT_MISMATCH`, `FORM_TRACKING_OVERRIDE_USES_CODE` (codes work; full id preferred).
+- Non-effects: `item_id` / `program_id` (ecommerce product resolution) and CRM `program` / `course` are unchanged.
+
 ## Consent checkboxes (mandatory rule)
 
 Every lead form must show at least one checkbox visitors must tick. Effective consent = form `consent` + conversion event `consent` defaults (form wins per key) + site Default (`settings.yml` → `consent.fallback`).

@@ -21,6 +21,8 @@ export type ProductPersonaAvatar = {
 
 export type ProductPersona = {
   id: string;
+  /** Tracking code sent to GA4 instead of the id (unique across the site's personas). */
+  short_key?: string;
   label?: string;
   role: string;
   industry_or_context?: string;
@@ -79,8 +81,10 @@ function parsePersona(raw: unknown): ProductPersona | null {
   const demographics = trimStr(o.demographics) || undefined;
   const buying_behavior = trimStr(o.buying_behavior) || undefined;
   const decision_criteria = trimStringList(o.decision_criteria);
+  const short_key = trimStr(o.short_key).toLowerCase() || undefined;
   return {
     id,
+    ...(short_key ? { short_key } : {}),
     role,
     avatar,
     ...(label ? { label } : {}),

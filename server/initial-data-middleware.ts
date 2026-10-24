@@ -36,6 +36,7 @@ import { databaseManager, type DatabaseManager } from "./database";
 import { applyEntryModulePreload } from "./utils/html-transforms";
 import {
   buildInitialDataScriptTag,
+  injectPageTrackingDataLayer,
   injectPageVersionDataLayer,
   insertBefore,
   replaceLiteral,
@@ -59,6 +60,7 @@ import { isLocaleHomeAlias } from "@shared/public-app-routes";
 import { isSiteThemedPath, type ThemePaint } from "@shared/theme-palette";
 import { loadSiteTheme } from "./theme-config";
 import { injectThemeOverrides } from "./theme-html";
+import { buildServerPageTracking } from "./tracking-page-context";
 
 const DEFAULT_SRCSET_SIZES =
   "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw";
@@ -134,6 +136,19 @@ export async function resolvePageQuery(
   const query = await resolvePageQueryInner(url, ci, dbm, site, assignment?.variant ?? null);
   if (query && assignment?.pageVersion && query.data && typeof query.data === "object" && !Array.isArray(query.data)) {
     query.data = { ...(query.data as Record<string, unknown>), _page_version: assignment.pageVersion };
+  }
+  if (query && query.data && typeof query.data === "object" && !Array.isArray(query.data)) {
+    const data = query.data as Record<string, unknown>;
+    const resolved = data.locale_unavailable ? null : ci.resolveUrl(url.split("?")[0].split("#")[0]);
+    const tracking = resolved
+      ? buildServerPageTracking({
+          contentRoot: ci.contentRoot,
+          contentType: resolved.contentType,
+          slug: resolved.slug,
+          data,
+        })
+      : null;
+    if (tracking) query.data = { ...data, _tracking: tracking };
   }
   return query;
 }
@@ -1139,6 +1154,7 @@ export function initialDataMiddleware(
               ? html.replace(/<script id="__INITIAL_DATA__" type="application\/json">[\s\S]*?<\/script>/, '')
               : html;
             injected = injectPageVersionDataLayer(injected, payload);
+            injected = injectPageTrackingDataLayer(injected, payload);
             if (locals.abTestedPage && !res.headersSent) {
               res.setHeader("Cache-Control", htmlDocumentCacheControlFor(res));
             }

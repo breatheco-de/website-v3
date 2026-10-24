@@ -34,6 +34,8 @@ import { loadAllFieldEditors } from "../../../server/component-registry";
 import { escapeTemplateVars, unescapeObjectVars } from "../../../shared/templateVars";
 import { getDefaultContentRoot } from "../../../server/site-config";
 import { FORMS_ISSUE_CODES } from "./forms.issueCodes";
+import { checkTrackingOverride, type TrackingOverride } from "../../../shared/tracking-context";
+import { loadTrackingKeyIndex } from "../../../server/product/tracking-key-index";
 
 function isYamlFile(name: string): boolean {
   return name.endsWith(".yml") || name.endsWith(".yaml");
@@ -58,6 +60,33 @@ function collectEntryDirs(context: ValidationContext, root: string): Map<string,
     }
   }
   return dirs;
+}
+
+function hiddenDefault(fields: unknown, key: string): string | undefined {
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) return undefined;
+  const cfg = (fields as Record<string, unknown>)[key];
+  const value =
+    typeof cfg === "string" ? cfg : cfg && typeof cfg === "object" ? (cfg as { default?: unknown }).default : undefined;
+  if (typeof value !== "string" || !value.trim() || value.includes("{{")) return undefined;
+  return value.trim();
+}
+
+/** `fields.product` / `fields.persona` defaults on the form and on each form_overrides entry. */
+function trackingOverridesIn(formObj: Record<string, unknown>): { where: string; override: TrackingOverride }[] {
+  const out: { where: string; override: TrackingOverride }[] = [];
+  const add = (where: string, fields: unknown) => {
+    const product = hiddenDefault(fields, "product");
+    const persona = hiddenDefault(fields, "persona");
+    if (product || persona) out.push({ where, override: { product, persona } });
+  };
+  add(".fields", formObj.fields);
+  const overrides = formObj.form_overrides;
+  if (Array.isArray(overrides)) {
+    overrides.forEach((o, idx) => {
+      if (o && typeof o === "object") add(`.form_overrides[${idx}].fields`, (o as Record<string, unknown>).fields);
+    });
+  }
+  return out;
 }
 
 function safeLoadYaml(filePath: string): Record<string, unknown> | null {
@@ -92,6 +121,7 @@ export const formsValidator: Validator = {
     const allFieldEditors = loadAllFieldEditors();
     const conversionEvents = getTrackingSettings(root).conversion_events as ConversionEventDefaults[];
     const consentFallback = getConsentFallback(root);
+    const trackingKeys = loadTrackingKeyIndex(root);
     let formsRelyingOnDefault = 0;
 
     for (const [entryDir, ct] of Array.from(collectEntryDirs(context, root))) {
@@ -193,6 +223,17 @@ export const formsValidator: Validator = {
                     suggestion: "Allowed. Turn one of them off if a single mandatory checkbox is enough.",
                   });
                 }
+              }
+            }
+            for (const ov of formObj ? trackingOverridesIn(formObj) : []) {
+              for (const issue of checkTrackingOverride(ov.override, trackingKeys)) {
+                warnings.push({
+                  type: "warning",
+                  code: issue.code,
+                  message: `sections[${i}].${formLabel}${ov.where}: ${issue.message} File: ${relativePath}`,
+                  file: relativePath,
+                  suggestion: FORMS_ISSUE_CODES[issue.code]?.suggestion,
+                });
               }
             }
             const signupErr = validateSignupFormFields(formObj, signupFieldMap, formLabel);

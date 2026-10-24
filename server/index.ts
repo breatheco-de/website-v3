@@ -454,6 +454,9 @@ app.use((req, res, next) => {
 
   app.use(siteResolutionMiddleware);
 
+  const { contentWritePauseMiddleware } = await import("./content-write-pause");
+  app.use(contentWritePauseMiddleware);
+
   const server = await registerRoutes(app);
 
   // Fallback redirects: only fire for URLs that would otherwise 404

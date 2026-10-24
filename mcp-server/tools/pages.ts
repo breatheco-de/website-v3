@@ -23,6 +23,7 @@ import {
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
 import { abTestingWarnings } from "../lib/ab-testing-warnings.js";
 import { notifyMcpContentWrite } from "../lib/content-write-notify.js";
+import { writePausedResult } from "../lib/write-pause.js";
 import { checkCap, denyResponse, denyWriteSuggestPropose, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
 import {
   assertAgenticContentWriteAllowed,
@@ -4579,6 +4580,9 @@ export function registerPageTools(
           if (w.includes("funnel_locale_agnostic")) {
             warnings.push({ code: "funnel_locale_agnostic", message: w });
           }
+          if (w.includes("tracking_values_too_long")) {
+            warnings.push({ code: "tracking_values_too_long", message: w });
+          }
         }
 
         const next_actions: NextAction[] = [];
@@ -7096,6 +7100,9 @@ const next_actions: NextAction[] = entryDeleted
         }
       }
 
+      const pausedCreate = await writePausedResult("create_entry");
+      if (pausedCreate) return pausedCreate;
+
       fs.mkdirSync(pageDir, { recursive: true });
 
       const commonData: Record<string, unknown> = { slug, ...commonRecord };
@@ -8791,6 +8798,9 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
           });
         }
       }
+
+      const pausedTranslate = await writePausedResult("translate_entry");
+      if (pausedTranslate) return pausedTranslate;
 
       const isNew = !fileExistedAtStart;
       fs.writeFileSync(targetFilePath, intendedContent, "utf-8");

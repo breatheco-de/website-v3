@@ -21,7 +21,9 @@ import { useMenuConfig } from "@/hooks/useMenuConfig";
 import { getMenuChromeHeights } from "@/lib/menuChrome";
 import { useEagerSectionsReady } from "@/hooks/useEagerSectionsReady";
 import { usePageVersionExposure } from "@/hooks/usePageVersionExposure";
+import { usePageTrackingContext } from "@/hooks/usePageTrackingContext";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
+import { normalizeFunnelBlock } from "@shared/funnel";
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
@@ -66,6 +68,7 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
   const editMode = useEditModeOptional();
   const isStaff = !!editMode?.isEditMode;
   usePageVersionExposure(data, { skip: !!forceVariant || isStaff });
+  usePageTrackingContext(data, { contentType: type, slug, skip: !!forceVariant || isStaff });
 
   const effectiveLocale = (isNonLocalized && data?.locale)
     ? String(data.locale)
@@ -204,6 +207,7 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
           singleEntry={data.singleEntry as Record<string, unknown> | undefined}
           meta={data.meta as Record<string, unknown> | undefined}
           param={data.param as Record<string, unknown> | undefined}
+          funnel={normalizeFunnelBlock(data.funnel)}
         />
       </MenuVisualContextProvider>
       <div className="group relative">

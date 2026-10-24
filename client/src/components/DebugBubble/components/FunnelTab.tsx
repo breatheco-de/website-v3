@@ -44,6 +44,8 @@ import type { ProductPersona } from "@shared/productAudience";
 import type { SeoModalSavedDetail } from "@/components/editing/seoModalSaved";
 import { notifySeoModalSaved } from "@/components/editing/seoModalSaved";
 import type { ContentInfo } from "../types";
+import type { TrackingKeyIndex } from "@shared/tracking-keys";
+import { FunnelTrackingLengthNotice } from "./FunnelTrackingLengthNotice";
 
 export type ProductOption = {
   content_slug: string;
@@ -286,6 +288,10 @@ export type FunnelFieldsFormProps = {
   contentSlug?: string;
   relativePathHint?: string;
   footer?: ReactNode;
+  /** Site tracking keys (product-map) for the GA4 length warning. */
+  trackingKeys?: TrackingKeyIndex | null;
+  /** Content type of the page being edited (omit for bulk edits). */
+  contentType?: string;
 };
 
 export type FunnelProductsModeOption = {
@@ -666,6 +672,8 @@ export function FunnelFieldsForm({
   contentSlug,
   relativePathHint,
   footer,
+  trackingKeys,
+  contentType,
 }: FunnelFieldsFormProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const productBySlug = new Map(productOptions.map((p) => [p.content_slug, p]));
@@ -815,6 +823,14 @@ export function FunnelFieldsForm({
           isProgram={isProgram}
           contentSlug={contentSlug}
         />
+        {productsMode === "list" && (
+          <FunnelTrackingLengthNotice
+            bindings={selectedBindings}
+            keys={trackingKeys}
+            contentType={contentType}
+            contentSlug={contentSlug}
+          />
+        )}
       </div>
 
       {!hideStoreMembership && storeMembership && storeMembership.length > 0 && (
@@ -892,7 +908,7 @@ export function FunnelTab({
     enabled: hasEntry,
   });
 
-  const { data: productMap } = useQuery<{ products: ProductOption[] }>({
+  const { data: productMap } = useQuery<{ products: ProductOption[]; tracking?: { keys?: TrackingKeyIndex } }>({
     queryKey: ["/api/ecommerce/product-map"],
     enabled: hasEntry,
     staleTime: 5 * 60 * 1000,
@@ -1031,6 +1047,8 @@ export function FunnelTab({
       portalContainer={portalContainer}
       isProgram={isProgram}
       contentSlug={contentInfo.slug ?? undefined}
+      contentType={contentInfo.type ?? undefined}
+      trackingKeys={productMap?.tracking?.keys}
       warnings={data?.warnings}
       storeMembership={data?.storeMembership}
       relativePathHint={data?.relativePath}

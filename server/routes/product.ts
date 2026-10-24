@@ -18,6 +18,8 @@ import {
   getProductPersonaUsageMap,
   listFunnelBindingsForProduct,
 } from "../product/product-audience-io";
+import { loadTrackingKeyIndex } from "../product/tracking-key-index";
+import { takenShortKeys } from "@shared/tracking-keys";
 import { child } from "../logger";
 import { api } from "../rate-limit/api";
 
@@ -37,6 +39,7 @@ const personaAvatarSchema = z.object({
 
 const personaPatchSchema = z.object({
   id: z.string().min(1),
+  short_key: z.string().optional(),
   label: z.string().optional(),
   role: z.string().optional(),
   industry_or_context: z.string().optional(),
@@ -51,6 +54,8 @@ const productPutSchema = z.object({
   actively_selling: z.boolean().optional(),
   product_id: z.string().optional(),
   name: z.string().optional(),
+  short_key: z.string().optional(),
+  rename_short_key: z.boolean().optional(),
   description: z.union([z.string(), z.null()]).optional(),
   purchasable: z.boolean().optional(),
   offer: z
@@ -71,6 +76,7 @@ const productPutSchema = z.object({
 const audienceReplaceSchema = z.object({
   content_type: z.string().default("program"),
   replace_personas: z.literal(true),
+  rename_short_key: z.boolean().optional(),
   offer: z.object({
     one_liner: z.string(),
     who_its_for: z.string(),
@@ -81,6 +87,7 @@ const audienceReplaceSchema = z.object({
   personas: z.array(
     z.object({
       id: z.string().min(1),
+      short_key: z.string().optional(),
       label: z.string().optional(),
       role: z.string().min(1),
       industry_or_context: z.string().optional(),
@@ -144,8 +151,14 @@ export function registerProductRoutes(app: Express): void {
             "This product is not sellable right now (removed from the store index). Audience can still be edited. Make sellable again to restore selling. Distinct from paused.",
         });
       }
+      const keyIndex = loadTrackingKeyIndex(contentRoot).products;
       res.json({
         product: snapshot,
+        tracking_keys: {
+          // Other products' keys plus every retired key; the editor suggests around these.
+          taken_product: [...takenShortKeys(keyIndex, "product", { exceptProductSlug: slug })],
+          taken_persona: [...takenShortKeys(keyIndex, "persona", { exceptProductSlug: slug })],
+        },
         audience: snapshot.offer || snapshot.personas
           ? { offer: snapshot.offer, personas: snapshot.personas }
           : null,
@@ -216,6 +229,7 @@ export function registerProductRoutes(app: Express): void {
           slug,
           { offer: parsed.data.offer, personas: parsed.data.personas },
           contentRoot,
+          { renameShortKey: parsed.data.rename_short_key === true },
         );
         if (!result.ok) {
           return res.status(400).json({
@@ -264,7 +278,8 @@ export function registerProductRoutes(app: Express): void {
       parsed.data.replace_personas === true ||
       parsed.data.name !== undefined ||
       parsed.data.description !== undefined ||
-      parsed.data.product_id !== undefined;
+      parsed.data.product_id !== undefined ||
+      parsed.data.short_key !== undefined;
 
     let author = "staff";
     if (touchesSellable) {
@@ -287,6 +302,8 @@ export function registerProductRoutes(app: Express): void {
           actively_selling: parsed.data.actively_selling,
           product_id: parsed.data.product_id,
           name: parsed.data.name,
+          short_key: parsed.data.short_key,
+          rename_short_key: parsed.data.rename_short_key,
           description: parsed.data.description,
           purchasable: parsed.data.purchasable,
           offer: parsed.data.offer,

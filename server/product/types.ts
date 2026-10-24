@@ -26,6 +26,8 @@ export interface CmsProduct {
   content_slug: string;
   /** Pause switch for store/tracking. Default true. Not a lead-form filter. */
   actively_selling: boolean;
+  /** Tracking code sent to GA4 instead of the slug (unique among the site's products). */
+  short_key?: string;
   description?: string;
   /**
    * Authored conversion path after the locked product entry (not including auto `all` pages),

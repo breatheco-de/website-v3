@@ -9,7 +9,7 @@ import {
 } from "../events/types";
 import { sameAgentIdentity, type AgentActorLike } from "../../shared/agent-identity";
 
-export const PIPELINE_SCHEMA_VERSION = 40;
+export const PIPELINE_SCHEMA_VERSION = 41;
 
 export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
   {
@@ -772,6 +772,18 @@ export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
       if (!tableExists(db, "content_proposal_blockers")) return;
       if (!tableHasColumn(db, "content_proposal_blockers", "staff_summary")) {
         db.exec("ALTER TABLE content_proposal_blockers ADD COLUMN staff_summary TEXT");
+      }
+    },
+  },
+  {
+    version: 41,
+    name: "lead_submissions_product_persona",
+    up(db) {
+      if (!tableExists(db, "lead_submissions")) return;
+      for (const name of ["product", "persona"]) {
+        if (!tableHasColumn(db, "lead_submissions", name)) {
+          db.exec(`ALTER TABLE lead_submissions ADD COLUMN ${name} TEXT`);
+        }
       }
     },
   },

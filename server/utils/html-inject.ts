@@ -50,6 +50,37 @@ export function injectPageVersionDataLayer(html: string, payload: unknown): stri
   return stripped.includes(GTM_MARKER) ? insertBefore(stripped, GTM_MARKER, tag) : insertBefore(stripped, "</head>", tag);
 }
 
+const PAGE_TRACKING_SCRIPT_RE = /<script id="__PAGE_TRACKING__">[\s\S]*?<\/script>\n?/g;
+
+/** `_tracking` seeded on the page query, if any. */
+export function pageTrackingFromPayload(payload: unknown): Record<string, string | boolean> | null {
+  const queries = (payload as { queries?: Array<{ data?: unknown }> } | null)?.queries;
+  if (!Array.isArray(queries)) return null;
+  for (const q of queries) {
+    const t = (q?.data as { _tracking?: unknown } | undefined)?._tracking;
+    if (!t || typeof t !== "object" || Array.isArray(t)) continue;
+    const out: Record<string, string | boolean> = {};
+    for (const [k, v] of Object.entries(t as Record<string, unknown>)) {
+      if (typeof v === "string" || typeof v === "boolean") out[k] = v;
+    }
+    return Object.keys(out).length ? out : null;
+  }
+  return null;
+}
+
+/**
+ * Write the page's product / persona tracking values into the dataLayer before GTM loads, so
+ * the first `page_view` carries them (no event is pushed). Replaces any previous copy.
+ */
+export function injectPageTrackingDataLayer(html: string, payload: unknown): string {
+  const stripped = html.replace(PAGE_TRACKING_SCRIPT_RE, "");
+  const tracking = pageTrackingFromPayload(payload);
+  if (!tracking) return stripped;
+  const json = JSON.stringify(tracking).replace(/</g, "\\u003c");
+  const tag = `<script id="__PAGE_TRACKING__">window.dataLayer=window.dataLayer||[];window.dataLayer.push(${json});</script>\n`;
+  return stripped.includes(GTM_MARKER) ? insertBefore(stripped, GTM_MARKER, tag) : insertBefore(stripped, "</head>", tag);
+}
+
 /** `<script id="__INITIAL_DATA__">` with `<` escaped so content can never close the tag. */
 export function buildInitialDataScriptTag(payload: unknown): string {
   let body = payload;

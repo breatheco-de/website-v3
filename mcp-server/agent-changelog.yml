@@ -6,6 +6,30 @@ window_days: 6
 
 entries:
   - date: "2026-10-23"
+    summary: "Products and personas get tracking short keys; every event and lead carries the page's product / persona"
+    agent_impact:
+      - "create_or_update_product accepts short_key, personas[].short_key and rename_short_key. Every write fills that product's missing keys (warning short_keys_assigned). Saved keys are locked: action_required confirm_short_key_rename / pick_another_short_key on short_key_locked / short_key_conflict / invalid_short_key. get_product returns tracking_keys.taken_product / taken_persona. Keys: 2-6 [a-z0-9], unique per site (persona keys across all products), retired keys never reused."
+      - "Events (GA4) carry product / persona / product_persona codes + funnel_stage + content_key once a site's tracking switch is on (every product and persona has a key — staff run migration 009 or the Diagnostics fixer). Lead CRM payload and ledger get full ids in product / persona. Lead forms override with hidden fields.product / fields.persona (full id preferred)."
+      - "New Diagnostics codes: MISSING_TRACKING_SHORT_KEY, TRACKING_NOT_READY, DUPLICATE_TRACKING_SHORT_KEY, TRACKING_VALUES_TOO_LONG (funnel-completeness) and FORM_UNKNOWN_TRACKING_PRODUCT / _PERSONA, FORM_TRACKING_PERSONA_PRODUCT_MISMATCH, FORM_TRACKING_OVERRIDE_USES_CODE (forms). Funnel writes (update_fields, update_entry_attributes) may warn tracking_values_too_long (non-blocking)."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/product.ts
+      - mcp-server/explain/product.md
+      - mcp-server/explain/lead-forms.md
+      - mcp-server/explain/ads.md
+  - date: "2026-10-23"
+    summary: "Writes can answer site_updating for a few seconds during a deploy; retry after retry_after_seconds"
+    agent_impact:
+      - "During the last step of a deploy, content writes (any mutating tool, including create_entry and translate_entry) fail with code site_updating, retry_after_seconds and HTTP 503 for up to ~3 minutes. Nothing was written. Wait retry_after_seconds and retry the same call; do not report it as a content or permission error."
+      - "Before switching releases the server pushes every unpushed content change to GitHub (with the service account when the author has no GitHub connection; the commit keeps the real author). A deploy now stops instead of dropping unpushed changes, so edits saved right before a deploy are no longer lost."
+    tools_changed: false
+    paths:
+      - server/content-write-pause.ts
+      - server/content-flush.ts
+      - server/routes/internal-content.ts
+      - mcp-server/lib/write-pause.ts
+      - scripts/deploy.sh
+  - date: "2026-10-23"
     summary: "A/B testing moved under Settings → Tracking (staff URL /private/tracking/ab-testing)"
     agent_impact:
       - "When pointing staff at A/B setup or health, say Settings → Tracking → A/B testing (Setup / Health / Google Analytics cards). list_variants warnings (ab_testing_not_setup, ab_check_failing) and the versioning API setup_url / health_url now use /private/tracking/ab-testing#ab-setup and #ab-health; old /private/settings/ab-testing/* links redirect."

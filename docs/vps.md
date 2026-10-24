@@ -86,7 +86,7 @@ Leftover `persistent/site_*` trees from the old hybrid layout are unused by new 
 
 Workflow: [`.github/workflows/deploy-vps.yml`](../.github/workflows/deploy-vps.yml)
 
-- Triggers: push to `main`, `workflow_dispatch`
+- Triggers: push to `main`, `workflow_dispatch` (manual runs offer **Skip content check**, input `skip_content_flush`; see 4.2.1)
 - Concurrency group `deploy-vps` with **`cancel-in-progress: true`** — cancels the **Actions observer** (SSH poll), not necessarily the VPS work. `deploy.sh` is started with `setsid`/`nohup`; stdout goes to `.deploy-state/<sha>.log`, exit code to `.deploy-state/<sha>.done`. The job streams that log until `.done` appears.
 - On cancel: a `cancelled()` step touches `.deploy-state/<sha>.abort` (soft abort **before flip** only).
 - `always()` step writes a **Job Summary** from `.done` / abort (polls briefly) so a red “Cancelled” badge is not mistaken for “prod did not change”.
@@ -103,15 +103,39 @@ Actions secrets for SSH: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY
 3. Symlinks for `data` / `.cache` / `sites.yml` / … (not `site_*`); create real empty `site_*` dirs
 4. Write `.env`
 5. Abort checkpoint (if `.deploy-state/<sha>.abort` → discard release, exit 0)
-6. `npm ci` → **`content:pull --required`** → `npm run build` → **`ensure:pipeline-db --dry-run`** (validates pipeline SQLite migrations on DB copies; aborts before flip on failure) → **`node dist/prebuild-html-cache.js`** (writes this release's public HTML into `data/html-page-cache` while the previous process is still serving; boot loads it)
-7. Abort checkpoint again (last chance before cutover)
-8. Clear `.bootstrap-complete` on `site_*` (boot will hash-diff again)
-9. Flip `current`, restart, health-check (**rollback `current`** on failure)
-10. Prune old releases (keeps active + 5 others; never deletes `readlink current`)
+6. **Content check 1** (see 4.2.1): the live site pushes its unpushed content
+7. `npm ci` → (disk check if the live site did not answer) → **`content:pull --required`** → `npm run build` → **`ensure:pipeline-db --dry-run`** (validates pipeline SQLite migrations on DB copies; aborts before flip on failure) → **`node dist/prebuild-html-cache.js`** (writes this release's public HTML into `data/html-page-cache` while the previous process is still serving; boot loads it)
+8. Abort checkpoint again (last chance before cutover)
+9. Clear `.bootstrap-complete` on `site_*` (boot will hash-diff again)
+10. **Content check 2**: pause staff/agent saves, push what is left
+11. Flip `current`, restart, health-check (**rollback `current`** on failure)
+12. Prune old releases (keeps active + 5 others; never deletes `readlink current`)
 
 **Deploy observability:** Staff use GitHub Actions → **Deploy to VPS** (streams `.deploy-state/<sha>.log`). Look for `[deploy] validating pipeline SQLite migrations (dry-run)` and `[pipeline-db] dry-run ok`. There is no in-app deploy-progress UI. After restart, Settings → Server tab shows a new Boot ID. Live apply of pipeline migrations runs once at boot ([`server/pipeline-db/runner.ts`](../server/pipeline-db/runner.ts)).
 
 Post-flip, abort flags are ignored (cutover already committed). Partial dirs from aborted/cancelled pre-flip runs never become `current`.
+
+### 4.2.1 Content check (unpushed content)
+
+Each release gets a fresh content pull, so anything saved on the live server but not yet on GitHub would be left behind in the old release. Before that can happen, `deploy.sh` asks the live site to push it:
+
+- **Check 1** (before `npm ci`) and **check 2** (right before the flip) call `POST /api/internal/content/flush` on `127.0.0.1` with `Bearer $SESSION_SECRET` from the live `.env`. The server lists local edits from each site's `.sync-state.json`, requeues them for auto-sync and pushes them. Edits whose author has no GitHub connection are pushed with the service account; the commit message still names the author and ends with `(pushed by deploy check: no GitHub connection)`.
+- **Check 2 pauses saves**: staff and agent writes (`POST/PUT/PATCH/DELETE` on `/api/*` with a staff or MCP token) answer `503 site_updating` with `Retry-After` until the new release runs (the new process starts unpaused; the pause also expires after 3 minutes). Public visitors (lead forms, events) and reads are never paused. Saves already in progress finish before the push.
+- **Live site not answering**: `scripts/content-pending.ts` reads the live tree's sync state from disk. Nothing pending → continue; something pending → stop.
+
+**Reading a stop.** The log lists `CONTENT_UNPUSHED site=… file=… author=… reason=…` and what to do:
+
+| reason | Fix |
+|---|---|
+| `conflict` | GitHub also changed that file. Resolve it in Sync, then redeploy. |
+| author `migration:*` | Re-run that migration from Settings → General → Migrations; it pushes its own leftovers. |
+| `push_failed` | Read `error=`; fix it or push from Sync, then redeploy. |
+| `auto_commit_disabled` | Auto-sync is off on the server (`GITHUB_AUTO_COMMIT_ENABLED`). |
+| `live_server_down` | The site did not answer; start it and redeploy, or push from Sync. |
+
+**Emergency.** Actions → Deploy to VPS → Run workflow → tick **Skip content check** (or `gh workflow run deploy-vps.yml -f skip_content_flush=true`). The deploy copies the unpushed files to `persistent/unpushed-content/<release>/` (with `manifest.json`) and continues. Restore them by hand afterwards; until the old release is pruned, the originals also stay in `releases/<old-sha>/`.
+
+Code: [`server/content-flush.ts`](../server/content-flush.ts), [`server/content-write-pause.ts`](../server/content-write-pause.ts), [`server/routes/internal-content.ts`](../server/routes/internal-content.ts), [`scripts/content-pending.ts`](../scripts/content-pending.ts).
 
 ### 4.3 Manual rollback
 

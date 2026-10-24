@@ -79,6 +79,17 @@ let nextSyncAt: number | null = null;
 let retryBackoffMs = 0;
 const BACKOFF_STEPS = [5000, 10000, 30000, 60000];
 
+/** Appended to commits a deploy check pushed with the service token for an unconnected author. */
+export const DEPLOY_CHECK_SERVICE_SUFFIX = "(pushed by deploy check: no GitHub connection)";
+
+type ProcessQueueOpts = {
+  /** Retry batches whose author has no GitHub connection with the service token. */
+  serviceTokenForUnconnected?: boolean;
+};
+
+/** Files committed with the service token because their author had no GitHub connection. */
+let servicePushedFiles: Set<string> = new Set();
+
 function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   const match = url.replace(/\.git$/, '').match(/github\.com\/([^\/]+)\/([^\/]+)/);
   return match ? { owner: match[1], repo: match[2] } : null;
@@ -278,7 +289,7 @@ function resetBackoff(): void {
   retryBackoffMs = 0;
 }
 
-async function processQueue(): Promise<void> {
+async function processQueue(opts: ProcessQueueOpts = {}): Promise<void> {
   if (pendingChanges.size === 0) return;
   if (isCommitting) return;
 
@@ -355,6 +366,21 @@ async function processQueue(): Promise<void> {
           );
         } catch (err) {
           if (err instanceof GitHubConnectError) {
+            if (opts.serviceTokenForUnconnected && !isSystemAuthor) {
+              const service = await resolveCommitGitHubToken({ purpose: "system" }).catch(() => null);
+              const withService = service ? getGitHubConfigForFile(files[0], service.token) : null;
+              if (withService) {
+                await commitBatch(
+                  withService.config,
+                  author,
+                  files,
+                  undefined,
+                  changes.get(files[0])?.agentLabel,
+                  DEPLOY_CHECK_SERVICE_SUFFIX,
+                );
+                continue;
+              }
+            }
             lastError = err.message;
             hadFailure = true;
             for (const filePath of files) {
@@ -411,6 +437,10 @@ export function isServiceCommitAuthor(author: string | null | undefined): boolea
   return SERVICE_COMMIT_AUTHORS.has(a) || a.startsWith("migration:");
 }
 
+function withSuffix(message: string, suffix?: string): string {
+  return suffix ? `${message} ${suffix}` : message;
+}
+
 function groupByAuthor(changes: Map<string, PendingFileChange>): Map<string, string[]> {
   const groups = new Map<string, string[]>();
 
@@ -431,6 +461,7 @@ async function commitBatch(
   files: string[],
   commitAuthor?: { name: string; email: string },
   agentLabel?: string,
+  messageSuffix?: string,
 ): Promise<void> {
   const { getSiteConfigs } = await import('./site-config');
   const contentRootForLog = (() => {
@@ -457,7 +488,7 @@ async function commitBatch(
   if (existingFiles.length === 0 && deletedFiles.length === 0) return;
 
   const fileNames = files.map(f => stripContentFolderPrefix(f)).join(', ');
-  const message = formatAutoSyncCommitMessage(author, fileNames, agentLabel);
+  const message = withSuffix(formatAutoSyncCommitMessage(author, fileNames, agentLabel), messageSuffix);
 
   const result = await commitFilesViaTreeAPI(
     config,
@@ -468,6 +499,7 @@ async function commitBatch(
   );
 
   if (result.success && result.commitSha) {
+    if (messageSuffix) for (const f of files) servicePushedFiles.add(f);
     recordLastCommitSha(result.commitSha);
     updateSyncStateAfterCommit(result.commitSha, files, contentRootForLog);
     try {
@@ -484,7 +516,7 @@ async function commitBatch(
     log.warn(`[AutoCommit] Conflict detected for batch by ${author}, retrying individual files...`);
     const { logSync } = await import("./sync-log");
     logSync('CONFLICT', `Auto-commit conflict by ${author}, retrying individually: ${fileNames}`, author, undefined, contentRootForLog);
-    await retryIndividualFiles(config, author, existingFiles, deletedFiles, contentRootForLog, agentLabel);
+    await retryIndividualFiles(config, author, existingFiles, deletedFiles, contentRootForLog, agentLabel, messageSuffix);
   } else {
     lastError = result.error || 'Unknown commit error';
     log.error(`[AutoCommit] Batch commit failed: ${lastError}`);
@@ -508,14 +540,16 @@ async function retryIndividualFiles(
   deletedFiles: string[],
   contentRootForLog?: string,
   agentLabel?: string,
+  messageSuffix?: string,
 ): Promise<void> {
   for (const file of existingFiles) {
     const fileName = stripContentFolderPrefix(file.path);
-    const message = formatAutoSyncCommitMessage(author, fileName, agentLabel);
+    const message = withSuffix(formatAutoSyncCommitMessage(author, fileName, agentLabel), messageSuffix);
 
     const result = await commitSingleFileViaContentsAPI(config, file.path, file.content, message);
 
     if (result.success && result.commitSha) {
+      if (messageSuffix) servicePushedFiles.add(file.path);
       recordLastCommitSha(result.commitSha);
       // Prefer the site of this file; fall back to the batch contentRoot.
       const { getSiteConfigs } = await import('./site-config');
@@ -832,22 +866,35 @@ export function recordLastCommitSha(commitSha: string): void {
  * Force flush all pending changes immediately (bypasses timer).
  * Useful before shutting down or when the user explicitly requests it.
  */
-export async function flushPendingChanges(): Promise<{ success: boolean; error?: string }> {
+export async function flushPendingChanges(
+  opts: ProcessQueueOpts & { waitForCommitMs?: number } = {},
+): Promise<{ success: boolean; error?: string; servicePushedFiles: string[] }> {
   if (timer !== null) {
     clearTimeout(timer);
     timer = null;
     nextSyncAt = null;
   }
+  servicePushedFiles = new Set();
+
+  // processQueue returns at once while another run is committing; wait for it instead.
+  const deadline = Date.now() + (opts.waitForCommitMs ?? 0);
+  while (isCommitting && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
 
   if (pendingChanges.size === 0) {
-    return { success: true };
+    return { success: true, servicePushedFiles: [] };
   }
 
   try {
-    await processQueue();
-    return { success: true };
+    await processQueue(opts);
+    return { success: true, servicePushedFiles: Array.from(servicePushedFiles) };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      servicePushedFiles: Array.from(servicePushedFiles),
+    };
   }
 }
 

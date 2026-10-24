@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      skip_content_flush:
+        description: "Skip content check: deploy even if server content could not be pushed to GitHub (copies are saved on the server first)"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-vps
@@ -102,6 +107,7 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           WEBSITE_RUNTIME_B64: ${{ env.WEBSITE_RUNTIME_B64 }}
           DEPLOY_SHA: ${{ github.sha }}
+          SKIP_CONTENT_FLUSH: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_content_flush && '1' || '0' }}
         run: |
           set -euo pipefail
           KEY="$RUNNER_TEMP/gha_deploy"
@@ -109,6 +115,7 @@ jobs:
           {
             printf 'export WEBSITE_RUNTIME_B64=%q\n' "$WEBSITE_RUNTIME_B64"
             printf 'export DEPLOY_SHA=%q\n' "$DEPLOY_SHA"
+            printf 'export SKIP_CONTENT_FLUSH=%q\n' "$SKIP_CONTENT_FLUSH"
             cat <<'REMOTE'
           set -euo pipefail
           APP_ROOT=/opt/website-v3

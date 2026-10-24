@@ -10,7 +10,7 @@ import { applyEntryModulePreload } from "./utils/html-transforms";
 import { buildEntryPreloadTags, getEntryAssets } from "./utils/vite-manifest";
 import { assembleSsrDocument, contentTypesReadyForHtmlCache, isMeaningfulSsrAppHtml } from "./utils/ssr-html";
 import { injectGtmWebContainerId } from "./gtm-web-inject";
-import { injectPageVersionDataLayer } from "./utils/html-inject";
+import { injectPageTrackingDataLayer, injectPageVersionDataLayer } from "./utils/html-inject";
 import { initialDataAssignmentForHtmlKey } from "./html-variant-key";
 
 function llmAudienceKey(variantKey: string): boolean {
@@ -150,6 +150,7 @@ export async function buildAnonymousPageHtml(opts: {
   html = injectEntryPreloadTags(html);
   html = injectGtmWebContainerId(html, opts.contentRoot);
   html = injectPageVersionDataLayer(html, opts.initialData);
+  html = injectPageTrackingDataLayer(html, opts.initialData);
   if (opts.contentRoot) html = injectThemeOverrides(html, opts.contentRoot);
   if (!contentTypesReadyForHtmlCache(opts.initialData)) {
     log.warn({ url: opts.url }, "content type list missing; not storing this HTML copy");

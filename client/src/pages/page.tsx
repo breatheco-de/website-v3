@@ -24,6 +24,7 @@ import { normalizeFunnelBlock } from "@shared/funnel";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { useEagerSectionsReady } from "@/hooks/useEagerSectionsReady";
 import { usePageVersionExposure } from "@/hooks/usePageVersionExposure";
+import { usePageTrackingContext } from "@/hooks/usePageTrackingContext";
 
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 
@@ -71,6 +72,7 @@ export default function Page() {
     enabled: !!slug,
   });
   usePageVersionExposure(page, { skip: !!forceVariant || isStaff });
+  usePageTrackingContext(page, { contentType: "page", slug, skip: !!forceVariant || isStaff });
 
   const { data: rawFileCheck } = useQuery<{ exists: boolean }>({
     queryKey: ["/api/content/raw-file", "page", slug, locale],
