@@ -213,6 +213,15 @@ describe("built-in ads roles", () => {
     const steward = getBuiltInRoleCodeDefinition("platform_steward")!.capabilities.map((g) => g.name);
     expect(steward).toEqual(expect.arrayContaining(["ads_settings", "ads_edit", "consent_settings"]));
   });
+
+  it("only Platform Steward gets A/B testing setup", () => {
+    const steward = getBuiltInRoleCodeDefinition("platform_steward")!.capabilities.map((g) => g.name);
+    expect(steward).toContain("ab_testing_settings");
+    for (const id of ["ads_manager", "metrics_viewer", "content_viewer", "platform_ops", "user_admin"]) {
+      const caps = getBuiltInRoleCodeDefinition(id)!.capabilities.map((g) => g.name);
+      expect(caps).not.toContain("ab_testing_settings");
+    }
+  });
 });
 
 describe("grantsCanMutateMetrics", () => {

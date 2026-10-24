@@ -25,6 +25,7 @@ describe("resolveSettingsSection", () => {
     expect(resolveSettingsSection("/private/settings/ads/meta")).toBe("ads");
     expect(resolveSettingsSection("/private/settings/ai/llms")).toBe("ai");
     expect(resolveSettingsSection("/private/tracking")).toBe("tracking");
+    expect(resolveSettingsSection("/private/tracking/ab-testing")).toBe("tracking");
     expect(resolveSettingsSection("/private/tracking/ga4")).toBe("tracking");
     expect(resolveSettingsSection("/private/security/captcha")).toBe("security");
   });

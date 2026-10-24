@@ -33,6 +33,7 @@ import {
 } from "@shared/funnel";
 import { readFunnelBlockFromFile, commonYmlPath } from "../funnel-fields";
 import { getAllConfigs } from "../content-types";
+import { applyShortKeyRules, type ShortKeyAssignment } from "./tracking-keys-assign";
 
 function contentRootAbs(contentRoot?: string): string {
   const raw = contentRoot ?? getDefaultContentRoot();
@@ -84,6 +85,9 @@ export type AudienceWriteResult =
       status: AudienceStatus;
       relativePath: string;
       warnings: { code: string; message: string }[];
+      /** True when any tracking short key was added, renamed or retired. */
+      shortKeysChanged?: boolean;
+      shortKeysAssigned?: ShortKeyAssignment[];
     }
   | { ok: false; error: string; code: string; details?: unknown };
 
@@ -346,6 +350,7 @@ export function writeEntryAudience(
   slug: string,
   audienceRaw: unknown,
   contentRoot?: string,
+  opts?: { renameShortKey?: boolean },
 ): AudienceWriteResult {
   const audience = parseProductAudience(audienceRaw);
   if (!audience) {
@@ -384,15 +389,26 @@ export function writeEntryAudience(
   }
 
   doc.offer = audience.offer;
-  doc.personas = audience.personas;
+  doc.personas = audience.personas.map((p) => ({ ...p }));
   delete doc.audience; // prefer top-level offer/personas
+
+  const keys = applyShortKeyRules({
+    contentRoot,
+    contentType,
+    slug,
+    prevDoc: existing?.doc ? structuredClone(existing.doc) : null,
+    nextDoc: doc,
+    renameAllowed: opts?.renameShortKey === true,
+    fillMissing: true,
+  });
+  if (!keys.ok) return keys;
 
   const writePath = productSidecarWritePath(dir);
   const dumped = yaml.dump(doc, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
   fs.writeFileSync(writePath, dumped.endsWith("\n") ? dumped : `${dumped}\n`, "utf-8");
 
   // Leave legacy file in place for dual-read until migration deletes it; prefer product file on next read.
-  const warnings: { code: string; message: string }[] = [];
+  const warnings: { code: string; message: string }[] = [...keys.warnings];
   if (existing?.legacy) {
     warnings.push({
       code: "legacy_sidecar_present",
@@ -405,12 +421,15 @@ export function writeEntryAudience(
   const root = contentRootAbs(contentRoot);
   const relativePath = path.relative(root, writePath).split(path.sep).join("/");
 
+  const written = parseProductAudience({ offer: doc.offer, personas: doc.personas }) ?? audience;
   return {
     ok: true,
-    audience,
-    status: audienceStatus(audience),
+    audience: written,
+    status: audienceStatus(written),
     relativePath,
     warnings,
+    shortKeysChanged: keys.changed,
+    shortKeysAssigned: keys.assigned,
   };
 }
 

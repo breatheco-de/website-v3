@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
-import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import { dumpContentYaml } from "./content-yaml";
 import { isTemplateVersioningSlug } from "@shared/sharedLayoutPaths";
 import { contentIndex } from "./content-index";
 import {
@@ -53,8 +53,7 @@ export type ConvertSkipped = {
 };
 
 function safeYamlDump(obj: unknown): string {
-  const { escaped, map } = escapeObjectVars(obj);
-  return unescapeYamlDump(yaml.dump(escaped, YAML_DUMP_OPTS), map);
+  return dumpContentYaml(obj, YAML_DUMP_OPTS);
 }
 
 function stripRuntimeKeys(obj: unknown): unknown {

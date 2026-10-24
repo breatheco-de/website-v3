@@ -314,7 +314,13 @@ export function PaidPageRow({
                 <div key={v.variant} className="flex items-center justify-between py-1 text-xs">
                   <span className="text-foreground">{v.variant}</span>
                   <span className={cn("tabular-nums", v.low_sample ? "text-muted-foreground" : "text-foreground")}>
-                    {formatNum(v.paid_visits)} visits · {formatNum(v.unique_leads)} leads · {formatPct(v.conversion_rate)}
+                    {formatNum(v.paid_visits)} paid visits · {formatNum(v.unique_leads)} leads · {formatPct(v.conversion_rate)}
+                    {(v.organic_visits ?? 0) > 0 && (
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {formatNum(v.organic_visits ?? 0)} organic visits · {formatNum(v.organic_leads ?? 0)} organic leads
+                      </span>
+                    )}
                   </span>
                 </div>
               ))}

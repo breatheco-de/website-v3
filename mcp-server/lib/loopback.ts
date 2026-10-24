@@ -6,6 +6,7 @@ import { getTokenUsername, getTokenClientName } from "./oauth.js";
 import { getActiveRoleId, getActiveMcpToken } from "./auth.js";
 import {
   isExactAgentModel,
+  isServerAgentSessionId,
   missingExactModelPayload,
   sessionRequiredPayload,
   sessionUnknownPayload,
@@ -133,6 +134,24 @@ export async function assertMutatingAgentIdentity(
         args_hint: { action: "start", model: "provider/model" },
       },
     ]);
+  }
+  const sidPreview = sid.slice(0, 64);
+  if (!isServerAgentSessionId(sid)) {
+    return actionRequired(
+      sessionUnknownPayload(
+        toolName,
+        `agent_session_id "${sidPreview}" was not issued by agent_session start. ` +
+          `Call agent_session start (without an id) and pass the agent_session_id it returns.`,
+      ),
+      [
+        {
+          tool: "agent_session",
+          priority: "required",
+          reason: "Session ids come only from start; invented ids are shared across agents.",
+          args_hint: { action: "start", model: "provider/model" },
+        },
+      ],
+    );
   }
 
   const mcpToken = getActiveMcpToken();

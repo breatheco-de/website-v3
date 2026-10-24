@@ -53,6 +53,7 @@ import { queryClient } from "@/lib/queryClient";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { LocaleFlag } from "./components/LocaleFlag";
 import { DebugPanelContent } from "./components/DebugPanelContent";
+import { ProposalEditGuardHost } from "./components/ProposalEditGuardHost";
 import { useQuery } from "@tanstack/react-query";
 import {
   STORAGE_KEY,
@@ -72,6 +73,19 @@ import {
 import { deslugify, detectContentInfo, getPersistedMenuView } from "./utils/debugHelpers";
 const RawFileEditorPanel = lazy(() => import("@/components/editing/RawFileEditorPanel"));
 const ContentTypesYmlEditorPanel = lazy(() => import("@/components/editing/ContentTypesYmlEditorPanel"));
+const PageStatsDrawer = lazy(() =>
+  import("@/components/page-stats/PageStatsDrawer").then((m) => ({ default: m.PageStatsDrawer })),
+);
+import { PageStatsEdgeTab } from "@/components/page-stats/PageStatsEdgeTab";
+import type { PageStatsScope } from "@shared/page-stats";
+
+function pathnameOf(urlOrPath: string): string {
+  try {
+    return new URL(urlOrPath, "https://placeholder.invalid").pathname;
+  } catch {
+    return urlOrPath;
+  }
+}
 import { SessionModal } from "./components/SessionModal";
 import { StaffLogoutConfirmDialog } from "./components/StaffLogoutConfirmDialog";
 import { useProposalDraftPushConfirm } from "./useProposalDraftPushConfirm";
@@ -88,7 +102,7 @@ import {
   cacheValidationStamp,
   staleReason,
 } from "./validationFreshness";
-import { SeoModal } from "./components/SeoModal";
+import { SeoModal, type SeoModalTab } from "./components/SeoModal";
 import { SiteManagerModal } from "./components/SiteManagerModal";
 import { SwitchSiteModal } from "./components/SwitchSiteModal";
 import { McpRequiredForAiModal } from "@/components/mcp/McpRequiredForAiModal";
@@ -154,7 +168,12 @@ export function DebugBubble() {
     window.location.pathname.startsWith("/private/entry-preview-frame/")
   );
   
-  const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, startGitHubLogin, clearToken, logoutEverywhere, authError, dismissDebugUi, checkSession } = useDebugAuth();
+  const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, startGitHubLogin, clearToken, logoutEverywhere, authError, dismissDebugUi, checkSession, hasCapability } = useDebugAuth();
+  // Collapsing unmounts the drawer and leaves an edge tab; "closing" lets the slide-out finish first.
+  const [pageStatsMode, setPageStatsMode] = useState<"never" | "open" | "closing" | "minimized">("never");
+  const [pageStatsScope, setPageStatsScope] = useState<PageStatsScope>("url");
+  const pageStatsTabRef = useRef<HTMLButtonElement>(null);
+  const focusPageStatsTab = useRef(false);
   const { criticalAlerts } = useSystemAlerts();
   const { showCritical: githubConnectCritical, needsConnect: githubConnectRequired } =
     useGitHubUserConnection();
@@ -168,6 +187,21 @@ export function DebugBubble() {
   const { toast } = useToast();
   const [pathname, navigate] = useLocation();
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    setPageStatsMode((m) => (m === "open" ? "closing" : m));
+  }, [pathname]);
+
+  useEffect(() => {
+    if (pageStatsMode === "closing") {
+      const t = window.setTimeout(() => setPageStatsMode((m) => (m === "closing" ? "minimized" : m)), 400);
+      return () => window.clearTimeout(t);
+    }
+    if (pageStatsMode === "minimized" && focusPageStatsTab.current) {
+      focusPageStatsTab.current = false;
+      pageStatsTabRef.current?.focus();
+    }
+  }, [pageStatsMode]);
   const [open, setOpen] = useState(() => {
     if (typeof window !== "undefined") {
       const persisted = sessionStorage.getItem(OPEN_STORAGE_KEY);
@@ -329,7 +363,12 @@ export function DebugBubble() {
   const [isCheckingSession, setIsCheckingSession] = useState(false);
   
   // SEO modal state
-  const [seoModalOpen, setSeoModalOpen] = useState(false);
+  const [seoModalOpen, setSeoModalOpenRaw] = useState(false);
+  const [seoModalTab, setSeoModalTab] = useState<SeoModalTab>("serp");
+  const setSeoModalOpen = useCallback((v: boolean) => {
+    if (v) setSeoModalTab("serp");
+    setSeoModalOpenRaw(v);
+  }, []);
   const [managedSeoModalOpen, setManagedSeoModalOpen] = useState(false);
   const [managedSeoModalTarget, setManagedSeoModalTarget] = useState<ManagedSeoModalTarget | null>(null);
   const [seoLoading, setSeoLoading] = useState(false);
@@ -2104,6 +2143,13 @@ export function DebugBubble() {
     }
   };
 
+  const publicPageDiagnosticsUrl = (() => {
+    if (resolvedPublicPageUrl) return resolvedPublicPageUrl;
+    const u = pageDiagnostics?.url;
+    if (u && !isPrivatePreviewPath(u)) return u;
+    return null;
+  })();
+
   const panelContentProps = {
     noTokenDetected,
     tokenWithoutCapabilities,
@@ -2131,6 +2177,12 @@ export function DebugBubble() {
     pathname,
     navigate,
     setSeoModalOpen,
+    openPageStats: hasCapability("metrics_view")
+      ? () => {
+          setOpen(false);
+          setPageStatsMode("open");
+        }
+      : undefined,
     fetchSeoPreview,
     menuView,
     setMenuView,
@@ -2276,12 +2328,7 @@ export function DebugBubble() {
     pageErrorCount,
     pageWarningCount,
     pageDiagnosticsLoading,
-    pageDiagnosticsUrl: (() => {
-      if (resolvedPublicPageUrl) return resolvedPublicPageUrl;
-      const u = pageDiagnostics?.url;
-      if (u && !isPrivatePreviewPath(u)) return u;
-      return null;
-    })(),
+    pageDiagnosticsUrl: publicPageDiagnosticsUrl,
     pageDiagnosticsEntryKey: pageDiagnostics?.entryKey ?? null,
     onOpenPageErrors: openPageErrorsModal,
     currentLang,
@@ -2312,6 +2359,11 @@ export function DebugBubble() {
   return (
     <div className="fixed bottom-4 left-4 z-50 flex flex-col gap-2 items-start" data-testid="debug-bubble">
       {proposalDraftPushDialog}
+      <ProposalEditGuardHost
+        contentType={contentInfo.type}
+        slug={contentInfo.slug}
+        proposalsByVariant={versioningData?.proposalsByVariant}
+      />
       {showForkBubble && (
         <div className="relative flex items-center">
           {pageIsSharedLayout && (
@@ -2671,9 +2723,48 @@ export function DebugBubble() {
         prompt={mcpRequiredPrompt}
         prefillUrlPrefix={mcpRequiredPrefillPrefix}
       />
+      {(pageStatsMode === "open" || pageStatsMode === "closing") && (
+        <Suspense fallback={null}>
+          <PageStatsDrawer
+            open={pageStatsMode === "open"}
+            onOpenChange={(next) => {
+              if (next) {
+                setPageStatsMode("open");
+              } else {
+                focusPageStatsTab.current = true;
+                setPageStatsMode("closing");
+              }
+            }}
+            onExitComplete={() => setPageStatsMode((m) => (m === "closing" ? "minimized" : m))}
+            path={publicPageDiagnosticsUrl ? pathnameOf(publicPageDiagnosticsUrl) : null}
+            pageErrorCount={pageErrorCount}
+            scope={pageStatsScope}
+            onScopeChange={setPageStatsScope}
+            navigate={(href) => {
+              setPageStatsMode("closing");
+              navigate(href);
+            }}
+            onOpenSeoModalTab={(tab) => {
+              setPageStatsMode("closing");
+              setSeoModalTab(tab);
+              setSeoModalOpenRaw(true);
+              fetchSeoPreview();
+            }}
+          />
+        </Suspense>
+      )}
+      {pageStatsMode === "minimized" && publicPageDiagnosticsUrl && (
+        <PageStatsEdgeTab
+          ref={pageStatsTabRef}
+          path={pathnameOf(publicPageDiagnosticsUrl)}
+          pageErrorCount={pageErrorCount}
+          onExpand={() => setPageStatsMode("open")}
+        />
+      )}
       <SeoModal
         open={seoModalOpen}
         onOpenChange={setSeoModalOpen}
+        initialTab={seoModalTab}
         contentInfo={contentInfo}
         seoLoading={seoLoading}
         seoData={seoData}

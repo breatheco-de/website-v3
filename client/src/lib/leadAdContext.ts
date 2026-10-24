@@ -7,7 +7,7 @@
 import type { Session } from '@shared/session';
 import { CLICK_ID_PARAMS } from '@shared/paid-traffic';
 import { getDebugToken } from '@/hooks/useDebugAuth';
-import { getCurrentPageVersion } from './tracking';
+import { getCurrentPageVersion, getVisitExperiment } from './tracking';
 
 export function newSubmissionId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -65,7 +65,7 @@ export function buildLeadAdContext(
     out.referrer_host = touch.referrer_host;
   }
   if (ec?.first) out.first_channel = ec.first.channel;
-  const pv = getCurrentPageVersion();
+  const pv = getVisitExperiment() ?? getCurrentPageVersion();
   if (pv) out.page_experiment_id = pv.experiment_id;
   return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined && v !== ''));
 }

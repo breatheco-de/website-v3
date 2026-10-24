@@ -17,6 +17,7 @@ import { HtmlDbReaderRebuildJob } from "./definitions/html-db-reader-rebuild";
 import { HtmlContentTypeListingRebuildJob } from "./definitions/html-content-type-listing-rebuild";
 import { HtmlContentTypeRebuildJob } from "./definitions/html-content-type-rebuild";
 import { LocalDatabaseRefreshJob } from "./definitions/local-database-refresh";
+import { VectorIndexSyncJob } from "./definitions/vector-index-sync";
 
 export function registerAllJobs(): void {
   registerJobClass("index_refresh", IndexRefreshJob);
@@ -38,4 +39,5 @@ export function registerAllJobs(): void {
   registerJobClass("html_content_type_listing_rebuild", HtmlContentTypeListingRebuildJob);
   registerJobClass("html_content_type_rebuild", HtmlContentTypeRebuildJob);
   registerJobClass("local_database_refresh", LocalDatabaseRefreshJob);
+  registerJobClass("vector_index_sync", VectorIndexSyncJob);
 }

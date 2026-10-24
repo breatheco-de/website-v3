@@ -2,7 +2,7 @@ import fs from "fs";
 import { getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
-import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import { dumpContentYaml } from "./content-yaml";
 import { markFileAsModified } from "./sync-state";
 import {
   acquireLease,
@@ -20,9 +20,7 @@ const log = child({ module: "bindings" });
 
 
 function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
-  const { escaped, map } = escapeObjectVars(obj);
-  const dumped = yaml.dump(escaped, opts);
-  return unescapeYamlDump(dumped, map);
+  return dumpContentYaml(obj, opts);
 }
 
 function getBindingsFile(): string {

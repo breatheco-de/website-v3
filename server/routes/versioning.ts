@@ -83,10 +83,9 @@ import { validateYamlIdentity } from "../validate-content-identity";
 import { bindingManager } from "../bindings";
 import {
   escapeTemplateVars,
-  escapeObjectVars,
   unescapeObjectVars,
-  unescapeYamlDump,
 } from "@shared/templateVars";
+import { dumpContentYaml } from "../content-yaml";
 import {
   getVersioningManager,
   readUserId,
@@ -164,6 +163,9 @@ import {
   variantTrafficErrorMessage,
 } from "../versioning/delete-variant.js";
 import { ensurePublishedAtOnce, readPublishedAt } from "../published-at";
+import { isReservedExperimentSlug } from "../versioning/assignment";
+import { abCheckPageLock, isAbTestingSetUp, isLatestCheckOk } from "../ab-testing/state";
+import { getSplitHealth } from "../versioning/split-health";
 import { api } from "../rate-limit/api.js";
 import { normalizeFlexibleDate } from "@shared/normalizeFlexibleDate";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
@@ -292,6 +294,8 @@ export type VariantProposalBadge = {
   status?: string;
   proposer_username?: string;
   proposer_kind?: "agent" | "staff";
+  /** Epoch ms of the proposal's last change. */
+  updated_at?: number;
 };
 
 /** `{locale: {variant: badge}}` — `_draft.proposal` first, then the local proposals DB. */
@@ -330,6 +334,7 @@ async function proposalsByVariantFor(opts: {
               status: hit.status,
               proposer_username: hit.proposer_username,
               proposer_kind: hit.proposer_kind,
+              updated_at: hit.updated_at,
             }
           : {}),
       };
@@ -348,6 +353,17 @@ function resolveWritableVersioningSlug(
 }
 
 export function registerVersioningRoutes(app: Express): void {
+  // The hidden A/B check page is a locked system page: no variant or traffic writes.
+  app.use("/api/versioning/:contentType/:contentSlug", (req, res, next) => {
+    if (req.method === "GET") return next();
+    const lock = abCheckPageLock(req.params.contentType, req.params.contentSlug, getContentRoot(res));
+    if (lock) {
+      res.status(403).json({ code: lock.code, error: lock.error });
+      return;
+    }
+    next();
+  });
+
   app.get("/api/debug/versioning", (req, res) => {
     const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
     const stats = versioningManager.getStats();
@@ -447,9 +463,16 @@ export function registerVersioningRoutes(app: Express): void {
       availableLocales,
     );
 
+    const abSite = { contentRoot: root, contentRootName: getContentRootName(res) };
+    const ab_testing = {
+      set_up: isAbTestingSetUp(abSite),
+      latest_check_ok: isLatestCheckOk(abSite.contentRootName),
+    };
+
     if (!versioning) {
       res.json({
         versioning: null,
+        ab_testing,
         hasVersioningFile: false,
         filePath,
         availableLocales,
@@ -471,6 +494,16 @@ export function registerVersioningRoutes(app: Express): void {
 
     res.json({
       versioning,
+      ab_testing,
+      split_health: getSplitHealth(
+        {
+          contentRoot: root,
+          contentRootName: getContentRootName(res),
+          versioningManager,
+        },
+        contentType,
+        resolvedSlug,
+      ),
       hasVersioningFile: true,
       filePath,
       availableLocales,
@@ -577,6 +610,33 @@ export function registerVersioningRoutes(app: Express): void {
         const prevBySlug = new Map(prevVariants.map((v) => [v.slug, v.allocation]));
         const newVariants = parseResult.data.variants;
         const newSlugSet = new Set(newVariants.map((v) => v.slug));
+
+        // Starting a test or raising a split needs A/B testing set up and a passing check.
+        // Lowering (including to 0%) is always allowed.
+        const raised = newVariants.filter((v) => v.allocation > (prevBySlug.get(v.slug) ?? 0));
+        if (raised.length > 0) {
+          const abSite = { contentRoot: root, contentRootName: getContentRootName(res) };
+          if (!isAbTestingSetUp(abSite)) {
+            res.status(400).json({
+              code: "ab_testing_not_setup",
+              error:
+                "A/B testing has not been set up yet, so visitors only see the live page. " +
+                "A Platform Steward sets it up once in Settings → Tracking → A/B testing; until then no version can get traffic. You can still lower or stop traffic.",
+              setup_url: "/private/tracking/ab-testing#ab-setup",
+            });
+            return;
+          }
+          if (!isLatestCheckOk(abSite.contentRootName)) {
+            res.status(400).json({
+              code: "ab_check_failing",
+              error:
+                "The last A/B check failed. Running tests continue, but you can't start a test or raise traffic until a check passes. " +
+                "You can still lower or stop traffic.",
+              health_url: "/private/tracking/ab-testing#ab-health",
+            });
+            return;
+          }
+        }
 
         const newlyPublished = newVariants.filter((v) => {
           const prev = prevBySlug.get(v.slug) ?? 0;
@@ -724,7 +784,15 @@ export function registerVersioningRoutes(app: Express): void {
           }
         }
 
-        const updated = { ...existing, [locale]: { variants: newVariants } };
+        const hadTraffic = prevVariants.some((v) => v.allocation > 0);
+        const hasTraffic = newVariants.some((v) => v.allocation > 0);
+        const prevStartedAt = existing[locale]?.started_at;
+        const startedAt =
+          !hadTraffic && hasTraffic ? new Date().toISOString().slice(0, 10) : prevStartedAt;
+        const updated = {
+          ...existing,
+          [locale]: { variants: newVariants, ...(startedAt ? { started_at: startedAt } : {}) },
+        };
         versioningManager.updateVersioning(contentType, resolved.slug, updated, {
           author: auth.author,
           contentRoot: root,
@@ -806,6 +874,13 @@ export function registerVersioningRoutes(app: Express): void {
     if (isReservedTemplateVariantSlug(variantSlug)) {
       res.status(400).json({
         error: 'Variant slug "template" and "single" are reserved for the shared-layout shell',
+      });
+      return;
+    }
+    if (isReservedExperimentSlug(variantSlug)) {
+      res.status(400).json({
+        code: "reserved_variant",
+        error: 'Variant slug "default" is reserved: it labels visitors who see the live page during a test',
       });
       return;
     }
@@ -912,10 +987,7 @@ export function registerVersioningRoutes(app: Express): void {
             const siblingLive = getCI(res).safeYamlLoad(fs.readFileSync(sibling.filePath, "utf-8")) as Record<string, unknown> | null;
             if (siblingLive?.layout) mirrored.layout = siblingLive.layout;
           } catch { /* ignore */ }
-          const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-          const { escaped, map } = escapeObjectVars(mirrored);
-          const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
-          fs.writeFileSync(siblingVariantPath, unescapeYamlDump(dumped, map), "utf-8");
+          fs.writeFileSync(siblingVariantPath, dumpContentYaml(mirrored, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }, siblingVariantPath), "utf-8");
           markFileAsModified(`${folder}/${variantTemplateBasename(variantSlug, sibling.locale)}`, auth.author || "api", undefined, root);
           createdSiblings.push(sibling.locale);
         }
@@ -923,8 +995,8 @@ export function registerVersioningRoutes(app: Express): void {
 
       const existing = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
       const localeData = existing[locale]
-        ? { variants: [...(existing[locale].variants || [])] }
-        : { variants: [] };
+        ? { ...existing[locale], variants: [...(existing[locale].variants || [])] }
+        : { variants: [] as Array<{ slug: string; allocation: number }> };
 
       if (!localeData.variants.some((v) => v.slug === variantSlug)) {
         localeData.variants.push({ slug: variantSlug, allocation: 0 });
@@ -975,7 +1047,11 @@ export function registerVersioningRoutes(app: Express): void {
       res.status(400).json({ error: "variantSlug and locale are required" });
       return;
     }
-    if (!/^[a-z0-9-]+$/.test(variantSlug) || isReservedTemplateVariantSlug(variantSlug)) {
+    if (
+      !/^[a-z0-9-]+$/.test(variantSlug) ||
+      isReservedTemplateVariantSlug(variantSlug) ||
+      isReservedExperimentSlug(variantSlug)
+    ) {
       res.status(400).json({ error: "Invalid variantSlug" });
       return;
     }

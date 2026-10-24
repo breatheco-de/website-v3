@@ -3,6 +3,7 @@ import { lazy, Suspense, type ReactNode } from "react";
 import NotFound from "@/pages/not-found";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { resolvePrivatePageAccess } from "@/lib/private-page-access";
+import { AB_TESTING_CARD_IDS, AB_TESTING_HREF } from "@/lib/settings-tab";
 
 const ComponentShowcase = lazy(() => import("@/pages/ComponentShowcase"));
 const ComponentGallery = lazy(() => import("@/pages/ComponentGallery"));
@@ -101,6 +102,15 @@ function ServerLogsRedirect() {
   return null;
 }
 
+function AbTestingSettingsRedirect() {
+  const params = useParams<{ tab?: string }>();
+  if (typeof window !== "undefined") {
+    const card = (AB_TESTING_CARD_IDS as readonly string[]).includes(`ab-${params.tab}`) ? `#ab-${params.tab}` : "";
+    window.location.replace(`${AB_TESTING_HREF}${card}`);
+  }
+  return null;
+}
+
 function ProposalsRedirect() {
   const params = useParams<{ id?: string }>();
   if (typeof window !== "undefined") {
@@ -168,7 +178,10 @@ export default function PrivateRouter() {
           <Route path="/private/settings/seo" component={SeoGeoSettingsPage} />
           <Route path="/private/settings/ads/meta" component={AdsSettingsPage} />
           <Route path="/private/settings/ads/google" component={AdsSettingsPage} />
+          <Route path="/private/settings/ads/targets" component={AdsSettingsPage} />
           <Route path="/private/settings/ads" component={AdsSettingsPage} />
+          <Route path="/private/settings/ab-testing/:tab" component={AbTestingSettingsRedirect} />
+          <Route path="/private/settings/ab-testing" component={AbTestingSettingsRedirect} />
           <Route path="/private/settings/locales" component={SettingsPage} />
           <Route path="/private/settings/migrations" component={SettingsPage} />
           <Route path="/private/settings/brand" component={SettingsPage} />
@@ -186,6 +199,7 @@ export default function PrivateRouter() {
           <Route path="/private/store/product/:slug" component={StoreProductDetailPage} />
           <Route path="/private/store/conversions" component={ConversionsPage} />
           <Route path="/private/store/leads" component={LeadsPage} />
+          <Route path="/private/tracking/ab-testing" component={TrackingPage} />
           <Route path="/private/tracking/sgtm" component={TrackingPage} />
           <Route path="/private/tracking/ipn" component={TrackingPage} />
           <Route path="/private/tracking/ga4" component={TrackingPage} />

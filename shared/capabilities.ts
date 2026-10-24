@@ -193,6 +193,14 @@ const REGISTRY = [
       "Change live ads in connected ad accounts from the staff UI, e.g. add missing tracking parameters. Changed ads go back to Meta review. Does not change budgets, audiences, or account connections.",
   },
   {
+    name: "ab_testing_settings",
+    label: "Manage A/B testing setup",
+    scoped: false,
+    scopeKind: "none" as const,
+    description:
+      "One-time A/B testing setup per site (hidden check page), run A/B checks, and create the Google Analytics variant dimensions. Does not allocate traffic on pages — that needs Allocate traffic to variants for the page's content type.",
+  },
+  {
     name: "consent_settings",
     label: "Manage cookie consent",
     scoped: false,

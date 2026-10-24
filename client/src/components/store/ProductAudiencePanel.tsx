@@ -40,11 +40,18 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { suggestShortKey } from "@shared/tracking-keys";
+import { TrackingKeyField, trackingKeyError } from "./TrackingKeyField";
 
 type PersonaDraft = {
   id: string;
   /** Non-null when this row exists on the server (id at last hydrate). */
   savedId: string | null;
+  /** Tracking key being edited (empty = use the suggestion on save). */
+  shortKey: string;
+  /** Saved tracking key; locked unless renameKey. */
+  savedShortKey: string | null;
+  renameKey: boolean;
   label: string;
   role: string;
   industry_or_context: string;
@@ -73,6 +80,7 @@ type AudienceResponse = {
     };
     personas?: Array<{
       id: string;
+      short_key?: string;
       label?: string;
       role: string;
       industry_or_context?: string;
@@ -86,6 +94,8 @@ type AudienceResponse = {
       };
     }>;
   } | null;
+  product?: { name?: string; short_key?: string; content_type?: string };
+  tracking_keys?: { taken_product: string[]; taken_persona: string[] };
   status: "missing" | "minimal" | "complete";
   persona_usage?: Record<string, { pages: PersonaUsagePage[] }>;
   education?: { summary: string; advanced_paths: string[] };
@@ -95,6 +105,9 @@ function emptyPersona(): PersonaDraft {
   return {
     id: "",
     savedId: null,
+    shortKey: "",
+    savedShortKey: null,
+    renameKey: false,
     label: "",
     role: "",
     industry_or_context: "",
@@ -169,6 +182,9 @@ function personaFromApi(
   return {
     id: p.id,
     savedId: p.id,
+    shortKey: p.short_key ?? "",
+    savedShortKey: p.short_key ?? null,
+    renameKey: false,
     label: p.label ?? "",
     role: p.role,
     industry_or_context: p.industry_or_context ?? "",
@@ -456,6 +472,7 @@ function PersonaReadOnlyCard({
               {persona.id.trim() && (
                 <p className="font-mono text-[11px] text-muted-foreground/80 truncate">
                   {persona.id}
+                  {persona.savedShortKey ? ` · key ${persona.savedShortKey}` : ""}
                 </p>
               )}
             </div>
@@ -588,6 +605,8 @@ function PersonaReadOnlyCard({
 function PersonaEditor({
   persona,
   index,
+  keySuggestion,
+  takenKeys,
   onChange,
   onCancel,
   onRemove,
@@ -596,6 +615,8 @@ function PersonaEditor({
 }: {
   persona: PersonaDraft;
   index: number;
+  keySuggestion: string;
+  takenKeys: ReadonlySet<string>;
   onChange: (next: PersonaDraft) => void;
   onCancel: () => void;
   onRemove: () => void;
@@ -698,6 +719,19 @@ function PersonaEditor({
             data-testid={`input-persona-role-${index}`}
           />
         </div>
+        <div className="sm:col-span-2">
+          <TrackingKeyField
+            kind="persona"
+            value={persona.shortKey}
+            savedKey={persona.savedShortKey}
+            suggestion={keySuggestion}
+            renaming={persona.renameKey}
+            taken={takenKeys}
+            onChange={(shortKey) => update({ shortKey })}
+            onStartRename={() => update({ renameKey: true, shortKey: "" })}
+            testId={`persona-tracking-key-${index}`}
+          />
+        </div>
         <div className="space-y-1">
           <Label>Industry / context</Label>
           <Input
@@ -772,6 +806,90 @@ function PersonaEditor({
           confirmTestId={`button-confirm-save-audience-persona-${index}`}
         />
       </div>
+    </div>
+  );
+}
+
+function ProductTrackingKeyCard({
+  slug,
+  productName,
+  savedKey,
+  taken,
+}: {
+  slug: string;
+  productName: string;
+  savedKey: string | null;
+  taken: ReadonlySet<string>;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [value, setValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const suggestion = suggestShortKey(productName, taken, slug);
+  const editing = !savedKey || renaming;
+  const error = editing ? trackingKeyError(value, taken, renaming ? null : savedKey) : null;
+
+  useEffect(() => {
+    setValue("");
+    setRenaming(false);
+  }, [savedKey]);
+
+  const saveKey = useMutation({
+    mutationFn: async () => {
+      const key = value.trim().toLowerCase() || suggestion;
+      const res = await apiRequest("PUT", `/api/product/${slug}`, {
+        content_type: "program",
+        short_key: key,
+        ...(renaming ? { rename_short_key: true } : {}),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not save tracking key");
+      return json;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [`/api/product/${slug}`] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/ecommerce/product-map"] });
+      toast({ title: renaming ? "Tracking key renamed" : "Tracking key saved" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not save tracking key", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="rounded-xl border bg-card p-4 space-y-3" data-testid="product-tracking-key-card">
+      <TrackingKeyField
+        kind="product"
+        value={value}
+        savedKey={savedKey}
+        suggestion={suggestion}
+        renaming={renaming}
+        taken={taken}
+        onChange={setValue}
+        onStartRename={() => {
+          setValue("");
+          setRenaming(true);
+        }}
+        testId="product-tracking-key"
+      />
+      {editing && (
+        <div className="flex justify-end gap-2">
+          {renaming && (
+            <Button type="button" size="sm" variant="outline" onClick={() => setRenaming(false)}>
+              Cancel
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            disabled={saveKey.isPending || !!error}
+            onClick={() => saveKey.mutate()}
+            data-testid="button-save-product-tracking-key"
+          >
+            {saveKey.isPending ? "Saving…" : "Save key"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -867,6 +985,23 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
     isLastSavedPersona ||
     (shouldFetchUsage && !usageFetching && !usageError && usagePages.length === 0);
 
+  const takenPersonaKeys = new Set(data?.tracking_keys?.taken_persona ?? []);
+  /** Per persona: taken = site keys + other drafts' keys; suggestion avoids both. */
+  const personaKeyInfo = (() => {
+    const draftKeys = personas.map((p) => (p.shortKey.trim() || p.savedShortKey || "").toLowerCase());
+    const assigned = new Set<string>();
+    return personas.map((p, idx) => {
+      const taken = new Set(takenPersonaKeys);
+      draftKeys.forEach((k, i) => {
+        if (k && i !== idx) taken.add(k);
+      });
+      for (const k of assigned) taken.add(k);
+      const suggestion = suggestShortKey(p.label.trim() || p.role.trim(), taken, p.id.trim());
+      if (!draftKeys[idx]) assigned.add(suggestion);
+      return { taken, suggestion };
+    });
+  })();
+
   const offerDraft: OfferDraft = { oneLiner, whoFor, whoNot };
   const savedOffer = offerFromApi(data?.audience?.offer);
   const savedOfferSet = isOfferSet(savedOffer);
@@ -881,16 +1016,29 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
           `Persona id "${dup}" is used more than once. Each persona needs a unique id.`,
         );
       }
+      const keyError = personas
+        .map((p, idx) =>
+          p.savedShortKey && !p.renameKey
+            ? null
+            : trackingKeyError(p.shortKey, personaKeyInfo[idx].taken, p.renameKey ? null : p.savedShortKey),
+        )
+        .find(Boolean);
+      if (keyError) throw new Error(keyError);
       const body = {
         content_type: "program",
         replace_personas: true as const,
+        ...(personas.some((p) => p.renameKey) ? { rename_short_key: true } : {}),
         offer: {
           one_liner: oneLiner,
           who_its_for: whoFor,
           ...(whoNot.trim() ? { who_its_not_for: whoNot.trim() } : {}),
         },
-        personas: personas.map((p) => ({
+        personas: personas.map((p, idx) => ({
           id: p.id.trim(),
+          short_key:
+            p.savedShortKey && !p.renameKey
+              ? p.savedShortKey
+              : p.shortKey.trim().toLowerCase() || personaKeyInfo[idx].suggestion,
           ...(p.label.trim() ? { label: p.label.trim() } : {}),
           role: p.role.trim(),
           ...(p.industry_or_context.trim()
@@ -1075,6 +1223,9 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
           {
             id: p.id,
             savedId: null,
+            shortKey: "",
+            savedShortKey: null,
+            renameKey: false,
             label: p.label ?? "",
             role: p.role,
             industry_or_context: p.industry_or_context ?? "",
@@ -1257,6 +1408,13 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
         )}
       </div>
 
+      <ProductTrackingKeyCard
+        slug={slug}
+        productName={data?.product?.name ?? slug}
+        savedKey={data?.product?.short_key ?? null}
+        taken={new Set(data?.tracking_keys?.taken_product ?? [])}
+      />
+
       {showOfferEditor ? (
         <OfferEditor
           offer={offerDraft}
@@ -1338,6 +1496,8 @@ export function ProductAudiencePanel({ slug }: { slug: string }) {
                 key={p.savedId ?? `new-${idx}`}
                 persona={p}
                 index={idx}
+                keySuggestion={personaKeyInfo[idx].suggestion}
+                takenKeys={personaKeyInfo[idx].taken}
                 onChange={(next) =>
                   setPersonas((prev) => prev.map((x, i) => (i === idx ? next : x)))
                 }

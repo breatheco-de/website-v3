@@ -13,7 +13,8 @@ import { getSiteSqlite } from "../db";
 import { ensurePipelineDb } from "../pipeline-db/runner";
 import { getAdsSettings } from "../settings";
 import { getDefaultContentRoot } from "../site-config";
-import { getVersioningCookie, hashUserId } from "../versioning/cookie-utils";
+import { getVersioningCookie, getVisitExperimentCookie, hashUserId } from "../versioning/cookie-utils";
+import { experimentId as experimentIdFor } from "../versioning/assignment";
 import { extractToken } from "../routes/_helpers";
 import { resolveOwnedStaffSession } from "../staff-session-resolve";
 import { hasTrackingConsentCookie, readAdContext, type AdContext } from "./ad-context";
@@ -102,6 +103,10 @@ export type LedgerRow = {
   /** Catalog product the form resolved (paused included); null when unresolved, not in the catalog, or before migration 35. */
   product_id?: string | null;
   product_slug?: string | null;
+  /** Page funnel (or form override) products as full slugs, comma-joined; null before migration 41. */
+  product?: string | null;
+  /** Personas as full ids, comma-joined ("all" / "none" sentinels); null before migration 41. */
+  persona?: string | null;
 };
 
 /** True when the lead had a paid landing within the paid lookback before `now`. */
@@ -170,12 +175,19 @@ function consentStateFrom(req: Request): ConsentState {
   return isGrantedDecision(parsed.decision) ? "granted" : "denied";
 }
 
-function resolvePageVersion(req: Request, body: Record<string, unknown>): { experiment_id: string; variant: string } | null {
-  const experimentId = str(body.page_experiment_id, 300);
+/**
+ * Page test credited for this lead: the first test seen this visit (form body, else the
+ * `4g_visit_exp` cookie). Accepted only when it matches an assignment in the versioning cookie.
+ */
+export function resolvePageVersion(
+  req: Request,
+  body: Record<string, unknown>,
+): { experiment_id: string; variant: string } | null {
+  const experimentId = str(body.page_experiment_id, 300) ?? getVisitExperimentCookie(req)?.experiment_id;
   if (!experimentId) return null;
   const cookie = getVersioningCookie(req);
   const match = cookie?.assignments?.find(
-    (a) => `${a.contentType}:${a.slug}:${a.locale}` === experimentId,
+    (a) => experimentIdFor(a.contentType, a.slug, a.locale, a.run) === experimentId,
   );
   return match ? { experiment_id: experimentId, variant: match.variantSlug } : null;
 }
@@ -337,6 +349,8 @@ export async function prepareLead(req: Request, res: Response, body: Record<stri
     traffic_status: cls.status,
     product_id: product?.product_id ?? null,
     product_slug: product?.product_slug ?? null,
+    product: str(body.product, 1000),
+    persona: str(body.persona, 1000),
   };
 
   const wire: Record<string, string | number | boolean> = {
@@ -484,7 +498,7 @@ const LEDGER_COLUMNS: (keyof LedgerRow)[] = [
   "last_paid_platform", "last_paid_campaign_id", "last_paid_adset_id", "last_paid_ad_id",
   "experiment_id", "variant", "is_test", "test_reason", "is_repeat", "repeat_of", "consent_state",
   "channel", "first_channel", "last_organic_channel", "channel_landing_path", "referrer_host", "country", "traffic_status",
-  "product_id", "product_slug",
+  "product_id", "product_slug", "product", "persona",
 ];
 
 /**

@@ -25,10 +25,14 @@ import {
   IconTrash,
   IconListDetails,
   IconDatabase,
+  IconFlask,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { SettingsShell, type SettingsSecondaryTab } from "@/components/settings/SettingsShell";
+import { AbTestingPanel } from "@/components/settings/AbTestingPanel";
+import { ProductPersonaTrackingCard } from "@/components/settings/ProductPersonaTrackingCard";
+import { AB_TESTING_HREF } from "@/lib/settings-tab";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -41,20 +45,25 @@ import { useToast } from "@/hooks/use-toast";
 import { getGtmWebStatus, type GtmWebStatus } from "@/lib/gtm-web";
 import { apiRequest, apiFetch, queryClient } from "@/lib/queryClient";
 import { TRACKING_EVENTS } from "@/lib/tracking";
+import { TRACKING_EVENT_DOCS, eventDoc } from "@/lib/tracking-event-docs";
+import { SAMPLE_PAGE_TRACKING_CODES } from "@shared/tracking-context";
+import { EventDocPopover } from "@/components/settings/EventDocPopover";
 import { cn } from "@/lib/utils";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
 
-type TrackingTab = "events" | "sgtm" | "ipn" | "ga4";
+type TrackingTab = "events" | "ab-testing" | "sgtm" | "ipn" | "ga4";
 
 const TRACKING_TABS: SettingsSecondaryTab<TrackingTab>[] = [
   { id: "events", href: "/private/tracking", label: "Events", Icon: IconChartBar },
+  { id: "ab-testing", href: AB_TESTING_HREF, label: "A/B testing", Icon: IconFlask },
   { id: "sgtm", href: "/private/tracking/sgtm", label: "sGTM", Icon: IconServer },
   { id: "ipn", href: "/private/tracking/ipn", label: "IP Normalization", Icon: IconShieldLock },
   { id: "ga4", href: "/private/tracking/ga4", label: "GA4", Icon: IconDatabase },
 ];
 
 function resolveTrackingTab(pathname: string): TrackingTab {
+  if (pathname === AB_TESTING_HREF) return "ab-testing";
   if (pathname === "/private/tracking/sgtm") return "sgtm";
   if (pathname === "/private/tracking/ipn") return "ipn";
   if (pathname === "/private/tracking/ga4" || pathname === "/private/tracking/bigquery") return "ga4";
@@ -1426,7 +1435,21 @@ interface EventGroup {
   events: TrackingEvent[];
 }
 
-const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = {
+/** Page product / persona codes merged into every event once the site's switch is on. */
+const SAMPLE_PAGE_TRACKING = SAMPLE_PAGE_TRACKING_CODES;
+
+function withPageTracking(
+  payloads: Record<string, Record<string, unknown>>,
+): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
+    Object.entries(payloads).map(([name, p]) => {
+      const { event, user_id, ...rest } = p;
+      return [name, { event, user_id, ...SAMPLE_PAGE_TRACKING, ...rest }];
+    }),
+  );
+}
+
+const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = withPageTracking({
   page_view: {
     event: "page_view",
     user_id: SAMPLE_USER_ID,
@@ -1436,22 +1459,18 @@ const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = {
   experiment_exposure: {
     event: "experiment_exposure",
     user_id: SAMPLE_USER_ID,
-    experiment_id: "hero-variant-test",
-    variant: "B",
+    experiment_id: "landing:apply:en@2026-10-01",
+    variant: "b",
   },
   cta_click: {
     event: "cta_click",
     user_id: SAMPLE_USER_ID,
+    section_type: "hero",
+    section_index: 0,
+    section_id: "hero-main",
     label: "Apply Now",
-    section: "hero",
     destination: "/en/apply",
-  },
-  video_play: {
-    event: "video_play",
-    user_id: SAMPLE_USER_ID,
-    video_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    video_provider: "youtube",
-    page: "/en/apply",
+    page_path: "/en/coding-bootcamp",
   },
   video_start: {
     event: "video_start",
@@ -1489,8 +1508,10 @@ const GENERAL_EVENT_PAYLOADS: Record<string, Record<string, unknown>> = {
     user_id: SAMPLE_USER_ID,
     depth: 50,
     page: "/en/apply",
+    section_type: "features_grid",
+    section_index: 3,
   },
-};
+});
 
 interface UsageEntry {
   file: string;
@@ -1559,9 +1580,7 @@ function CollapsibleEventGroup({
                   {group.events.map((ev) => (
                     <tr key={ev.name} className="border-b last:border-0">
                       <td className="py-2 pr-4 align-middle">
-                        <Badge variant="secondary" className="font-mono text-xs">
-                          {ev.name}
-                        </Badge>
+                        <EventDocPopover name={ev.name} />
                       </td>
                       <td className="py-2 pr-4 align-middle text-muted-foreground text-xs">{ev.trigger}</td>
                       <td className="py-2 align-middle text-right">
@@ -1596,8 +1615,13 @@ function EventsSection() {
 
   const routeEvents: TrackingEvent[] = [
     {
+      name: "page tracking context object",
+      trigger: eventDoc("page tracking context object")!.trigger,
+      payload: { ...SAMPLE_PAGE_TRACKING, tracking_truncated: undefined },
+    },
+    {
       name: "website-route-change",
-      trigger: "Client-side navigation (not first load)",
+      trigger: eventDoc("website-route-change")!.trigger,
       payload: {
         event: "website-route-change",
         pagePath: "/en/apply",
@@ -1609,7 +1633,7 @@ function EventsSection() {
   const visitorContextEvents: TrackingEvent[] = [
     {
       name: "visitor context object",
-      trigger: "Once on first load, after geo + user ID resolve",
+      trigger: eventDoc("visitor context object")!.trigger,
       payload: {
         user_id: SAMPLE_USER_ID,
         visitor_location_city: "Miami",
@@ -1627,7 +1651,7 @@ function EventsSection() {
 
   const generalEvents: TrackingEvent[] = TRACKING_EVENTS.map((name) => ({
     name,
-    trigger: "Various interactions",
+    trigger: TRACKING_EVENT_DOCS[name].trigger,
     payload: GENERAL_EVENT_PAYLOADS[name] ?? { event: name, user_id: SAMPLE_USER_ID },
   }));
 
@@ -1644,7 +1668,7 @@ function EventsSection() {
     },
     {
       title: "General Events",
-      description: "Fired via track for page views, clicks, file video playback, and other interactions. YouTube plays are Tag Manager gtm.video events, not these. Defined in TRACKING_EVENTS.",
+      description: "Page views, A/B test exposure, clicks, scrolling and uploaded-video playback. YouTube plays are Tag Manager gtm.video events, not these. Click an event name to see what it means and when it fires.",
       events: generalEvents,
     },
   ];
@@ -2048,16 +2072,24 @@ function BigQuerySection() {
 
 
 export default function TrackingPage() {
+  const [pathname] = useLocation();
+  const activeTab = resolveTrackingTab(pathname);
+
+  // A/B testing keeps its own permissions (content access), so staff without metrics access can still reach it.
+  if (activeTab === "ab-testing") return <TrackingPageInner activeTab={activeTab} />;
   return (
     <MetricsAccessGate>
-      <TrackingPageInner />
+      <TrackingPageInner activeTab={activeTab} />
     </MetricsAccessGate>
   );
 }
 
-function TrackingPageInner() {
-  const [pathname] = useLocation();
-  const activeTab = resolveTrackingTab(pathname);
+function TrackingPageInner({ activeTab }: { activeTab: TrackingTab }) {
+  const { hasCapability } = useDebugAuth();
+  const canViewMetrics = hasCapability("metrics_view");
+  const tabs = canViewMetrics
+    ? TRACKING_TABS
+    : TRACKING_TABS.map((tab) => ({ ...tab, disabled: tab.id !== "ab-testing" }));
 
   return (
     <SettingsShell
@@ -2066,16 +2098,18 @@ function TrackingPageInner() {
       title="Tracking"
       titleTestId="text-tracking-title"
       backTestId="button-back-tracking"
-      description="Event catalog, server-side tagging, IP normalization, and Google Analytics for Store journey metrics."
+      description="Event catalog, A/B testing, server-side tagging, IP normalization, and Google Analytics for Store journey metrics."
       secondary={{
         value: activeTab,
-        tabs: TRACKING_TABS,
+        tabs,
         listTestId: "toggle-tracking-view",
         triggerTestId: (id) => `button-view-${id}`,
       }}
     >
         <div role="tabpanel">
-          {activeTab === "sgtm" ? (
+          {activeTab === "ab-testing" ? (
+            <AbTestingPanel />
+          ) : activeTab === "sgtm" ? (
             <div className="space-y-2">
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                 Server-Side Tag Manager
@@ -2109,6 +2143,7 @@ function TrackingPageInner() {
                   <li>client/src/lib/tracking</li>
                 </ul>
               </details>
+              <ProductPersonaTrackingCard />
               <EventsSection />
             </div>
           )}

@@ -152,10 +152,9 @@ import {
 import { bindingManager } from "../bindings";
 import {
   escapeTemplateVars,
-  escapeObjectVars,
   unescapeObjectVars,
-  unescapeYamlDump,
 } from "@shared/templateVars";
+import { dumpContentYaml } from "../content-yaml";
 import {
   getVersioningManager,
   readUserId,
@@ -2192,15 +2191,8 @@ export function registerContentRoutes(app: Express): void {
 
       let enableBootstrap: ReturnType<typeof enableSharedLayoutFromEntry> | null = null;
       if (enablingShared) {
-        const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-        const yaml = await import("js-yaml");
-        const dumpYaml = (d: unknown) => {
-          const { escaped, map } = escapeObjectVars(d);
-          return unescapeYamlDump(
-            yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
-            map,
-          );
-        };
+        const dumpYaml = (d: unknown) =>
+          dumpContentYaml(d, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
         enableBootstrap = enableSharedLayoutFromEntry({
           contentType: type,
           contentRoot: getContentRoot(res),
@@ -2304,17 +2296,10 @@ export function registerContentRoutes(app: Express): void {
         typeof body.shared_layout_base_locale === "string" &&
         body.shared_layout_base_locale
       ) {
-        const { escapeObjectVars, unescapeYamlDump } = await import("@shared/templateVars");
-        const yaml = await import("js-yaml");
         const folder = getFolder(type, getContentRoot(res));
         const templateDir = path.join(getContentRoot(res), folder);
-        const dumpYaml = (d: unknown) => {
-          const { escaped, map } = escapeObjectVars(d);
-          return unescapeYamlDump(
-            yaml.dump(escaped, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false }),
-            map,
-          );
-        };
+        const dumpYaml = (d: unknown) =>
+          dumpContentYaml(d, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
         alignResult = alignSiblingSinglesToBase({
           templateDir,
           baseLocale: body.shared_layout_base_locale,
@@ -2842,10 +2827,7 @@ export function registerContentRoutes(app: Express): void {
         if (Object.keys(sd).length === 0) delete merged.section_defaults;
         else merged.section_defaults = sd;
       }
-      const { escaped, map } = escapeObjectVars(merged);
-      const dumped = yaml.dump(escaped, { lineWidth: 120, noRefs: true });
-      const yamlStr = unescapeYamlDump(dumped, map);
-      fs.writeFileSync(filePath, yamlStr, "utf-8");
+      fs.writeFileSync(filePath, dumpContentYaml(merged, { lineWidth: 120, noRefs: true }, filePath), "utf-8");
       const author = (req.body as Record<string, unknown>).author as string | undefined;
       markFileAsModified(filePath, author || "api");
       invalidateContentCaches(name, getCI(res));

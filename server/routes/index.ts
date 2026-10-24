@@ -246,6 +246,8 @@ import { registerSidequestDashboardRoutes } from "./sidequest-dashboard";
 import { registerSidequestAdminRoutes } from "./sidequest-admin";
 import { registerComponentsRoutes } from "./components";
 import { registerVersioningRoutes } from "./versioning";
+import { registerAbTestingRoutes, scheduleAbTestingBootRecovery } from "./ab-testing";
+import { registerInternalContentRoutes } from "./internal-content";
 import { registerGithubRoutes } from "./github";
 import { registerStaffAuthRoutes } from "./staff-auth";
 import { registerMediaRoutes } from "./media";
@@ -257,6 +259,7 @@ import { registerEcommerceRoutes } from "./ecommerce";
 import { registerAnalyticsRoutes } from "./analytics";
 import { registerFunnelRoutes } from "./funnel";
 import { registerProductRoutes } from "./product";
+import { registerTrackingKeyRoutes } from "./tracking-keys";
 import { registerWebhooksRoutes } from "./webhooks";
 import { registerOverlaysRoutes } from "./overlays";
 import { registerConsentRoutes } from "./consent";
@@ -340,6 +343,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerSidequestAdminRoutes(app);
   registerComponentsRoutes(app);
   registerVersioningRoutes(app);
+  registerAbTestingRoutes(app);
+  scheduleAbTestingBootRecovery();
+  registerInternalContentRoutes(app);
   registerGithubRoutes(app);
   registerMediaRoutes(app);
   registerAiRoutes(app);
@@ -350,6 +356,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAnalyticsRoutes(app);
   registerFunnelRoutes(app);
   registerProductRoutes(app);
+  registerTrackingKeyRoutes(app);
   registerWebhooksRoutes(app);
   registerOverlaysRoutes(app);
 

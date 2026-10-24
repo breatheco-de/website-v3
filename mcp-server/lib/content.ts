@@ -11,6 +11,7 @@ import {
   type ComponentBehaviors,
 } from "../../shared/component-behaviors.js";
 import { typeUsesSharedTemplate } from "../../shared/sharedLayoutPaths.js";
+import { assertNoCorruptedTemplateKeys } from "../../shared/templateVars.js";
 import {
   resolveLayoutTraits,
   type ComponentLayoutBlock,
@@ -261,6 +262,7 @@ export function safeLoad(raw: string): Record<string, unknown> | null {
 }
 
 export function safeDump(obj: unknown): string {
+  assertNoCorruptedTemplateKeys(obj);
   return yaml.dump(obj, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
 }
 
@@ -490,6 +492,8 @@ export interface VersioningVariant {
 
 export interface VersioningLocale {
   variants: VersioningVariant[];
+  /** YYYY-MM-DD the current test run started. */
+  started_at?: string;
 }
 
 export type VersioningData = Record<string, VersioningLocale>;

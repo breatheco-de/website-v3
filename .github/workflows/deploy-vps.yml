@@ -5,6 +5,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      skip_content_flush:
+        description: "Skip content check: deploy even if server content could not be pushed to GitHub (copies are saved on the server first)"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-vps
@@ -102,6 +107,7 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           WEBSITE_RUNTIME_B64: ${{ env.WEBSITE_RUNTIME_B64 }}
           DEPLOY_SHA: ${{ github.sha }}
+          SKIP_CONTENT_FLUSH: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_content_flush && '1' || '0' }}
         run: |
           set -euo pipefail
           KEY="$RUNNER_TEMP/gha_deploy"
@@ -109,6 +115,7 @@ jobs:
           {
             printf 'export WEBSITE_RUNTIME_B64=%q\n' "$WEBSITE_RUNTIME_B64"
             printf 'export DEPLOY_SHA=%q\n' "$DEPLOY_SHA"
+            printf 'export SKIP_CONTENT_FLUSH=%q\n' "$SKIP_CONTENT_FLUSH"
             cat <<'REMOTE'
           set -euo pipefail
           APP_ROOT=/opt/website-v3
@@ -249,4 +256,32 @@ jobs:
               echo "- ❌ Deploy terminó con código \`$RESULT\` (falló; rollback de \`current\` si correspondía)."
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+          # A/B split check lines from the deploy log (never changes the deploy result).
+          AB_LINES="$(ssh -i "$KEY" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "grep '^AB_CHECK ' /opt/website-v3/.deploy-state/${DEPLOY_SHA}.log 2>/dev/null || true" 2>/dev/null || true)"
+          if [[ -n "$AB_LINES" ]]; then
+            {
+              echo ""
+              echo "## A/B split check"
+              echo ""
+              while IFS= read -r line; do
+                site="$(echo "$line" | sed -n 's/.*site=\([^ ]*\).*/\1/p')"
+                result="$(echo "$line" | sed -n 's/.*result=\([^ ]*\).*/\1/p')"
+                summary="$(echo "$line" | sed -n 's/.*summary="\(.*\)".*/\1/p')"
+                case "$result" in
+                  passed) echo "- ✅ \`$site\`: A/B split check passed. $summary" ;;
+                  failed) echo "- ❌ \`$site\`: A/B split check FAILED. $summary Visitors may be getting the wrong version (Settings → Tracking → A/B testing → Health)." ;;
+                  inconclusive) echo "- ⚠️ \`$site\`: A/B split check couldn't run. $summary" ;;
+                  *) echo "- ➖ \`$site\`: A/B testing not set up." ;;
+                esac
+              done <<< "$AB_LINES"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "summary: done=$RESULT abort=$ABORT"

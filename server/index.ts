@@ -454,6 +454,9 @@ app.use((req, res, next) => {
 
   app.use(siteResolutionMiddleware);
 
+  const { contentWritePauseMiddleware } = await import("./content-write-pause");
+  app.use(contentWritePauseMiddleware);
+
   const server = await registerRoutes(app);
 
   // Fallback redirects: only fire for URLs that would otherwise 404
@@ -494,7 +497,7 @@ app.use((req, res, next) => {
       getCachedHtml,
       isEditDocumentRequest,
       shouldBypassHtmlCache,
-      htmlDocumentCacheControl,
+      htmlDocumentCacheControlFor,
       logHtmlRender,
       pickCachedEncoding,
       rehydrateHtmlPageCache,
@@ -562,7 +565,7 @@ app.use((req, res, next) => {
       }
       res.status(cached.status);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      res.setHeader("Cache-Control", htmlDocumentCacheControl());
+      res.setHeader("Cache-Control", htmlDocumentCacheControlFor(res));
       res.setHeader("X-HTML-Cache", "HIT");
       res.setHeader("Vary", "Accept-Encoding");
       if (encoding !== "identity") res.setHeader("Content-Encoding", encoding);
@@ -709,6 +712,18 @@ app.use((req, res, next) => {
       .finally(() => {
         warmupComplete = true;
         log("warmup complete — serving full SSR on /");
+        import("./vector-index-reconcile")
+          .then(({ startVectorIndexReconcile }) =>
+            startVectorIndexReconcile(() =>
+              [...getSiteContextMap().values()].map((ctx) => ({
+                contentRoot: ctx.contentRoot,
+                database: ctx.database,
+              })),
+            ),
+          )
+          .catch((err) => {
+            logger.warn({ err, worker: "VectorIndex" }, "failed to start vector index reconcile");
+          });
         // Low-priority: component insights rebuild (after warmup; does not block listen)
         import("./component-insights")
           .then(({ runStartupInsightsRebuild }) => runStartupInsightsRebuild())

@@ -8,13 +8,13 @@ import path from "path";
 import { createHash } from "crypto";
 
 /** Bump when the technical playbook markdown below changes. */
-export const PLAYBOOK_VERSION = "9";
+export const PLAYBOOK_VERSION = "10";
 
 /**
  * Explicit conventions seed version. Bump when editing mcp-server/agent-conventions.md
  * so agents re-fetch skill.content (known_skill_version mismatch).
  */
-export const CONVENTIONS_VERSION = "40";
+export const CONVENTIONS_VERSION = "41";
 
 export const CONVENTIONS_PATH = "mcp-server/agent-conventions.md";
 
@@ -43,7 +43,7 @@ For remote chat agents (Claude.ai, Grok, custom connectors). How to read respons
 ## Session order
 
 1. Call \`bootstrap_agent\` once near the start of the run (empty args on first call; pass \`site\` when multi-site so conventions brand correctly).
-2. Call \`agent_session\` with \`action: "start"\` + exact \`model\` — keep \`agent_session_id\`.
+2. Call \`agent_session\` with \`action: "start"\` + exact \`model\` (no id; ids are server-issued, a passed id is ignored) — keep the returned \`agent_session_id\`. Name a batch with \`label\`.
 3. On every content mutate, pass \`agent_session_id\`, \`why\` (plain English goal), and \`highlights\` when touching big fields (sections, link lists, long text). Server fills simple field values (meta.title, seo.*) for staff. Issue \`complete\` also needs \`why\` + \`highlights\`. Claim/note/summarize still use string \`report\` (min 80).
 4. Prefer one \`agent_session\` \`summarize\` at the end.
 
@@ -67,7 +67,7 @@ Optional \`discovery_path\` (when present) is a research menu to deepen judgment
 ## Depth and stale tools
 
 - Architecture deep-dives → \`explain_site\` topics (overview includes a live products table).
-- Missing / idle / wrong-scope \`agent_session_id\` → mutate denied (\`session_required\` / \`session_unknown\`) — start again.
+- Missing / idle / wrong-scope / invented (not from start) \`agent_session_id\` → mutate denied (\`session_required\` / \`session_unknown\`) — start again.
 - If tools look missing/stale after a deploy, ask the human to reconnect the MCP connector — agents cannot refresh tools/list mid-session.
 `;
 

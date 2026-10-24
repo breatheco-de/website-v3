@@ -28,7 +28,7 @@ export function asIssueActor(raw: unknown): IssueActorRef | null {
 /** Staff-facing category labels for proposal chips. */
 export function proposalCategoryLabel(category: string): string {
   if (category === "content.seo") return "SEO";
-  if (category === "content.field") return "Field";
+  if (category === "content.field") return "Page content";
   return category;
 }
 

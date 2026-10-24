@@ -25,3 +25,4 @@ export { HtmlDbReaderRebuildJob } from "./server/jobs/definitions/html-db-reader
 export { HtmlContentTypeListingRebuildJob } from "./server/jobs/definitions/html-content-type-listing-rebuild";
 export { HtmlContentTypeRebuildJob } from "./server/jobs/definitions/html-content-type-rebuild";
 export { LocalDatabaseRefreshJob } from "./server/jobs/definitions/local-database-refresh";
+export { VectorIndexSyncJob } from "./server/jobs/definitions/vector-index-sync";

@@ -6,6 +6,7 @@ import {
   setEcommerceProductLookup,
   type ProductLookup,
 } from "@/lib/tracking";
+import type { TrackingKeyIndex } from "@shared/tracking-keys";
 
 export interface EcommerceProductMapEntry {
   product_id: string;
@@ -15,7 +16,17 @@ export interface EcommerceProductMapEntry {
   actively_selling?: boolean;
   /** @deprecated use actively_selling */
   active?: boolean;
+  short_key?: string;
 }
+
+/** Site tracking keys + whether product/persona tracking fields are on. */
+export interface TrackingKeysState {
+  ready: boolean;
+  keys: TrackingKeyIndex;
+}
+
+const EMPTY_TRACKING: TrackingKeysState = { ready: false, keys: { products: [] } };
+let trackingState: TrackingKeysState | null = null;
 
 export function isActivelySelling(p: {
   actively_selling?: boolean;
@@ -69,11 +80,16 @@ export async function ensureEcommerceProductLookup(): Promise<Map<string, Ecomme
         for (const e of entries) {
           if (e?.content_slug) map.set(e.content_slug, e);
         }
+        const tracking = data.tracking as Partial<TrackingKeysState> | undefined;
+        if (tracking && Array.isArray(tracking.keys?.products)) {
+          trackingState = { ready: tracking.ready === true, keys: tracking.keys };
+        }
       }
     } catch {
       // non-fatal
     }
     cachedMap = map;
+    if (!trackingState) trackingState = EMPTY_TRACKING;
     setEcommerceProductLookup(buildLookup(map));
     return map;
   })();
@@ -83,4 +99,14 @@ export async function ensureEcommerceProductLookup(): Promise<Map<string, Ecomme
 
 export function getCachedProductBySlug(slug: string): EcommerceProductMapEntry | undefined {
   return cachedMap?.get(slug);
+}
+
+/** Tracking keys for the current site (loads the product map once). */
+export async function ensureTrackingKeys(): Promise<TrackingKeysState> {
+  await ensureEcommerceProductLookup();
+  return trackingState ?? EMPTY_TRACKING;
+}
+
+export function getCachedTrackingKeys(): TrackingKeysState | null {
+  return trackingState;
 }

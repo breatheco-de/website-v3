@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
+  clearSiteSitemapCache,
   clearSitemapCache,
   getDebugSitemapUrls,
+  getSitemap,
+  getSitemapCacheStatus,
   invalidateDebugSitemapUrls,
   invalidateSitemapEntry,
   invalidateSitemapEntriesByContentKey,
+  refreshSitemapEntriesForContentKey,
+  refreshSitemapEntry,
   resetDebugSitemapCacheForTests,
 } from "./sitemap";
 
@@ -55,6 +60,25 @@ describe("debug sitemap memo", () => {
     const result = clearSitemapCache();
     expect(result.success).toBe(true);
     expect(Array.isArray(getDebugSitemapUrls())).toBe(true);
+  });
+
+  it("clearSiteSitemapCache drops the cached sitemap and debug memo", () => {
+    getSitemap();
+    expect(getSitemapCacheStatus().cached).toBe(true);
+    getDebugSitemapUrls();
+    clearSiteSitemapCache("site_test");
+    expect(getSitemapCacheStatus().cached).toBe(false);
+    expect(Array.isArray(getDebugSitemapUrls())).toBe(true);
+  });
+
+  it("entry refreshes drop the cached sitemap instead of patching it", () => {
+    getSitemap();
+    refreshSitemapEntry("blog", "foo", "en");
+    expect(getSitemapCacheStatus().cached).toBe(false);
+
+    getSitemap();
+    refreshSitemapEntriesForContentKey("blog", "foo", ["en", "es"]);
+    expect(getSitemapCacheStatus().cached).toBe(false);
   });
 
   it("expires memo after TTL", () => {

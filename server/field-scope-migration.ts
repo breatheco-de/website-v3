@@ -681,7 +681,7 @@ export async function runFieldScopeMigration(opts: {
       }
 
       for (const p of recheck.values()) {
-        log("recheck_proposal", p.id, `"${p.title}"`, `${p.open_blocker_count} open needs-changes`, "re-preview, then resolve");
+        log("recheck_proposal", p.id, `"${p.title}"`, `${p.open_blocker_count} open needs-changes`, "re-preview (dry run works while blocked), then resolve");
       }
       log("summary", {
         files_changed: changed.size,

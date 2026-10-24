@@ -32,6 +32,9 @@ export type AdsVersionRow = {
   submissions: number;
   conversion_rate: number | null;
   low_sample: boolean;
+  /** Non-paid GA4 sessions whose first page test was this version (missing on older snapshots). */
+  organic_visits?: number;
+  organic_leads?: number;
 };
 
 export type AdsCampaignRef = {

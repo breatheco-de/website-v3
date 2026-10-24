@@ -49,6 +49,23 @@ On consequential **previews**, `create_or_update_product` may attach **`discover
 - Soft-removed (`purchasable: false`): still editable for audience; not in default `list_products`.
 - Codes: `persona_in_use`, `duplicate_persona_id`, `last_persona`, `audience_in_use`, `product_id_collision`, `type_not_allow_sellable`.
 
+## Tracking short keys (`short_key`)
+
+GA4 keeps 100 chars per event value, so events carry codes, not slugs / persona ids (topic `lead-forms` for what forms send).
+
+| Fact | Detail |
+|---|---|
+| Where | `_product.yml` → `short_key` (product), `personas[].short_key`, `retired_short_keys[] { key, type, id, name, retired_at }` |
+| Format | `^[a-z0-9]{2,6}$`; `all` / `none` reserved (event sentinels) |
+| Uniqueness | Per site only: product keys among products; persona keys across **all** the site's personas. Retired keys count. No cross-site check — staff align sites by hand (same key on two sites = merged in shared GA4 reports). |
+| Fill | Every `create_or_update_product` write (and Store save) fills that product's missing keys with a suggestion → `warnings[].code: short_keys_assigned`. Site-wide: migration `009_assign_tracking_short_keys` (staff run) or Diagnostics fixer `assign-tracking-short-keys`. |
+| Lock | A saved key is locked: changing it → `action_required: confirm_short_key_rename` unless `rename_short_key: true`; the old key moves to `retired_short_keys` (never reusable; old reports keep it). Removing a persona retires its key. Soft-remove keeps keys reserved. |
+| Errors | `short_key_locked`, `short_key_conflict`, `invalid_short_key` (`property_path` `_product.yml short_key` / `personas[].short_key`) |
+| Switch | Product/persona fields stay off a site's events until every active product + persona has a key; then latched on for good (`pipeline_state.tracking_keys_ready_at`) and the site's HTML cache is cleared. A key missing later → full id is sent + Diagnostics `MISSING_TRACKING_SHORT_KEY`. |
+| Side effects | Key changes clear cached HTML for the product page and every page whose funnel binds the product. Page copy unchanged. |
+
+`get_product` returns `tracking_keys.taken_product` / `taken_persona` (other products' + retired keys) to pick a free key.
+
 ## Funnel bindings
 
 ```yaml
@@ -63,6 +80,7 @@ funnel:
 - Same product twice with different personas is allowed.
 - When audience exists: landings **must** include a valid `persona`. **Program self-page** may omit persona.
 - Codes: `missing_product_audience`, `missing_funnel_persona`, `unknown_persona`.
+- Funnel writes warn `tracking_values_too_long` (non-blocking) when the page's product / persona codes exceed 100 chars; GA4 cuts at a whole code (`tracking_truncated: true`), ledger + CRM keep full ids.
 - Reviewing proposed funnel bindings in proposals → topic **`funnel-classification-proposals`** (persona → product → stage).
 
 ## Journey tools
@@ -76,7 +94,8 @@ funnel:
 
 ## Key files
 
-- `shared/productAudience.ts`, `shared/funnel.ts`
+- `shared/productAudience.ts`, `shared/funnel.ts`, `shared/tracking-keys.ts`, `shared/tracking-context.ts`
+- `server/product/tracking-key-index.ts`, `tracking-keys-assign.ts`, `tracking-readiness.ts`
 - `server/product/` (index, manager, product-io, funnel gates, products-type-config)
 - `mcp-server/tools/product.ts`
 - Store → product detail → Audience panel / Selling toggle; SEO modal → Product tab; type manage → Sellable products card

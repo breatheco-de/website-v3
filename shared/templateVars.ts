@@ -71,6 +71,46 @@ export function escapeObjectVars(obj: unknown, map?: Map<string, string>, counte
   return { escaped: obj, map: m };
 }
 
+/** Key js-yaml produces when an unescaped `{{ x }}` is parsed as a flow mapping. */
+export const CORRUPTED_TEMPLATE_KEY = "[object Object]";
+
+/** Paths (e.g. `sections.1.updated_at`) whose value carries the corrupted template key. */
+export function findCorruptedTemplateKeys(obj: unknown, prefix = ""): string[] {
+  if (Array.isArray(obj)) {
+    return obj.flatMap((item, i) => findCorruptedTemplateKeys(item, prefix ? `${prefix}.${i}` : String(i)));
+  }
+  if (!obj || typeof obj !== "object") return [];
+  const out: string[] = [];
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === CORRUPTED_TEMPLATE_KEY) {
+      out.push(prefix || "(root)");
+      continue;
+    }
+    out.push(...findCorruptedTemplateKeys(value, prefix ? `${prefix}.${key}` : key));
+  }
+  return out;
+}
+
+export class CorruptedTemplateValueError extends Error {
+  readonly code = "corrupted_template_value";
+  constructor(
+    readonly paths: string[],
+    readonly file?: string,
+  ) {
+    super(
+      `Save blocked: ${file ? `${file} has` : "this content has"} a broken template value at ${paths.join(", ")} ` +
+        `(a {{ … }} placeholder was turned into "${CORRUPTED_TEMPLATE_KEY}"). Nothing was written. ` +
+        "Report this to the dev team so they can fix the code path that read the file.",
+    );
+    this.name = "CorruptedTemplateValueError";
+  }
+}
+
+export function assertNoCorruptedTemplateKeys(obj: unknown, file?: string): void {
+  const paths = findCorruptedTemplateKeys(obj);
+  if (paths.length > 0) throw new CorruptedTemplateValueError(paths, file);
+}
+
 export function unescapeYamlDump(yamlStr: string, map: Map<string, string>): string {
   let result = yamlStr;
   for (const [placeholder, original] of map) {

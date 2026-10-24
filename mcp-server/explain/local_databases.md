@@ -19,7 +19,7 @@ Private databases may be **local** (`source.type: local` → YAML under `db/{nam
 | `update_database_items` | same | Local only; bulk update (max 40) |
 | `delete_database_item` | same | Local only; requires `confirm: true` |
 | `create_or_update_database` | **`databases_manage` only** | Create = config + empty local items YAML; update = deep patch + `confirm:true` |
-| `reindex_database` | **`databases_manage` only** | After item writes **or** definition patches that enable/change `vector_search` |
+| `reindex_database` | **`databases_manage` only** | After item writes; queues an incremental Sidequest sync (definition patches that enable/change `vector_search` auto-queue it) |
 
 Call `explain_site` topic `local_databases` before bulk FAQ database edits or when reading api/remote banks.
 
@@ -118,7 +118,7 @@ Warns if `related_features.length > 2`.
 
 **Does not:** push content GitHub; edit page sections / `hardcoded_entries` / `dynamic_entries`; auto-reindex (unless `reindex: true` and caller has `databases_manage`); edit upstream api/remote source rows; authorize row writes via `databases_manage` alone.
 
-When vector search is enabled, mutate responses `next_actions` → `reindex_database` until reindexed. Definition patches that flip/change `vector_search` also recommend `reindex_database`.
+When vector search is enabled, mutate responses `next_actions` → `reindex_database` until reindexed. Definition patches that flip/change `vector_search` queue the sync automatically (warning `vector_index_auto_queued`); do not call `reindex_database` for them. Reindex is incremental and runs in the Sidequest worker (see `semantic_search`).
 
 ## Delete safety
 

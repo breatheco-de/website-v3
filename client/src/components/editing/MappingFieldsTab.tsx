@@ -58,6 +58,20 @@ type FieldProvenance = {
   deprecated?: { replaced_by: string | null; reason: string | null };
   /** Retired and this entry has no stored value — the server rejects new values. */
   deprecated_locked?: boolean;
+  stored_in?: FieldStoredIn;
+  stored_in_path?: string;
+  also_in?: Array<{ stored_in: Exclude<FieldStoredIn, "not_set">; path: string }>;
+  publishes_to?: "page_common";
+};
+
+type FieldStoredIn = "locale_file" | "draft_file" | "page_common" | "type_template" | "not_set";
+
+const STORED_IN_LABEL: Record<FieldStoredIn, string> = {
+  locale_file: "this language",
+  draft_file: "this draft",
+  page_common: "the page (all languages)",
+  type_template: "the content type template",
+  not_set: "nowhere yet",
 };
 
 type ProvenanceResponse = {
@@ -393,7 +407,7 @@ function seoSourceBadge(row: FieldProvenance | undefined): { label: string; vari
   if (row.source === "original") {
     return { label: "Database baseline", variant: "outline" };
   }
-  return { label: "Entry default", variant: "outline" };
+  return { label: "Default (not saved)", variant: "outline" };
 }
 
 function isPillarPathOptedOut(row: FieldProvenance | undefined): boolean {
@@ -1932,7 +1946,7 @@ function sourceBadge(source: FieldSource): { label: string; variant: "default" |
     case "ct_override":
       return { label: "Content type override", variant: "secondary" };
     case "entry_default":
-      return { label: "Entry default", variant: "outline" };
+      return { label: "Saved on page", variant: "outline" };
     default:
       return { label: "Original database", variant: "outline" };
   }
@@ -2353,9 +2367,25 @@ export function MappingFieldsTab({
                         Read-only
                       </Badge>
                     ) : (
-                      <Badge variant={badge.variant} className="text-[10px] font-normal">
-                        {badge.label}
-                      </Badge>
+                      <div className="space-y-1">
+                        <Badge
+                          variant={badge.variant}
+                          className="text-[10px] font-normal"
+                          title={row.stored_in ? `Saved in ${STORED_IN_LABEL[row.stored_in]}` : undefined}
+                          data-testid={`badge-source-${row.field}`}
+                        >
+                          {row.stored_in === "not_set" ? "Not set" : badge.label}
+                        </Badge>
+                        {row.publishes_to === "page_common" ? (
+                          <p className="text-[10px] leading-snug text-muted-foreground" data-testid={`note-publishes-to-${row.field}`}>
+                            In the draft; applies to all languages when published.
+                          </p>
+                        ) : row.also_in?.length ? (
+                          <p className="text-[10px] leading-snug text-muted-foreground" data-testid={`note-also-in-${row.field}`}>
+                            Also saved in {row.also_in.map((c) => STORED_IN_LABEL[c.stored_in]).join(", ")}; publishing keeps only one.
+                          </p>
+                        ) : null}
+                      </div>
                     )}
                   </td>
                   <td className="px-3 py-2 align-top">

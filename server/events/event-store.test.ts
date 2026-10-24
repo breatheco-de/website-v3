@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
@@ -701,7 +702,7 @@ describe("event-store", () => {
 
     it("finds open session and freezes model; summarized is closed", () => {
       const site = `${TEST_SITE}-open-sess-${Date.now()}`;
-      const sid = "sess-open-1";
+      const sid = randomUUID();
       emitEvent({
         site,
         type: "agent_session_started",
@@ -756,7 +757,7 @@ describe("event-store", () => {
 
     it("idle-expires sessions", () => {
       const site = `${TEST_SITE}-idle-sess-${Date.now()}`;
-      const sid = "sess-idle-1";
+      const sid = randomUUID();
       const now = Date.now();
       emitEvent({
         site,
@@ -795,7 +796,7 @@ describe("event-store", () => {
 
     it("abandoned closes the session", () => {
       const site = `${TEST_SITE}-abandon-sess-${Date.now()}`;
-      const sid = "sess-abandon-1";
+      const sid = randomUUID();
       emitEvent({
         site,
         type: "agent_session_started",
@@ -818,6 +819,60 @@ describe("event-store", () => {
           client: "Grok",
         }),
       ).toBeNull();
+    });
+
+    it("agent-invented ids shared across scopes are never open or usable", () => {
+      const site = `${TEST_SITE}-invented-sess-${Date.now()}`;
+      emitEvent({
+        site,
+        type: "agent_session_started",
+        agent_session_id: "new",
+        attribution: mcpAttr({ client: "Grok", role: "layout_editor" }),
+        payload: {},
+      });
+      emitEvent({
+        site,
+        type: "agent_session_started",
+        agent_session_id: "new",
+        attribution: mcpAttr({ client: "Cursor", role: "seo_specialist", model: "cursor/auto" }),
+        payload: {},
+      });
+      for (const scope of [
+        { role: "layout_editor", client: "Grok" },
+        { role: "seo_specialist", client: "Cursor" },
+      ]) {
+        expect(findOpenAgentSession({ site, author: "alice", ...scope })).toBeNull();
+        const usable = resolveUsableAgentSession({
+          site,
+          agentSessionId: "new",
+          author: "alice",
+          ...scope,
+        });
+        expect(usable.ok).toBe(false);
+        if (!usable.ok) expect(usable.code).toBe("session_unknown");
+      }
+
+      const sid = randomUUID();
+      emitEvent({
+        site,
+        type: "agent_session_started",
+        agent_session_id: sid,
+        attribution: mcpAttr({ client: "Cursor", role: "seo_specialist", model: "cursor/auto" }),
+        payload: {},
+      });
+      expect(
+        findOpenAgentSession({ site, author: "alice", role: "seo_specialist", client: "Cursor" })
+          ?.agent_session_id,
+      ).toBe(sid);
+      expect(
+        resolveUsableAgentSession({
+          site,
+          agentSessionId: sid,
+          author: "alice",
+          role: "seo_specialist",
+          client: "Cursor",
+        }).ok,
+      ).toBe(true);
     });
   });
 });

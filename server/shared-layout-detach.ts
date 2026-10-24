@@ -6,8 +6,7 @@
 
 import fs from "fs";
 import path from "path";
-import yaml from "js-yaml";
-import { escapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import { dumpContentYaml } from "./content-yaml";
 import { getFolder, isValidType, getContentTypeConfig } from "./content-types";
 import { contentIndex } from "./content-index";
 import { getDefaultContentRoot } from "./site-config";
@@ -152,23 +151,17 @@ export function assertReattachRequiredFields(opts: {
 
 const log = child({ module: "shared-layout-detach" });
 
-function safeYamlDump(obj: unknown): string {
-  const { escaped, map } = escapeObjectVars(obj);
-  const dumped = yaml.dump(escaped, {
-    lineWidth: -1,
-    noRefs: true,
-    quotingType: '"',
-    forceQuotes: false,
-  });
-  return unescapeYamlDump(dumped, map);
-}
-
 function writeYamlFile(filePath: string, data: Record<string, unknown>, author?: string | null, contentRoot?: string): void {
+  const dumped = dumpContentYaml(
+    data,
+    { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false },
+    filePath,
+  );
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  fs.writeFileSync(filePath, safeYamlDump(data), "utf-8");
+  fs.writeFileSync(filePath, dumped, "utf-8");
   markFileAsModified(filePath, author ?? undefined, undefined, contentRoot);
 }
 

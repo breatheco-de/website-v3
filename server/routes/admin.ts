@@ -46,7 +46,7 @@ import { databaseManager, DatabaseManager } from "../database";
 import { collectSystemAlerts, recheckDatabaseHealth, recheckDecisionModel } from "../system-alerts";
 import { listEvents, listEventAuthors, clearAllEvents, listAgentSessions, getAgentSessionDetail, emitEvent, getLatestWriteGeneration, getOldestUnpublishedAgeMs, getUnpublishedCount, getUnpublishedEvents, findOpenAgentSession, resolveUsableAgentSession } from "../events/event-store";
 import { singleAttribution, EVENT_TYPES, type EventType } from "../events/types";
-import { isExactAgentModel, normalizeMcpClientName, sessionConflictPayload } from "../../shared/agent-identity";
+import { isExactAgentModel, issueAgentSessionId, normalizeMcpClientName, sessionConflictPayload } from "../../shared/agent-identity";
 import { seedDemoPipelineEvents } from "../events/seed-demo";
 import {
   expandKindIdsToTypes,
@@ -779,10 +779,26 @@ export function registerAdminRoutes(app: Express): void {
     const { ENTRY_ACTIVITY_WINDOW_DAYS } = await import("@shared/event-log-filters");
     const { countEntryActivityWrites } = await import("../seo-cluster-metrics");
     const counts = countEntryActivityWrites({ site });
+    let openProposals: import("../content-proposals").PendingProposalForPage[] = [];
+    const slash = entry.indexOf("/");
+    if (slash > 0 && slash < entry.length - 1) {
+      try {
+        const { listPendingProposalsForPage } = await import("../content-proposals");
+        openProposals = listPendingProposalsForPage(
+          site,
+          entry.slice(0, slash),
+          entry.slice(slash + 1),
+          getContentRoot(res),
+        );
+      } catch {
+        /* proposals DB unavailable: the button falls back to the write count */
+      }
+    }
     res.json({
       entryKey: entry,
       writeCount: counts.get(entry) ?? 0,
       windowDays: ENTRY_ACTIVITY_WINDOW_DAYS,
+      openProposals,
     });
   });
 
@@ -1063,9 +1079,7 @@ export function registerAdminRoutes(app: Express): void {
       const model = String(modelRaw).trim();
       const actorWithModel = resolveEventActor(req, { model });
 
-      const agent_session_id =
-        (typeof req.body?.agent_session_id === "string" && req.body.agent_session_id.trim()) ||
-        randomUUID();
+      const { agent_session_id, warnings } = issueAgentSessionId(req.body?.agent_session_id, randomUUID);
       const label =
         typeof req.body?.label === "string" && req.body.label.trim()
           ? req.body.label.trim().slice(0, 200)
@@ -1085,6 +1099,7 @@ export function registerAdminRoutes(app: Express): void {
         model,
         event_id: event.id,
         abandoned_session_id: open && forceNew ? open.agent_session_id : null,
+        warnings,
       });
     }
 
@@ -2737,33 +2752,56 @@ export function registerAdminRoutes(app: Express): void {
       const auth = await requireAdminAuth(req, res);
       if (!auth.authorized) return;
 
-      const { getStatus } = await import("../vector-search");
-      const { getAllJobStates } = await import("../db-job-state");
+      const { getStatus, siteCollectionName, legacyCollectionName } = await import("../vector-search");
+      const { getAllJobStates, displayIndexStatus } = await import("../db-job-state");
       const status = await getStatus();
       const pointsByCollection = new Map(
         status.collections.map((c) => [c.name, c.points_count]),
       );
-      const jobStates = getAllJobStates(getContentRoot(res));
+      const contentRoot = getContentRoot(res);
+      const jobStates = getAllJobStates(contentRoot);
       const dbm = getDB(res);
+      const workerRunning = (await getEngineStatus()).status === "running";
+      const inUse = new Set<string>();
+      const knownSiteCollections = new Set<string>();
 
       const databases = dbm.list().map(({ name, config }) => {
         const vs = config.vector_search;
         const fields = Array.isArray(vs?.fields) ? vs.fields : [];
         const semanticEnabled = Boolean(vs?.enabled && fields.length > 0);
-        const index = jobStates[name]?.index ?? { status: "idle" as const };
+        const rawIndex = jobStates[name]?.index ?? { status: "idle" as const };
+        const index = { ...rawIndex, status: displayIndexStatus(rawIndex, workerRunning) };
+        const collection = siteCollectionName(contentRoot, name);
+        const legacy = legacyCollectionName(name);
+        knownSiteCollections.add(collection);
+        const ready = rawIndex.ready === true && rawIndex.collection === collection;
+        const served = ready ? collection : pointsByCollection.has(legacy) ? legacy : null;
+        if (semanticEnabled) {
+          inUse.add(collection);
+          if (!ready && served) inUse.add(served);
+        }
         return {
           name,
           label: config.name || name,
           semantic_enabled: semanticEnabled,
           fields,
-          collection_points: pointsByCollection.has(name)
-            ? (pointsByCollection.get(name) as number)
+          collection,
+          ready,
+          served_collection: served,
+          collection_points: pointsByCollection.has(collection)
+            ? (pointsByCollection.get(collection) as number)
             : null,
           index,
         };
       });
+      // Collections of this site's databases that nothing searches (vector search turned off).
+      const unusedCollections = status.collections
+        .map((c) => c.name)
+        .filter((n) => knownSiteCollections.has(n) && !inUse.has(n));
 
       res.json({
+        worker_running: workerRunning,
+        unused_collections: unusedCollections,
         available: status.available,
         url: status.url,
         host: status.host,
@@ -2807,6 +2845,32 @@ export function registerAdminRoutes(app: Express): void {
         ok: false,
         error: err instanceof Error ? err.message : "Failed to test Qdrant connection",
       });
+    }
+  });
+
+  api.post(app, "/api/admin/qdrant/rebuild/:name", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const auth = await requireAdminAuth(req, res);
+      if (!auth.authorized) return;
+
+      const name = req.params.name;
+      const dbm = getDB(res);
+      if (!dbm.exists(name)) {
+        return res.status(404).json({ error: `Database "${name}" not found` });
+      }
+      const vs = dbm.get(name).vector_search;
+      if (!vs?.enabled || !vs.fields?.length) {
+        return res.status(400).json({ error: "Semantic search is not enabled for this database" });
+      }
+      const result = await dbm.queueVectorIndex(name, "rebuild", { rebuild: true });
+      res.json({
+        success: true,
+        queued: result.queued || result.deduped === true,
+        ...(result.deduped ? { already_queued: true } : {}),
+      });
+    } catch (err) {
+      log.error({ err }, "[Qdrant Rebuild POST] Error:");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Failed to queue rebuild" });
     }
   });
 

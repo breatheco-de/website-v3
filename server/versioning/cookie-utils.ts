@@ -1,7 +1,10 @@
 import type { Request, Response } from "express";
 import crypto from "crypto";
 
-const VERSIONING_COOKIE_NAME = "4g_versioning";
+/** v2: assignments carry `run`; the v1 cookie (`4g_versioning`) is ignored so everyone is re-split once. */
+export const VERSIONING_COOKIE_NAME = "4g_versioning_v2";
+/** First test seen this visit (`experiment_id|variant`), 30-minute rolling, set by the client. */
+export const VISIT_EXPERIMENT_COOKIE_NAME = "4g_visit_exp";
 const USER_COOKIE_NAME = "4g_user_id";
 const LEGACY_USER_COOKIE_NAME = "4g_visitor_id";
 const COOKIE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
@@ -11,7 +14,10 @@ export interface VersioningAssignment {
   contentType: string;
   slug: string;
   locale: string;
+  /** Variant slug or `"default"`. */
   variantSlug: string;
+  /** Test run (`started_at`) the assignment belongs to; null for legacy configs. */
+  run?: string | null;
   assignedAt: number;
 }
 
@@ -96,6 +102,21 @@ export function setVersioningCookie(
     httpOnly: true,
     sameSite: "lax",
   });
+}
+
+/** Parse `4g_visit_exp` (`experiment_id|variant`). */
+export function getVisitExperimentCookie(req: Request): { experiment_id: string; variant: string } | null {
+  const raw = req.cookies?.[VISIT_EXPERIMENT_COOKIE_NAME];
+  if (typeof raw !== "string" || !raw) return null;
+  let value = raw;
+  try {
+    value = decodeURIComponent(raw);
+  } catch {
+    /* keep raw */
+  }
+  const sep = value.lastIndexOf("|");
+  if (sep <= 0 || sep === value.length - 1) return null;
+  return { experiment_id: value.slice(0, sep).slice(0, 300), variant: value.slice(sep + 1).slice(0, 100) };
 }
 
 export function buildUserContext(req: Request, userId: string): {

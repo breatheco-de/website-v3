@@ -18,6 +18,8 @@ import { findTopLevelKeySpan, surgicalRemoveTopLevelKey } from "./seo-fields";
 import { getFolder } from "./content-types";
 import { getDefaultContentRoot } from "./site-config";
 import { markFileAsModified } from "./sync-state";
+import { measureFunnelTrackingLength } from "@shared/tracking-context";
+import { loadTrackingKeyIndex } from "./product/tracking-key-index";
 
 export { FUNNEL_YAML_KEY };
 export type { FunnelBlock, FunnelProducts, FunnelStage };
@@ -375,7 +377,36 @@ export function prepareAndWriteFunnelMerge(
   return {
     ok: true,
     coerced: merged.coerced,
-    warnings: [...merged.warnings, ...gates.warnings],
+    warnings: [
+      ...merged.warnings,
+      ...gates.warnings,
+      ...trackingLengthWarnings(merged.coerced, contentType, slug, contentRoot),
+    ],
     relativePath,
   };
+}
+
+/** Non-blocking: GA4 keeps 100 characters per value; leads / CRM keep the full list. */
+function trackingLengthWarnings(
+  funnel: FunnelBlock,
+  contentType: string,
+  slug: string,
+  contentRoot: string | undefined,
+): { code: string; message: string }[] {
+  try {
+    const r = measureFunnelTrackingLength(
+      funnel,
+      { contentType, contentSlug: slug },
+      loadTrackingKeyIndex(contentRoot),
+    );
+    if (!r.over) return [];
+    return [
+      {
+        code: "tracking_values_too_long",
+        message: `Products/personas exceed what Google Analytics keeps per value (product ${r.product}, persona ${r.persona}, product_persona ${r.product_persona} of ${r.max} chars). Saved anyway; GA4 reports cut the list (events carry tracking_truncated: true); lead ledger and CRM keep the full ids. Fix: fewer bindings or shorter product/persona short_key values.`,
+      },
+    ];
+  } catch {
+    return [];
+  }
 }

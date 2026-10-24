@@ -25,7 +25,7 @@ The server already knows the rules. Every response says what happened, what did 
 2. Know who you are: read `primary_blocker`, `role_description`, and `allowed_tools` (`bootstrap_agent` / `get_current_user`). Many hosts drop the server's role instructions — do not assume you saw them.
    - `role_connector_required` → no writes on this connection. Give the human `connector_guide.role_connectors`; stay read-only.
    - `mcp_write_disabled` → propose-only. Follow `mcp_write_guide.course_of_action`.
-3. `agent_session` `start` with your exact `provider/model` (e.g. `claude/sonnet-4.5`). Pass `agent_session_id` on every write. `session_conflict` → `resume: true` if it is your run, else `force_new: true` + report.
+3. `agent_session` `start` with your exact `provider/model` (e.g. `claude/sonnet-4.5`). Do not pass an id on start; pass the `agent_session_id` it returns on every write. To name a batch of work, pass `label` on start. `session_conflict` → `resume: true` if it is your run, else `force_new: true` + report.
 4. Several sites → pass `site` (the domain the human named) on **every** call. Never assume the first site.
 5. A tool you need is not in your list → do not imitate it with other tools. Tell the human: your role lacks it, or the connector must be refreshed/reconnected (tool lists never update mid-chat).
 

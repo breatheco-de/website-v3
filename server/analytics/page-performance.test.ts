@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildLayoutPathIndex, computeLayoutPerformance, type ChannelRow } from "./page-performance";
+import {
+  buildLayoutPathIndex,
+  computeChannelBaselines,
+  computeLayoutPerformance,
+  type ChannelRow,
+} from "./page-performance";
 import type { InsightPageRecord } from "@shared/schema";
 
 const row = (p: Partial<ChannelRow>): ChannelRow => ({
@@ -91,5 +96,25 @@ describe("buildLayoutPathIndex", () => {
     expect(index.get("/es/blog/y")?.key).toBe("blog::template");
     expect(index.get("/en/landing/a")).toMatchObject({ key: "landing/a", stage: "decision" });
     expect([...index.values()].some((v) => v.key.startsWith("overlays/"))).toBe(false);
+  });
+});
+
+describe("computeChannelBaselines", () => {
+  it("returns channel rates per content type + stage and per metric, without campaign keys", () => {
+    const index = new Map([
+      ["/en/a", { key: "landing/a", contentType: "landing", stage: "decision" }],
+      ["/en/blog/x", { key: "blog/x", contentType: "blog", stage: "awareness" }],
+    ]);
+    const out = computeChannelBaselines(
+      [
+        row({ path: "/en/a", channel: "paid", campaign: "c1", sessions: 200, leads: 8, checkouts: 2 }),
+        row({ path: "/en/blog/x", channel: "organic", sessions: 100, engaged: 40 }),
+      ],
+      index,
+    );
+    expect(out["ch|paid|landing|decision"]).toEqual({ sessions: 200, outcome: 10, rate: 0.05 });
+    expect(out["ch|paid|*|conversions"]?.rate).toBe(0.05);
+    expect(out["ch|organic|blog|awareness"]?.rate).toBe(0.4);
+    expect(Object.keys(out).some((k) => k.startsWith("cp|"))).toBe(false);
   });
 });

@@ -25,7 +25,9 @@ export type SystemAlertCode =
   | "sidequest_engine_down"
   | "sidequest_engine_stuck"
   | "github_app_env_missing"
-  | "decision_model_unavailable";
+  | "decision_model_unavailable"
+  | "ab_check_failed"
+  | "ab_check_inconclusive";
 
 export interface SystemAlert {
   id: string;
@@ -438,6 +440,12 @@ export async function collectSystemAlerts(): Promise<SystemAlert[]> {
     }
   }
 
+  try {
+    alerts.push(...(await collectAbTestingAlerts()));
+  } catch {
+    /* non-fatal */
+  }
+
   const severityRank: Record<SystemAlertSeverity, number> = {
     critical: 0,
     warning: 1,
@@ -446,6 +454,57 @@ export async function collectSystemAlerts(): Promise<SystemAlert[]> {
   return alerts.sort(
     (a, b) => severityRank[a.severity] - severityRank[b.severity],
   );
+}
+
+/**
+ * A/B check alerts per site. Failed (latest conclusive run): critical when a real test
+ * has traffic, else warning. Inconclusive (most recent run): always a warning.
+ * Both clear on the next passing run.
+ */
+export async function collectAbTestingAlerts(
+  sites: Array<{ contentRoot: string; contentRootName: string }> = Array.from(getSiteContextMap().values()),
+): Promise<SystemAlert[]> {
+  const { latestConclusiveRun, latestRun } = await import("./ab-testing/state");
+  const { describeAbCheckRun } = await import("./ab-testing/check");
+  const { listActiveTests } = await import("./ab-testing/active-tests");
+  const multiSite = sites.length > 1;
+  const out: SystemAlert[] = [];
+  for (const site of sites) {
+    const prefix = multiSite ? `${site.contentRootName}:` : "";
+    const siteField = multiSite ? { site: site.contentRootName } : {};
+    const latest = latestRun(site.contentRootName);
+    const conclusive = latestConclusiveRun(site.contentRootName);
+    if (conclusive?.status === "failed") {
+      const running = listActiveTests(site.contentRoot).length;
+      out.push({
+        id: `${prefix}ab_check_failed`,
+        severity: running > 0 ? "critical" : "warning",
+        code: "ab_check_failed",
+        title: "A/B test check failed",
+        message:
+          `${describeAbCheckRun(conclusive)}${conclusive.deploy_sha ? ` (deploy ${conclusive.deploy_sha.slice(0, 7)})` : ""}. ` +
+          "Running tests continue; starting or raising tests is blocked until a check passes.",
+        actionHref: "/private/tracking/ab-testing#ab-health",
+        actionLabel: "Open A/B testing",
+        ...siteField,
+      });
+    }
+    if (latest?.status === "inconclusive") {
+      out.push({
+        id: `${prefix}ab_check_inconclusive`,
+        severity: "warning",
+        code: "ab_check_inconclusive",
+        title: "A/B check couldn't run",
+        message:
+          "The A/B check couldn't run (blocked or timed out). The last real result still applies. " +
+          "If this repeats, allow the check in Cloudflare (see the Health card under Tracking → A/B testing).",
+        actionHref: "/private/tracking/ab-testing#ab-health",
+        actionLabel: "Open A/B testing",
+        ...siteField,
+      });
+    }
+  }
+  return out;
 }
 
 export interface DecisionModelRecheckResult {

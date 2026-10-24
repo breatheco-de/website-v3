@@ -146,6 +146,28 @@ describe("filterFieldsByRequest / stripRedundantBaseline", () => {
     expect(contentOnly[0]!.effective).toBe("# Hi");
   });
 
+  it("keeps stored_in / also_in / publishes_to on selected rows", () => {
+    const rows = [
+      {
+        field: "authors",
+        effective: ["4geeks-academy"],
+        baseline: ["4geeks-academy"],
+        source: "entry_default",
+        stored_in: "locale_file",
+        stored_in_path: "site_x/blog/post/en.yml",
+        also_in: [{ stored_in: "page_common", path: "site_x/blog/post/_common.yml" }],
+      },
+      { field: "published_at", effective: "2026-08-22", source: "entry_default", stored_in: "draft_file", publishes_to: "page_common" },
+    ];
+    const [authors, publishedAt] = filterFieldsByRequest(rows, ["authors", "published_at"]);
+    expect(authors).toMatchObject({
+      stored_in: "locale_file",
+      also_in: [{ stored_in: "page_common", path: "site_x/blog/post/_common.yml" }],
+    });
+    expect(authors).not.toHaveProperty("baseline");
+    expect(publishedAt).toMatchObject({ stored_in: "draft_file", publishes_to: "page_common" });
+  });
+
   it("keeps baseline when it differs", () => {
     const row = stripRedundantBaseline({
       field: "title",

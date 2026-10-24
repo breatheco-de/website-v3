@@ -57,6 +57,7 @@ import { unassignedVariablesValidator } from "./unassigned-variables";
 import { variablesMetadataValidator } from "./variables-metadata";
 import { funnelCompletenessValidator } from "./funnel-completeness";
 import { draftIntegrityValidator } from "./draft-integrity";
+import { corruptedTemplateValuesValidator } from "./corrupted-template-values";
 import { textLimitsValidator } from "./text-limits";
 
 export const validators: Validator[] = [
@@ -112,6 +113,7 @@ export const validators: Validator[] = [
   unassignedVariablesValidator,
   variablesMetadataValidator,
   draftIntegrityValidator,
+  corruptedTemplateValuesValidator,
 ];
 
 /** @deprecated Lighthouse removed from platform diagnostics — use external tools. */

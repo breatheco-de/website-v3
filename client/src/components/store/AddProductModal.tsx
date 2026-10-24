@@ -36,6 +36,8 @@ import {
   type SitemapSearchEntry,
 } from "@/lib/sitemapSearch";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
+import { suggestShortKey } from "@shared/tracking-keys";
+import { TrackingKeyField, trackingKeyError } from "./TrackingKeyField";
 
 type ContentTypeListItem = {
   name: string;
@@ -54,6 +56,7 @@ type ProductListRow = {
   content_type: string;
   content_slug: string;
   purchasable: boolean;
+  short_key?: string;
 };
 
 type ProductListResponse = {
@@ -81,12 +84,14 @@ export function AddProductModal({
   const [selected, setSelected] = useState<SitemapSearchEntry | null>(null);
   const [mode, setMode] = useState<"pick" | "enable-type">("pick");
   const [enableTypeName, setEnableTypeName] = useState<string>("");
+  const [shortKey, setShortKey] = useState("");
 
   const resetLocal = () => {
     setQuery("");
     setSelected(null);
     setMode("pick");
     setEnableTypeName("");
+    setShortKey("");
   };
 
   const handleOpenChange = (next: boolean) => {
@@ -227,6 +232,17 @@ export function AddProductModal({
   const isRestore = !!(selectedKey && removedKeys.has(selectedKey));
   const selectedType = selected?.content_type?.trim() ?? "";
   const selectedSlug = selected?.slug?.trim() ?? "";
+
+  const takenProductKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of [...indexedProducts, ...removedProducts]) {
+      if (p.short_key && p.content_slug !== selectedSlug) set.add(p.short_key);
+    }
+    return set;
+  }, [indexedProducts, removedProducts, selectedSlug]);
+  const restoredKey = removedProducts.find((p) => p.content_slug === selectedSlug)?.short_key ?? null;
+  const keySuggestion = suggestShortKey(selected?.label || selectedSlug, takenProductKeys, selectedSlug);
+  const keyError = restoredKey ? null : trackingKeyError(shortKey, takenProductKeys);
   const canManageSelected =
     !!selectedType && hasCapability("product_manage", selectedType);
 
@@ -245,7 +261,7 @@ export function AddProductModal({
   };
 
   const makeSellableMutation = useMutation({
-    mutationFn: async (args: { contentType: string; slug: string }) => {
+    mutationFn: async (args: { contentType: string; slug: string; shortKey?: string }) => {
       if (indexedKeys.has(entryKey(args.contentType, args.slug))) {
         const err = new Error("already_a_product") as Error & { code?: string };
         err.code = "already_a_product";
@@ -254,7 +270,11 @@ export function AddProductModal({
       const res = await apiFetch(`/api/product/${encodeURIComponent(args.slug)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content_type: args.contentType, purchasable: true }),
+        body: JSON.stringify({
+          content_type: args.contentType,
+          purchasable: true,
+          ...(args.shortKey ? { short_key: args.shortKey } : {}),
+        }),
       });
       const body = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -485,6 +505,23 @@ export function AddProductModal({
                       <Pencil className="h-4 w-4" />
                     </Button>
                   </div>
+                  {restoredKey ? (
+                    <p className="text-xs text-muted-foreground" data-testid="text-restored-tracking-key">
+                      Keeps its tracking key <code>{restoredKey}</code>.
+                    </p>
+                  ) : (
+                    <TrackingKeyField
+                      kind="product"
+                      value={shortKey}
+                      savedKey={null}
+                      suggestion={keySuggestion}
+                      renaming={false}
+                      taken={takenProductKeys}
+                      onChange={setShortKey}
+                      onStartRename={() => {}}
+                      testId="add-product-tracking-key"
+                    />
+                  )}
                   {isRestore && (
                     <p
                       className="text-xs text-amber-700 dark:text-amber-400"
@@ -516,11 +553,12 @@ export function AddProductModal({
                   </Button>
                   <Button
                     type="button"
-                    disabled={!canManageSelected || makeSellableMutation.isPending}
+                    disabled={!canManageSelected || makeSellableMutation.isPending || !!keyError}
                     onClick={() => {
                       makeSellableMutation.mutate({
                         contentType: selectedType,
                         slug: selectedSlug,
+                        ...(restoredKey ? {} : { shortKey: shortKey.trim().toLowerCase() || keySuggestion }),
                       });
                     }}
                     data-testid="button-confirm-make-sellable"

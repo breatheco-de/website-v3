@@ -14,6 +14,8 @@ import { contentIndex } from "../content-index";
 import type { CmsProduct, EcommerceSettings, FunnelStep, FunnelTrafficSource } from "./types";
 import { isProductSidecarFilename, resolveProductSidecarPath } from "./product-sidecar";
 import { parseAudienceFromProductDoc } from "@shared/productAudience";
+import { normalizeShortKey } from "@shared/tracking-keys";
+import { invalidateTrackingKeyIndex } from "./tracking-key-index";
 import { child } from "../logger";
 
 const log = child({ module: "product/product-index" });
@@ -143,6 +145,7 @@ export function scanProductContent(contentRoot?: string): void {
     : MARKETING_CONTENT_DIR;
 
   productMap.clear();
+  invalidateTrackingKeyIndex(root);
   ecommerceSettings = loadGlobalSettings(root);
   log.info("[ProductIndex] Loaded ecommerce settings (no CMS plan catalog)");
 
@@ -190,6 +193,7 @@ export function scanProductContent(contentRoot?: string): void {
             : true;
 
       const audience = parseAudienceFromProductDoc(entryConfig);
+      const shortKey = normalizeShortKey(entryConfig.short_key);
 
       const product: CmsProduct = {
         product_id: productId,
@@ -197,6 +201,7 @@ export function scanProductContent(contentRoot?: string): void {
         content_type: canonicalKey,
         content_slug: slug,
         actively_selling: activelySelling,
+        ...(shortKey ? { short_key: shortKey } : {}),
         description: typeof merged.description === "string" ? merged.description : undefined,
         funnel: {
           steps: parseFunnelSteps(merged),

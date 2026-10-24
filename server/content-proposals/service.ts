@@ -36,6 +36,7 @@ import {
   type SectionIssue,
 } from "./attached-entry-gate";
 import { validateSectionsForProposal } from "./section-proposal-check";
+import { checkStaffSummary } from "./blocker-staff-summary";
 import { TEXT_LIMITS_EXCEEDED_CODE } from "@shared/component-text-limits";
 import { summarizeSectionsChange, type SectionsSummary } from "./sections-summary";
 import { scanTemplatePlaceholdersOnSite, type TemplatePlaceholderGap } from "./template-placeholder-scan";
@@ -76,6 +77,7 @@ import { discardSeededAttachedEntry, seedAttachedLocaleFiles } from "./seed-atta
 import {
   sameAgentIdentity,
   formatAgentActorLine,
+  isServerAgentSessionId,
   isStaffUiActor,
   type AgentActorLike,
 } from "@shared/agent-identity";
@@ -364,6 +366,8 @@ export type ProposalEntryRow = {
   /** v1.0: what the author sent (`ops_json`); `ops` is the view of the draft. */
   requested_ops?: FieldUpdate[];
   ops_match_request?: boolean;
+  /** v1.0: draft fields that change although the author did not send them (stale seed, migration, co-author). */
+  unrequested_fields?: string[];
   /** v1.0: the draft file no longer exists; no ops view. */
   draft_missing?: boolean;
   /** v1.0: what the apply published, field by field (revert source). */
@@ -406,6 +410,8 @@ export type ProposalBlocker = {
   proposal_id: string;
   kind: "blocker";
   body: string;
+  /** Plain-English version for staff; null on blockers filed before it existed. */
+  staff_summary: string | null;
   status: BlockerStatus;
   author: string;
   created_at: number;
@@ -847,6 +853,7 @@ type BlockerDbRow = {
   proposal_id: string;
   kind: string;
   body: string;
+  staff_summary?: string | null;
   status: BlockerStatus;
   author: string;
   created_at: number;
@@ -943,6 +950,8 @@ export type ProposalUpdateCaller = {
   /** Provenance for claim (and any future actor-storing actions). */
   actor?: EventActor;
   body?: string;
+  /** add_blocker: plain-English version for staff. Required from MCP; staff UI notes reuse `body`. */
+  staff_summary?: string;
   blocker_id?: number;
   resolve_note?: string;
   variant?: string;
@@ -1064,6 +1073,7 @@ function mapBlocker(row: BlockerDbRow): ProposalBlocker {
     proposal_id: row.proposal_id,
     kind: "blocker",
     body: row.body,
+    staff_summary: row.staff_summary ?? null,
     status: row.status,
     author: row.author,
     created_at: row.created_at,
@@ -1263,6 +1273,7 @@ export function entryViewFromDiff(
   | "author_diff_approximate"
   | "requested_ops"
   | "ops_match_request"
+  | "unrequested_fields"
   | "sections_summary"
 > {
   const ops: FieldUpdate[] = changes.map((c) =>
@@ -1277,15 +1288,34 @@ export function entryViewFromDiff(
     Object.freeze(values);
   }
   const sectionsChange = changes.find((c) => c.field_path === "sections");
+  const unrequested = unrequestedFields(requested, changes);
   return {
     ops,
     baseline_context: { values },
     author_diff: changes,
     author_diff_approximate: approximate,
     requested_ops: requested,
-    ops_match_request: requestedMatchesView(requested, changes),
+    ops_match_request: unrequested.length === 0 && requestedMatchesView(requested, changes),
+    ...(unrequested.length ? { unrequested_fields: unrequested } : {}),
     ...(sectionsChange ? { sections_summary: summarizeSectionsChange(sectionsChange.before, sectionsChange.after) } : {}),
   };
+}
+
+/** Stamped by the editor on every content change, so never part of what the author sends. */
+const SYSTEM_STAMPED_FIELDS = new Set(["updated_at", "_updated_at"]);
+
+/** Draft fields that change although no requested op covers them (empty request = whole-draft go-live). */
+function unrequestedFields(requested: FieldUpdate[], changes: FieldChange[]): string[] {
+  if (requested.length === 0) return [];
+  return changes
+    .map((c) => c.field_path)
+    .filter(
+      (p) =>
+        !SYSTEM_STAMPED_FIELDS.has(p) &&
+        !requested.some(
+          (op) => op.field_path === p || op.field_path.startsWith(`${p}.`) || p.startsWith(`${op.field_path}.`),
+        ),
+    );
 }
 
 function valueUnder(value: unknown, rest: string): unknown {
@@ -2031,6 +2061,9 @@ function findOpenProposalForVariant(
 export const PROPOSAL_SYSTEM_VERSION = "1.0";
 
 /** Actions still allowed on a pre-1.0 proposal (cleanup and steward retro only). */
+/** Apply dry_run on a proposal with open blockers: preview ran, real apply still refused. */
+export const PREVIEW_WHILE_BLOCKED_CODE = "preview_while_blocked";
+
 const LEGACY_ALLOWED_ACTIONS = new Set<ProposalUpdateAction>([
   "withdraw",
   "reject",
@@ -2421,6 +2454,8 @@ export type OpenProposalForEntry = {
   proposer_kind: "agent" | "staff";
   proposer_role?: string;
   created_at: number;
+  updated_at: number;
+  open_blocker_count: number;
 };
 
 /** Open/partial proposals on any locale/variant of one page (single query, for the Versions panel). */
@@ -2434,7 +2469,9 @@ export function listOpenProposalsForEntry(
   const rows = db
     .prepare(
       `SELECT p.id, p.title, p.status, p.proposer_username, p.proposer_actor_json, p.created_at,
-              e.locale, e.variant
+              p.updated_at, e.locale, e.variant,
+              (SELECT COUNT(*) FROM content_proposal_blockers b
+               WHERE b.proposal_id = p.id AND b.status = 'open') AS open_n
        FROM content_proposals p
        INNER JOIN content_proposal_entries e ON e.proposal_id = p.id
        WHERE p.site = ? AND p.status IN ('open','partial') AND e.entry_key = ?
@@ -2447,8 +2484,10 @@ export function listOpenProposalsForEntry(
     proposer_username: string;
     proposer_actor_json: string;
     created_at: number;
+    updated_at: number;
     locale: string;
     variant: string | null;
+    open_n: number;
   }>;
   return rows.map((r) => {
     const actor = parseJson<Record<string, unknown>>(r.proposer_actor_json, {});
@@ -2463,6 +2502,8 @@ export function listOpenProposalsForEntry(
       proposer_kind: actor.type === "mcp" ? "agent" : "staff",
       ...(role ? { proposer_role: role } : {}),
       created_at: r.created_at,
+      updated_at: r.updated_at,
+      open_blocker_count: Number(r.open_n) || 0,
     };
   });
 }
@@ -3190,14 +3231,16 @@ export function createProposalService(deps: ProposalServiceDeps) {
     for (const d of waiting) {
       db.prepare(
         `INSERT INTO content_proposal_blockers (
-          proposal_id, kind, body, status, author, created_at, agent_session_id, author_actor_json
-        ) VALUES (?,?,?,?,?,?,?,?)`,
+          proposal_id, kind, body, staff_summary, status, author, created_at, agent_session_id, author_actor_json
+        ) VALUES (?,?,?,?,?,?,?,?,?)`,
       ).run(
         d.id,
         "blocker",
         `predecessor_closed: the proposal this waits on ("${pred.title}", ${pred.id}) was ${pred.status}, so it will never be applied. ` +
           "Fixed looks like: unlink it (set_applies_after with an empty id, or link a replacement) or close this proposal. " +
           "Why: this proposal can only be applied after that one.",
+        `The proposal this one waits on ("${pred.title}") was ${pred.status === "rejected" ? "rejected" : "withdrawn"}, ` +
+          "so this one can't go live as planned. Unlink it or close this proposal.",
         "open",
         "system:applies-after",
         now,
@@ -4803,7 +4846,17 @@ export function createProposalService(deps: ProposalServiceDeps) {
     const placeholderGaps = affected ? templatePlaceholderWarnings(work) : [];
     if (caller.dry_run) {
       const chainGate = predecessorGate(db, proposal);
+      const openBlockerIds = proposal.blockers.filter((b) => b.status === "open").map((b) => b.id);
       const dryWarnings = [
+        ...(openBlockerIds.length
+          ? [
+              {
+                code: PREVIEW_WHILE_BLOCKED_CODE,
+                message: `Preview only: ${openBlockerIds.length} open blocker(s) (${openBlockerIds.map((b) => `#${b}`).join(", ")}) still prevent apply. A clean preview is not approval — resolve the blocker(s), then apply.`,
+                details: { open_blocker_ids: openBlockerIds },
+              },
+            ]
+          : []),
         ...(chainGate.ok ? [] : [{ code: chainGate.code, message: chainGate.error, details: chainGate.details }]),
         ...failed.map((c) => ({ code: c.code ?? "apply_check_failed", message: `${c.entry_key} (${c.locale}): ${c.error}` })),
         ...checks.flatMap((c) =>
@@ -7651,14 +7704,38 @@ export function createProposalService(deps: ProposalServiceDeps) {
           error: `blocker body required (min ${MIN_BLOCKER_BODY} characters): what's wrong, what fixed looks like, and why`,
         };
       }
+      const fromAgent = caller.actor?.type === "mcp" || caller.caller_is_mcp === true;
+      let staffSummary = (caller.staff_summary || "").trim();
+      if (fromAgent) {
+        if (!staffSummary) {
+          return {
+            ok: false,
+            code: "blocker_staff_summary_required",
+            error:
+              "staff_summary required: a plain-English version of this blocker for staff (what visitors or Google would see change, what must happen before approving, who does it). body stays the technical version for the author.",
+          };
+        }
+        const check = checkStaffSummary(staffSummary);
+        if (!check.ok) {
+          return {
+            ok: false,
+            code: "blocker_staff_summary_not_plain",
+            error: `staff_summary reads like code. Rewrite it for a staff member who has not read the code: ${check.problems.join("; ")}. Keep the technical detail in body.`,
+            details: { problems: check.problems },
+          };
+        }
+      } else if (!staffSummary) {
+        staffSummary = body;
+      }
       db.prepare(
         `INSERT INTO content_proposal_blockers (
-          proposal_id, kind, body, status, author, created_at, agent_session_id, author_actor_json
-        ) VALUES (?,?,?,?,?,?,?,?)`,
+          proposal_id, kind, body, staff_summary, status, author, created_at, agent_session_id, author_actor_json
+        ) VALUES (?,?,?,?,?,?,?,?,?)`,
       ).run(
         id,
         "blocker",
         body,
+        staffSummary,
         "open",
         caller.username,
         now,
@@ -7770,7 +7847,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
           error: "This proposal has no creating session; variant attach is not allowed",
         };
       }
-      if (!session || session !== proposal.created_agent_session_id) {
+      const sameSession = isServerAgentSessionId(session) && session === proposal.created_agent_session_id;
+      const legacySessionSameProposer =
+        !isServerAgentSessionId(proposal.created_agent_session_id) && callerIsProposer(proposal, caller);
+      if (!sameSession && !legacySessionSameProposer) {
         return {
           ok: false,
           code: "session_mismatch",
@@ -7891,7 +7971,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
             "Four-eyes: you edited this proposal's draft (co-author), so someone else must review and approve it.",
         };
       }
-      if (proposal.open_blocker_count > 0) {
+      // Only v1.0 previews write nothing; legacy apply has no dry_run path.
+      const previewOnly = Boolean(caller.dry_run && store && proposal.system_version);
+      if (proposal.open_blocker_count > 0 && !previewOnly) {
         return {
           ok: false,
           code: "proposal_blocked",
@@ -9027,9 +9109,9 @@ export function replaceProposalsFromSnapshot(site: string, proposals: ProposalRe
   );
   const insertBlocker = db.prepare(
     `INSERT INTO content_proposal_blockers (
-      id, proposal_id, kind, body, status, author, created_at, resolved_at, resolved_by,
+      id, proposal_id, kind, body, staff_summary, status, author, created_at, resolved_at, resolved_by,
       resolve_note, agent_session_id, author_actor_json, resolved_by_actor_json
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
 
   const run = db.transaction((rows: ProposalRecord[]) => {
@@ -9135,6 +9217,7 @@ export function replaceProposalsFromSnapshot(site: string, proposals: ProposalRe
           p.id,
           b.kind || "blocker",
           b.body,
+          b.staff_summary ?? null,
           b.status,
           b.author,
           b.created_at,
@@ -9331,7 +9414,7 @@ async function indexProposalSearch(site: string, proposal: ProposalRecord): Prom
 
 async function findSimilarProposals(site: string, query: string): Promise<SimilarProposal[]> {
   const { search } = await import("../vector-search");
-  const hits = await search(proposalCollection(site), query, 8);
+  const { hits } = await search(proposalCollection(site), query, 8);
   return hits.map((h) => ({ id: h.slug, title: h.slug, score: h.score }));
 }
 

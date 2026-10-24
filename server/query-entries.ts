@@ -27,6 +27,7 @@ import { normalizeLocale } from "./settings";
 import { isEmptyDetachedLocaleEntry } from "./empty-locale";
 import { isEntryDetached } from "./shared-layout-entry";
 import { isHiddenViaSentinel } from "./shared-layout-sync";
+import { AB_CHECK_SLUG, isAbCheckPage } from "./ab-testing/state";
 import { child } from "./logger";
 import { loadTypeListing } from "./entry-layer";
 import { combinedArticleContentFromSections } from "@shared/reading-time";
@@ -570,6 +571,12 @@ export async function queryEntries(
     items = loaded.items;
     source = loaded.source;
     key = contentType;
+    // The hidden A/B check page never appears in listings, search, or staff lists.
+    if (items.some((item) => item.slug === AB_CHECK_SLUG)) {
+      items = items.filter(
+        (item) => !(item.slug === AB_CHECK_SLUG && isAbCheckPage(contentType, AB_CHECK_SLUG, contentRoot)),
+      );
+    }
   } else if (database) {
     items = await loadFromDatabase(database, query.locale, db);
     source = "database";

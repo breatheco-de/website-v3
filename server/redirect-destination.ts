@@ -7,7 +7,8 @@
 import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
-import { escapeObjectVars, escapeTemplateVars, unescapeObjectVars, unescapeYamlDump } from "@shared/templateVars";
+import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
+import { dumpContentYaml } from "./content-yaml";
 import type { ContentIndex } from "./content-index";
 import { entryLocaleFilePath, findEntryPresence, typeLocales } from "./entry-layer";
 
@@ -101,8 +102,7 @@ export function readPageYaml(filePath: string): Record<string, unknown> {
 
 export function writePageYaml(filePath: string, data: Record<string, unknown>): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const { escaped, map } = escapeObjectVars(data);
-  fs.writeFileSync(filePath, unescapeYamlDump(yaml.dump(escaped, { lineWidth: -1, noRefs: true }), map), "utf-8");
+  fs.writeFileSync(filePath, dumpContentYaml(data, { lineWidth: -1, noRefs: true }, filePath), "utf-8");
 }
 
 /** `{ path, status }` of one `meta.redirects` item (strings are 301). */

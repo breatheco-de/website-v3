@@ -12,6 +12,7 @@ import {
 } from "@shared/event-log-filters";
 import {
   AGENT_SESSION_IDLE_MS,
+  isServerAgentSessionId,
   normalizeMcpClientName,
 } from "../../shared/agent-identity";
 import { getSiteSqlite } from "../db";
@@ -965,6 +966,7 @@ export function findOpenAgentSession(
   const since = now - Math.max(idleMs * 2, 7 * 24 * 60 * 60 * 1000);
   const candidates = listAgentSessions(opts.site, { since, limit: 100 });
   for (const row of candidates) {
+    if (!isServerAgentSessionId(row.agent_session_id)) continue;
     const events = listEvents({
       site: opts.site,
       agentSessionId: row.agent_session_id,
@@ -1025,6 +1027,14 @@ export function resolveUsableAgentSession(
   const agentSessionId = opts.agentSessionId.trim();
   if (!opts.site || !agentSessionId) {
     return { ok: false, code: "session_unknown", message: "Missing site or agent_session_id" };
+  }
+  if (!isServerAgentSessionId(agentSessionId)) {
+    return {
+      ok: false,
+      code: "session_unknown",
+      message:
+        "Session ids come only from agent_session start — call start and use the agent_session_id it returns",
+    };
   }
 
   const events = listEvents({

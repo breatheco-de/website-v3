@@ -2419,9 +2419,9 @@ export default function MediaGallery() {
                         </div>
                       ) : mediaDoctype === "pdf" ? (
                         <div className="aspect-video flex items-center justify-center bg-muted p-4" data-testid={`preview-pdf-${id}`}>
-                          <div className="text-center">
+                          <div className="text-center w-full min-w-0">
                             <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-                            <p className="text-xs text-muted-foreground truncate max-w-[12rem]">{filename}</p>
+                            <p className="text-xs text-muted-foreground break-words line-clamp-2" title={filename}>{filename}</p>
                             <Badge variant="secondary" className="text-[10px] mt-1">PDF</Badge>
                           </div>
                         </div>

@@ -21,6 +21,8 @@ import { buildProductFunnelJourney } from "../ecommerce/funnel-journey";
 import { FUNNEL_STAGES } from "@shared/funnel";
 import { audienceStatus } from "@shared/productAudience";
 import { listProductRows } from "../product/product-io";
+import { loadTrackingKeyIndex } from "../product/tracking-key-index";
+import { isTrackingReady } from "../product/tracking-readiness";
 import { api } from "../rate-limit/api.js";
 import { child } from "../logger";
 
@@ -184,7 +186,14 @@ export function registerEcommerceRoutes(app: Express): void {
         ...p,
         active: p.actively_selling,
       }));
-      res.json({ products });
+      const contentRoot = (res.locals.site as { contentRoot?: string } | undefined)?.contentRoot;
+      res.json({
+        products,
+        tracking: {
+          ready: isTrackingReady(contentRoot),
+          keys: loadTrackingKeyIndex(contentRoot),
+        },
+      });
     } catch (err) {
       log.error({ err }, "[EcommerceRoutes] GET /api/ecommerce/product-map:");
       res.status(500).json({ error: "Internal server error" });

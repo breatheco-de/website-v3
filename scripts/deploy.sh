@@ -22,6 +22,8 @@
 # Never rm -rf the live release (current); same-SHA redeploy → releases/<sha>.rebuild-<pid>.
 # Required env: DEPLOY_SHA (full git commit).
 # Optional: WEBSITE_RUNTIME_B64 (packed _WEBSITE_ secrets; empty → reuse prior .env).
+# Optional: SKIP_CONTENT_FLUSH=1 (deploy even with unpushed server content; copies saved to
+#   persistent/unpushed-content/<release>/). See "Content check" below and docs/vps.md.
 set -euo pipefail
 
 APP_ROOT=/opt/website-v3
@@ -496,6 +498,187 @@ PY
 
 write_env
 
+# --- Content check -------------------------------------------------------------
+# The new release gets a fresh content pull, so anything saved on the live server but
+# not yet on GitHub would be lost at the flip. Ask the live server to push it first
+# (check 1 before npm ci, check 2 right before the flip with staff/agent writes paused).
+# If the live server does not answer, read the live tree's sync state from disk instead.
+# Anything left stops the deploy unless SKIP_CONTENT_FLUSH=1 (copies saved first).
+CONTENT_DISK_CHECK_PENDING=0
+CONTENT_WRITES_PAUSED=0
+
+env_value() {
+  local file="$1" key="$2"
+  [[ -r "$file" ]] || return 0
+  ENV_FILE="$file" ENV_KEY="$key" python3 <<'PY'
+import os, re
+key = os.environ["ENV_KEY"]
+with open(os.environ["ENV_FILE"], encoding="utf-8") as fh:
+    for line in fh:
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", line.strip())
+        if not m or m.group(1) != key:
+            continue
+        val = m.group(2)
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+            val = val[1:-1].replace("'\"'\"'", "'")
+        print(val)
+        break
+PY
+}
+
+skip_content_flush() {
+  [[ "${SKIP_CONTENT_FLUSH:-}" == "1" || "${SKIP_CONTENT_FLUSH:-}" == "true" ]]
+}
+
+live_server_url() {
+  local live="$1" port
+  port="$(env_value "$live/.env" PORT)"
+  echo "http://127.0.0.1:${port:-5000}"
+}
+
+# Print CONTENT_UNPUSHED lines and the plain-English stop message. Exit 0 when nothing is left.
+report_unpushed_content() {
+  local phase="$1" json_file="$2" source="$3"
+  PHASE="$phase" SOURCE="$source" python3 - "$json_file" <<'PY'
+import json, os, sys
+phase, source = os.environ["PHASE"], os.environ["SOURCE"]
+try:
+    data = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    print(f"[deploy] content check ({phase}): unreadable answer ({exc})")
+    sys.exit(1)
+left = []
+for s in data.get("sites", []):
+    site = s.get("site", "?")
+    if s.get("baseline_missing"):
+        print(f"[deploy] WARNING: {site} has no recorded sync base; unpushed changes cannot be detected there")
+    svc = s.get("pushed_with_service_account") or []
+    if s.get("pushed"):
+        extra = f" ({len(svc)} with the service account: author had no GitHub connection)" if svc else ""
+        print(f"[deploy] content check ({phase}): {site} pushed {s['pushed']} file(s){extra}")
+    for item in s.get("remaining", s.get("files", [])):
+        reason = item.get("reason") or ("live_server_down" if source == "disk" else "unknown")
+        left.append((site, item, reason))
+for site, item, reason in left:
+    print(
+        f"CONTENT_UNPUSHED site={site} file={item.get('file')} author={item.get('author') or '-'} "
+        f"kind={item.get('kind', '-')} reason={reason}"
+        + (f" error={item['error']}" if item.get("error") else "")
+    )
+if not left:
+    print(f"[deploy] content check ({phase}): nothing left to push")
+    sys.exit(0)
+print("")
+print(f"[deploy] {len(left)} content change(s) on the server are not on GitHub yet. The deploy stopped so they are not lost.")
+hints = set()
+for _site, item, reason in left:
+    author = str(item.get("author") or "")
+    if author.startswith("migration:"):
+        hints.add(f"- Left by {author}: re-run that migration from Settings > General > Migrations; it pushes its own leftovers.")
+    elif reason == "conflict":
+        hints.add("- conflict: GitHub also changed that file. Resolve it in Sync (Debug bubble > GitHub sync), then redeploy.")
+    elif reason == "auto_commit_disabled":
+        hints.add("- auto_commit_disabled: auto-sync is off on the server (GITHUB_AUTO_COMMIT_ENABLED), so nothing could be pushed.")
+    elif reason == "live_server_down":
+        hints.add("- live_server_down: the site did not answer, so nothing could be pushed. Start it and redeploy, or push from Sync.")
+    else:
+        hints.add("- push_failed: see error= above; fix it (or push from Sync), then redeploy.")
+for h in sorted(hints):
+    print(h)
+print("- Emergency: rerun the 'Deploy to VPS' workflow with 'Skip content check'. The files above are copied to persistent/unpushed-content/<deploy>/ first.")
+sys.exit(1)
+PY
+}
+
+# Read-only fallback when the live server does not answer. Needs this release's node_modules.
+content_disk_check() {
+  local phase="$1" live out rc
+  live="$(live_release_path)"
+  [[ -n "$live" ]] || return 0
+  out="$(mktemp)"
+  if ! (cd "$live" && "$RELEASE/node_modules/.bin/tsx" --tsconfig "$RELEASE/tsconfig.json" \
+      "$RELEASE/scripts/content-pending.ts") >"$out" 2>"$out.err"; then
+    echo "[deploy] content check ($phase): disk check could not run: $(tail -n 3 "$out.err")" >&2
+    echo '{"sites":[{"site":"(all)","files":[{"file":"(disk check failed)","kind":"-"}]}]}' >"$out"
+  fi
+  rc=0
+  report_unpushed_content "$phase" "$out" disk || rc=$?
+  rm -f "$out" "$out.err"
+  return "$rc"
+}
+
+backup_unpushed_content() {
+  local live dest
+  live="$(live_release_path)"
+  dest="$PERSISTENT/unpushed-content/$RELEASE_NAME"
+  mkdir -p "$dest"
+  if (cd "$live" && "$RELEASE/node_modules/.bin/tsx" --tsconfig "$RELEASE/tsconfig.json" \
+      "$RELEASE/scripts/content-pending.ts" --backup "$dest") >/dev/null; then
+    echo "[deploy] SKIP_CONTENT_FLUSH: copies of unpushed content saved to $dest (see manifest.json)"
+  else
+    echo "[deploy] WARNING: SKIP_CONTENT_FLUSH backup failed; files remain in $live until that release is pruned" >&2
+  fi
+}
+
+resume_live_writes() {
+  local live secret
+  [[ "$CONTENT_WRITES_PAUSED" == "1" ]] || return 0
+  live="$(live_release_path)"
+  secret="$(env_value "$live/.env" SESSION_SECRET)"
+  curl -sS -m 20 -X POST -H "Authorization: Bearer $secret" \
+    "$(live_server_url "$live")/api/internal/content/resume-writes" >/dev/null 2>&1 || true
+  CONTENT_WRITES_PAUSED=0
+  echo "[deploy] staff and agent saves resumed on the live site"
+}
+
+# Unpushed content was found: stop (resuming writes first), or with the override continue.
+# Backups need node_modules, so before npm ci the override only defers to check 2.
+content_left_behind() {
+  local phase="$1"
+  if skip_content_flush; then
+    if [[ -x "$RELEASE/node_modules/.bin/tsx" ]]; then
+      backup_unpushed_content
+    else
+      echo "[deploy] SKIP_CONTENT_FLUSH: continuing; copies are saved at the pre-flip check"
+    fi
+    return 0
+  fi
+  resume_live_writes
+  echo "ERROR: deploy stopped at content check ($phase): unpushed content on the server (see above)" >&2
+  exit 1
+}
+
+# phase: pre-build | pre-flip. pause: true pauses staff/agent writes on the live site first.
+content_flush_check() {
+  local phase="$1" pause="$2" live secret out code rc
+  live="$(live_release_path)"
+  if [[ -z "$live" ]]; then
+    echo "[deploy] content check ($phase): no live release, nothing to protect"
+    return 0
+  fi
+  secret="$(env_value "$live/.env" SESSION_SECRET)"
+  out="$(mktemp)"
+  code="$(curl -sS -m 300 -o "$out" -w '%{http_code}' -X POST \
+    -H 'Content-Type: application/json' -H "Authorization: Bearer $secret" \
+    --data "{\"deploy_sha\":\"$DEPLOY_SHA\",\"pause_writes\":$pause}" \
+    "$(live_server_url "$live")/api/internal/content/flush" 2>/dev/null || true)"
+  if [[ "$code" != "200" ]]; then
+    rm -f "$out"
+    echo "[deploy] content check ($phase): live site did not answer the flush (HTTP ${code:-none}); checking its files on disk"
+    if [[ -x "$RELEASE/node_modules/.bin/tsx" ]]; then
+      content_disk_check "$phase" || content_left_behind "$phase"
+    else
+      CONTENT_DISK_CHECK_PENDING=1
+    fi
+    return 0
+  fi
+  [[ "$pause" == "true" ]] && CONTENT_WRITES_PAUSED=1
+  rc=0
+  report_unpushed_content "$phase" "$out" flush || rc=$?
+  rm -f "$out"
+  [[ "$rc" -eq 0 ]] || content_left_behind "$phase"
+}
+
 # Free the heap Sidequest has accumulated. pm2 relaunches the worker; web stays up.
 # Uses the live release's pm2 — this release has no node_modules until npm ci.
 restart_sidequest_for_install() {
@@ -525,6 +708,9 @@ restart_sidequest_for_install() {
 
 abort_requested && handle_abort
 
+echo "[deploy] content check (pre-build): pushing unpushed content on the live site"
+content_flush_check pre-build false
+
 restart_sidequest_for_install
 
 echo "[deploy] building in $RELEASE"
@@ -539,6 +725,10 @@ set +a
 if [[ -z "${TURNSTILE_SITE_KEY:-}" || -z "${TURNSTILE_SECRET_KEY:-}" ]]; then
   echo "ERROR: TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are required." >&2
   exit 1
+fi
+
+if [[ "$CONTENT_DISK_CHECK_PENDING" == "1" ]]; then
+  content_disk_check pre-build || content_left_behind pre-build
 fi
 
 echo "[deploy] pulling content (blocking, pre-flip)"
@@ -561,6 +751,11 @@ abort_requested && handle_abort
 # Intentionally clear flags after pull wrote them — boot hash-diff catches newer content.
 clear_bootstrap_complete_flags
 
+# Pause staff/agent saves until the new release runs; lift it if we exit before the flip.
+trap 'resume_live_writes; release_lock' EXIT
+echo "[deploy] content check (pre-flip): pausing saves and pushing what is left"
+content_flush_check pre-flip true
+
 PREV_TARGET=""
 if [[ -L "$CURRENT_LINK" || -d "$CURRENT_LINK" ]]; then
   PREV_TARGET="$(readlink -f "$CURRENT_LINK" || true)"
@@ -579,6 +774,8 @@ restart_website() {
 }
 
 restart_website
+# The paused process is gone; the new one (or a rolled-back one) starts unpaused.
+CONTENT_WRITES_PAUSED=0
 
 rollback() {
   echo "[deploy] health failed — rolling back current" >&2
@@ -651,4 +848,30 @@ if [[ -n "$WD" && "$WD" != "$CURRENT_LINK" && "$WD" != "$CURRENT_LINK/" ]]; then
 fi
 
 rm -f "$ABORT_FLAG"
+
+# A/B check: re-verify page tests through the public URL. Never fails the deploy;
+# results land in the log (AB_CHECK lines → Actions summary), the Health tab, and system alerts.
+echo "[deploy] A/B check (sites with A/B testing set up)"
+sleep 20
+AB_JSON="$(curl -sS --max-time 420 -X POST -H 'Content-Type: application/json' \
+  -d "{\"deploy_sha\":\"${DEPLOY_SHA}\"}" \
+  http://127.0.0.1:5000/api/internal/ab-testing/check-all 2>/dev/null || true)"
+if [[ -n "$AB_JSON" ]]; then
+  printf '%s' "$AB_JSON" | node -e '
+    let s = "";
+    process.stdin.on("data", (d) => (s += d));
+    process.stdin.on("end", () => {
+      try {
+        const j = JSON.parse(s);
+        for (const l of j.lines || []) console.log(l);
+        if (j.error) console.log("AB_CHECK site=- result=inconclusive summary=\"" + j.error + "\"");
+      } catch {
+        console.log("AB_CHECK site=- result=inconclusive summary=\"unreadable response\"");
+      }
+    });
+  ' || true
+else
+  echo "AB_CHECK site=- result=inconclusive summary=\"check hook did not respond\""
+fi
+
 echo "[deploy] done $DEPLOY_SHA (current → releases/$RELEASE_NAME)"

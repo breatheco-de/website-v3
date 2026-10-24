@@ -298,6 +298,7 @@ Same numbers as the staff Leads page (`/private/store/leads`), read-only, `metri
 - **Paused products resolve:** paused (`actively_selling: false`) stops promotion, not counting. Since 2026-10-08, GA4 `item_id` (and dataLayer consumers via GTM) also include leads for paused products, so a paused product's "Lead conversions (28d)" can rise.
 - Staff Leads page: `/private/store/leads?product=<product_id or slug>` matches either column. The product card's "Lead conversions (28d)" (GA4 events, test/repeat included, 28 days) will not match the ledger count (unique, test/repeat hidden, 30-day default).
 - Non-effects: no CRM field added; `program` on the CRM payload unchanged. Agents filter by product with `get_leads_breakdown` (`product`).
+- **Funnel product / persona (since pipeline migration 41):** `lead_submissions.product` / `.persona` = the page funnel's (or form override's) products / personas as **full ids**, comma-joined (`all` / `none` sentinels). Distinct from `product_id` / `product_slug` (the single catalog product the form resolved). Rows before migration 41 are `NULL` — say "since launch", there is no backfill. Both keys also reach the CRM (not ledger-only). `get_leads_breakdown` does not group by persona yet.
 
 ## Limits agents must state
 

@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   agentIdentityKey,
   isExactAgentModel,
+  isServerAgentSessionId,
+  issueAgentSessionId,
+  START_IGNORES_AGENT_SESSION_ID,
   sameAgentIdentity,
   isStaffUiActor,
   MCP_MUTATING_TOOLS,
@@ -22,6 +25,40 @@ describe("isExactAgentModel", () => {
     expect(isExactAgentModel("")).toBe(false);
     expect(isExactAgentModel("claude/")).toBe(false);
     expect(isExactAgentModel("/sonnet")).toBe(false);
+  });
+});
+
+describe("isServerAgentSessionId", () => {
+  it("accepts server-issued UUIDs", () => {
+    expect(isServerAgentSessionId("d2b2f51c-9fc3-4f86-93bd-03951f678da2")).toBe(true);
+    expect(isServerAgentSessionId(" D2B2F51C-9FC3-4F86-93BD-03951F678DA2 ")).toBe(true);
+  });
+
+  it("rejects agent-invented ids", () => {
+    for (const id of ["new", "pending", "start", "placeholder", "hub-en-link-82eda97a", "", null, undefined, 42]) {
+      expect(isServerAgentSessionId(id)).toBe(false);
+    }
+  });
+});
+
+describe("issueAgentSessionId", () => {
+  it("ignores an id passed on start and warns", () => {
+    const out = issueAgentSessionId("new", () => crypto.randomUUID());
+    expect(isServerAgentSessionId(out.agent_session_id)).toBe(true);
+    expect(out.agent_session_id).not.toBe("new");
+    expect(out.warnings.map((w) => w.code)).toEqual([START_IGNORES_AGENT_SESSION_ID]);
+    expect(out.warnings[0]!.message).toContain("label");
+  });
+
+  it("issues without warnings when no id is passed", () => {
+    expect(issueAgentSessionId(undefined, () => crypto.randomUUID()).warnings).toEqual([]);
+    expect(issueAgentSessionId("  ", () => crypto.randomUUID()).warnings).toEqual([]);
+  });
+
+  it("two starts never share an id", () => {
+    const a = issueAgentSessionId("new", () => crypto.randomUUID());
+    const b = issueAgentSessionId("new", () => crypto.randomUUID());
+    expect(a.agent_session_id).not.toBe(b.agent_session_id);
   });
 });
 

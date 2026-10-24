@@ -1526,6 +1526,8 @@ export const versioningVariantSchema = z.object({
 
 export const versioningLocaleSchema = z.object({
   variants: z.array(versioningVariantSchema),
+  /** YYYY-MM-DD the current test run started (set when the locale goes from no traffic to traffic). */
+  started_at: z.string().optional(),
 });
 
 export const versioningFileSchema = z.record(z.string(), versioningLocaleSchema);

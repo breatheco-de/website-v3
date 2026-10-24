@@ -21,6 +21,7 @@ import {
   buildProposalDiscoveryPath,
   resolveStrategyForContentType,
 } from "../lib/proposal-discovery-path.js";
+import { BLOCKER_STAFF_SUMMARY_HINT } from "../../server/content-proposals/blocker-staff-summary.js";
 
 function stripDecisionDebugFromProposal(proposal: unknown): unknown {
   if (!proposal || typeof proposal !== "object") return proposal;
@@ -649,6 +650,71 @@ export function attachedIdeaEditsAction(
   };
 }
 
+export type UnrequestedProposalLike = {
+  id?: string;
+  status?: string;
+  entries?: Array<{
+    contentType?: string;
+    slug?: string;
+    locale?: string;
+    status?: string;
+    requested_ops?: Array<{ field_path: string }>;
+    unrequested_fields?: string[];
+  }>;
+};
+
+/** Open entries whose draft changes fields the author never sent → warning + revise next_action. */
+export function unrequestedFieldsFollowUp(
+  proposals: UnrequestedProposalLike[],
+  proposalId: string,
+  site?: string,
+): {
+  warnings: Array<{ code: string; message: string }>;
+  next_actions: Array<{ tool: string; reason: string; priority: "recommended"; args_hint: Record<string, unknown> }>;
+} | null {
+  const p = proposals.find((x) => x.id === proposalId);
+  if (!p || (p.status !== "open" && p.status !== "partial")) return null;
+  const hits = (p.entries ?? []).filter(
+    (e) => (!e.status || e.status === "pending" || e.status === "failed") && e.unrequested_fields?.length,
+  );
+  if (!hits.length) return null;
+  const lines = hits.map(
+    (e) =>
+      `${e.contentType}/${e.slug} (${e.locale}): ${e.unrequested_fields!.join(", ")} ` +
+      `(requested: ${(e.requested_ops ?? []).map((o) => o.field_path).join(", ") || "none"})`,
+  );
+  return {
+    warnings: [
+      {
+        code: "draft_has_unrequested_fields",
+        message:
+          `The draft changes fields its author did not send, and apply would publish them: ${lines.join("; ")}. ` +
+          "Usual causes: an old draft seeded with page-level copies, a migration rewrite, or a co-author edit. " +
+          "Author: revise_entries with only the ops you intend — a draft this proposal created restarts from today's live (unless a person co-authored it). " +
+          "Reviewer: judge these fields like any other op; if they are unintended, add a blocker asking the author to revise.",
+      },
+    ],
+    next_actions: [
+      {
+        tool: "update_proposal",
+        reason: "Author: drop the unrequested fields by revising with only the intended ops (restarts the draft from today's live).",
+        priority: "recommended",
+        args_hint: {
+          proposal_id: proposalId,
+          action: "revise_entries",
+          entries: hits.map((e) => ({
+            contentType: e.contentType,
+            slug: e.slug,
+            locale: e.locale,
+            updates: "<only the ops you intend>",
+          })),
+          ...(site ? { site } : {}),
+        },
+      },
+    ],
+  };
+}
+
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 
 /** Reviewer-only decide toolkit (no withdraw / attach / set_no_auto_retry). */
@@ -778,7 +844,10 @@ async function requireUpdateCap(mcpToken: string | undefined, grants: CatalogGra
 }
 
 const BLOCKER_BODY_HINT =
-  "Plain text min 80 chars: (1) what's wrong, (2) what fixed looks like, (3) why it matters. " +
+  "Technical version for the agent that fixes the draft (staff read staff_summary first). " +
+  "Markdown, min 80 chars. Start with a one-sentence verdict, then a blank line, then a numbered list " +
+  "with one item per problem: what's wrong, what fixed looks like, why it matters. " +
+  "Wrap field paths, slugs and URLs in `backticks`. No headings or tables. " +
   "For funnel.stage/products blockers: cite which cascade step fails (persona / product / stage) and the correct binding. " +
   "Do not list MCP tools.";
 
@@ -821,12 +890,14 @@ export function registerProposalTools(
       summary: z
         .string()
         .describe(
-          "Min 80 chars. Edits (entries/promote): intent + why only — do not paste proposed field values (ops own those; list triage uses title + field_paths). Go-live with empty updates: why this draft should become live. Notes: steps tried + recommended next. Idea: pitch + desired outcome.",
+          "Min 80 chars. Edits (entries/promote): intent + why only — do not paste proposed field values (ops own those; list triage uses title + field_paths). Go-live with empty updates: why this draft should become live. Notes: steps tried + recommended next. Idea: pitch + desired outcome; when the page is built around an existing file (PDF lead magnet, video, image), name its gallery media_id and public src URL here or in rationale. Markdown renders for staff (bare URLs become links).",
         ),
       rationale: z
         .string()
         .optional()
-        .describe("Optional deeper reasoning beyond summary. Do not paste proposed field values here."),
+        .describe(
+          "Optional deeper reasoning beyond summary (Markdown). Do not paste proposed field values here. Ideas: existing file the page depends on → media_id + public src URL.",
+        ),
       category: z.enum(["content.field", "content.seo"]).optional(),
       kind: z
         .enum(["notes", "idea"])
@@ -1866,9 +1937,18 @@ export function registerProposalTools(
           }
         }
 
+        const proposalId = args.proposal_id?.trim();
+        const unrequestedNext = proposalId
+          ? unrequestedFieldsFollowUp(
+              proposals as Array<UnrequestedProposalLike>,
+              proposalId,
+              args.site,
+            )
+          : null;
+        if (unrequestedNext) warnings.push(...unrequestedNext.warnings);
+
         let discovery_path: ReturnType<typeof buildProposalDiscoveryPath>["discovery_path"] = null;
         const review_context = data.review_context ?? null;
-        const proposalId = args.proposal_id?.trim();
         if (proposalId) {
           const match = (proposals as Array<{
             id?: string;
@@ -1955,7 +2035,7 @@ export function registerProposalTools(
             status_bias_applied: Boolean(data.status_bias_applied),
             discovery_path,
             ...(review_context ? { review_context } : {}),
-            next_actions: attachedNext,
+            next_actions: [...attachedNext, ...(unrequestedNext?.next_actions ?? [])],
           },
           { warnings },
         );
@@ -1972,7 +2052,7 @@ export function registerProposalTools(
       "proposals_create only (authors): claim | release | withdraw | attach_variant | set_no_auto_retry | revise_entries | set_review_situations | set_idea_funnel | set_related_entries | set_idea_seo_target | set_applies_after | revert — cannot apply/reject/accept. " +
       "set_related_entries (open ideas, proposer): replace related_entries (target page type + slug); unknown content types refuse (unknown_content_type); refused after accept. " +
       "set_applies_after (open edits, proposer): chain after another edits proposal (empty unlinks). Order only: apply refuses predecessor_not_applied until the predecessor is finished; applying the predecessor returns dependents_ready + one apply next_action per open dependent (nothing auto-applied). Rejecting/withdrawing a predecessor adds a predecessor_closed blocker to each open dependent. " +
-      "1.0 edits: apply promotes the proposal's draft(s); dry_run returns merge_preview without writing. Stale drafts rebuild on today's live when fields do not overlap; otherwise context_stale (needs_author). " +
+      "1.0 edits: apply promotes the proposal's draft(s); dry_run returns merge_preview without writing — it also runs while blockers are open (warning preview_while_blocked + details.open_blocker_ids; real apply still proposal_blocked; a preview is not approval and does not reset the blocked clock). Stale drafts rebuild on today's live when fields do not overlap; otherwise context_stale (needs_author). " +
       "revert (finished/partial 1.0 edits): files a new proposal that puts back pre-apply values; live unchanged until that one is approved; revert_conflicts when fields changed again. " +
       "Legacy (pre-1.0) proposals return legacy_version for anything but withdraw/reject/release — re-file. " +
       "Both (Publisher): full set. " +
@@ -1981,7 +2061,7 @@ export function registerProposalTools(
       "apply of a hub-mode idea's first go-live returns warning idea_seo_hub_members_follow_up + one propose_change next_action per member (chain each with applies_after_proposal_id; moved members also update their in-body hub link). " +
       "apply that finishes a join-mode idea's page with no chained hub-link proposal returns hub_link_follow_up (or hub_has_open_edits when the hub already has open edits). " +
       "apply that frees an idea's page returns idea_page_released_waiting_ideas + one list_proposals next_action per open idea waiting on it (nothing auto-accepted). " +
-      "close notes/ideas: close_reason + close_note. Withdraw: close_note min 20. Open blockers block apply/accept only (revise does not clear them). Four-eyes = username+role. " +
+      "close notes/ideas: close_reason + close_note. Withdraw: close_note min 20. Open blockers block apply/accept only, not apply dry_run (revise does not clear them). add_blocker: technical body + plain-English staff_summary (required). Four-eyes = username+role. " +
       "Multi-situation: review each pack independently; drop failing ops via revise_entries then apply (atomic). " +
       "Before apply, list_proposals(proposal_id) for live review_context.",
     {
@@ -2011,6 +2091,10 @@ export function registerProposalTools(
       report: z.string().optional(),
       agent_session_id: z.string().describe("Required. From agent_session start."),
       body: z.string().optional().describe(`For add_blocker: ${BLOCKER_BODY_HINT}`),
+      staff_summary: z
+        .string()
+        .optional()
+        .describe(`Required for add_blocker (blocker_staff_summary_required otherwise). ${BLOCKER_STAFF_SUMMARY_HINT}`),
       blocker_id: z.number().optional().describe("For resolve_blocker / reopen_blocker"),
       resolve_note: z.string().optional().describe("For resolve_blocker: what changed (min 20 chars)"),
       variant: z.string().optional().describe("For attach_variant"),
@@ -2034,7 +2118,7 @@ export function registerProposalTools(
       dry_run: z
         .boolean()
         .optional()
-        .describe("For apply (1.0): run every check and return merge_preview per entry; writes nothing."),
+        .describe("For apply (1.0): run every check and return merge_preview per entry; writes nothing. Allowed while blockers are open (warning preview_while_blocked)."),
       all_or_nothing: z
         .boolean()
         .optional()
@@ -2206,6 +2290,7 @@ export function registerProposalTools(
             report: args.report,
             agent_session_id: args.agent_session_id,
             body: args.body,
+            staff_summary: args.staff_summary,
             blocker_id: args.blocker_id,
             resolve_note: args.resolve_note,
             variant: args.variant,
@@ -2251,6 +2336,29 @@ export function registerProposalTools(
               site: args.site,
             });
             if (urlSlug) return urlSlug;
+          }
+          if (data.code === "blocker_staff_summary_required" || data.code === "blocker_staff_summary_not_plain") {
+            return fail(String(data.error ?? data.code), {
+              code: String(data.code),
+              details: data.details,
+              warnings: [
+                { code: "nothing_saved", message: "No blocker was added; the proposal is unchanged." },
+              ],
+              next_actions: [
+                {
+                  tool: "update_proposal",
+                  reason:
+                    "Retry add_blocker with the same technical body and a staff_summary rewritten in plain English (fix every item in details.problems).",
+                  priority: "required",
+                  args_hint: {
+                    proposal_id: args.proposal_id,
+                    action: "add_blocker",
+                    body: "(unchanged)",
+                    staff_summary: "(plain English for staff)",
+                  },
+                },
+              ],
+            });
           }
           if (data.code === "predecessor_not_applied") {
             const details = (data.details ?? {}) as { applies_after_proposal_id?: string; predecessor_status?: string | null };
@@ -2366,7 +2474,9 @@ export function registerProposalTools(
                   args_hint: {
                     proposal_id: args.proposal_id,
                     action: "add_blocker",
-                    body: "(what's wrong, what fixed looks like, why — min 80)",
+                    body: "(Markdown: one-line verdict, blank line, numbered list — one item per problem: wrong / fix / why; min 80)",
+                    staff_summary:
+                      "(Plain English for staff, 1-4 sentences: what visitors/Google would see change, what must happen before approving, who does it; no field/file names or codes)",
                     site: args.site,
                   },
                 },
@@ -2803,6 +2913,26 @@ export function registerProposalTools(
         }> = [];
 
         if (args.action === "apply") next.push(...followUpActionsFromWarnings(data.warnings));
+
+        const blockedPreview =
+          args.action === "apply" && args.dry_run
+            ? warnings.find((w) => w.code === "preview_while_blocked")
+            : undefined;
+        if (blockedPreview) {
+          const ids = ((blockedPreview as { details?: { open_blocker_ids?: number[] } }).details?.open_blocker_ids ?? []);
+          next.push({
+            tool: "update_proposal",
+            reason:
+              "Only if this preview (and the page files, e.g. get_entry_fields stored_in) shows a blocker's 'what fixed looks like' is met: claim, then resolve_blocker with what changed. Then apply (four-eyes). If not met, leave the blocker open.",
+            priority: "recommended",
+            args_hint: {
+              proposal_id: args.proposal_id,
+              action: "resolve_blocker",
+              ...(ids.length ? { blocker_id: ids[0] } : {}),
+              site: args.site,
+            },
+          });
+        }
 
         if (args.action === "reject") {
           next.push({

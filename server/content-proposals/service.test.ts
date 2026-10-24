@@ -10,6 +10,7 @@ import { fingerprintEdits, fingerprintNotes } from "./fingerprint";
 import { discardSeededAttachedEntry, seedAttachedLocaleFiles } from "./seed-attached-entry";
 import {
   createProposalService,
+  listOpenProposalsForEntry,
   listOpenProposalsForVariant,
   parseProposalSort,
   parseProposerActorType,
@@ -20,6 +21,9 @@ import {
 } from "./service";
 
 const SITE = `site_proposal-test-${Date.now()}`;
+
+const STAFF_SUMMARY =
+  "The button at the top of the Spanish post still names the old bootcamp, so readers land on the wrong program. The author needs to rename it before this is approved.";
 
 function rmSite(): void {
   const dir = path.join("data", SITE.replace(/\//g, "-"));
@@ -954,6 +958,10 @@ describe("content proposals", () => {
     expect(applyBlocked.ok).toBe(false);
     if (!applyBlocked.ok) expect(applyBlocked.code).toBe("proposal_blocked");
 
+    const legacyPreview = await svc.update(created.proposal.id, "apply", { username: "casey", dry_run: true });
+    expect(legacyPreview.ok).toBe(false);
+    if (!legacyPreview.ok) expect(legacyPreview.code).toBe("proposal_blocked");
+
     const rejected = await svc.update(created.proposal.id, "reject", {
       username: "casey",
       confirm_reject: true,
@@ -1134,6 +1142,28 @@ describe("content proposals", () => {
     const listed = listOpenProposalsForVariant(SITE, "blog", "hello", "es", "agent-fix");
     expect(listed.some((p) => p.id === created.proposal.id)).toBe(true);
     expect(listOpenProposalsForVariant(SITE, "blog", "hello", "es", "other").length).toBe(0);
+  });
+
+  it("listOpenProposalsForEntry reports open blockers per proposal", async () => {
+    const svc = makeService();
+    const created = await svc.create(
+      {
+        title: "Entry list with blocker",
+        summary: "Entry list helper should carry the open blocker count for the robot button. ".repeat(2),
+        entries: [sampleEntry()],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    expect(listOpenProposalsForEntry(SITE, "blog", "hello")[0]?.open_blocker_count).toBe(0);
+    const blocked = await svc.update(created.proposal.id, "add_blocker", {
+      username: "blake",
+      body: "Hero CTA still points at the old bootcamp page; it must point at AI Flex so leads reach the right funnel.",
+    });
+    expect(blocked.ok).toBe(true);
+    const rows = listOpenProposalsForEntry(SITE, "blog", "hello");
+    expect(rows.find((r) => r.id === created.proposal.id)?.open_blocker_count).toBe(1);
   });
 
   it("promote apply requires confirm_end_experiment when siblings have traffic", async () => {
@@ -1448,6 +1478,7 @@ describe("content proposals", () => {
         "Needs clearer acceptance criteria for which locales ship first and why ES is out of scope. ".repeat(
           2,
         ),
+      staff_summary: STAFF_SUMMARY,
     });
     expect(blocked.ok).toBe(true);
 
@@ -2477,6 +2508,7 @@ describe("content proposals", () => {
       username: "blake",
       actor: author,
       body,
+      staff_summary: STAFF_SUMMARY,
     });
     expect(added.ok).toBe(true);
     if (!added.ok) return;
@@ -2528,6 +2560,66 @@ describe("content proposals", () => {
     expect(uiBlocker?.author_actor).toEqual({ type: "ui" });
   });
 
+  it("requires a plain-English staff_summary from agents and reuses the body for staff notes", async () => {
+    const svc = makeService();
+    const created = await svc.create(
+      {
+        title: "Staff summary blocker",
+        summary: "Patch the CTA title on the Spanish blog so the product name is explicit. ".repeat(2),
+        entries: [sampleEntry()],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const id = created.proposal.id;
+    const agent = { type: "mcp" as const, role: "proposal_reviewer" };
+    const body =
+      "CTA op on `sections[0].data.cta.title` still names the old bootcamp; display_values_change fires on apply, so leads misroute.";
+
+    const missing = await svc.update(id, "add_blocker", { username: "blake", actor: agent, body });
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.code).toBe("blocker_staff_summary_required");
+
+    const codey = await svc.update(id, "add_blocker", {
+      username: "blake",
+      actor: agent,
+      body,
+      staff_summary: "The op on cta.title still names the old bootcamp, see display_values_change.",
+    });
+    expect(codey.ok).toBe(false);
+    if (!codey.ok) {
+      expect(codey.code).toBe("blocker_staff_summary_not_plain");
+      const problems = (codey.details as { problems: string[] }).problems.join(" ");
+      expect(problems).toContain('"cta.title"');
+      expect(problems).toContain('"display_values_change"');
+      expect(problems).toContain('"op"');
+    }
+
+    const ok = await svc.update(id, "add_blocker", {
+      username: "blake",
+      actor: agent,
+      body,
+      staff_summary: STAFF_SUMMARY,
+    });
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.proposal.blockers[0]!.body).toBe(body);
+    expect(ok.proposal.blockers[0]!.staff_summary).toBe(STAFF_SUMMARY);
+
+    const staffNote =
+      "The button at the top still sends people to the old bootcamp page. Point it at AI Flex before approving.";
+    const staff = await svc.update(id, "add_blocker", {
+      username: "casey",
+      actor: { type: "ui" },
+      body: staffNote,
+    });
+    expect(staff.ok).toBe(true);
+    if (!staff.ok) return;
+    const uiBlocker = staff.proposal.blockers.find((b) => b.author === "casey");
+    expect(uiBlocker?.staff_summary).toBe(staffNote);
+  });
+
   it("stamps reviewer_action_by on non-author add/resolve/reopen and never for the author", async () => {
     const svc = makeService();
     const summary =
@@ -2544,7 +2636,12 @@ describe("content proposals", () => {
     if (!created.ok) return;
     const id = created.proposal.id;
 
-    const selfAdd = await svc.update(id, "add_blocker", { username: "alice", actor: authorActor, body });
+    const selfAdd = await svc.update(id, "add_blocker", {
+      username: "alice",
+      actor: authorActor,
+      body,
+      staff_summary: STAFF_SUMMARY,
+    });
     expect(selfAdd.ok).toBe(true);
     if (!selfAdd.ok) return;
     expect(selfAdd.proposal.reviewer_action_at).toBeNull();
@@ -3923,5 +4020,71 @@ describe("blocked inactivity sweep", () => {
     backdate(id, 31);
     await svc.blockedSweep();
     expect(svc.list({ outcome_review: "none" }).proposals.map((p) => p.id)).not.toContain(id);
+  });
+});
+
+describe("attach_variant and agent-invented session ids", () => {
+  beforeEach(() => {
+    resetPipelineDbCache();
+    clearSiteSqliteCacheForTests();
+    rmSite();
+    ensurePipelineDb(SITE, { skipBackup: true });
+  });
+
+  afterEach(() => {
+    resetPipelineDbCache();
+    clearSiteSqliteCacheForTests();
+    rmSite();
+  });
+
+  const seo = { type: "mcp" as const, client: "Cursor", role: "seo_specialist", model: "cursor/auto" };
+  const summary = "Patch the CTA title on the Spanish blog before the agent attaches its prepared draft. ".repeat(2);
+
+  async function createWithSession(svc: ReturnType<typeof makeService>, agentSessionId: string, slug: string) {
+    const created = await svc.create(
+      { title: "Attach later", summary, agent_session_id: agentSessionId, entries: [sampleEntry({ slug })] },
+      { username: "alice", actor: seo },
+    );
+    if (!created.ok) throw new Error(created.error);
+    return created.proposal.id;
+  }
+
+  it("legacy invented id: same proposer can attach from a new server-issued session", async () => {
+    const svc = makeService();
+    const id = await createWithSession(svc, "new", "legacy-same");
+    const res = await svc.update(id, "attach_variant", {
+      username: "alice",
+      actor: seo,
+      agent_session_id: "d2b2f51c-9fc3-4f86-93bd-03951f678da2",
+      variant: "agent-fix",
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.proposal.entries[0]!.variant).toBe("agent-fix");
+  });
+
+  it("legacy invented id: another role cannot attach", async () => {
+    const svc = makeService();
+    const id = await createWithSession(svc, "new", "legacy-other");
+    const res = await svc.update(id, "attach_variant", {
+      username: "alice",
+      actor: { ...seo, role: "copy_editor" },
+      agent_session_id: "new",
+      variant: "agent-fix",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("session_mismatch");
+  });
+
+  it("server-issued id: a different session of the same proposer still cannot attach", async () => {
+    const svc = makeService();
+    const id = await createWithSession(svc, "11111111-2222-4333-8444-555555555555", "uuid-strict");
+    const res = await svc.update(id, "attach_variant", {
+      username: "alice",
+      actor: seo,
+      agent_session_id: "d2b2f51c-9fc3-4f86-93bd-03951f678da2",
+      variant: "agent-fix",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("session_mismatch");
   });
 });

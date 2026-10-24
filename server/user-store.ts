@@ -210,7 +210,7 @@ const BUILT_IN_USER_ADMIN_ROLE: RoleDefinition = {
 const BUILT_IN_PLATFORM_STEWARD_ROLE: RoleDefinition = {
   label: "Platform Steward",
   description:
-    "Site health: diagnostics, runtime issues, redirects, SEO and Ads settings, cookie consent window, content-type schema, private database definitions, and full proposal create/review (bulk proposal delete and live-ad edits are staff UI only, never via MCP). Use /mcp/role/platform_steward for update_content_type, create_or_update_database, and reindex_database as well as SEO and redirect writes — not for row CRUD (needs Edit database data), user admin, or infrastructure. For paid-ads-only work prefer /mcp/role/ads_manager.",
+    "Site health: diagnostics, runtime issues, redirects, SEO and Ads settings, cookie consent window, A/B testing setup and checks (staff UI), content-type schema, private database definitions, and full proposal create/review (bulk proposal delete and live-ad edits are staff UI only, never via MCP). Use /mcp/role/platform_steward for update_content_type, create_or_update_database, and reindex_database as well as SEO and redirect writes — not for row CRUD (needs Edit database data), user admin, or infrastructure. For paid-ads-only work prefer /mcp/role/ads_manager.",
   capabilities: [
     { name: "metrics_view" },
     { name: "content_view", contentTypes: "*" },
@@ -222,6 +222,7 @@ const BUILT_IN_PLATFORM_STEWARD_ROLE: RoleDefinition = {
     { name: "ads_settings" },
     { name: "ads_edit" },
     { name: "consent_settings" },
+    { name: "ab_testing_settings" },
     { name: "components_manage" },
     { name: "content_types_manage" },
     { name: "databases_manage" },

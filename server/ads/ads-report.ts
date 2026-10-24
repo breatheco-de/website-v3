@@ -148,7 +148,23 @@ export type AdsVersionRow = {
   submissions: number;
   conversion_rate: number | null;
   low_sample: boolean;
+  /** GA4 non-paid sessions whose first page test was this version (days synced after per-version organic). */
+  organic_visits: number;
+  /** Of those, sessions with a lead event. */
+  organic_leads: number;
 };
+
+type VersionAgg = {
+  paid_visits: number;
+  unique_leads: number;
+  submissions: number;
+  organic_visits: number;
+  organic_leads: number;
+};
+
+function emptyVersionAgg(): VersionAgg {
+  return { paid_visits: 0, unique_leads: 0, submissions: 0, organic_visits: 0, organic_leads: 0 };
+}
 
 export type AdsCampaignRef = {
   platform: AdPlatform | null;
@@ -521,7 +537,7 @@ type Agg = {
   /** utm_campaign text → visits for the untagged campaign row. */
   untaggedTags?: Map<string, number>;
   platforms: Set<AdPlatform>;
-  versions: Map<string, { paid_visits: number; unique_leads: number; submissions: number }>;
+  versions: Map<string, VersionAgg>;
   ga4Ads?: Map<string, AdsGa4AdRef>;
   ga4Untagged?: number;
   ratioClicks: number;
@@ -1439,7 +1455,7 @@ export function buildAdsReport(opts: AdsReportOpts): AdsReport {
         if (!c.utm_content) a.ga4Untagged = (a.ga4Untagged ?? 0) + c.sessions;
       }
       if (opts.split_by_version && c.variant) {
-        const v = a.versions.get(c.variant) ?? { paid_visits: 0, unique_leads: 0, submissions: 0 };
+        const v = a.versions.get(c.variant) ?? emptyVersionAgg();
         v.paid_visits += c.sessions;
         a.versions.set(c.variant, v);
       }
@@ -1456,6 +1472,12 @@ export function buildAdsReport(opts: AdsReportOpts): AdsReport {
       a.organicSessions += o.sessions;
       a.organicEngaged += o.engaged_sessions;
       a.organicWithLead += o.sessions_with_lead;
+      if (opts.split_by_version && o.variant) {
+        const v = a.versions.get(o.variant) ?? emptyVersionAgg();
+        v.organic_visits += o.sessions;
+        v.organic_leads += o.sessions_with_lead;
+        a.versions.set(o.variant, v);
+      }
     }
   }
 
@@ -1808,7 +1830,7 @@ export function buildAdsReport(opts: AdsReportOpts): AdsReport {
       const a = aggs.get(resolve(credit.host, credit.path).key);
       if (!a) continue;
       const variant = lead.variant ?? "version unknown";
-      const v = a.versions.get(variant) ?? { paid_visits: 0, unique_leads: 0, submissions: 0 };
+      const v = a.versions.get(variant) ?? emptyVersionAgg();
       v.submissions += 1;
       if (!credit.is_repeat) v.unique_leads += 1;
       a.versions.set(variant, v);

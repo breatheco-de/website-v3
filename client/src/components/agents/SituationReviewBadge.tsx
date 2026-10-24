@@ -1,7 +1,9 @@
 import { useState, useEffect, type MouseEvent } from "react";
 import { Link } from "wouter";
+import { Check, Pencil } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -17,6 +19,20 @@ import {
 } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import {
+  STAFF_IDEA_DEMAND_SITUATION_OPTIONS,
+  STAFF_REVIEW_SITUATION_LABELS,
+  STAFF_REVIEW_SITUATION_OPTIONS,
+  editsChecksBadge,
+  filedIdeaDemand,
+  ideaDemandBadge,
+} from "@/lib/review-situation-summary";
+
+export {
+  STAFF_IDEA_DEMAND_SITUATION_OPTIONS,
+  STAFF_REVIEW_SITUATION_LABELS,
+  STAFF_REVIEW_SITUATION_OPTIONS,
+};
 
 export type ReviewContextPayload = {
   damage_class?: string;
@@ -531,11 +547,19 @@ export function ProposalSituationCallout({
   snapshot,
   kind,
   className,
+  filedSituations,
+  onSaveSituations,
+  saving,
 }: {
   reviewContext?: ReviewContextPayload | null;
   snapshot?: Record<string, unknown> | null;
   kind?: string;
   className?: string;
+  /** Author/staff-filed situation ids; falls back to the live review context. */
+  filedSituations?: string[];
+  /** When set (ideas/edits), the Demand or Checks badge gets a pencil to edit. */
+  onSaveSituations?: (ids: string[]) => void;
+  saving?: boolean;
 }) {
   const resolved = resolveSituationDisplay({ reviewContext, snapshot, kind });
   const staff = resolved?.staff_summary;
@@ -601,7 +625,21 @@ export function ProposalSituationCallout({
         >
           {staff.situation_description}
         </p>
-        {(resolved.review_situations?.length ?? 0) > 0 ? (
+        {kind === "idea" ? (
+          <IdeaDemandRow
+            filed={filedSituations ?? resolved.filed_review_situations ?? []}
+            warnings={resolved.agent_preview?.warnings}
+            saving={saving}
+            onSave={onSaveSituations}
+          />
+        ) : kind === "edits" ? (
+          <EditsChecksRow
+            filed={filedSituations ?? resolved.filed_review_situations ?? []}
+            live={resolved.review_situations ?? []}
+            saving={saving}
+            onSave={onSaveSituations}
+          />
+        ) : (resolved.review_situations?.length ?? 0) > 0 ? (
           <div className="flex flex-wrap gap-1 pt-0.5" data-testid="chips-review-situations-live">
             {(resolved.review_situations ?? []).map((id) => (
               <Badge
@@ -638,257 +676,278 @@ export function ProposalSituationCallout({
   );
 }
 
-/** Labels for live situation chips (includes idea-only ids not in the edits editor). */
-export const STAFF_REVIEW_SITUATION_LABELS: Record<string, string> = {
-  internal_links: "Hub / internal links",
-  serp_title_description: "Search title / description",
-  funnel_classification: "Funnel stage / products",
-  body_copy_edit: "Body / field edit",
-  selling_figures: "Outcome figures",
-  new_public_content: "New public content",
-  promote_draft: "Promote draft",
-  locale_translation: "Locale translation",
-  idea_opportunity_harm: "Idea opportunity vs harm",
-  anticipated_demand: "Anticipated demand",
-  existing_demand: "Existing search demand",
-  fast_decay_news: "Fast-decay news",
-  broken_url: "Broken URL",
-};
-
-/** Catalog labels for staff multi-select on edits only (keep in sync with server review-situations). */
-export const STAFF_REVIEW_SITUATION_OPTIONS: Array<{
-  id: string;
-  label: string;
-  when_to_use: string;
-}> = [
-  {
-    id: "internal_links",
-    label: "Hub / internal links",
-    when_to_use: "Body adds same-locale hub or cluster links without rewriting facts or SERP.",
-  },
-  {
-    id: "serp_title_description",
-    label: "Search title / description",
-    when_to_use: "Changes to search title or meta description — honest vs live.",
-  },
-  {
-    id: "funnel_classification",
-    label: "Funnel stage / products",
-    when_to_use:
-      "Funnel stage or products — who the buyer is, which product owns them, then how ready they are.",
-  },
-  {
-    id: "body_copy_edit",
-    label: "Body / field edit",
-    when_to_use: "General copy or field updates that are not link-only, SERP-only, or funnel-only.",
-  },
-  {
-    id: "selling_figures",
-    label: "Outcome figures",
-    when_to_use: "Hire rates, salaries, tuition, or prices may move (any content type).",
-  },
-  {
-    id: "new_public_content",
-    label: "New public content",
-    when_to_use: "New or draft-backed public page — angle, facts, and funnel.",
-  },
-  {
-    id: "promote_draft",
-    label: "Promote draft",
-    when_to_use: "Go-live a named draft with empty or minimal field updates.",
-  },
-  {
-    id: "locale_translation",
-    label: "Locale translation",
-    when_to_use:
-      "Promote a translated locale variant — fidelity to source before go-live (not soft-only polish).",
-  },
-];
-
-/** Demand labels staff may set on open ideas (at most one). */
-export const STAFF_IDEA_DEMAND_SITUATION_OPTIONS: Array<{
-  id: string;
-  label: string;
-  when_to_use: string;
-}> = [
-  {
-    id: "anticipated_demand",
-    label: "Anticipated demand",
-    when_to_use:
-      "New product or feature that will become search volume — lasting questions, not today's volume.",
-  },
-  {
-    id: "existing_demand",
-    label: "Existing search demand",
-    when_to_use:
-      "Rank and/or cite on a query that already has demand — brief must justify SERP maturity and weight class.",
-  },
-  {
-    id: "fast_decay_news",
-    label: "Fast-decay news",
-    when_to_use: "Announcement with no lasting question — expect a quick reject.",
-  },
-  {
-    id: "broken_url",
-    label: "Broken URL",
-    when_to_use:
-      "Missing address still requested — redirect to a match, or one new page when demand is high.",
-  },
-];
-
-/**
- * Staff editor for author-declared review situations on open/partial edits or ideas.
- * Edits: multi-select; empty = clear declaration (server infers).
- * Ideas: at most one demand label; empty = no demand label (opportunity-vs-harm still on).
- */
-export function ReviewSituationsEditor({
-  filedSituations,
-  liveSituations,
-  situationSource,
-  disabled,
-  saving,
-  onSave,
-  className,
-  mode = "edits",
-}: {
-  filedSituations: string[];
-  liveSituations?: string[];
-  situationSource?: string;
-  disabled?: boolean;
-  saving?: boolean;
-  onSave: (ids: string[]) => void;
-  className?: string;
-  mode?: "edits" | "idea";
-}) {
-  const options = mode === "idea" ? STAFF_IDEA_DEMAND_SITUATION_OPTIONS : STAFF_REVIEW_SITUATION_OPTIONS;
-  const [selected, setSelected] = useState<string[]>(() => [...filedSituations]);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const filedKey = filedSituations.join(",");
-
-  useEffect(() => {
-    setSelected([...filedSituations]);
-  }, [filedKey]);
-
-  const dirty =
-    selected.length !== filedSituations.length ||
-    selected.some((id) => !filedSituations.includes(id));
-
-  function toggle(id: string) {
-    if (mode === "idea") {
-      setSelected((prev) => (prev.includes(id) ? [] : [id]));
-      return;
-    }
-    setSelected((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
-    );
-  }
-
+function SituationLabelAdvanced({ mode }: { mode: "idea" | "edits" }) {
   return (
-    <div
-      className={cn(
-        "rounded-md border border-card-border bg-muted/20 px-3 py-2.5 space-y-2",
-        className,
-      )}
-      data-testid="panel-review-situations-editor"
-    >
-      <p className="text-sm text-foreground/90" data-testid="text-review-situations-edu">
+    <Collapsible>
+      <CollapsibleTrigger
+        className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+        data-testid="button-review-situations-advanced"
+      >
+        Read more (advanced)
+      </CollapsibleTrigger>
+      <CollapsibleContent className="mt-1 space-y-1 text-xs leading-5 text-muted-foreground">
         {mode === "idea" ? (
           <>
-            Optional demand label for how evidence is scored. Leave empty for ordinary briefs.
-            Opportunity vs harm stays on either way. Accepting does not publish.
+            <p>
+              Anticipated demand and fast-decay news change how search evidence is judged. Broken URL
+              needs hit counts from the 404 log.
+            </p>
+            <p>
+              Accepting only greenlights the brief. A later edit&apos;s approval writes the redirect or
+              creates the post.
+            </p>
+            <p>
+              The opportunity vs harm check (<span className="font-mono">idea_opportunity_harm</span>)
+              always runs and is not selectable here.
+            </p>
           </>
         ) : (
           <>
-            Pick what kind of change this is so review uses the right checklist. You can leave empty —
-            we&apos;ll infer from the edits. Multiple packs each get their own checklist; apply only
-            after failing slices are removed or fixed.
+            <p>
+              Ticked checks are filed by the author. Review may add more checklists on top when the
+              edits need them; filing still succeeds.
+            </p>
+            <p>
+              On revise, checks that no longer match the remaining edits drop. To ship, drop or fix
+              the fields failing a check, then apply the rest in one go.
+            </p>
           </>
         )}
-      </p>
-      {(liveSituations?.length ?? 0) > 0 ? (
-        <p className="text-xs text-muted-foreground" data-testid="text-review-situations-live">
-          Live for review: {(liveSituations ?? []).join(", ")}
-          {situationSource ? ` (${situationSource})` : ""}
-        </p>
-      ) : null}
-      <div className="flex flex-wrap gap-1.5">
-        {options.map((opt) => {
-          const on = selected.includes(opt.id);
-          return (
-            <button
-              key={opt.id}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function SituationLabelTrigger({
+  label,
+  nudge,
+  editable,
+}: {
+  label: string;
+  nudge?: boolean;
+  editable: boolean;
+}) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "gap-1 font-normal",
+        editable && "cursor-pointer hover-elevate",
+        nudge && "border-primary/60 text-primary",
+      )}
+    >
+      {label}
+      {editable ? <Pencil className="h-3 w-3 opacity-70" aria-hidden /> : null}
+    </Badge>
+  );
+}
+
+/** Ideas: single demand label, saved on pick. "None" clears it. */
+function IdeaDemandRow({
+  filed,
+  warnings,
+  saving,
+  onSave,
+}: {
+  filed: string[];
+  warnings?: Array<{ code: string }>;
+  saving?: boolean;
+  onSave?: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = filedIdeaDemand(filed)[0] ?? null;
+  const badge = ideaDemandBadge({ filed, warnings });
+
+  if (!onSave) {
+    return (
+      <div data-testid="row-idea-demand">
+        <SituationLabelTrigger label={badge.label} nudge={badge.nudge} editable={false} />
+      </div>
+    );
+  }
+
+  const choices: Array<{ id: string | null; label: string; when_to_use: string }> = [
+    {
+      id: null,
+      label: "None (standard review)",
+      when_to_use: "Most ideas. Evidence is judged the usual way.",
+    },
+    ...STAFF_IDEA_DEMAND_SITUATION_OPTIONS,
+  ];
+
+  return (
+    <div data-testid="row-idea-demand">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex shrink-0"
+            disabled={saving}
+            data-testid="button-edit-idea-demand"
+            aria-label={`${badge.label} — change demand label`}
+          >
+            <SituationLabelTrigger label={badge.label} nudge={badge.nudge} editable />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-80 space-y-2 p-2"
+          align="start"
+          data-testid="popover-idea-demand"
+        >
+          <div className="space-y-0.5" role="radiogroup" aria-label="Demand label">
+            {choices.map((c) => {
+              const on = c.id === current;
+              return (
+                <button
+                  key={c.id ?? "none"}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  disabled={saving}
+                  onClick={() => {
+                    setOpen(false);
+                    if (!on) onSave(c.id ? [c.id] : []);
+                  }}
+                  className={cn(
+                    "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left hover-elevate",
+                    on && "bg-muted",
+                  )}
+                  data-testid={`option-idea-demand-${c.id ?? "none"}`}
+                >
+                  <Check
+                    className={cn("mt-0.5 h-4 w-4 shrink-0", on ? "text-primary" : "invisible")}
+                    aria-hidden
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm text-foreground">{c.label}</span>
+                    <span className="block text-xs leading-4 text-muted-foreground">
+                      {c.when_to_use}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="border-t px-2 pt-2">
+            <SituationLabelAdvanced mode="idea" />
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+/** Edits: several checks, applied together. Nothing ticked lets review pick. */
+function EditsChecksRow({
+  filed,
+  live,
+  saving,
+  onSave,
+}: {
+  filed: string[];
+  live: string[];
+  saving?: boolean;
+  onSave?: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<string[]>(filed);
+  const badge = editsChecksBadge({ filed, live });
+
+  useEffect(() => {
+    if (open) setSelected([...filed]);
+  }, [open, filed.join(",")]);
+
+  if (!onSave) {
+    return (
+      <div data-testid="row-edits-checks">
+        <SituationLabelTrigger label={badge.label} editable={false} />
+      </div>
+    );
+  }
+
+  const dirty =
+    selected.length !== filed.length || selected.some((id) => !filed.includes(id));
+
+  return (
+    <div data-testid="row-edits-checks">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex shrink-0"
+            disabled={saving}
+            data-testid="button-edit-edits-checks"
+            aria-label={`${badge.label} — change review checks`}
+          >
+            <SituationLabelTrigger label={badge.label} editable />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-80 space-y-2 p-2"
+          align="start"
+          data-testid="popover-edits-checks"
+        >
+          <p className="px-2 pt-1 text-xs text-muted-foreground">
+            Leave all unticked to let review pick.
+          </p>
+          <div className="max-h-72 space-y-0.5 overflow-y-auto">
+            {STAFF_REVIEW_SITUATION_OPTIONS.map((opt) => {
+              const on = selected.includes(opt.id);
+              return (
+                <label
+                  key={opt.id}
+                  className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 hover-elevate"
+                  data-testid={`option-edits-check-${opt.id}`}
+                >
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={on}
+                    disabled={saving}
+                    onCheckedChange={() =>
+                      setSelected((prev) =>
+                        prev.includes(opt.id) ? prev.filter((x) => x !== opt.id) : [...prev, opt.id],
+                      )
+                    }
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm text-foreground">{opt.label}</span>
+                    <span className="block text-xs leading-4 text-muted-foreground">
+                      {opt.when_to_use}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-2 border-t px-2 pt-2">
+            <Button
               type="button"
-              disabled={disabled || saving}
-              title={opt.when_to_use}
-              onClick={() => toggle(opt.id)}
-              className={cn(
-                "rounded-md border px-2 py-1 text-xs transition-colors",
-                on
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-muted-foreground/20 bg-background text-foreground hover-elevate",
-              )}
-              data-testid={`toggle-review-situation-${opt.id}`}
-              aria-pressed={on}
+              size="sm"
+              disabled={saving || !dirty}
+              onClick={() => {
+                onSave(selected);
+                setOpen(false);
+              }}
+              data-testid="button-apply-edits-checks"
             >
-              {opt.label}
-            </button>
-          );
-        })}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          disabled={disabled || saving || !dirty}
-          onClick={() => onSave(selected)}
-          data-testid="button-save-review-situations"
-        >
-          {saving ? "Saving…" : mode === "idea" ? "Save demand label" : "Save situations"}
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={disabled || saving || selected.length === 0}
-          onClick={() => setSelected([])}
-          data-testid="button-clear-review-situations"
-        >
-          {mode === "idea" ? "Clear label" : "Clear (infer)"}
-        </Button>
-      </div>
-      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <CollapsibleTrigger
-          className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-          data-testid="button-review-situations-advanced"
-        >
-          Read more (advanced)
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-1 space-y-1 text-xs text-muted-foreground">
-          {mode === "idea" ? (
-            <>
-              <p>
-                Anticipated demand and fast-decay news change how search evidence is judged. Broken
-                URL requires hit counts from the runtime 404 log; accepting still only greenlights —
-                a later edit&apos;s approval writes the redirect or creates the post.
-              </p>
-              <p>
-                idea_opportunity_harm is always injected and is not selectable here.
-              </p>
-            </>
-          ) : (
-            <>
-              <p>
-                Filed tags are author-declared. Live review may add inferred packs when the edits need
-                more checklists (soft mismatch — create still succeeds).
-              </p>
-              <p>
-                On revise, tags that no longer match remaining edits drop. Per-situation ship: drop or
-                fix failing packs&apos; fields, then apply the rest in one go.
-              </p>
-            </>
-          )}
-        </CollapsibleContent>
-      </Collapsible>
+              {saving ? "Saving…" : "Apply"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={saving || selected.length === 0}
+              onClick={() => setSelected([])}
+              data-testid="button-clear-edits-checks"
+            >
+              Clear
+            </Button>
+          </div>
+          <div className="px-2">
+            <SituationLabelAdvanced mode="edits" />
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

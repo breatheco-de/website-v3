@@ -4,7 +4,8 @@ import { getDefaultContentRoot, getDefaultContentFolder } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import type { ZodSchema } from "zod";
-import { escapeTemplateVars, unescapeObjectVars, escapeObjectVars, unescapeYamlDump } from "../shared/templateVars";
+import { escapeTemplateVars, unescapeObjectVars } from "../shared/templateVars";
+import { dumpContentYaml } from "./content-yaml";
 import { deepMerge } from "./utils/deepMerge";
 import { regenerateSectionIds } from "./utils/regenerateSectionIds";
 import { normalizeUrlPattern, getAllConfigs, getFieldMapping, resolveUrlPatternWithMapping, getFullFieldMapping, getFieldMappingDefaults, extractUrlPatternParams, getContentTypeConfig, getHreflangsSource, resolveHreflangsFromRecord } from "./content-types";
@@ -2599,10 +2600,11 @@ export class ContentIndex {
     for (let i = 0; i < parsedFiles.length; i++) {
       const { file } = parsedFiles[i];
       const outputPath = path.join(absTargetDir, file);
-      const { escaped, map } = escapeObjectVars(regenerated[i]);
-      const dumped = yaml.dump(escaped, { lineWidth: 120, noRefs: true, sortKeys: false });
-      const yamlStr = unescapeYamlDump(dumped, map);
-      fs.writeFileSync(outputPath, yamlStr, "utf-8");
+      fs.writeFileSync(
+        outputPath,
+        dumpContentYaml(regenerated[i], { lineWidth: 120, noRefs: true, sortKeys: false }, outputPath),
+        "utf-8",
+      );
       copiedFiles.push(file);
     }
 
@@ -2762,9 +2764,11 @@ export class ContentIndex {
         });
 
         parsed.sections = kept;
-        const { escaped: escapedOut, map: mapOut } = escapeObjectVars(parsed);
-        const dumped = yaml.dump(escapedOut, { lineWidth: 120, noRefs: true, sortKeys: false });
-        fs.writeFileSync(absFilePath, unescapeYamlDump(dumped, mapOut), "utf-8");
+        fs.writeFileSync(
+          absFilePath,
+          dumpContentYaml(parsed, { lineWidth: 120, noRefs: true, sortKeys: false }, absFilePath),
+          "utf-8",
+        );
       } catch (e) {
         log.error({ err: e }, `Error processing ${absFilePath}:`);
       }

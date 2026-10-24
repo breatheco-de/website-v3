@@ -3845,7 +3845,7 @@ function SemanticIndexKpiCard({ dbName, jobStatus, onForceRefresh, onReindex }: 
   dbName: string;
   jobStatus?: {
     fetch: { status: string };
-    index: { status: string; fetched?: number; total?: number | null; finishedAt?: string; error?: string };
+    index: { status: string; fetched?: number; total?: number | null; finishedAt?: string; error?: string; embedded?: number; unchanged?: number };
     search_cache?: { memoryEntries?: number; lastWrittenAt?: string | null };
   } | null;
   onForceRefresh?: () => void;
@@ -3855,7 +3855,8 @@ function SemanticIndexKpiCard({ dbName, jobStatus, onForceRefresh, onReindex }: 
   const isRunning = index?.status === "running";
   const isError = index?.status === "error";
   const isDone = index?.status === "done";
-  const neverRun = !isRunning && !isError && !isDone;
+  const isWaiting = index?.status === "queued" || index?.status === "waiting_worker";
+  const neverRun = !isRunning && !isError && !isDone && !isWaiting;
   const memoryEntries = jobStatus?.search_cache?.memoryEntries ?? 0;
   const [gcsEntries, setGcsEntries] = useState<number | null>(null);
   const [gcsLoading, setGcsLoading] = useState(false);
@@ -3932,9 +3933,16 @@ function SemanticIndexKpiCard({ dbName, jobStatus, onForceRefresh, onReindex }: 
               </Button>
             )}
           </div>
+        ) : isWaiting ? (
+          <p className="text-xs text-muted-foreground" data-testid="text-semantic-index-waiting">
+            {index?.status === "waiting_worker"
+              ? "Waiting for the background worker. Search keeps using the current index (or keyword matching if there is none yet)."
+              : "Update queued."}
+          </p>
         ) : isDone ? (
-          <p className="text-xs text-muted-foreground">
-            {index?.finishedAt ? new Date(index.finishedAt).toLocaleString() : "Done"}
+          <p className="text-xs text-muted-foreground" data-testid="text-semantic-index-done">
+            Up to date. {(index?.embedded ?? 0).toLocaleString()} updated, {(index?.unchanged ?? 0).toLocaleString()} unchanged
+            {index?.finishedAt ? ` · ${new Date(index.finishedAt).toLocaleString()}` : ""}
           </p>
         ) : neverRun ? (
           onForceRefresh ? (
@@ -4104,7 +4112,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
 
   const { data: jobStatus } = useQuery<{
     fetch: { status: string; fetched?: number; total?: number | null; page?: number; startedAt?: string; finishedAt?: string; error?: string };
-    index: { status: string; fetched?: number; total?: number | null; startedAt?: string; finishedAt?: string; error?: string };
+    index: { status: string; fetched?: number; total?: number | null; startedAt?: string; finishedAt?: string; error?: string; embedded?: number; unchanged?: number; deleted?: number };
   }>({
     queryKey: [`/api/databases/${dbName}/job-status`],
     queryFn: () => apiFetch(`/api/databases/${dbName}/job-status`).then(async (r) => {
@@ -4118,7 +4126,10 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     refetchInterval: (query) => {
       const data = query.state.data;
       if (!data) return 2000;
-      const eitherRunning = data.fetch?.status === "running" || data.index?.status === "running";
+      // Index waits on the Sidequest worker: poll slowly until it starts.
+      if (data.index?.status === "waiting_worker") return 10000;
+      const eitherRunning =
+        data.fetch?.status === "running" || data.index?.status === "running" || data.index?.status === "queued";
       if (eitherRunning) {
         lastActivityAtRef.current = Date.now();
       }
@@ -4152,8 +4163,10 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
 
   const fetchRunning = jobStatus?.fetch?.status === "running";
   const indexRunning = jobStatus?.index?.status === "running";
+  const indexWaiting =
+    hasSemanticSearch && (jobStatus?.index?.status === "queued" || jobStatus?.index?.status === "waiting_worker");
   const showJobBanner = !jobStatusDismissed && jobStatus && (
-    fetchRunning || indexRunning ||
+    fetchRunning || indexRunning || indexWaiting ||
     jobStatus.fetch?.status === "error" || jobStatus.index?.status === "error" ||
     (bothTerminalAt !== null)
   );
@@ -5277,6 +5290,12 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                                 Indexing{jobStatus?.index?.fetched !== undefined && jobStatus?.index?.total ? ` ${jobStatus.index.fetched} / ${jobStatus.index.total}` : "\u2026"}
                               </span>
                             </>
+                          ) : indexWaiting ? (
+                            <span>
+                              {jobStatus?.index?.status === "waiting_worker"
+                                ? "Index update waiting for the background worker. Search keeps using the current index (or keyword matching if there is none yet)."
+                                : "Index update queued."}
+                            </span>
                           ) : jobStatus?.fetch?.status === "error" ? (
                             <>
                               <span className="text-destructive shrink-0">Fetch error: {jobStatus.fetch?.error ?? "unknown"}</span>

@@ -87,10 +87,7 @@ import {
 } from "../content-editor";
 import { bindingManager } from "../bindings";
 import { loadYamlWithTemplateVars } from "../yaml-parse-cache";
-import {
-  escapeObjectVars,
-  unescapeYamlDump,
-} from "@shared/templateVars";
+import { dumpContentYaml } from "../content-yaml";
 import {
   getVersioningManager,
   readUserId,
@@ -99,6 +96,11 @@ import {
   buildUserContext,
 } from "../versioning";
 import { versioningContentSlug } from "../shared-layout-entry";
+import {
+  assignForRequest,
+  servedVariantSlug,
+  type ServedPageVersion,
+} from "../versioning/assign-request";
 import { mediaGallery } from "../media-gallery";
 import { media } from "../media";
 import multer from "multer";
@@ -776,63 +778,12 @@ export function resolveAssignedVariantSlug(
   entrySlug: string,
   locale: string,
 ): string | null {
-  if (extractToken(req)) return null;
-
   const root = (res.locals.site as { contentRoot?: string } | undefined)?.contentRoot;
   const versioningSlug = versioningContentSlug(contentType, entrySlug, root);
-
-  const userId = readUserId(req, res);
-  const versioningCookie = getVersioningCookie(req);
-  const existingAssignments = versioningCookie?.assignments || [];
-  const existing = existingAssignments.find(
-    (a) => a.contentType === contentType && a.slug === versioningSlug && a.locale === locale,
-  );
-
-  const versioningManager = getVersioningManager();
-  const assignedVariant = versioningManager.getAssignment(
-    contentType,
-    versioningSlug,
-    locale,
-    userId,
-    existing?.variantSlug,
-  );
-
-  if (!assignedVariant) return null;
-  // Only assign variants that exist in this language; otherwise visitors get the live page.
-  if (!versioningManager.getVariantContentResult(contentType, versioningSlug, assignedVariant, locale).ok) {
-    return null;
-  }
-
-  const updatedAssignments = [
-    ...existingAssignments.filter(
-      (a) => !(a.contentType === contentType && a.slug === versioningSlug && a.locale === locale),
-    ),
-    { contentType, slug: versioningSlug, locale, variantSlug: assignedVariant, assignedAt: Date.now() },
-  ];
-  setVersioningCookie(res, userId, updatedAssignments);
-  markServedPageVersion(res, contentType, versioningSlug, locale, assignedVariant);
-
-  return assignedVariant;
+  return servedVariantSlug(assignForRequest(req, res, contentType, versioningSlug, locale));
 }
 
-export type ServedPageVersion = { experiment_id: string; variant: string };
-
-/**
- * Remember which page version this response serves so the JSON body can carry
- * `_page_version` (client pushes `experiment_exposure`; see attachPageVersionToJson).
- */
-export function markServedPageVersion(
-  res: Response,
-  contentType: string,
-  slug: string,
-  locale: string,
-  variant: string,
-): void {
-  res.locals.pageVersion = {
-    experiment_id: `${contentType}:${slug}:${locale}`,
-    variant,
-  } satisfies ServedPageVersion;
-}
+export type { ServedPageVersion };
 
 /** Express middleware: add `_page_version` to object JSON bodies when a version was assigned. */
 export function attachPageVersionToJson(_req: Request, res: Response, next: () => void): void {
@@ -863,8 +814,6 @@ export function resolveVariantAssignment(
   slug: string,
   locale: string
 ): unknown | null {
-  if (extractToken(req)) return null;
-
   const root = (res.locals.site as { contentRoot?: string } | undefined)?.contentRoot;
   const versioningSlug = versioningContentSlug(contentType, slug, root);
 
@@ -874,43 +823,17 @@ export function resolveVariantAssignment(
     return null;
   }
 
-  const userId = readUserId(req, res);
-  const versioningCookie = getVersioningCookie(req);
-  const existingAssignments = versioningCookie?.assignments || [];
-  const existing = existingAssignments.find(
-    (a) => a.contentType === contentType && a.slug === versioningSlug && a.locale === locale
-  );
+  const variant = servedVariantSlug(assignForRequest(req, res, contentType, versioningSlug, locale));
+  if (!variant) return null;
 
-  const versioningManager = getVersioningManager();
-  const assignedVariant = versioningManager.getAssignment(
-    contentType,
-    versioningSlug,
-    locale,
-    userId,
-    existing?.variantSlug,
-  );
-
-  if (!assignedVariant) return null;
-
-  const variantContent = versioningManager.getVariantContent(contentType, versioningSlug, assignedVariant, locale);
-  if (!variantContent) return null;
-
-  const updatedAssignments = [
-    ...existingAssignments.filter(
-      (a) => !(a.contentType === contentType && a.slug === versioningSlug && a.locale === locale)
-    ),
-    { contentType, slug: versioningSlug, locale, variantSlug: assignedVariant, assignedAt: Date.now() },
-  ];
-  setVersioningCookie(res, userId, updatedAssignments);
-  markServedPageVersion(res, contentType, versioningSlug, locale, assignedVariant);
-
-  return variantContent;
+  const versioningManager =
+    (res.locals.site as { versioningManager?: ReturnType<typeof getVersioningManager> } | undefined)
+      ?.versioningManager ?? getVersioningManager();
+  return versioningManager.getVariantContent(contentType, versioningSlug, variant, locale);
 }
 
 export function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
-  const { escaped, map } = escapeObjectVars(obj);
-  const dumped = yaml.dump(escaped, opts);
-  return unescapeYamlDump(dumped, map);
+  return dumpContentYaml(obj, opts);
 }
 
 

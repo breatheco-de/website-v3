@@ -356,6 +356,9 @@ export async function bulkUpdateEntryAttributes(request: BulkEntryAttrRequest): 
     if (funnelWrite.relativePath) {
       markFileAsModified(funnelWrite.relativePath, request.author ?? "staff", undefined, request.contentRoot);
     }
+    for (const w of funnelWrite.warnings) {
+      if (w.code === "tracking_values_too_long") warnings.push(`tracking_values_too_long: ${slug}: ${w.message}`);
+    }
     const stripped = stripFunnelFromAllLocaleYamls(
       contentType,
       slug,

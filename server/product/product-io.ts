@@ -33,6 +33,9 @@ import { getDefaultContentRoot } from "../site-config";
 import type { CmsProduct } from "./types";
 import { contentTypeAllowsSellableEntries } from "./products-type-config";
 import { getAllConfigs, getType } from "../content-types";
+import { normalizeShortKey, parseRetiredShortKeys, type RetiredShortKey } from "@shared/tracking-keys";
+import { applyShortKeyRules } from "./tracking-keys-assign";
+import { onTrackingKeysChanged } from "./tracking-keys-effects";
 
 function contentRootAbs(contentRoot?: string): string {
   const raw = contentRoot ?? getDefaultContentRoot();
@@ -48,7 +51,9 @@ export type ProductListRow = {
   /** false when soft-removed from the product index */
   purchasable: boolean;
   audience_status: AudienceStatus;
-  personas: { id: string; label: string }[];
+  /** Tracking code sent to GA4 (absent until assigned). */
+  short_key?: string;
+  personas: { id: string; label: string; short_key?: string }[];
 };
 
 export type ProductSnapshot = {
@@ -59,6 +64,9 @@ export type ProductSnapshot = {
   content_slug: string;
   purchasable: boolean;
   actively_selling: boolean;
+  short_key?: string;
+  /** Renamed / removed tracking keys; never reused. */
+  retired_short_keys?: RetiredShortKey[];
   offer?: ProductOffer;
   personas?: ProductPersona[];
   audience_status: AudienceStatus;
@@ -69,6 +77,10 @@ export type ProductPatch = {
   actively_selling?: boolean;
   product_id?: string;
   name?: string;
+  /** Product tracking key. Locked once saved unless rename_short_key is true. */
+  short_key?: string;
+  /** Allow changing saved product / persona tracking keys; old keys are retired. */
+  rename_short_key?: boolean;
   /** null clears description */
   description?: string | null;
   offer?: Partial<ProductOffer>;
@@ -98,9 +110,11 @@ function toListRow(product: CmsProduct, purchasable = true): ProductListRow {
     actively_selling: product.actively_selling,
     purchasable,
     audience_status: audienceStatus(audience),
+    ...(product.short_key ? { short_key: product.short_key } : {}),
     personas: (audience?.personas ?? []).map((p) => ({
       id: p.id,
       label: p.label || p.role,
+      ...(p.short_key ? { short_key: p.short_key } : {}),
     })),
   };
 }
@@ -129,6 +143,8 @@ function snapshotFromDoc(
         ? doc.active
         : true;
   const description = typeof doc.description === "string" ? doc.description : undefined;
+  const shortKey = normalizeShortKey(doc.short_key);
+  const retired = parseRetiredShortKeys(doc.retired_short_keys);
   return {
     product_id: productId,
     name,
@@ -137,6 +153,8 @@ function snapshotFromDoc(
     content_slug: slug,
     purchasable,
     actively_selling,
+    ...(shortKey ? { short_key: shortKey } : {}),
+    ...(retired.length ? { retired_short_keys: retired } : {}),
     ...(audience?.offer ? { offer: audience.offer } : {}),
     ...(audience?.personas ? { personas: audience.personas } : {}),
     audience_status: audienceStatus(audience),
@@ -225,9 +243,11 @@ export function listRemovedProductRows(opts?: {
         actively_selling: snap.actively_selling,
         purchasable: false,
         audience_status: snap.audience_status,
+        ...(snap.short_key ? { short_key: snap.short_key } : {}),
         personas: (snap.personas ?? []).map((p) => ({
           id: p.id,
           label: p.label || p.role,
+          ...(p.short_key ? { short_key: p.short_key } : {}),
         })),
       });
     }
@@ -261,6 +281,7 @@ export function readEntryProduct(
     content_slug: product.content_slug,
     purchasable: true,
     actively_selling: product.actively_selling,
+    ...(product.short_key ? { short_key: product.short_key } : {}),
     ...(product.audience?.offer ? { offer: product.audience.offer } : {}),
     ...(product.audience?.personas ? { personas: product.audience.personas } : {}),
     audience_status: audienceStatus(product.audience ?? null),
@@ -326,8 +347,10 @@ function mergePersona(
   patch: Partial<ProductPersona> & { id: string },
 ): ProductPersona {
   const role = patch.role ?? base?.role ?? "";
+  const shortKey = normalizeShortKey(patch.short_key) ?? base?.short_key;
   return {
     id: patch.id,
+    ...(shortKey ? { short_key: shortKey } : {}),
     role,
     avatar: mergeAvatar(base?.avatar, patch.avatar),
     ...(patch.label !== undefined
@@ -591,11 +614,25 @@ export function writeEntryProduct(
     delete doc.audience;
   }
 
+  if (typeof patch.short_key === "string" && patch.short_key.trim()) {
+    doc.short_key = patch.short_key.trim().toLowerCase();
+  }
+  const keys = applyShortKeyRules({
+    contentRoot,
+    contentType,
+    slug,
+    prevDoc: existing?.doc ? structuredClone(existing.doc) : null,
+    nextDoc: doc,
+    renameAllowed: patch.rename_short_key === true,
+    fillMissing: true,
+  });
+  if (!keys.ok) return keys;
+
   const writePath = productSidecarWritePath(dir);
   const dumped = yaml.dump(doc, { lineWidth: -1, noRefs: true, quotingType: '"', forceQuotes: false });
   fs.writeFileSync(writePath, dumped.endsWith("\n") ? dumped : `${dumped}\n`, "utf-8");
 
-  const warnings: { code: string; message: string }[] = [];
+  const warnings: { code: string; message: string }[] = [...keys.warnings];
   if (existing?.legacy) {
     warnings.push({
       code: "legacy_sidecar_present",
@@ -636,6 +673,7 @@ export function writeEntryProduct(
         "Product is sellable. Audience (offer + personas) is still missing — set it next so funnel landings can bind personas.",
     });
   }
+  if (keys.changed) onTrackingKeysChanged(contentRoot, [{ contentType, slug }]);
 
   return {
     ok: true,
@@ -651,11 +689,13 @@ export function writeEntryProductAudienceReplace(
   slug: string,
   audience: { offer: ProductOffer; personas: ProductPersona[] },
   contentRoot?: string,
+  opts?: { renameShortKey?: boolean },
 ): ProductWriteResult {
-  const result = writeEntryAudience(contentType, slug, audience, contentRoot);
+  const result = writeEntryAudience(contentType, slug, audience, contentRoot, opts);
   if (!result.ok) {
     return { ok: false, error: result.error, code: result.code, details: result.details };
   }
+  if (result.shortKeysChanged) onTrackingKeysChanged(contentRoot, [{ contentType, slug }]);
   const snapshot = readEntryProduct(contentType, slug, contentRoot);
   if (!snapshot) {
     return {

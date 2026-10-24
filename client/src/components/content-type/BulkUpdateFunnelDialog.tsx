@@ -15,6 +15,7 @@ import {
   FunnelFieldsForm,
   type FunnelProductsMode,
 } from "@/components/DebugBubble/components/FunnelTab";
+import type { TrackingKeyIndex } from "@shared/tracking-keys";
 
 const BULK_PRODUCT_MODES: { value: FunnelProductsMode; label: string }[] = [
   { value: "leave", label: "Leave" },
@@ -65,6 +66,7 @@ export function BulkUpdateFunnelDialog({
       audience_status?: "missing" | "minimal" | "complete";
       personas?: { id: string; label: string }[];
     }[];
+    tracking?: { keys?: TrackingKeyIndex };
   }>({
     queryKey: ["/api/ecommerce/product-map"],
     enabled: open,
@@ -142,6 +144,7 @@ export function BulkUpdateFunnelDialog({
           portalContainer={portalEl}
           hideStoreMembership
           isProgram={contentType === "program"}
+          trackingKeys={productMap?.tracking?.keys}
           education={
             <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm text-muted-foreground">
               <p className="text-foreground font-medium flex items-center gap-1.5">

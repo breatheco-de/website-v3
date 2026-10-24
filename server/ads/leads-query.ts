@@ -297,10 +297,20 @@ function pathBreakdown(
   return topWithOther(out, whole);
 }
 
-/** "landing:coding-bootcamp:en" + "b" -> "coding-bootcamp (en) · b". */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * "landing:coding-bootcamp:en" + "b" -> "coding-bootcamp (en) · b".
+ * "landing:coding-bootcamp:en@2026-10-23" + "b" -> "coding-bootcamp (en, from Oct 23) · b".
+ */
 export function experimentLabel(experimentId: string, variant: string | null): string {
-  const parts = experimentId.split(":");
-  const page = parts.length === 3 ? `${parts[1]} (${parts[2]})` : experimentId;
+  const at = experimentId.lastIndexOf("@");
+  const base = at > 0 ? experimentId.slice(0, at) : experimentId;
+  const run = at > 0 ? experimentId.slice(at + 1) : "";
+  const parts = base.split(":");
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(run);
+  const from = m ? `, from ${MONTHS[Number(m[2]) - 1] ?? m[2]} ${Number(m[3])}` : run ? `, run ${run}` : "";
+  const page = parts.length === 3 ? `${parts[1]} (${parts[2]}${from})` : experimentId;
   return `${page} · ${variant ?? "(no variant)"}`;
 }
 

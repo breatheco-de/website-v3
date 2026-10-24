@@ -204,7 +204,7 @@ Every submit (`/api/leads` and `/api/leads/webhook-delivery`) is enriched server
 | `landing_url` / `conversion_url` | always | First page in this browser / page where the form was sent. |
 | `first_paid_landing_*` / `last_paid_landing_*` | when a paid visit was seen (≤30 days) | URL + ISO time. |
 | `ad_platform` | paid/unclear visits | `meta` \| `google` \| … |
-| `page_experiment_id` / `page_variant` | page has an active version test | Variant from the versioning cookie. |
+| `page_experiment_id` / `page_variant` | visitor saw a page test this visit | First test seen this visit (body, else cookie `4g_visit_exp`: 30 min, cross-tab), accepted only when it matches the visitor's assignment in `4g_versioning_v2`. `page_variant` is a variant slug or `default` (live page during the test). Id format `contentType:slug:locale@YYYY-MM-DD` (run start; no `@date` on tests started before run dates). Leads before the A/B tracking fix used a buggy split (Default's share went to the first variant). |
 | `consent_state` | always | `granted` \| `denied` \| `unset` (tracking banner). |
 | `channel` `first_channel` `channel_landing_path` `referrer_host` | sent by current pages (session `entry_channel`) | Ledger-only: saved on `lead_submissions` (plus `last_organic_channel`, `country`, `traffic_status`), **stripped before the CRM**. Rules → topic `ads` (Lead channel). |
 
@@ -215,6 +215,28 @@ Every submit (`/api/leads` and `/api/leads/webhook-delivery`) is enriched server
 - Internal UTMs (`utm_source` = this host or its parent domain, e.g. `4geeks.com` on `4geeks.com`) are now ignored by the visitor session: they no longer replace stored campaign tags or click ids. Other org sites still count as ordinary referrals.
 - Lead counts by channel, source / medium, page, experiment or product: `get_leads_breakdown` (topic `ads` → Leads breakdown).
 - Same-site links with `utm_*` in content YAML raise `INTERNAL_LINK_HAS_UTM` (validator `internal-link-utm`, warning): they restart the GA4 session and overwrite the visitor's real source, so paid visits and leads can be credited to the wrong source. Links to other domains (including the org's other sites) are not flagged.
+
+## Product / persona on leads and events
+
+Every event and lead carries the page funnel's products / personas (topic `product` → Tracking short keys).
+
+| Destination | Values |
+|---|---|
+| dataLayer / GA4 (`product`, `persona`, `product_persona`, `funnel_stage`, `content_key`, `tracking_truncated`) | **Short codes** (`aie`, `cc`, `aie:cc`), comma-joined, cut at a whole code to 100 chars. Only once the site's tracking switch is on. |
+| Lead body → CRM webhook + ledger (`product`, `persona`, `product_persona`) | **Full ids** (`ai-engineering`, `the-career-changer`), never cut, always sent. Ledger stores `product` / `persona` columns (since launch; older rows null). |
+
+- Default: the page funnel (`effectiveBindings`; program page includes itself). `funnel.products: all` → `all`; content page without funnel → `none`.
+- Override per form with hidden fields (no schema change — `fields` accepts extra keys; also inside `form_overrides[].fields`):
+
+```yaml
+fields:
+  product: { visible: false, default: ai-flex }        # full id (preferred) or short code
+  persona: { visible: false, default: the-explorer }   # optional
+```
+
+- Product override without persona → only the personas the page funnel binds to those products (`"all"` page → none; no funnel → `none`).
+- Invalid overrides are **sent as written** (never corrected). Diagnostics (`forms` validator) warns: `FORM_UNKNOWN_TRACKING_PRODUCT`, `FORM_UNKNOWN_TRACKING_PERSONA`, `FORM_TRACKING_PERSONA_PRODUCT_MISMATCH`, `FORM_TRACKING_OVERRIDE_USES_CODE` (codes work; full id preferred).
+- Non-effects: `item_id` / `program_id` (ecommerce product resolution) and CRM `program` / `course` are unchanged.
 
 ## Consent checkboxes (mandatory rule)
 

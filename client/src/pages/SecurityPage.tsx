@@ -1457,8 +1457,8 @@ function RolesTab() {
                     {roleId === "platform_steward" && (
                       <>
                         <p className="text-xs text-muted-foreground mb-2">
-                          Site health: diagnostics, runtime issues, redirects, SEO settings, content type schema, and
-                          private database definitions (not row edits — those need Edit database data).
+                          Site health: diagnostics, runtime issues, redirects, SEO settings, A/B testing setup, content
+                          type schema, and private database definitions (not row edits — those need Edit database data).
                         </p>
                         <details className="mb-2 group">
                           <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground list-none flex items-center gap-1">
@@ -1467,8 +1467,9 @@ function RolesTab() {
                           </summary>
                           <div className="mt-2 text-xs text-muted-foreground space-y-1.5 pl-4 border-l border-border">
                             <p>
-                              Private surfaces include Diagnostics, Runtime issues, Redirects, SEO settings tabs, Component
-                              insights, Content Type manage, and Databases settings. MCP connector:{" "}
+                              Private surfaces include Diagnostics, Runtime issues, Redirects, SEO settings tabs, Settings →
+                              A/B testing (<code className="font-mono">ab_testing_settings</code>), Component insights,
+                              Content Type manage, and Databases settings. MCP connector:{" "}
                               <code className="font-mono">/mcp/role/platform_steward</code> (
                               <code className="font-mono">update_content_type</code>,{" "}
                               <code className="font-mono">create_or_update_database</code>,{" "}

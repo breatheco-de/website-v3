@@ -1371,6 +1371,45 @@ describe("proposals v1.0 (draft-first)", () => {
     expect(res.proposal.status).toBe("open");
   });
 
+  it("apply dry_run previews while blockers are open; real apply stays blocked and the blocked clock does not move", async () => {
+    const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" } });
+    const { svc, promoteCalls } = makeService({
+      store: fake.store,
+      promote: (_e, o) => (o.dry_run ? { ok: true, dry_run: true } : { ok: true }),
+    });
+    const created = await svc.create({ title: "Title fix", summary: SUMMARY, entries: [entry()] }, { username: "alice" });
+    if (!created.ok) throw new Error(created.error);
+    const blocked = await svc.update(created.proposal.id, "add_blocker", {
+      username: "blake",
+      body: "Publishing this draft drops the EN byline and publish date from a live, indexed post. Copy them to _common.yml first.",
+    });
+    if (!blocked.ok) throw new Error(blocked.error);
+    const blockerId = blocked.proposal.blockers.find((b) => b.status === "open")!.id;
+    const before = svc.get(created.proposal.id)!;
+
+    const dry = await svc.update(created.proposal.id, "apply", { username: "bob", dry_run: true });
+    expect(dry.ok).toBe(true);
+    if (!dry.ok) return;
+    expect(dry.dry_run).toBe(true);
+    const warn = dry.warnings?.find((w) => w.code === "preview_while_blocked");
+    expect(warn?.details).toEqual({ open_blocker_ids: [blockerId] });
+    expect(promoteCalls.map((c) => c.opts.dry_run === true)).toEqual([true]);
+
+    const after = svc.get(created.proposal.id)!;
+    expect(after.status).toBe("open");
+    expect(after.updated_at).toBe(before.updated_at);
+    expect(after.reviewer_action_at).toBe(before.reviewer_action_at);
+
+    const real = await svc.update(created.proposal.id, "apply", { username: "bob" });
+    expect(real.ok).toBe(false);
+    if (!real.ok) expect(real.code).toBe("proposal_blocked");
+    expect(promoteCalls).toHaveLength(1);
+
+    const self = await svc.update(created.proposal.id, "apply", { username: "alice", dry_run: true });
+    expect(self.ok).toBe(false);
+    if (!self.ok) expect(self.code).toBe("four_eyes");
+  });
+
   it("live moved with conflicting fields → context_stale and needs_author (no overwrite)", async () => {
     const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" } });
     const { svc, promoteCalls } = makeService({
@@ -1584,6 +1623,22 @@ describe("proposals v1.0 (draft-first)", () => {
     expect(fake.drafts.get("blog/hello/es/draft")!.data).toMatchObject({ description: "Staff D" });
   });
 
+  it("flags draft fields the author did not send (updated_at is a system stamp)", async () => {
+    const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" } });
+    const { svc } = makeService({ store: fake.store });
+    const created = await svc.create({ title: "Title fix", summary: SUMMARY, entries: [entry()] }, { username: "alice" });
+    if (!created.ok) throw new Error(created.error);
+    const draft = fake.drafts.get("blog/hello/es/draft")!;
+    draft.data = { ...draft.data, updated_at: "2026-10-22T00:00:00Z" };
+    expect(svc.get(created.proposal.id)!.entries[0]).toMatchObject({ ops_match_request: true });
+    expect(svc.get(created.proposal.id)!.entries[0]!.unrequested_fields).toBeUndefined();
+
+    draft.data = { ...draft.data, tags: ["career-support"], funnel: { stage: "awareness", products: "all" } };
+    const e = svc.get(created.proposal.id)!.entries[0]!;
+    expect(e.ops_match_request).toBe(false);
+    expect([...(e.unrequested_fields ?? [])].sort()).toEqual(["funnel", "tags"]);
+  });
+
   it("isSystemDraftEditor: processes are not people", () => {
     for (const e of ["", "  ", "unknown", "Unknown", "system", "github-pull", "migration:006", "system:applies-after"]) {
       expect(isSystemDraftEditor(e), e).toBe(true);
@@ -1611,6 +1666,10 @@ describe("proposals v1.0 (draft-first)", () => {
     const claim = await svc.update(created.proposal.id, "claim", { username: "bob" });
     expect(claim.ok).toBe(false);
     if (!claim.ok) expect(claim.code).toBe("legacy_version");
+    const preview = await svc.update(created.proposal.id, "apply", { username: "bob", dry_run: true });
+    expect(preview.ok).toBe(false);
+    if (!preview.ok) expect(preview.code).toBe("legacy_version");
+    expect(svc.get(created.proposal.id)!.entries[0]!.status).toBe("pending");
     const withdraw = await svc.update(created.proposal.id, "withdraw", {
       username: "alice",
       close_note: "Superseded by the draft-first flow, refiling as v1.",

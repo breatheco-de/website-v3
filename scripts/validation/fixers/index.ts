@@ -16,6 +16,7 @@ import { aiUnusedImagesCleanupFixer } from "./ai-unused-images-cleanup";
 import { dbTemplateRestoreFixer } from "./db-template-restore";
 import { bindingCleanupFixer } from "./binding-cleanup";
 import { sharedLayoutSinglesFixer } from "./shared-layout-singles";
+import { assignTrackingShortKeysFixer } from "./assign-tracking-short-keys";
 import {
   draftMetaInPublishedFixer,
   fieldScopeMismatchFixer,
@@ -40,6 +41,7 @@ const fixers: Fixer[] = [
   registerUnlistedVariantsFixer,
   draftMetaInPublishedFixer,
   fieldScopeMismatchFixer,
+  assignTrackingShortKeysFixer,
 ];
 
 export const fixerMap = new Map<string, Fixer>(fixers.map((f) => [f.name, f]));

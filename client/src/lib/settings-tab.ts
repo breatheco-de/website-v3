@@ -3,6 +3,10 @@ export type GeneralSettingsTab = (typeof GENERAL_SETTINGS_TABS)[number];
 
 export type SettingsSectionId = "general" | "seo" | "ads" | "ai" | "tracking" | "security";
 
+/** Settings → Tracking → A/B testing. Append `#ab-setup`, `#ab-health` or `#ab-analytics` to land on a card. */
+export const AB_TESTING_HREF = "/private/tracking/ab-testing";
+export const AB_TESTING_CARD_IDS = ["ab-setup", "ab-health", "ab-analytics"] as const;
+
 function trimTrailingSlash(pathname: string): string {
   return pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
 }

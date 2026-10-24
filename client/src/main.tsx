@@ -12,6 +12,11 @@ import {
 } from "@/components/sectionRegistry";
 import { injectDevSite, resumePendingDomainNavigation } from "./lib/devSite";
 import {
+  cancelledEditResponse,
+  confirmGuardedEdit,
+  findGuardedDraftForRequest,
+} from "./lib/proposal-edit-guard";
+import {
   resolvePublicPageChunkLoads,
 } from "./lib/preloadPublicPageChunk";
 
@@ -25,6 +30,8 @@ import {
 //   • Only active in dev builds (injectDevSite() is a no-op in production).
 //   • Only applied to relative /api/ URLs to avoid touching external requests.
 //   • Skips URLs that already carry __site= (no double-injection).
+//   • Saves to a draft in an open proposal wait for the co-author confirmation
+//     (lib/proposal-edit-guard); a cancel answers 409 without hitting the server.
 if (typeof window !== "undefined") {
   const _nativeFetch = window.fetch.bind(window);
   window.fetch = function patchedFetch(
@@ -36,6 +43,13 @@ if (typeof window !== "undefined") {
     } else if (input instanceof URL && input.pathname.startsWith("/api/")) {
       const injected = injectDevSite(input.toString());
       if (injected !== input.toString()) input = new URL(injected);
+    }
+    const guarded = findGuardedDraftForRequest(input, init);
+    if (guarded) {
+      const target = input;
+      return confirmGuardedEdit(guarded).then((ok) =>
+        ok ? _nativeFetch(target, init) : cancelledEditResponse(),
+      );
     }
     return _nativeFetch(input, init);
   };

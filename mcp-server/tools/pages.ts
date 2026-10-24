@@ -21,7 +21,9 @@ import {
   listMcpSites,
 } from "../lib/content.js";
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
+import { abTestingWarnings } from "../lib/ab-testing-warnings.js";
 import { notifyMcpContentWrite } from "../lib/content-write-notify.js";
+import { writePausedResult } from "../lib/write-pause.js";
 import { checkCap, denyResponse, denyWriteSuggestPropose, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
 import {
   assertAgenticContentWriteAllowed,
@@ -50,7 +52,11 @@ import {
   registerAgentSession,
 } from "../lib/agent-session-store.js";
 import { getActiveRoleId } from "../lib/auth.js";
-import { isExactAgentModel, normalizeMcpClientName } from "../../shared/agent-identity.js";
+import {
+  isExactAgentModel,
+  isServerAgentSessionId,
+  normalizeMcpClientName,
+} from "../../shared/agent-identity.js";
 import {
   AGENT_HIGHLIGHTS_DESC,
   AGENT_REPORT_ISSUE_COMPLETE_EXAMPLE,
@@ -1319,7 +1325,7 @@ export function registerPageTools(
     "Prefer bootstrap_agent once per MCP run before start (Claude.ai / Grok / any connector). " +
     "Required on role connectors (/mcp/role/…); optional on non-production plain /mcp (helps staff event trails). " +
     "start requires exact model (provider/model, e.g. claude/sonnet-4.5); if an open session exists for this username+role+client+site, retry with resume:true or force_new:true + report. " +
-    "start returns agent_session_id — required on every mutating tool. " +
+    "start returns agent_session_id (server-issued; do not pass one on start — any id you pass is ignored with warning start_ignores_agent_session_id; name a batch with label) — required on every mutating tool. " +
     "note/summarize require agent_session_id + report (min 80 chars). " +
     "summarize closes the run for the staff banner (last summarize wins). " +
     "Reports are staff-readable: for copy you set, list plain values (Title: …); no JSON/YAML dumps. " +
@@ -1329,8 +1335,12 @@ export function registerPageTools(
       action: z.enum(["start", "note", "summarize"]).describe("start | note | summarize"),
       agent_session_id: z
         .string()
-        .describe("Required for note/summarize. From start."),
-      label: z.string().optional().describe("Optional short label on start (e.g. Fix blog SEO batch)"),
+        .optional()
+        .describe("Omit on start. Required for note/summarize: the agent_session_id returned by start."),
+      label: z
+        .string()
+        .optional()
+        .describe("Optional short label on start (e.g. Fix blog SEO batch). Use it to name a batch of work."),
       report: z
         .string()
         .optional()
@@ -1360,7 +1370,7 @@ export function registerPageTools(
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken, {
-            agentSessionId: agent_session_id,
+            agentSessionId: action === "start" ? undefined : agent_session_id,
             ...(model && isExactAgentModel(model) ? { model } : {}),
           }),
           body: JSON.stringify({
@@ -1452,7 +1462,22 @@ export function registerPageTools(
           }
           return fail(String(data.error ?? `agent_session failed (${res.status})`), { code });
         }
-        const sid = String(data.agent_session_id ?? agent_session_id ?? "");
+        const sid =
+          action === "start"
+            ? typeof data.agent_session_id === "string"
+              ? data.agent_session_id.trim()
+              : ""
+            : String(data.agent_session_id ?? agent_session_id ?? "");
+        if (action === "start" && !isServerAgentSessionId(sid)) {
+          return fail("agent_session start did not return a server-issued agent_session_id — retry start", {
+            code: "agent_session_failed",
+          });
+        }
+        const serverWarnings = Array.isArray(data.warnings)
+          ? (data.warnings as Array<{ code?: unknown; message?: unknown }>)
+              .filter((w) => typeof w?.code === "string" && typeof w?.message === "string")
+              .map((w) => ({ code: String(w.code), message: String(w.message) }))
+          : [];
         const sessionModel =
           (typeof data.model === "string" && data.model.trim()) ||
           (model && isExactAgentModel(model) ? model.trim() : "");
@@ -1491,7 +1516,7 @@ export function registerPageTools(
                   : "Session note recorded.",
           },
           {
-            warnings: [],
+            warnings: serverWarnings,
             side_effects: [
               {
                 kind: "pipeline_event",
@@ -4555,6 +4580,9 @@ export function registerPageTools(
           if (w.includes("funnel_locale_agnostic")) {
             warnings.push({ code: "funnel_locale_agnostic", message: w });
           }
+          if (w.includes("tracking_values_too_long")) {
+            warnings.push({ code: "tracking_values_too_long", message: w });
+          }
         }
 
         const next_actions: NextAction[] = [];
@@ -4990,7 +5018,10 @@ export function registerPageTools(
   mcp.tool(
     "get_entry_fields",
     "Inspect mapping fields with effective value and provenance " +
-    "(original | db_override | ct_override | entry_default). " +
+    "(original | db_override | ct_override | entry_default). entry_default = the page's own YAML value (no override), not a type fallback. " +
+    "YAML-backed rows add stored_in (locale_file | draft_file | page_common | type_template | not_set) + stored_in_path = the file the shown value comes from; " +
+    "also_in[] = other files holding a shadowed copy (locale_file + page_common for a page-level field = legacy copy publish drops → display_values_change); " +
+    "publishes_to: page_common = page-level field (funnel, authors, published_at, detached) staged in a draft → applies to all languages on publish. " +
     "Requires non-empty fields: string[] of field paths (e.g. title, seo.refresh_tier). " +
     "Omit fields or pass [] → action_required select_fields with available_fields names only (no values). " +
     "Unknown names reject the whole call (catalog + unknown_fields). " +
@@ -5245,6 +5276,8 @@ export function registerPageTools(
     "Live-only pages have no versioning.yml: hasVersioning is false, variants is [], live_locales lists published locales — that is not unpublished. " +
     "versioning.yml is created by create_variant, not by hand; extra versions start at 0% traffic. " +
     "unregistered_variants lists variant files versioning.yml is missing (no traffic until staff register them). " +
+    "started_at gives each locale's test run date. Warnings cover page tests: ab_testing_not_setup, ab_check_failing, " +
+    "variant_assignment_sticky (visitors keep their version; allocation is staff-only), split_mismatch (results unreliable). " +
     "Use before create_variant or editing an existing draft. Requires content_view.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
@@ -5337,10 +5370,23 @@ export function registerPageTools(
             },
           );
         }
-        const versioning = data.versioning as Record<string, { variants?: Array<{ slug: string; allocation: number }> }>;
+        const versioning = data.versioning as Record<
+          string,
+          { variants?: Array<{ slug: string; allocation: number }>; started_at?: string }
+        >;
         const variants = Object.entries(versioning).flatMap(([locale, localeData]) =>
           (localeData.variants || []).map(v => ({ locale, slug: v.slug, allocation: v.allocation }))
         );
+        const started_at = Object.fromEntries(
+          Object.entries(versioning)
+            .filter(([, localeData]) => typeof localeData.started_at === "string")
+            .map(([locale, localeData]) => [locale, localeData.started_at as string]),
+        );
+        const abWarnings = abTestingWarnings({
+          versioning,
+          ab_testing: data.ab_testing as { set_up?: boolean; latest_check_ok?: boolean } | undefined,
+          split_health: data.split_health as Parameters<typeof abTestingWarnings>[0]["split_health"],
+        });
         return ok(
           {
             message: `Found ${variants.length} extra version(s).`,
@@ -5350,9 +5396,10 @@ export function registerPageTools(
             hasLiveDefault,
             live_locales,
             variants,
+            ...(Object.keys(started_at).length ? { started_at } : {}),
             unregistered_variants,
           },
-          { warnings: unregisteredWarnings, next_actions: [] },
+          { warnings: [...unregisteredWarnings, ...abWarnings], next_actions: [] },
         );
       } catch (e) {
         return fail(`Failed to list variants: ${(e as Error).message}`);
@@ -7053,6 +7100,9 @@ const next_actions: NextAction[] = entryDeleted
         }
       }
 
+      const pausedCreate = await writePausedResult("create_entry");
+      if (pausedCreate) return pausedCreate;
+
       fs.mkdirSync(pageDir, { recursive: true });
 
       const commonData: Record<string, unknown> = { slug, ...commonRecord };
@@ -8748,6 +8798,9 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
           });
         }
       }
+
+      const pausedTranslate = await writePausedResult("translate_entry");
+      if (pausedTranslate) return pausedTranslate;
 
       const isNew = !fileExistedAtStart;
       fs.writeFileSync(targetFilePath, intendedContent, "utf-8");

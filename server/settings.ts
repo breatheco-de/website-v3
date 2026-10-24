@@ -20,6 +20,7 @@ import {
   type AdsConfigStatus,
 } from "./ads-config";
 import { validateConversionEventIntent } from "@shared/conversionEventIntent";
+import { parseStageTargets, serializeStageTargets, type StageTargets } from "@shared/page-objectives";
 import {
   type AuthSignupFieldMapEntry,
   parseAuthSignupFieldMap,
@@ -166,6 +167,8 @@ export interface TrackingBigQuerySettings {
   location: string;
   /** Daily export table prefix (GA4 default events_) */
   table_prefix: string;
+  /** GA4 property id when the export dataset is not named analytics_<propertyId>. */
+  ga4_property_id?: string;
 }
 
 export const DEFAULT_TRACKING_BIGQUERY: TrackingBigQuerySettings = {
@@ -215,6 +218,11 @@ export function parseTrackingBigQuerySettings(
         ? o.location.trim()
         : defaults.location,
     table_prefix: prefix.endsWith("_") ? prefix : `${prefix}_`,
+    ...(typeof o.ga4_property_id === "string" && o.ga4_property_id.trim()
+      ? { ga4_property_id: o.ga4_property_id.trim() }
+      : defaults.ga4_property_id
+        ? { ga4_property_id: defaults.ga4_property_id }
+        : {}),
   };
 }
 
@@ -530,14 +538,17 @@ export function parseOpenRushSettings(
   };
 }
 
-/** Site-wide funnel completeness enforcement (diagnostics + funnel write gates). */
+/** Site-wide funnel settings: completeness enforcement and per-stage objective targets. */
 export interface FunnelSettings {
   /** When true, enforced content types require funnel stage (+ products when site has purchasables). Default false. */
   enforcement: boolean;
+  /** Page stats objective targets per stage (YAML keys are the stage's metric ids); empty = benchmarks. */
+  targets?: StageTargets;
 }
 
 export const DEFAULT_FUNNEL_SETTINGS: FunnelSettings = {
   enforcement: false,
+  targets: {},
 };
 
 export function parseFunnelSettings(
@@ -545,11 +556,12 @@ export function parseFunnelSettings(
   defaults: FunnelSettings = DEFAULT_FUNNEL_SETTINGS,
 ): FunnelSettings {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ...defaults };
+    return { ...defaults, targets: { ...(defaults.targets ?? {}) } };
   }
   const o = raw as Record<string, unknown>;
   return {
     enforcement: typeof o.enforcement === "boolean" ? o.enforcement : defaults.enforcement,
+    targets: o.targets !== undefined ? parseStageTargets(o.targets) : { ...(defaults.targets ?? {}) },
   };
 }
 
@@ -2275,16 +2287,23 @@ export function updateFunnelSettings(
   }
 
   const current = parseFunnelSettings(existing.funnel);
-  const merged = parseFunnelSettings({ ...current, ...input }, DEFAULT_FUNNEL_SETTINGS);
+  const enforcement = typeof input.enforcement === "boolean" ? input.enforcement : current.enforcement;
+  // Input targets use the parsed shape ({ rate, cost }); round-trip through YAML keys to validate.
+  const targets =
+    input.targets !== undefined
+      ? parseStageTargets(serializeStageTargets(input.targets))
+      : (current.targets ?? {});
+  const serializedTargets = serializeStageTargets(targets);
   existing.funnel = {
-    enforcement: merged.enforcement,
+    enforcement,
+    ...(Object.keys(serializedTargets).length > 0 ? { targets: serializedTargets } : {}),
   };
 
   const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
   fs.writeFileSync(settingsPath, output, "utf-8");
   resetSettings(resolveSettingsRoot(contentRoot));
-  log.info(`[Settings] Updated funnel.enforcement=${merged.enforcement}`);
-  return merged;
+  log.info(`[Settings] Updated funnel.enforcement=${enforcement} targets=${Object.keys(serializedTargets).join(",") || "none"}`);
+  return { enforcement, targets };
 }
 
 /** Stable short hash of settings.yml bytes for optimistic concurrency on Rules saves. */

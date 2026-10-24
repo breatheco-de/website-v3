@@ -37,7 +37,7 @@ Then: if the page can be mediocre and still tax the site, do not accept. Dilutio
 | Situation | Action |
 |---|---|
 | Harm is low and the brief is complete | `accept` + `next_step` (min 20) + `accepted_entry`. Do not say the page is live. |
-| Idea might be fine; research or kill line missing | `add_blocker`: what is wrong, what fixed looks like, why it matters (min 80). |
+| Idea might be fine; research, kill line, or the existing file it depends on (`media_id` + `src`) missing | `add_blocker`: what is wrong, what fixed looks like, why it matters (min 80). |
 | Idea itself is the harm (spam, dupe, official-catalog clone we will lose) | `reject` or `close` park. Reject is rare and terminal. |
 | Better as a refresh of an existing slug | `close` `tracked_elsewhere` naming that slug. |
 | Wrong vehicle (funnel / SERP / hub-links-only on live pages) | `close` and tell author to refile as **edits** with the right situation. |
@@ -107,6 +107,7 @@ Cannibal + retrieval split. Notes to merge, not a fourth idea.
 
 - [ ] Target page type named in `related_entries` (content type key, not a tag); its `get_content_type_info` strategy read and the brief fits it
 - [ ] One-sentence 90-day goal (cite / rank / assist)
+- [ ] Page built around an existing file (PDF lead magnet, video, image): its gallery `media_id` and public `src` URL, so staff and the reviewer can open it
 - [ ] Evidence for the job (search proof, or demand label + its proof, or non-search reason in the summary)
 - [ ] Named siblings and why this is not them
 - [ ] One locale unless both have demand

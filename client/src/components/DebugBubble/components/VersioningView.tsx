@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import { ENTRY_ACTIVITY_WINDOW_DAYS } from "@shared/event-log-filters";
@@ -21,7 +21,7 @@ import {
 } from "@/components/editing/LocaleUrlSlugPrompt";
 import { TextLimitsIssue } from "@/components/TextLimitsIssue";
 import { deslugify } from "../utils/debugHelpers";
-import { IconRobot, IconArrowLeft, IconGitBranch, IconRefresh, IconPencil, IconCheck, IconX, IconPlayerPlay, IconPlus, IconHistory, IconExternalLink, IconCrown, IconTrash, IconDots, IconCode, IconShare, IconCopy, IconEyeOff } from "@tabler/icons-react";
+import { IconChartBar, IconRobot, IconArrowLeft, IconGitBranch, IconRefresh, IconPencil, IconCheck, IconX, IconPlayerPlay, IconPlus, IconHistory, IconExternalLink, IconCrown, IconTrash, IconDots, IconCode, IconShare, IconCopy, IconEyeOff } from "@tabler/icons-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -36,16 +36,26 @@ import { Link2, Loader2, Unlink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { apiFetch } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 import { emitContentUpdated, emitVariantCreated, emitVariantDeleted, emitVariantPromoted } from "@/lib/contentEvents";
 import { TEMPLATE_VERSIONING_SLUG, versioningContentSlug } from "@/lib/sharedLayoutEntry";
+import { AB_TESTING_HREF } from "@/lib/settings-tab";
 import { isReservedContentSlug } from "@shared/safe-href";
 import { getFolderFromType, useContentTypes } from "@/hooks/useContentTypes";
 import { FolderRestoreDialog, type FolderRestoreResult, type FolderRestoreTarget } from "./FolderRestoreDialog";
-import type { MenuView, ContentInfo, VersioningResponse } from "../types";
+import type { MenuView, ContentInfo, VersioningResponse, PendingProposalForPage } from "../types";
 import { STORAGE_KEY, OPEN_STORAGE_KEY } from "../types";
 import { PageHealthIndicators } from "./PageHealthIndicators";
 import { LayoutApprovalControl } from "./LayoutApprovalControl";
 import { VariantProposalBadge } from "./VariantProposalBadge";
+import { PendingProposalsDialog } from "./PendingProposalsDialog";
+import { LocaleFlag } from "./LocaleFlag";
+import {
+  AbStickyAdvanced,
+  AbTestingNotSetUpNotice,
+  AbTrafficNotice,
+  SplitMismatchNotice,
+} from "./AbTrafficNotices";
 import type { PageErrorsTab } from "./PageErrorsModal";
 
 interface VersioningViewProps {
@@ -69,6 +79,8 @@ interface VersioningViewProps {
   pageDiagnosticsUrl?: string | null;
   pageDiagnosticsEntryKey?: string | null;
   onOpenPageErrors?: (tab: PageErrorsTab) => void;
+  /** Opens the page stats drawer; undefined hides the button (no metrics_view). */
+  onOpenPageStats?: () => void;
 }
 
 function formatAbsoluteDate(iso: string): string | null {
@@ -138,7 +150,8 @@ function UnregisteredVariantsNotice({
           return (
             <div key={key} className="flex items-center justify-between gap-2" data-testid={`row-unregistered-${v.locale}-${v.slug}`}>
               <div className="flex items-center gap-1.5 min-w-0">
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0">
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0 gap-1">
+                  <LocaleFlag locale={v.locale} className="w-3.5 h-2.5 rounded-sm" />
                   {v.locale.toUpperCase()}
                 </Badge>
                 <button
@@ -170,22 +183,6 @@ function UnregisteredVariantsNotice({
           );
         })}
       </div>
-      <details className="text-muted-foreground">
-        <summary className="cursor-pointer hover:text-foreground">Read more (advanced)</summary>
-        <ul className="mt-1 list-disc pl-4 space-y-0.5">
-          <li>
-            Files: {variants.map((v) => (
-              <code key={v.fileName} className="bg-muted px-1 rounded mr-1">{v.fileName}</code>
-            ))}
-          </li>
-          <li>
-            The traffic list is <code className="bg-muted px-1 rounded">versioning.yml</code>. A version file it does not
-            list gets no traffic and cannot be promoted or edited from here.
-          </li>
-          <li>Adding it writes only versioning.yml at 0%. Live content and other versions' traffic do not change.</li>
-          <li>Usually caused by a save that pushed the version file without its versioning.yml entry.</li>
-        </ul>
-      </details>
     </div>
   );
 }
@@ -315,24 +312,42 @@ export function VersioningView({
   pageDiagnosticsUrl,
   pageDiagnosticsEntryKey,
   onOpenPageErrors,
+  onOpenPageStats,
 }: VersioningViewProps) {
   const { toast } = useToast();
   const { hasCapability } = useDebugAuth();
+  const canManageAbTesting = hasCapability("ab_testing_settings");
   const [registeringVariant, setRegisteringVariant] = useState<string | null>(null);
   const entryKey = pageDiagnosticsEntryKey?.trim() || "";
   const [activityOpen, setActivityOpen] = useState(false);
+  const [proposalsChooserOpen, setProposalsChooserOpen] = useState(false);
   const activityCountQuery = useQuery({
     queryKey: ["/api/admin/entry-activity-count", entryKey, ENTRY_ACTIVITY_WINDOW_DAYS],
     enabled: Boolean(entryKey),
+    refetchInterval: 60_000,
     queryFn: async () => {
       const params = new URLSearchParams({ entry: entryKey });
       const res = await apiFetch(`/api/admin/entry-activity-count?${params}`);
       if (!res.ok) throw new Error("Failed to load write count");
-      return (await res.json()) as { writeCount: number; windowDays: number };
+      return (await res.json()) as {
+        writeCount: number;
+        windowDays: number;
+        openProposals?: PendingProposalForPage[];
+      };
     },
   });
   const writeCount = activityCountQuery.data?.writeCount ?? 0;
   const windowDays = activityCountQuery.data?.windowDays ?? ENTRY_ACTIVITY_WINDOW_DAYS;
+  const openProposals = activityCountQuery.data?.openProposals ?? [];
+  const pendingCount = openProposals.length;
+  const hasAgentProposal = openProposals.some((p) => p.proposer_kind === "agent");
+  const [robotDancing, setRobotDancing] = useState(false);
+  const prevPendingRef = useRef(0);
+  useEffect(() => {
+    if (pendingCount > prevPendingRef.current && hasAgentProposal) setRobotDancing(true);
+    prevPendingRef.current = pendingCount;
+  }, [pendingCount, hasAgentProposal]);
+  const writesLabel = `${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`;
   // Keep the control visible in read mode while diagnostics (entryKey) or write count load.
   const writeCountLoading =
     !entryKey
@@ -340,6 +355,11 @@ export function VersioningView({
       : activityCountQuery.data === undefined &&
         (activityCountQuery.isPending || activityCountQuery.isFetching);
   const showActivityButton = Boolean(entryKey) || pageDiagnosticsLoading;
+  const activityLabel = writeCountLoading
+    ? `Loading writes in the last ${windowDays} days`
+    : pendingCount > 0
+      ? `${pendingCount} proposal${pendingCount === 1 ? "" : "s"} waiting for review · ${writesLabel}`
+      : writesLabel;
   const locales = versioningData?.versioning ? Object.keys(versioningData.versioning) : [];
   const dialogLocales = locales.length > 0 ? locales : (versioningData?.availableLocales ?? ["en"]);
 
@@ -397,8 +417,19 @@ export function VersioningView({
 
   const searchString = useSearch();
   const activeVariant = new URLSearchParams(searchString).get("variant") ?? null;
+  const pathLocale = pathname.split("/")[1] ?? "";
+  const activeLocale =
+    new URLSearchParams(searchString).get("locale") ??
+    (dialogLocales.includes(pathLocale) ? pathLocale : null);
 
   const [editingLocale, setEditingLocale] = useState<string | null>(null);
+  /** Locale whose pencil was pressed while A/B testing is not set up (notice instead of sliders). */
+  const [abNoticeLocale, setAbNoticeLocale] = useState<string | null>(null);
+  const abStatus = versioningData?.ab_testing;
+  const abNotSetUp = !!abStatus && !abStatus.set_up;
+  const abCheckFailing = !!abStatus && abStatus.set_up && !abStatus.latest_check_ok;
+  /** Traffic can only go down until A/B testing is set up and the latest check passed. */
+  const abLowerOnly = abNotSetUp || abCheckFailing;
   const [tempAllocations, setTempAllocations] = useState<Record<string, number>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [savedLocale, setSavedLocale] = useState<string | null>(null);
@@ -883,6 +914,13 @@ export function VersioningView({
   const openEditAllocations = (locale: string) => {
     const localeData = versioningData?.versioning?.[locale];
     if (!localeData) return;
+    const hasTraffic = localeData.variants.some((v) => (v.allocation ?? 0) > 0);
+    if (abNotSetUp && !hasTraffic) {
+      // Nothing to lower and nothing can be raised: explain instead of showing sliders.
+      setAbNoticeLocale(locale);
+      return;
+    }
+    setAbNoticeLocale(null);
     const allocations: Record<string, number> = {};
     localeData.variants.forEach((v) => {
       allocations[v.slug] = v.allocation;
@@ -1297,30 +1335,51 @@ export function VersioningView({
                     className="h-7 gap-1 px-1.5 text-xs"
                     onClick={() => {
                       if (!entryKey) return;
-                      setActivityOpen(true);
+                      if (pendingCount > 0) setProposalsChooserOpen(true);
+                      else setActivityOpen(true);
                     }}
                     disabled={!entryKey && writeCountLoading}
                     data-testid="button-open-versioning-activity"
-                    title={
-                      writeCountLoading
-                        ? `Activity · loading writes in the last ${windowDays} days`
-                        : `Activity · ${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`
-                    }
-                    aria-label={
-                      writeCountLoading
-                        ? `Loading writes in the last ${windowDays} days`
-                        : `${writeCount} write${writeCount === 1 ? "" : "s"} in the last ${windowDays} days`
-                    }
+                    data-pending-proposals={pendingCount || undefined}
+                    title={`Activity · ${activityLabel}`}
+                    aria-label={activityLabel}
                     aria-busy={writeCountLoading || undefined}
                   >
-                    <IconRobot className="h-3.5 w-3.5" />
+                    <span
+                      className={cn(
+                        "inline-flex",
+                        robotDancing && "animate-robot-dance motion-reduce:animate-none",
+                      )}
+                      onAnimationEnd={() => setRobotDancing(false)}
+                      data-testid="icon-versioning-activity-robot"
+                    >
+                      <IconRobot className="h-3.5 w-3.5" />
+                    </span>
                     <Badge
                       variant="secondary"
-                      className="h-5 min-w-5 px-1.5 text-[10px] font-normal tabular-nums bg-muted text-muted-foreground border border-border shadow-none"
+                      className={cn(
+                        "h-5 min-w-5 px-1.5 text-[10px] tabular-nums border shadow-none",
+                        pendingCount > 0
+                          ? "bg-status-away/15 text-status-away border-status-away/40 font-medium"
+                          : "bg-muted text-muted-foreground border-border font-normal",
+                      )}
                       data-testid="badge-versioning-activity-count"
                     >
-                      {writeCountLoading ? "…" : writeCount}
+                      {writeCountLoading ? "…" : pendingCount > 0 ? pendingCount : writeCount}
                     </Badge>
+                  </Button>
+                ) : null}
+                {onOpenPageStats && pageDiagnosticsUrl ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 w-7 p-0"
+                    onClick={onOpenPageStats}
+                    data-testid="button-open-page-stats"
+                    title="Page stats: objective, traffic, leads, search and ads for this page"
+                    aria-label="Open page stats"
+                  >
+                    <IconChartBar className="h-3.5 w-3.5" />
                   </Button>
                 ) : null}
               </div>
@@ -1336,6 +1395,17 @@ export function VersioningView({
           onOpenChange={setActivityOpen}
           testIdPrefix="versioning-activity"
           pageUrl={pageDiagnosticsUrl ?? undefined}
+        />
+      ) : null}
+
+      {pendingCount > 0 ? (
+        <PendingProposalsDialog
+          open={proposalsChooserOpen}
+          onOpenChange={setProposalsChooserOpen}
+          proposals={openProposals}
+          page={{ type: contentInfo.type, slug: contentInfo.slug, locale: activeLocale }}
+          navigate={navigate}
+          onSeePastSaves={() => setActivityOpen(true)}
         />
       ) : null}
 
@@ -1635,7 +1705,8 @@ export function VersioningView({
                         <span className="text-xs text-muted-foreground">
                           {isTemplateVersioning ? "Live template for" : "Live version for"}
                         </span>
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4">
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4 gap-1">
+                          <LocaleFlag locale={locale} className="w-3.5 h-2.5 rounded-sm" />
                           {locale.toUpperCase()}
                         </Badge>
                         <span className="text-xs text-muted-foreground">locale</span>
@@ -1759,7 +1830,8 @@ export function VersioningView({
                             ? "Template variants for"
                             : "Traffic allocation for"}
                       </span>
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4">
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4 gap-1">
+                        <LocaleFlag locale={locale} className="w-3.5 h-2.5 rounded-sm" />
                         {locale.toUpperCase()}
                       </Badge>
                       <span className="text-xs text-muted-foreground">locale</span>
@@ -1839,6 +1911,51 @@ export function VersioningView({
                     >
                       {allocationSaveError}
                     </p>
+                  )}
+
+                  {abNoticeLocale === locale && !isEditing && (
+                    <AbTestingNotSetUpNotice
+                      onClose={() => setAbNoticeLocale(null)}
+                      locale={locale}
+                      canSetUp={canManageAbTesting}
+                    />
+                  )}
+
+                  {isEditing && abNotSetUp && (
+                    <AbTrafficNotice tone="warning" testId={`text-ab-not-setup-${locale}`}>
+                      A/B testing has not been set up yet, so visitors only see Default. You can lower or stop traffic
+                      here, but not raise it.{" "}
+                      {canManageAbTesting ? (
+                        <a href={`${AB_TESTING_HREF}#ab-setup`} className="underline underline-offset-2">
+                          Set up A/B testing
+                        </a>
+                      ) : (
+                        "Ask a Platform Steward to set it up."
+                      )}
+                    </AbTrafficNotice>
+                  )}
+                  {isEditing && abCheckFailing && (
+                    <AbTrafficNotice tone="destructive" testId={`text-ab-check-failing-${locale}`}>
+                      The last A/B check failed. You can lower or stop tests, but not start or raise them until a check
+                      passes.{" "}
+                      {canManageAbTesting ? (
+                        <a href={`${AB_TESTING_HREF}#ab-health`} className="underline underline-offset-2">
+                          Open A/B testing health
+                        </a>
+                      ) : (
+                        "A Platform Steward can re-run the check."
+                      )}
+                    </AbTrafficNotice>
+                  )}
+                  {isEditing && !abLowerOnly && (
+                    <AbTrafficNotice tone="warning" testId={`text-ab-sticky-${locale}`}>
+                      Visitors who already saw this page keep their version. The new split only applies to new
+                      visitors.
+                      <AbStickyAdvanced />
+                    </AbTrafficNotice>
+                  )}
+                  {!isEditing && versioningData?.split_health?.[locale]?.status === "mismatch" && (
+                    <SplitMismatchNotice health={versioningData.split_health[locale]} locale={locale} />
                   )}
 
                   <div className="space-y-2">
@@ -2070,7 +2187,11 @@ export function VersioningView({
                             if (v.slug === variant.slug) return sum;
                             return sum + (tempAllocations[v.slug] ?? (v.allocation ?? 0));
                           }, 0) + (tempAllocations["__default__"] ?? 0);
-                          const maxAllowed = Math.max(0, 100 - othersTotal);
+                          const maxAllowed = Math.min(
+                            Math.max(0, 100 - othersTotal),
+                            // Lower-only while A/B testing is not ready: never above today's traffic.
+                            abLowerOnly ? (variant.allocation ?? 0) : 100,
+                          );
                           return (
                             <div className="mt-1.5 flex items-center gap-2">
                               <Slider

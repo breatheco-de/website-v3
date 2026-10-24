@@ -165,4 +165,56 @@ describe("formsValidator (site-scoped)", () => {
       expect(codes(result, "FORM_NO_REQUIRED_CONSENT")).toEqual([]);
     });
   });
+
+  describe("hidden product / persona overrides", () => {
+    const codes = (r: { warnings: { code?: string }[] }) => r.warnings.map((w) => w.code).filter((c) => c?.startsWith("FORM_TRACKING") || c?.startsWith("FORM_UNKNOWN_TRACKING"));
+
+    beforeEach(() => {
+      fs.writeFileSync(
+        path.join(tmp, "content-types.yml"),
+        yaml.dump({ page: { directory: "pages" }, program: { directory: "programs" } }),
+      );
+      const prog = path.join(tmp, "programs", "ai-flex");
+      fs.mkdirSync(prog, { recursive: true });
+      fs.writeFileSync(
+        path.join(prog, "_product.yml"),
+        yaml.dump({
+          purchasable: true,
+          name: "AI Flex",
+          short_key: "afx",
+          personas: [{ id: "the-explorer", short_key: "exp", role: "Explorer", avatar: { fears: ["f"], internal_dialogue: "d", objections: ["o"] } }],
+        }),
+      );
+    });
+
+    function writeOverride(fields: Record<string, unknown>, overrides?: unknown[]) {
+      const page = pageWithForm("contact_us");
+      const form = page.sections[0].form as Record<string, unknown>;
+      form.fields = { ...(form.fields as object), ...fields };
+      if (overrides) form.form_overrides = overrides;
+      fs.writeFileSync(path.join(entryDir, "en.yml"), yaml.dump(page));
+    }
+
+    it("accepts valid full ids", async () => {
+      writeOverride({ product: { visible: false, default: "ai-flex" }, persona: { visible: false, default: "the-explorer" } });
+      expect(codes(await formsValidator.run(makeContext(tmp, [liveFile()])))).toEqual([]);
+    });
+
+    it("flags unknown products and personas, and codes used instead of ids", async () => {
+      writeOverride({ product: { visible: false, default: "full-stak" }, persona: { visible: false, default: "exp" } });
+      expect(codes(await formsValidator.run(makeContext(tmp, [liveFile()])))).toEqual([
+        "FORM_UNKNOWN_TRACKING_PRODUCT",
+        "FORM_TRACKING_OVERRIDE_USES_CODE",
+      ]);
+    });
+
+    it("checks form_overrides fields and skips template values", async () => {
+      writeOverride({ product: { visible: false, default: "{{ entry.slug }}" } }, [
+        { conditions: [], fields: { persona: { default: "nobody" } } },
+      ]);
+      const result = await formsValidator.run(makeContext(tmp, [liveFile()]));
+      expect(codes(result)).toEqual(["FORM_UNKNOWN_TRACKING_PERSONA"]);
+      expect(result.warnings.find((w) => w.code === "FORM_UNKNOWN_TRACKING_PERSONA")?.message).toMatch(/form_overrides\[0\]/);
+    });
+  });
 });

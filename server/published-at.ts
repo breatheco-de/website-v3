@@ -5,7 +5,7 @@
 
 import fs from "fs";
 import path from "path";
-import yaml from "js-yaml";
+import { dumpContentYaml, loadContentYamlObject } from "./content-yaml";
 import { getFolder, RESERVED_PUBLISHED_AT_FIELD } from "./content-types";
 import { getDefaultContentRoot } from "./site-config";
 import { markFileAsModified } from "./sync-state";
@@ -31,7 +31,7 @@ export function readPublishedAt(
   const commonPath = commonYmlPath(contentType, slug, contentRoot);
   if (!fs.existsSync(commonPath)) return undefined;
   try {
-    const data = (yaml.load(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown>) || {};
+    const data = loadContentYamlObject(fs.readFileSync(commonPath, "utf-8")) ?? {};
     return data[RESERVED_PUBLISHED_AT_FIELD];
   } catch {
     return undefined;
@@ -57,7 +57,7 @@ export function setPublishedAt(
     fs.mkdirSync(path.dirname(commonPath), { recursive: true });
     let commonData: Record<string, unknown> = {};
     if (fs.existsSync(commonPath)) {
-      commonData = (yaml.load(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown>) || {};
+      commonData = loadContentYamlObject(fs.readFileSync(commonPath, "utf-8")) ?? {};
     }
     commonData[RESERVED_PUBLISHED_AT_FIELD] = value;
     if (commonData.updated_at === "" || commonData.updated_at === null) {
@@ -65,7 +65,7 @@ export function setPublishedAt(
     }
     fs.writeFileSync(
       commonPath,
-      yaml.dump(commonData, { lineWidth: 120, noRefs: true, sortKeys: false }),
+      dumpContentYaml(commonData, { lineWidth: 120, noRefs: true, sortKeys: false }, commonPath),
       "utf-8",
     );
     markFileAsModified(commonPath, author, undefined, contentRoot);
@@ -86,7 +86,7 @@ export function clearPublishedAtFromCommon(
   if (!fs.existsSync(commonPath)) return { success: true };
   try {
     const commonData =
-      (yaml.load(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown>) || {};
+      loadContentYamlObject(fs.readFileSync(commonPath, "utf-8")) ?? {};
     if (!(RESERVED_PUBLISHED_AT_FIELD in commonData)) return { success: true };
     delete commonData[RESERVED_PUBLISHED_AT_FIELD];
     if (commonData.updated_at === "" || commonData.updated_at === null) {
@@ -94,7 +94,7 @@ export function clearPublishedAtFromCommon(
     }
     fs.writeFileSync(
       commonPath,
-      yaml.dump(commonData, { lineWidth: 120, noRefs: true, sortKeys: false }),
+      dumpContentYaml(commonData, { lineWidth: 120, noRefs: true, sortKeys: false }, commonPath),
       "utf-8",
     );
     markFileAsModified(commonPath, author, undefined, contentRoot);

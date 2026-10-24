@@ -16,7 +16,9 @@ export type SystemAlertCode =
   | "sidequest_engine_down"
   | "sidequest_engine_stuck"
   | "github_app_env_missing"
-  | "decision_model_unavailable";
+  | "decision_model_unavailable"
+  | "ab_check_failed"
+  | "ab_check_inconclusive";
 
 export interface SystemAlert {
   id: string;

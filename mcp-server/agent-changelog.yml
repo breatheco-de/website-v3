@@ -27,6 +27,150 @@ entries:
       - shared/validateEditorFieldTypes.ts
       - server/content-types.ts
       - mcp-server/explain/content_system.md
+  - date: "2026-10-23"
+    summary: "Semantic search indexes heal themselves: incremental Sidequest sync into site-scoped Qdrant collections"
+    agent_impact:
+      - "reindex_database now only queues an incremental sync on the Sidequest vector_index queue: rows whose text_hash changed are re-embedded, removed rows deleted. The current index keeps serving until it finishes (keyword matching if none exists yet); Qdrant failures retry 5 times with backoff; jobs wait if the worker is down. No MCP rebuild-from-scratch (admin UI only)."
+      - "create_or_update_database patches that enable vector_search or change its fields auto-queue the sync (warning vector_index_auto_queued, next_actions []). Do not follow up with reindex_database. Item CRUD still needs reindex: true or reindex_database."
+      - "Collections are named <contentFolder>__<dbName> (e.g. site_4geeks-com__testimonials); legacy bare-name collections serve until the first sync finishes, then are deleted. Rows without slug/id are keyed by locale + hash of the embedded text."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/databases.ts
+      - mcp-server/explain/semantic_search.md
+      - mcp-server/explain/local_databases.md
+      - server/vector-search.ts
+      - server/jobs/definitions/vector-index-sync.ts
+  - date: "2026-10-23"
+    summary: "Products and personas get tracking short keys; every event and lead carries the page's product / persona"
+    agent_impact:
+      - "create_or_update_product accepts short_key, personas[].short_key and rename_short_key. Every write fills that product's missing keys (warning short_keys_assigned). Saved keys are locked: action_required confirm_short_key_rename / pick_another_short_key on short_key_locked / short_key_conflict / invalid_short_key. get_product returns tracking_keys.taken_product / taken_persona. Keys: 2-6 [a-z0-9], unique per site (persona keys across all products), retired keys never reused."
+      - "Events (GA4) carry product / persona / product_persona codes + funnel_stage + content_key once a site's tracking switch is on (every product and persona has a key — staff run migration 009 or the Diagnostics fixer). Lead CRM payload and ledger get full ids in product / persona. Lead forms override with hidden fields.product / fields.persona (full id preferred)."
+      - "New Diagnostics codes: MISSING_TRACKING_SHORT_KEY, TRACKING_NOT_READY, DUPLICATE_TRACKING_SHORT_KEY, TRACKING_VALUES_TOO_LONG (funnel-completeness) and FORM_UNKNOWN_TRACKING_PRODUCT / _PERSONA, FORM_TRACKING_PERSONA_PRODUCT_MISMATCH, FORM_TRACKING_OVERRIDE_USES_CODE (forms). Funnel writes (update_fields, update_entry_attributes) may warn tracking_values_too_long (non-blocking)."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/product.ts
+      - mcp-server/explain/product.md
+      - mcp-server/explain/lead-forms.md
+      - mcp-server/explain/ads.md
+  - date: "2026-10-23"
+    summary: "Writes can answer site_updating for a few seconds during a deploy; retry after retry_after_seconds"
+    agent_impact:
+      - "During the last step of a deploy, content writes (any mutating tool, including create_entry and translate_entry) fail with code site_updating, retry_after_seconds and HTTP 503 for up to ~3 minutes. Nothing was written. Wait retry_after_seconds and retry the same call; do not report it as a content or permission error."
+      - "Before switching releases the server pushes every unpushed content change to GitHub (with the service account when the author has no GitHub connection; the commit keeps the real author). A deploy now stops instead of dropping unpushed changes, so edits saved right before a deploy are no longer lost."
+    tools_changed: false
+    paths:
+      - server/content-write-pause.ts
+      - server/content-flush.ts
+      - server/routes/internal-content.ts
+      - mcp-server/lib/write-pause.ts
+      - scripts/deploy.sh
+  - date: "2026-10-23"
+    summary: "A/B testing moved under Settings → Tracking (staff URL /private/tracking/ab-testing)"
+    agent_impact:
+      - "When pointing staff at A/B setup or health, say Settings → Tracking → A/B testing (Setup / Health / Google Analytics cards). list_variants warnings (ab_testing_not_setup, ab_check_failing) and the versioning API setup_url / health_url now use /private/tracking/ab-testing#ab-setup and #ab-health; old /private/settings/ab-testing/* links redirect."
+      - "No change to who can do what: setup and checks still need content_allocate_traffic, the GA4 dimensions card still needs metrics_view. Staff without metrics_view can open the A/B tab but not the other Tracking tabs."
+    tools_changed: false
+    paths:
+      - mcp-server/lib/ab-testing-warnings.ts
+      - server/routes/versioning.ts
+  - date: "2026-10-23"
+    summary: "Page tests: list_variants warns about A/B readiness, stickiness and split mismatch; the hidden A/B check page is locked; lead page_variant can be default"
+    agent_impact:
+      - "list_variants adds started_at (per-locale run date) and warnings: ab_testing_not_setup (visitors only see Default until staff finish Settings → A/B testing → Setup), ab_check_failing (running tests continue; starting/raising traffic blocked), variant_assignment_sticky (visitors keep their first version; a new split only affects new visitors; allocation is staff-only), split_mismatch (locale, source, expected vs observed shares, p, through_date: results unreliable)."
+      - "The landing/page ab-check entry (system: ab_check) is a locked system page: edits, deletes, renames, variants and traffic return system_page_locked; it is omitted from list_entries and listings. Do not try to edit or recreate it; only staff Setup does."
+      - "Lead page_experiment_id is the visit's first test (contentType:slug:locale@YYYY-MM-DD) and page_variant can be default. get_leads_breakdown gains default rows; leads before the fix used a buggy split."
+      - "New capability ab_testing_settings (Platform Steward only): one-time A/B setup, checks, and GA4 dimensions in the staff UI. Not an MCP tool; content_allocate_traffic alone cannot set up A/B testing. When list_variants returns ab_testing_not_setup, tell staff a Platform Steward must do the setup."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/ab-testing-warnings.ts
+      - mcp-server/explain/lead-forms.md
+      - server/ab-testing/state.ts
+      - server/versioning/split-health.ts
+  - date: "2026-10-23"
+    summary: "Apply dry_run previews while blockers are open; get_entry_fields names the file each YAML value comes from"
+    agent_impact:
+      - "update_proposal apply dry_run (1.0) no longer fails proposal_blocked: it returns merge_preview + warning preview_while_blocked (details.open_blocker_ids) and a resolve_blocker next_action. Real apply is still proposal_blocked; legacy proposals stay legacy_version; four-eyes still applies. A clean preview is not approval and does not reset the 10/30-day blocked clock."
+      - "get_entry_fields YAML-backed rows add stored_in (locale_file | draft_file | page_common | type_template | not_set) + stored_in_path, also_in[] for shadowed copies (locale_file + page_common on a page-level field = legacy copy publish drops), and publishes_to: page_common for page-level fields staged in a draft. entry_default means the page's own YAML value, not a type fallback."
+      - "Blocker fix conditions should be checkable from the page files (stored_in / also_in) or the apply dry_run — order: fix → preview → resolve_blocker → four-eyes apply."
+    tools_changed: false
+    paths:
+      - server/content-proposals/service.ts
+      - server/field-overrides.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/proposals.md
+      - mcp-server/explain/reading-proposals.md
+  - date: "2026-10-23"
+    summary: "add_blocker requires a plain-English staff_summary next to the technical body"
+    agent_impact:
+      - "update_proposal add_blocker: pass staff_summary (1-4 plain sentences, 40-700 chars: what visitors/Google would see change, what must happen before approving, who does it). Missing → blocker_staff_summary_required; field/file names, snake_case/camelCase/dotted names, backticks, or words like op/schema/slug/locale/YAML → blocker_staff_summary_not_plain with details.problems. Nothing is saved on either; retry with the same body."
+      - "body stays the technical version for the author (field paths, codes, files). Staff read staff_summary first; body sits behind a technical-details toggle."
+      - "Blockers read via list_proposals carry staff_summary (null on old blockers until staff run migration 007_blocker_staff_summaries). System predecessor_closed blockers include one."
+    tools_changed: false
+    paths:
+      - server/content-proposals/blocker-staff-summary.ts
+      - server/content-proposals/service.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/proposals.md
+      - mcp-server/explain/reading-proposals.md
+  - date: "2026-10-23"
+    summary: "Saves that would write a destroyed {{ }} placeholder ({\"[object Object]\": null}) are blocked; nothing is written"
+    agent_impact:
+      - "Any content write (update_fields, section edits, detach, publish stamps, MCP file writes) fails with errorCode corrupted_template_value when the data carries a \"[object Object]\" key. The message names the file and key paths (e.g. sections.1.updated_at); the file on disk and GitHub is unchanged. Do not retry or work around it: report the file and paths to staff, the dev team must restore the placeholder from git history."
+      - "New validator corrupted-template-values (issue code CORRUPTED_TEMPLATE_VALUE, coding_agent_only) lists files that still carry the broken value; MCP agents must not claim it."
+    tools_changed: false
+    paths:
+      - server/content-yaml.ts
+      - shared/templateVars.ts
+      - scripts/validation/validators/corrupted-template-values.ts
+  - date: "2026-10-23"
+    summary: "Proposals flag draft fields the author did not send; required-field gate no longer calls text with site tokens empty"
+    agent_impact:
+      - "list_proposals(proposal_id): entries carry unrequested_fields (draft fields that would publish with no requested op covering them; updated_at excluded) and ops_match_request is false when any exist. Warning draft_has_unrequested_fields + update_proposal revise_entries next_action. Author: revise with only the intended ops (restarts a draft this proposal created from today's live). Reviewer: judge them as ops; unintended → blocker asking the author to revise."
+      - "Apply / promote no longer fail seo_gate 'Field content is required ... cannot be empty' when the text uses site tokens such as {{ global.price_ai_engineering | $399 }}. Only a value that is nothing but placeholders (e.g. {{ entry.content }}) counts as empty."
+    tools_changed: false
+    paths:
+      - server/content-proposals/service.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/proposals.md
+      - shared/validateRequiredFields.ts
+  - date: "2026-10-23"
+    summary: "Ideas built around an existing file name its media_id + src; proposal summary and rationale render as Markdown"
+    agent_impact:
+      - "propose_change kind idea: when the page hands out or is built on an existing file (PDF lead magnet, video, image), put its gallery media_id and public src URL in summary or rationale. Reviewers add_blocker when it is missing (idea-opportunity-harm disposition + author checklist)."
+      - "Staff see proposal summary and rationale rendered as Markdown on the proposal page: bare URLs become links, lists and `code` render, single line breaks are kept."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/idea-opportunity-harm-proposals.md
+      - mcp-server/explain/proposals.md
+      - client/src/components/agents/ProposalMarkdown.tsx
+  - date: "2026-10-23"
+    summary: "add_blocker body is Markdown: one-line verdict, blank line, numbered list with one item per problem"
+    agent_impact:
+      - "update_proposal add_blocker body: write a one-sentence verdict, a blank line, then a Markdown numbered list (1. 2. …) with one item per problem, each saying what's wrong, what fixed looks like and why it matters. Wrap field paths, slugs and URLs in backticks; no headings or tables. Min 80 chars is unchanged."
+      - "Staff see blocker bodies and resolve notes rendered as Markdown on the proposal page; older bodies written as inline (1) (2) (3) are shown as a list automatically, so do not rewrite existing blockers."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/internal-links-proposals.md
+      - client/src/components/agents/ProposalMarkdown.tsx
+  - date: "2026-10-22"
+    summary: "agent_session ids are server-issued: start ignores a passed id; invented ids (new, pending, placeholder…) are refused"
+    agent_impact:
+      - "agent_session start: omit agent_session_id. The server always returns a new UUID; an id you pass is ignored with warning start_ignores_agent_session_id. Name a batch of work with label on start, not with a custom id."
+      - "Every mutate, note and summarize refuses an agent_session_id that start did not issue (session_unknown, next_action agent_session start). Ids like new / pending / start / placeholder were shared by several agents, mixing their staff trails; resume and session_conflict never return them."
+      - "attach_variant on an old proposal filed under an invented id works from any session of the same proposer (username + role); proposals filed under a real session id still need that same session."
+    tools_changed: false
+    paths:
+      - shared/agent-identity.ts
+      - server/routes/admin.ts
+      - server/events/event-store.ts
+      - server/content-proposals/service.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/loopback.ts
+      - mcp-server/agent-conventions.md
   - date: "2026-10-22"
     summary: "Proposal drafts: system writes no longer make a co-author; revise_entries restarts the draft again; no phantom remove op for nested nulls"
     agent_impact:

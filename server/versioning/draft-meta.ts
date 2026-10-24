@@ -12,12 +12,8 @@ import path from "path";
 import { createHash } from "crypto";
 import yaml from "js-yaml";
 import { isTemplateVersioningSlug, variantTemplateBasename } from "@shared/sharedLayoutPaths";
-import {
-  escapeObjectVars,
-  escapeTemplateVars,
-  unescapeObjectVars,
-  unescapeYamlDump,
-} from "@shared/templateVars";
+import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
+import { dumpContentYaml } from "../content-yaml";
 import { getFolder } from "../content-types";
 import { getDefaultContentRoot } from "../site-config";
 import { markFileAsModified } from "../sync-state";
@@ -74,9 +70,7 @@ export function safeLoadYaml(raw: string): Record<string, unknown> | null {
 }
 
 export function safeDumpYaml(data: unknown): string {
-  const { escaped, map } = escapeObjectVars(data);
-  const dumped = yaml.dump(escaped, { lineWidth: -1, noRefs: true, sortKeys: false, quotingType: '"', forceQuotes: false });
-  return unescapeYamlDump(dumped, map);
+  return dumpContentYaml(data, { lineWidth: -1, noRefs: true, sortKeys: false, quotingType: '"', forceQuotes: false });
 }
 
 const parseYaml = safeLoadYaml;

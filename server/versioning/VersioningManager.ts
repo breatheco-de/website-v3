@@ -8,6 +8,13 @@ import { addFileModifiedListener, markFileAsModified } from "../sync-state";
 import { siteSyncGcsKey, SYNC_FILENAMES, versioningStateReadKeys } from "@shared/gcsKeys";
 import { gcs } from "../gcs";
 import { hashUserId } from "./cookie-utils";
+import {
+  DEFAULT_VARIANT_SLUG,
+  allocatedTotal,
+  experimentId,
+  hasActiveTraffic,
+  pickVariant,
+} from "./assignment";
 
 /** `_draft` is variant-file system metadata, never page content (see draft-meta.ts). */
 function stripDraftMeta(data: Record<string, unknown>): Record<string, unknown> {
@@ -87,24 +94,51 @@ export interface VersioningVariant {
 
 export interface VersioningLocale {
   variants: VersioningVariant[];
+  /** ISO date (YYYY-MM-DD) the current test run started; part of experiment_id. */
+  started_at?: string;
 }
 
 export interface VersioningFile {
   [locale: string]: VersioningLocale;
 }
 
+/** Bump to archive and reset counts on deploy (assignment/counting semantics changed). */
+export const VERSIONING_STATE_EPOCH = 2;
+
 interface VersioningState {
+  epoch: number;
   counts: Record<string, number>;
   visitors: Record<string, string[]>;
   lastFlushed: number;
 }
 
-const visitorSets: Map<string, Set<string>> = new Map();
+export type ExistingAssignment = string | { variantSlug: string; run?: string | null };
+
+/** Counts key: `contentType/slug/locale[@run]/variant`. */
+export function exposureStateKey(
+  contentType: string,
+  slug: string,
+  locale: string,
+  run: string | null | undefined,
+  variantSlug: string,
+): string {
+  return `${contentType}/${slug}/${locale}${run ? `@${run}` : ""}/${variantSlug}`;
+}
+
+const SAVE_DEBOUNCE_MS = 2_000;
 
 export class VersioningManager {
+  /** Per-site dedupe of counted visitors (keys are not site-qualified). */
+  private visitorSets: Map<string, Set<string>> = new Map();
   private configCache: Map<string, VersioningFile> = new Map();
   private contentCache: Map<string, unknown> = new Map();
-  private state: VersioningState = { counts: {}, visitors: {}, lastFlushed: Date.now() };
+  private state: VersioningState = {
+    epoch: VERSIONING_STATE_EPOCH,
+    counts: {},
+    visitors: {},
+    lastFlushed: Date.now(),
+  };
+  private saveTimer: NodeJS.Timeout | null = null;
   private readonly contentRoot: string;
 
   constructor(contentRoot?: string) {
@@ -241,18 +275,54 @@ export class VersioningManager {
   }
 
   private applyLoadedState(loaded: any): void {
+    const loadedEpoch = typeof loaded?.epoch === "number" ? loaded.epoch : 1;
+    if (loadedEpoch < VERSIONING_STATE_EPOCH) {
+      this.archiveOldEpoch(loaded, loadedEpoch);
+      this.state = {
+        epoch: VERSIONING_STATE_EPOCH,
+        counts: {},
+        visitors: {},
+        lastFlushed: Date.now(),
+      };
+      this.visitorSets.clear();
+      this.saveState();
+      log.info(`[Versioning] State epoch ${loadedEpoch} archived; counts reset for epoch ${VERSIONING_STATE_EPOCH}`);
+      return;
+    }
+
     this.state = {
+      epoch: loadedEpoch,
       counts: loaded.counts || {},
       visitors: loaded.visitors || {},
       lastFlushed: loaded.lastFlushed || Date.now(),
     };
 
-    visitorSets.clear();
+    this.visitorSets.clear();
     for (const [key, visitorIds] of Object.entries(this.state.visitors)) {
-      visitorSets.set(key, new Set(visitorIds as string[]));
+      this.visitorSets.set(key, new Set(visitorIds as string[]));
     }
 
     log.info("[Versioning] Loaded state:", Object.keys(this.state.counts).length, "variant keys");
+  }
+
+  /** Path of the one-time archive written when an older state epoch is loaded. */
+  public getEpochArchivePath(epoch: number): string {
+    return this.stateFile().replace(/\.json$/, `.epoch${epoch}.json`);
+  }
+
+  private archiveOldEpoch(loaded: unknown, epoch: number): void {
+    const content = JSON.stringify(loaded, null, 2);
+    try {
+      fs.writeFileSync(this.getEpochArchivePath(epoch), content);
+    } catch (error) {
+      log.error({ err: error }, "[Versioning] Error archiving old state epoch locally:");
+    }
+    if (IS_PRODUCTION && gcs.available) {
+      const key = this.gcsStateKey().replace(/\.json$/, `.epoch${epoch}.json`);
+      gcs.upload(key, Buffer.from(content, "utf-8"), "application/json").catch((error: unknown) => {
+        log.error({ err: error }, "[Versioning] Error archiving old state epoch to bucket:");
+      });
+    }
   }
 
   private async loadStateFromBucket(): Promise<void> {
@@ -298,7 +368,30 @@ export class VersioningManager {
     this.saveStateToBucket();
   }
 
+  /** Coalesce per-visitor writes; shutdown() flushes. */
+  private scheduleSave(): void {
+    if (this.saveTimer) return;
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null;
+      this.saveState();
+    }, SAVE_DEBOUNCE_MS);
+    this.saveTimer.unref?.();
+  }
+
+  /** Write pending state now (tests, shutdown). */
+  public flushState(): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    this.saveState();
+  }
+
   public async shutdown(): Promise<void> {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
     this.saveStateLocal();
     if (IS_PRODUCTION && gcs.available) {
       await gcs.flushPending();
@@ -515,54 +608,21 @@ export class VersioningManager {
     }
   }
 
-  private hash(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return Math.abs(hash);
-  }
-
-  private selectVariant(
-    variants: VersioningVariant[],
-    sessionId: string,
-    contentType: string,
-    slug: string,
-    locale: string
-  ): VersioningVariant | null {
-    const eligibleVariants = variants.filter((v) => v.allocation > 0);
-    if (eligibleVariants.length === 0) return null;
-
-    const hashKey = `${sessionId}:${contentType}:${slug}:${locale}`;
-    const hashValue = this.hash(hashKey) % 100;
-
-    let cumulative = 0;
-    for (const variant of eligibleVariants) {
-      cumulative += variant.allocation;
-      if (hashValue < cumulative) {
-        return variant;
-      }
-    }
-
-    return eligibleVariants[0];
-  }
-
   private recordExposure(
     contentType: string,
     slug: string,
     locale: string,
+    run: string | null,
     variantSlug: string,
     userId: string
   ): void {
-    const stateKey = `${contentType}/${slug}/${locale}/${variantSlug}`;
+    const stateKey = exposureStateKey(contentType, slug, locale, run, variantSlug);
     const hashedId = hashUserId(userId);
 
-    if (!visitorSets.has(stateKey)) {
-      visitorSets.set(stateKey, new Set());
+    if (!this.visitorSets.has(stateKey)) {
+      this.visitorSets.set(stateKey, new Set());
     }
-    const visitorSet = visitorSets.get(stateKey)!;
+    const visitorSet = this.visitorSets.get(stateKey)!;
 
     if (visitorSet.has(hashedId)) return;
 
@@ -577,39 +637,67 @@ export class VersioningManager {
 
     this.state.visitors[stateKey].push(hashedId);
     this.state.counts[stateKey]++;
-    this.saveState();
+    this.scheduleSave();
+  }
+
+  /** Current run marker (`started_at`) for a locale, or null for legacy configs. */
+  public getRun(contentType: string, slug: string, locale: string): string | null {
+    return this.loadVersioningConfig(contentType, slug)?.[locale]?.started_at ?? null;
+  }
+
+  /** True when the locale has at least one variant with traffic. */
+  public hasActiveTest(contentType: string, slug: string, locale: string): boolean {
+    return hasActiveTraffic(this.loadVersioningConfig(contentType, slug)?.[locale]?.variants);
+  }
+
+  /** `contentType:slug:locale[@run]` for the locale's current run. */
+  public getExperimentId(contentType: string, slug: string, locale: string): string {
+    return experimentId(contentType, slug, locale, this.getRun(contentType, slug, locale));
   }
 
   /**
-   * Get the variant assignment for a session. Returns null if no versioning.yml
-   * or if all variants have 0% allocation (fall back to default locale file).
+   * Get the version for a visitor. Returns a variant slug, `"default"` (the visitor
+   * is in Default's share of an active test), or null when the locale has no active
+   * test. Assignments are sticky per run; `record: false` skips counting (check traffic).
    */
   public getAssignment(
     contentType: string,
     slug: string,
     locale: string,
     sessionId: string,
-    existingAssignment?: string
+    existingAssignment?: ExistingAssignment,
+    opts: { record?: boolean } = {},
   ): string | null {
     const config = this.loadVersioningConfig(contentType, slug);
     if (!config) return null;
 
     const localeConfig = config[locale];
-    if (!localeConfig?.variants?.length) return null;
+    const variants = localeConfig?.variants ?? [];
+    if (!hasActiveTraffic(variants)) return null;
 
-    if (existingAssignment) {
-      const variant = localeConfig.variants.find((v) => v.slug === existingAssignment);
-      if (variant && variant.allocation > 0) {
-        this.recordExposure(contentType, slug, locale, existingAssignment, sessionId);
-        return existingAssignment;
+    const run = localeConfig.started_at ?? null;
+    const record = opts.record !== false;
+    const existing =
+      typeof existingAssignment === "string"
+        ? { variantSlug: existingAssignment, run: null }
+        : existingAssignment;
+
+    if (existing && (existing.run ?? null) === run) {
+      const stillValid =
+        existing.variantSlug === DEFAULT_VARIANT_SLUG
+          ? allocatedTotal(variants) < 100
+          : variants.some((v) => v.slug === existing.variantSlug && v.allocation > 0);
+      if (stillValid) {
+        if (record) this.recordExposure(contentType, slug, locale, run, existing.variantSlug, sessionId);
+        return existing.variantSlug;
       }
     }
 
-    const selected = this.selectVariant(localeConfig.variants, sessionId, contentType, slug, locale);
+    const selected = pickVariant(sessionId, experimentId(contentType, slug, locale, run), variants);
     if (!selected) return null;
 
-    this.recordExposure(contentType, slug, locale, selected.slug, sessionId);
-    return selected.slug;
+    if (record) this.recordExposure(contentType, slug, locale, run, selected, sessionId);
+    return selected;
   }
 
   /**
@@ -652,6 +740,17 @@ export class VersioningManager {
    */
   public getStats(): Record<string, number> {
     return { ...this.state.counts };
+  }
+
+  /** Unique visitors per version (`default` included) for the locale's current run. */
+  public getRunCounts(contentType: string, slug: string, locale: string): Record<string, number> {
+    const run = this.getRun(contentType, slug, locale);
+    const prefix = exposureStateKey(contentType, slug, locale, run, "");
+    const out: Record<string, number> = {};
+    for (const [key, n] of Object.entries(this.state.counts)) {
+      if (key.startsWith(prefix)) out[key.slice(prefix.length)] = n;
+    }
+    return out;
   }
 
   /**

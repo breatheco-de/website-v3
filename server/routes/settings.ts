@@ -256,6 +256,28 @@ import { child } from "../logger";
 import { applyLogoStructureFromMaster } from "../menu-logo-structure";
 const log = child({ module: "routes/settings" });
 
+const stageTargetInputSchema = z
+  .object({
+    rate: z.number().gt(0).max(1).optional(),
+    cost: z.record(z.string().regex(/^[A-Z]{3}$/), z.number().positive()).optional(),
+  })
+  .strict();
+
+const funnelSettingsInputSchema = z
+  .object({
+    enforcement: z.boolean().optional(),
+    targets: z
+      .object({
+        awareness: stageTargetInputSchema.optional(),
+        consideration: stageTargetInputSchema.optional(),
+        decision: stageTargetInputSchema.optional(),
+        "post-enrollment": stageTargetInputSchema.optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .passthrough();
+
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
 function getCI(res: Response): typeof contentIndex {
   return (res.locals.site as any)?.contentIndex ?? contentIndex;
@@ -2111,22 +2133,30 @@ export function registerSettingsRoutes(app: Express): void {
   });
 
   app.get("/api/settings/funnel", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_settings");
+    const auth = await requireAnyCapability(req, res, ["seo_settings", "ads_settings"]);
     if (!auth.authorized) return;
     const settings = getFunnelSettings(getContentRoot(res));
     res.json({ settings });
   });
 
   app.put("/api/settings/funnel", async (req, res) => {
-    const auth = await requireCapability(req, res, "seo_settings");
+    const body = req.body?.funnel ?? req.body;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return res.status(400).json({ error: "Request body must be a funnel object" });
+    }
+    const parsed = funnelSettingsInputSchema.safeParse(body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid funnel settings", details: parsed.error.flatten() });
+    }
+    // Enforcement stays an SEO setting; stage targets are also editable from Settings → Ads.
+    const auth =
+      parsed.data.enforcement !== undefined
+        ? await requireCapability(req, res, "seo_settings")
+        : await requireAnyCapability(req, res, ["seo_settings", "ads_settings"]);
     if (!auth.authorized) return;
     try {
-      const body = req.body?.funnel ?? req.body;
-      if (!body || typeof body !== "object" || Array.isArray(body)) {
-        return res.status(400).json({ error: "Request body must be a funnel object" });
-      }
       const contentRoot = getContentRoot(res);
-      const settings = updateFunnelSettings(body, contentRoot);
+      const settings = updateFunnelSettings(parsed.data, contentRoot);
       markFileAsModified("settings.yml", undefined, undefined, contentRoot);
       res.json({ success: true, settings });
     } catch (err: any) {
