@@ -18,7 +18,8 @@ const ENTRY_SOURCE_ALLOWLIST: Record<string, Allowed> = {
   "shared/sharedLayoutPaths.ts": { count: 1, reason: "typeUsesSharedTemplate: database types always use a shared template" },
   "server/content-types.ts": { count: 13, reason: "content type registry: getDatabaseName/hasDatabaseSingle definitions + field_mapping reserved keys" },
 
-  "client/src/pages/ContentTypeManagePage.tsx": { count: 44, reason: CONFIG },
+  "client/src/pages/ContentTypeManagePage.tsx": { count: 45, reason: CONFIG },
+  "server/redirects.ts": { count: 1, reason: "a {{ entry.* }} redirect looks up the visited page only when that type has a database" },
   "client/src/components/editing/SingleVariablePickerModal.tsx": { count: 6, reason: "variable picker lists database columns for {{ entry.* }}" },
   "client/src/components/editing/MappingFieldsTab.tsx": { count: 5, reason: CONFIG },
   "client/src/components/editing/DeprecateFieldPanel.tsx": { count: 3, reason: CONFIG },
