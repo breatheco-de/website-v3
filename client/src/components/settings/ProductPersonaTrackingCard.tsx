@@ -3,6 +3,7 @@
  * dimensions (Test connection / Create them) and the code list download.
  */
 
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -10,6 +11,7 @@ import {
   IconCircleCheck,
   IconCircleX,
   IconDownload,
+  IconListCheck,
   IconLoader2,
   IconPlugConnected,
   IconTags,
@@ -19,6 +21,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { apiFetch } from "@/lib/queryClient";
+import { ProductPersonaSetupDialog } from "./ProductPersonaSetupDialog";
 
 type Readiness = {
   ready: boolean;
@@ -46,6 +49,7 @@ export function ProductPersonaTrackingCard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { canMutateMetrics } = useDebugAuth();
+  const [setupOpen, setSetupOpen] = useState(false);
 
   const { data: readiness } = useQuery<Readiness>({
     queryKey: READINESS_KEY,
@@ -182,6 +186,10 @@ export function ProductPersonaTrackingCard() {
                 <IconDownload className="mr-1.5 h-4 w-4" />
                 Download code list
               </Button>
+              <Button variant="outline" onClick={() => setSetupOpen(true)} data-testid="button-product-persona-setup">
+                <IconListCheck className="mr-1.5 h-4 w-4" />
+                Setup instructions
+              </Button>
             </div>
           </div>
         )}
@@ -210,13 +218,17 @@ export function ProductPersonaTrackingCard() {
               The lead ledger stores the full ids in <code>product</code> / <code>persona</code> from launch on (older leads
               are empty).
             </li>
-            <li>
-              Tag Manager: create Data Layer Variables for the six keys and add them to the GA4 tags (manual step).
-            </li>
+            <li>Tag Manager is set up by hand: see Setup instructions.</li>
             <li className="font-mono">_product.yml → short_key, personas[].short_key, retired_short_keys</li>
           </ul>
         </details>
       </CardContent>
+      <ProductPersonaSetupDialog
+        open={setupOpen}
+        onOpenChange={setSetupOpen}
+        keysReady={readiness?.ready}
+        dimensionsReady={ga4?.ok}
+      />
     </Card>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconActivityHeartbeat,
@@ -6,6 +6,7 @@ import {
   IconBrandGoogleAnalytics,
   IconCircleCheck,
   IconCircleX,
+  IconListCheck,
   IconLoader2,
   IconPlayerPlay,
   IconPlugConnected,
@@ -19,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { AB_TESTING_CARD_IDS } from "@/lib/settings-tab";
 import { cn } from "@/lib/utils";
+import { AbTestingSetupDialog } from "./AbTestingSetupDialog";
 
 type CheckItem = { ok: boolean; detail?: string };
 type CheckRun = {
@@ -423,6 +425,7 @@ function HealthCard({ canManage }: { canManage: boolean }) {
 function AnalyticsCard({ canManage }: { canManage: boolean }) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [setupOpen, setSetupOpen] = useState(false);
   const { data, isLoading, refetch, isFetching } = useQuery<Ga4Status>({
     queryKey: ["/api/settings/ab-testing/ga4-dimensions"],
     queryFn: async () => (await apiFetch("/api/settings/ab-testing/ga4-dimensions")).json(),
@@ -530,6 +533,10 @@ function AnalyticsCard({ canManage }: { canManage: boolean }) {
                 {create.isPending && <IconLoader2 className="mr-1.5 h-4 w-4 animate-spin" />}
                 {data.ok ? "Both dimensions exist" : "Create them"}
               </Button>
+              <Button variant="outline" onClick={() => setSetupOpen(true)} data-testid="button-ab-testing-setup">
+                <IconListCheck className="mr-1.5 h-4 w-4" />
+                Setup instructions
+              </Button>
               {!canManage && !data.ok && <StewardHint testId="text-ab-ga4-steward-only" />}
             </div>
           </div>
@@ -551,10 +558,11 @@ function AnalyticsCard({ canManage }: { canManage: boolean }) {
               Admin API enabled in its Google Cloud project, and Editor in GA4 → Admin → Property access management (Viewer is enough to
               check).
             </li>
-            <li>Tag Manager variables and tags are set up by hand: see docs/gtm-analytics-setup.md.</li>
+            <li>Tag Manager variables and tags are set up by hand: see Setup instructions.</li>
           </ul>
         </details>
       </CardContent>
+      <AbTestingSetupDialog open={setupOpen} onOpenChange={setSetupOpen} dimensionsReady={data?.ok} />
     </Card>
   );
 }
