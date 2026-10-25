@@ -222,8 +222,10 @@ Every event and lead carries the page funnel's products / personas (topic `produ
 
 | Destination | Values |
 |---|---|
-| dataLayer / GA4 (`product`, `persona`, `product_persona`, `funnel_stage`, `content_key`, `tracking_truncated`) | **Short codes** (`aie`, `cc`, `aie:cc`), comma-joined, cut at a whole code to 100 chars. Only once the site's tracking switch is on. |
-| Lead body → CRM webhook + ledger (`product`, `persona`, `product_persona`) | **Full ids** (`ai-engineering`, `the-career-changer`), never cut, always sent. Ledger stores `product` / `persona` columns (since launch; older rows null). |
+| dataLayer / GA4 (`product`, `persona`, `product_persona`, `funnel_stage`, `content_key`, `tracking_truncated`) | **Short codes** (`aie`, `cc`, `aie:cc`), comma-joined, cut at a whole code to 100 chars (keeps the funnel's first codes), then **sorted** so the same audience is always the same string. Only once the site's tracking switch is on. |
+| Lead body → CRM webhook + ledger (`product`, `persona`, `product_persona`) | **Full ids** (`ai-engineering`, `the-career-changer`), sorted, never cut, always sent. Ledger stores `product` / `persona` (since launch) and `product_persona` (since pipeline migration 42); older rows null. |
+
+- Reading values back: split with `parseTrackingList` / `decodeTrackingCodes` / `decodeTrackingPairs` (`shared/tracking-context.ts`); never group by the raw string. GA4 data sent before sorting (2026-10-25) can hold the same set in two orders. Persona full ids can repeat across products: use `product_persona` pairs for the product; a shared id without a pair has no product (never guessed).
 
 - Default: the page funnel (`effectiveBindings`; program page includes itself). `funnel.products: all` → `all`; content page without funnel → `none`.
 - Override per form with hidden fields (no schema change — `fields` accepts extra keys; also inside `form_overrides[].fields`):

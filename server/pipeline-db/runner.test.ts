@@ -1463,6 +1463,44 @@ describe("pipeline-db runner", () => {
     rmSite(site);
   });
 
+  it("adds the product_persona column to lead_submissions when upgrading from v41", () => {
+    const site = `${TEST_PREFIX}-v41-lead-pairs-${Date.now()}`;
+    rmSite(site);
+    fs.mkdirSync(siteDir(site), { recursive: true });
+    const raw = new Database(dbPath(site));
+    raw.exec(`
+      CREATE TABLE pipeline_schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO pipeline_schema_version (id, version) VALUES (1, 41);
+      CREATE TABLE lead_submissions (
+        submission_id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        conversion_path TEXT,
+        product_id TEXT,
+        product_slug TEXT,
+        product TEXT,
+        persona TEXT,
+        is_test INTEGER NOT NULL DEFAULT 0,
+        is_repeat INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO lead_submissions (submission_id, created_at, product, persona)
+      VALUES ('s-1', 1, 'ai-engineering,ai-flex', 'the-developer');
+    `);
+    raw.close();
+
+    ensurePipelineDb(site, { skipBackup: true });
+    expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    const db = new Database(dbPath(site), { readonly: true });
+    const row = db.prepare(`SELECT * FROM lead_submissions WHERE submission_id = 's-1'`).get() as Record<string, unknown>;
+    expect(row.product).toBe("ai-engineering,ai-flex");
+    expect(row.persona).toBe("the-developer");
+    expect(row).toHaveProperty("product_persona", null);
+    db.close();
+    rmSite(site);
+  });
+
   it("adds paid-landing platform and id columns to lead_submissions when upgrading from v29", () => {
     const site = `${TEST_PREFIX}-v29-lead-platform-${Date.now()}`;
     rmSite(site);

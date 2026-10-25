@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
-import { Clock, Compass, FileText, FlaskConical, Info, LogIn, Route, Users, X } from "lucide-react";
+import { Clock, Compass, FileText, FlaskConical, Info, LogIn, Package, Route, UserRound, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -52,11 +52,23 @@ function none(v: string | undefined): string {
 
 type Chip = { id: string; label: string; remove: (keyof LeadsFilters)[] };
 
-function filterChips(f: LeadsFilters, productName?: string): Chip[] {
+function filterChips(
+  f: LeadsFilters,
+  productName?: string,
+  funnelLabels?: LeadsStatsResponse["funnel_filter_labels"],
+): Chip[] {
   const chips: Chip[] = [];
   if (f.product) {
     const label = f.product === LEADS_NONE ? "(none)" : productName ?? f.product;
     chips.push({ id: "product", label: `Product: ${label}`, remove: ["product"] });
+  }
+  if (f.funnel_product) {
+    const label = funnelLabels?.funnel_product ?? none(f.funnel_product);
+    chips.push({ id: "funnel_product", label: `Product on page: ${label}`, remove: ["funnel_product"] });
+  }
+  if (f.funnel_persona) {
+    const label = funnelLabels?.funnel_persona ?? none(f.funnel_persona);
+    chips.push({ id: "funnel_persona", label: `Persona: ${label}`, remove: ["funnel_persona"] });
   }
   if (f.source || f.medium) {
     const untagged = f.source === LEADS_NONE && f.medium === LEADS_NONE;
@@ -129,8 +141,13 @@ function LeadsPageInner() {
     });
   };
 
-  const chips = filterChips(query.filters, stats.data?.product_name);
+  const chips = filterChips(query.filters, stats.data?.product_name, stats.data?.funnel_filter_labels);
   const productSince = stats.data?.product_since ?? null;
+  const funnelSince = stats.data?.funnel_since ?? null;
+  const funnelSinceText =
+    funnelSince != null
+      ? new Date(funnelSince).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+      : null;
   const filtersActive = hasLeadsFilters(query.filters);
   const b = stats.data?.breakdowns;
   const ttl = b?.time_to_lead;
@@ -335,6 +352,32 @@ function LeadsPageInner() {
             mono
             emptyText="No leads in this view."
             testId="card-leads-landing-pages"
+            onSelect={addFilter}
+          />
+          <LeadsBreakdownCard
+            title="Product on page"
+            icon={Package}
+            description={`Products on the page where the form was sent. A lead from a page with two products counts for both, so shares can add up to more than 100%.${
+              funnelSinceText ? ` Recorded from ${funnelSinceText}.` : " Not recorded on any lead yet."
+            }`}
+            rows={b?.funnel_products}
+            loading={statsLoading}
+            emptyText="No leads in this view."
+            testId="card-leads-funnel-products"
+            onSelect={addFilter}
+          />
+          <LeadsBreakdownCard
+            title="Persona"
+            icon={UserRound}
+            description={`Personas on that page, with their product. A lead counts once per persona.${
+              stats.data && stats.data.funnel_persona_product_unknown > 0
+                ? " Some older leads show \"product unknown\": two products share that persona and those leads didn't record which one."
+                : ""
+            }`}
+            rows={b?.funnel_personas}
+            loading={statsLoading}
+            emptyText="No leads in this view."
+            testId="card-leads-funnel-personas"
             onSelect={addFilter}
           />
           {b && b.experiments.length > 0 && (

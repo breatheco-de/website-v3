@@ -35,6 +35,8 @@ const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY
 export const FILTER_DROP_ORDER: readonly LeadsFilterKey[] = [
   "variant",
   "experiment",
+  "funnel_persona",
+  "funnel_product",
   "product",
   "conversion_path",
   "landing_path",
@@ -164,6 +166,39 @@ export function leadsBreakdownWarnings(opts: {
       message: `${k.no_consent} lead(s) from visitors without tracking consent: their channel covers only the converting visit, so organic search is slightly undercounted.`,
     });
   }
+  out.push(...funnelWarnings(stats, filters));
+  return out;
+}
+
+/** Page funnel product / persona notes (breakdowns.funnel_products / funnel_personas, funnel_* filters). */
+function funnelWarnings(stats: LeadsStatsResponse, filters: LeadsFilters): McpWarning[] {
+  const out: McpWarning[] = [];
+  const recorded = (stats.breakdowns.funnel_products ?? []).some((r) => r.key !== LEADS_NONE && r.key !== "__other__");
+  if (recorded || filters.funnel_product || filters.funnel_persona) {
+    out.push({
+      code: "funnel_counts_overlap",
+      message:
+        "funnel_products / funnel_personas count a lead once per product / persona on the page where the form was sent, so counts and pct can add up past in_range / 100%. Not the same as filter product (the single catalog product the form resolved). Sentinels: all = site-wide page (not added to each product), none = page without a funnel, \"(none)\" = not recorded.",
+    });
+  }
+  const since = stats.funnel_since;
+  if (since == null) {
+    out.push({
+      code: "funnel_tracking_partial",
+      message: "No lead has a page product / persona yet: funnel breakdowns show only \"Not recorded yet\".",
+    });
+  } else if (since > stats.start_ms) {
+    out.push({
+      code: "funnel_tracking_partial",
+      message: `Page product / persona recorded on leads from ${isoDay(since)}, inside this range; earlier leads are "Not recorded yet". No backfill.`,
+    });
+  }
+  if ((stats.funnel_persona_product_unknown ?? 0) > 0) {
+    out.push({
+      code: "persona_product_unknown",
+      message: `${stats.funnel_persona_product_unknown} lead(s) recorded before product_persona pairs (pipeline migration 42) have a persona id several products share: shown as ":persona" / "(product unknown)" rather than guessed. Filter with funnel_persona ":<persona id>".`,
+    });
+  }
   return out;
 }
 
@@ -187,10 +222,12 @@ export function shapeLeadsBreakdown(opts: {
     collecting_since: stats.collecting_since,
     tracking_since: stats.tracking_since,
     product_since: stats.product_since,
+    funnel_since: stats.funnel_since,
     kpis: stats.kpis,
     breakdowns: stats.breakdowns,
   };
   if (stats.product_name) payload.product_name = stats.product_name;
+  if (stats.funnel_filter_labels) payload.funnel_filter_labels = stats.funnel_filter_labels;
   if (includeTimeline) payload.timeline = stats.timeline;
   if (list) {
     const rows = list.rows.slice(0, LEADS_PAGE_SIZE);
@@ -236,7 +273,8 @@ export function registerLeadsBreakdownTools(mcp: McpServer, mcpToken?: string, g
   mcp.tool(
     "get_leads_breakdown",
     "Site leads as on the staff Leads page (one site per call): KPIs (paid / organic search / Meta unclear shares, tracked, no consent), " +
-      "breakdowns by channel (paid, meta_unclear, organic_search, organic_social, ai_assistant, email, referral, direct, tagged_other; \"(none)\" = not tracked yet) and by UTM source / medium, plus converting / landing pages, experiments and time from first ad click. Requires metrics_view. " +
+      "breakdowns by channel (paid, meta_unclear, organic_search, organic_social, ai_assistant, email, referral, direct, tagged_other; \"(none)\" = not tracked yet) and by UTM source / medium, plus converting / landing pages, experiments, time from first ad click, " +
+      "and page funnel products / personas (funnel_products, funnel_personas: one count per product / persona, so shares can pass 100%). Requires metrics_view. " +
       "Channel and source / medium are different views of the same leads (channel uses tags first, then the referring site). " +
       `Paid wins: an ad click within ${PAID_LOOKBACK_DAYS} days keeps a lead paid, only for leads recorded since channel tracking; fbclid alone = meta_unclear. ` +
       "Paid counts differ from get_paid_traffic (use that for spend, campaigns, cost per lead); Search Console clicks → get_organic_traffic. " +
@@ -261,6 +299,12 @@ export function registerLeadsBreakdownTools(mcp: McpServer, mcpToken?: string, g
       variant: FILTER_ARG.optional().describe("Experiment variant (with experiment)"),
       ttl: z.enum(LEADS_TTL_BUCKETS).optional().describe("Time from first ad click to lead bucket"),
       product: FILTER_ARG.optional().describe(`Catalog product_id or product page slug, or "${LEADS_NONE}"`),
+      funnel_product: FILTER_ARG.optional().describe(
+        `One product in the page funnel (full slug, as in breakdowns.funnel_products filter), all, none, or "${LEADS_NONE}" (not recorded). Not the same as product`,
+      ),
+      funnel_persona: FILTER_ARG.optional().describe(
+        `One persona as product:persona full ids (":persona" = product unknown), all, none, or "${LEADS_NONE}"; copy from breakdowns.funnel_personas filter`,
+      ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (args) => {

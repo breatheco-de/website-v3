@@ -963,6 +963,17 @@ export function registerAdsRoutes(app: Express): void {
  *   GET /api/ads/leads/stats  — KPIs, UTC timeline and breakdowns for the same params
  *   GET /api/ads/leads/:id    — one lead's full ledger row (no browser_hash); 404 when unknown
  */
+/** Product / persona tracking keys for the funnel filters and breakdowns; null when unreadable. */
+async function leadsTrackingIndex(res: Response) {
+  try {
+    const { loadTrackingKeyIndex } = await import("../product/tracking-key-index");
+    return loadTrackingKeyIndex(getContentRoot(res));
+  } catch (err) {
+    log.warn({ err }, "[ads] tracking key index unavailable for leads");
+    return null;
+  }
+}
+
 function registerLeadsRoutes(app: Express): void {
   api.get(app, "/api/ads/leads", { rate: "staffWrite" }, async (req: Request, res: Response) => {
     const auth = await requireCapability(req, res, "metrics_view");
@@ -971,7 +982,8 @@ function registerLeadsRoutes(app: Express): void {
     if (!parsed.ok) return void res.status(400).json({ error: parsed.error });
     try {
       const { listLeadsPage } = await import("../ads/leads-query");
-      res.json(listLeadsPage(getSite(res), parsed.query));
+      const trackingIndex = parsed.query.filters.funnel_persona ? await leadsTrackingIndex(res) : null;
+      res.json(listLeadsPage(getSite(res), parsed.query, undefined, trackingIndex));
     } catch (err) {
       log.warn({ err }, "[ads] leads list failed");
       res.status(500).json({ error: "Failed to load leads" });
@@ -1004,7 +1016,8 @@ function registerLeadsRoutes(app: Express): void {
         const { readLeadsPullState } = await import("../ads/leads-pull-production");
         localCopy = readLeadsPullState(site);
       }
-      const stats = getLeadsStats(site, parsed.query, { convention, grace, localCopy });
+      const trackingIndex = await leadsTrackingIndex(res);
+      const stats = getLeadsStats(site, parsed.query, { convention, grace, localCopy, trackingIndex });
       const productFilter = parsed.query.filters.product;
       if (productFilter && productFilter !== LEADS_NONE) {
         const { findCatalogProduct } = await import("../ads/lead-product");

@@ -59,6 +59,16 @@ export type LeadsFilters = {
   channel?: string;
   /** Catalog product_id or product page slug (matches either), or LEADS_NONE. */
   product?: string;
+  /**
+   * One product in the page funnel list (`lead_submissions.product`, full slug as stored), the
+   * `all` / `none` sentinel, or LEADS_NONE (not recorded). Distinct from `product`.
+   */
+  funnel_product?: string;
+  /**
+   * One persona as `product:persona` (full ids), `:persona` when its product is unknown,
+   * the `all` / `none` sentinel, or LEADS_NONE (not recorded).
+   */
+  funnel_persona?: string;
 };
 
 export const LEADS_FILTER_KEYS = [
@@ -71,6 +81,8 @@ export const LEADS_FILTER_KEYS = [
   "ttl",
   "channel",
   "product",
+  "funnel_product",
+  "funnel_persona",
 ] as const;
 export type LeadsFilterKey = (typeof LEADS_FILTER_KEYS)[number];
 
@@ -99,6 +111,8 @@ export const leadsQuerySchema = z.object({
   ttl: z.enum(LEADS_TTL_BUCKETS).optional(),
   channel: z.union([z.enum(TRAFFIC_CHANNELS), z.literal(LEADS_NONE)]).optional(),
   product: filterValue.optional(),
+  funnel_product: filterValue.optional(),
+  funnel_persona: filterValue.optional(),
 });
 
 function firstValue(v: unknown): unknown {
@@ -373,6 +387,12 @@ export type LeadsStatsResponse = {
   product_since: number | null;
   /** Catalog name for the active product filter (falls back to the filter value). */
   product_name?: string;
+  /** First non-test lead with a page funnel product list; null until one is recorded. */
+  funnel_since: number | null;
+  /** Leads in view (before pairs were stored) whose persona id several products share: shown as "product unknown". */
+  funnel_persona_product_unknown: number;
+  /** Readable names for the active funnel_product / funnel_persona filters. */
+  funnel_filter_labels?: { funnel_product?: string; funnel_persona?: string };
   timeline: { bucket: "day" | "week"; points: LeadsTimelinePoint[] };
   breakdowns: {
     source_medium: LeadsBreakdownRow[];
@@ -380,6 +400,10 @@ export type LeadsStatsResponse = {
     conversion_paths: LeadsBreakdownRow[];
     landing_paths: LeadsBreakdownRow[];
     experiments: LeadsBreakdownRow[];
+    /** Page funnel products; a lead counts once per product, so shares can add up past 100%. */
+    funnel_products: LeadsBreakdownRow[];
+    /** Page funnel personas (product:persona); a lead counts once per persona. */
+    funnel_personas: LeadsBreakdownRow[];
     time_to_lead: {
       /** Paid leads in view with a first paid landing time. */
       paid_with_click: number;

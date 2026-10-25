@@ -5,6 +5,19 @@
 window_days: 6
 
 entries:
+  - date: "2026-10-25"
+    summary: "Product / persona values are sorted; get_leads_breakdown groups and filters by page funnel product and persona"
+    agent_impact:
+      - "dataLayer / GA4 and lead product / persona / product_persona lists are sorted (GA4: cut at 100 chars in funnel order first, then sorted). Read them back with parseTrackingList / decodeTrackingPairs; never group by the raw string (GA4 data before 2026-10-25 can hold one set in two orders)."
+      - "get_leads_breakdown adds breakdowns.funnel_products / funnel_personas, funnel_since, funnel_filter_labels and filters funnel_product (one full product slug, all, none, \"(none)\") / funnel_persona (product:persona, :persona, all, none, \"(none)\"). One count per product / persona: shares can pass 100%. funnel_product is not product (catalog product the form resolved)."
+      - "Leads store product_persona full-id pairs since pipeline migration 42. Older leads with a persona id several products share get no product (:persona, \"product unknown\"; warning persona_product_unknown). New warnings funnel_counts_overlap, funnel_tracking_partial."
+    tools_changed: false
+    paths:
+      - shared/tracking-context.ts
+      - server/ads/leads-funnel.ts
+      - mcp-server/tools/leads-breakdown.ts
+      - mcp-server/explain/ads.md
+      - mcp-server/explain/lead-forms.md
   - date: "2026-10-23"
     summary: "Custom redirect targets can read {{ entry.field }} from the visited entry"
     agent_impact:

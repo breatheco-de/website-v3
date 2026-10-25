@@ -197,6 +197,56 @@ The GA4 client and GA4 tag pass event parameters through. Check that no paramete
 
 Web GTM loads on first interaction or after 15 s. Visitors who leave sooner are in the server counts but never reach GA4.
 
+### Product and persona
+
+Every event carries the page's product and persona, once the site's tracking switch is on (Settings → Tracking → Events → Product & persona on events; staff setup steps are in that card's **Setup instructions**).
+
+**What the site sends**
+
+| Key | Value |
+|---|---|
+| `product` | Product short codes, comma-joined (`afx,aie`) |
+| `persona` | Persona short codes (`cc,exp`) |
+| `product_persona` | `product:persona` code pairs (`afx:exp,aie:cc`); `aie:` = product without persona |
+| `funnel_stage` | `awareness`, `consideration`, `decision`, `post-enrollment` |
+| `content_key` | Page `type:slug` (`landing:apply`) |
+| `tracking_truncated` | `true` when a list was cut |
+
+- Lists are cut at a whole code to 100 characters (GA4's limit per value). The cut keeps the funnel's first codes; the kept codes are then **sorted**, so the same audience always sends the same string. Events sent before 2026-10-25 may hold the same set in two orders.
+- `all` = the page's funnel covers every product; `none` = a content page without a funnel.
+- The server writes these keys into the dataLayer before Tag Manager loads (`server/utils/html-inject.ts`), so the first `page_view` carries them; later events add them on every push (`client/src/lib/tracking.ts`).
+- Leads and the CRM get full ids (`ai-engineering`, `the-career-changer`), sorted and never cut. Translate codes with **Download code list** on the same card.
+
+**Web container**
+
+1. One Data Layer Variable per key (version 2): name `DLV - product`, Data Layer Variable Name `product`, and so on for all six.
+2. A Google Tag: Event Settings variable with the six event parameters (name = key, value = `{{DLV - <key>}}`), attached to the Google tag under Shared event settings (so `page_view` carries them) and to every GA4 event tag under Event Settings Variable.
+
+**Server container**
+
+Nothing to add: the GA4 client turns the parameters into event data and the GA4 tag forwards them. Check that no "exclude parameters" or "allow parameters" transformation drops the six keys. Other server-side tags (Meta CAPI, Ads) need Event Data variables only if they should send these values.
+
+**GA4**
+
+- Register the six as event-scoped custom dimensions: **Create them** on the card, or GA4 Admin → Custom definitions. Not retroactive.
+- A value is one string per event, so `cc,exp` is its own row. To include every event with one code, filter with **matches regex** `(^|,)cc(,|$)` (plain "contains" also matches longer codes that contain `cc`).
+
+**BigQuery**
+
+Split lists before counting; never group by the raw string:
+
+```sql
+SELECT code, COUNT(*) AS events
+FROM `project.analytics_<property_id>.events_*`,
+  UNNEST(SPLIT((SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'persona'), ',')) AS code
+WHERE _TABLE_SUFFIX BETWEEN '20261001' AND '20261031'
+  AND code NOT IN ('', 'all', 'none')
+GROUP BY code
+ORDER BY events DESC
+```
+
+In app code, use `parseTrackingList` / `decodeTrackingCodes` / `decodeTrackingPairs` from `shared/tracking-context.ts`. Persona full ids can repeat across products: take the product from `product_persona`; a shared id without a pair has no product (never guessed). Lead counts by product / persona: Leads page cards **Product on page** and **Persona**, or `get_leads_breakdown` (`funnel_products`, `funnel_personas`).
+
 ---
 
 ## QA Checklist

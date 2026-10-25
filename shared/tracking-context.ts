@@ -3,7 +3,8 @@
  *
  * - dataLayer / GA4 get short codes (`mode: "codes"`), comma-joined, each value cut at a
  *   whole code to 100 characters (`tracking_truncated: true` when anything was dropped).
- * - Lead ledger / CRM get full ids (`mode: "ids"`), never cut.
+ *   The cut keeps the funnel's first codes; the kept codes are then sorted.
+ * - Lead ledger / CRM get full ids (`mode: "ids"`), never cut, sorted.
  * - Funnel `products: all` → "all"; content page without a funnel → "none".
  * - A missing key falls back to the full id.
  */
@@ -36,9 +37,9 @@ export type TrackingMode = "codes" | "ids";
 
 /** Example values for staff sample payloads (two products, two personas). Codes match the ids. */
 export const SAMPLE_PAGE_TRACKING_CODES = {
-  product: "aie,afx",
+  product: "afx,aie",
   persona: "cc,exp",
-  product_persona: "aie:cc,afx:exp",
+  product_persona: "afx:exp,aie:cc",
   funnel_stage: "consideration",
   content_key: "landing:apply",
 } as const satisfies PageTrackingContext;
@@ -90,15 +91,28 @@ function personaValue(lookup: TrackingKeyLookup, productSlug: string, personaId:
   return persona?.key || personaId;
 }
 
-/** Join whole values with "," up to `max` characters. */
-export function joinCapped(values: string[], max = TRACKING_VALUE_MAX): { value: string; truncated: boolean } {
+/** Join whole values with "," up to `max` characters, keeping them in the given order. */
+export function joinCapped(
+  values: string[],
+  max = TRACKING_VALUE_MAX,
+): { value: string; truncated: boolean; kept: string[] } {
   let out = "";
+  const kept: string[] = [];
   for (const v of values) {
     const next = out ? `${out},${v}` : v;
-    if (next.length > max) return { value: out, truncated: true };
+    if (next.length > max) return { value: out, truncated: true, kept };
     out = next;
+    kept.push(v);
   }
-  return { value: out, truncated: false };
+  return { value: out, truncated: false, kept };
+}
+
+/**
+ * Sorted comma join (code-unit order, same in Node and browsers), so the same set of values
+ * always gives the same string whatever the funnel's order.
+ */
+function joinSorted(values: string[]): string {
+  return values.slice().sort().join(",");
 }
 
 const uniq = (values: string[]) => Array.from(new Set(values));
@@ -137,12 +151,13 @@ function finish(
   const set = (key: "product" | "persona" | "product_persona", list: string[]) => {
     if (list.length === 0) return;
     if (!cap) {
-      out[key] = list.join(",");
+      out[key] = joinSorted(list);
       return;
     }
+    // Cut in page order first so a long list keeps the funnel's first values, then sort.
     const joined = joinCapped(list);
     if (joined.truncated) truncated = true;
-    if (joined.value) out[key] = joined.value;
+    if (joined.kept.length > 0) out[key] = joinSorted(joined.kept);
   };
   set("product", values.products);
   set("persona", values.personas);
@@ -395,32 +410,99 @@ export type DecodedTrackingCode = {
   product?: string;
 };
 
-/** Translate a comma-joined GA4 value back to names (current and retired keys). */
+export type TrackingSentinel = "all" | "none";
+
+const isSentinel = (v: string): v is TrackingSentinel => v === "all" || v === "none";
+
+/**
+ * Read a stored product / persona / product_persona value back into its items: split on
+ * commas, trim, drop empties. `all` / `none` are returned as `sentinel`, never as items.
+ */
+export function parseTrackingList(value: string | null | undefined): {
+  values: string[];
+  sentinel: TrackingSentinel | null;
+} {
+  const values: string[] = [];
+  let sentinel: TrackingSentinel | null = null;
+  for (const item of splitRefs(value ?? undefined)) {
+    if (!isSentinel(item)) values.push(item);
+    else if (sentinel === null) sentinel = item;
+  }
+  return { values, sentinel };
+}
+
+function decodeProduct(lookup: TrackingKeyLookup, code: string): DecodedTrackingCode {
+  if (isSentinel(code)) return { code, status: "sentinel" };
+  const p = lookup.productByCode.get(code);
+  if (p) return { code, status: "current", id: p.slug, name: p.name, product: p.slug };
+  const bySlug = lookup.productBySlug.get(code);
+  if (bySlug) return { code, status: "full_id", id: bySlug.slug, name: bySlug.name, product: bySlug.slug };
+  const retired = lookup.retired.get(`product:${code}`);
+  if (retired) return { code, status: "retired", id: retired.id, name: retired.name, product: retired.product };
+  return { code, status: "unknown" };
+}
+
+/**
+ * Persona codes are unique per site; full persona ids are not. With `productSlug` the id is
+ * looked up in that product only; without it, an id several products use gets no `product`.
+ */
+function decodePersona(lookup: TrackingKeyLookup, code: string, productSlug?: string): DecodedTrackingCode {
+  if (isSentinel(code)) return { code, status: "sentinel" };
+  const hit = lookup.personaByCode.get(code);
+  if (hit) return { code, status: "current", id: hit.persona.id, name: hit.persona.name, product: hit.product.slug };
+  const owners = productSlug
+    ? [lookup.productBySlug.get(productSlug)].filter((p): p is TrackingKeyProduct => !!p)
+    : Array.from(lookup.productBySlug.values());
+  const matches = owners.flatMap((p) => {
+    const persona = p.personas.find((x) => x.id === code);
+    return persona ? [{ product: p, persona }] : [];
+  });
+  if (matches.length > 0) {
+    const { persona } = matches[0];
+    return {
+      code,
+      status: "full_id",
+      id: persona.id,
+      name: persona.name,
+      ...(matches.length === 1 ? { product: matches[0].product.slug } : {}),
+    };
+  }
+  const retired = lookup.retired.get(`persona:${code}`);
+  if (retired && (!productSlug || retired.product === productSlug)) {
+    return { code, status: "retired", id: retired.id, name: retired.name, product: retired.product };
+  }
+  return { code, status: "unknown" };
+}
+
+/** Translate a comma-joined value (GA4 codes or ledger full ids) back to names (current and retired keys). */
 export function decodeTrackingCodes(
   value: string,
   index: TrackingKeyIndex | TrackingKeyLookup | null | undefined,
   type: "product" | "persona",
 ): DecodedTrackingCode[] {
   const lookup = buildTrackingKeyLookup(index);
-  return splitRefs(value).map((code): DecodedTrackingCode => {
-    if (code === "all" || code === "none") return { code, status: "sentinel" };
-    if (type === "product") {
-      const p = lookup.productByCode.get(code);
-      if (p) return { code, status: "current", id: p.slug, name: p.name, product: p.slug };
-      const bySlug = lookup.productBySlug.get(code);
-      if (bySlug) return { code, status: "full_id", id: bySlug.slug, name: bySlug.name, product: bySlug.slug };
-    } else {
-      const hit = lookup.personaByCode.get(code);
-      if (hit) {
-        return { code, status: "current", id: hit.persona.id, name: hit.persona.name, product: hit.product.slug };
-      }
-      for (const p of Array.from(lookup.productBySlug.values())) {
-        const persona = p.personas.find((x) => x.id === code);
-        if (persona) return { code, status: "full_id", id: persona.id, name: persona.name, product: p.slug };
-      }
-    }
-    const retired = lookup.retired.get(`${type}:${code}`);
-    if (retired) return { code, status: "retired", id: retired.id, name: retired.name, product: retired.product };
-    return { code, status: "unknown" };
+  return splitRefs(value).map((code) => (type === "product" ? decodeProduct(lookup, code) : decodePersona(lookup, code)));
+}
+
+export type DecodedTrackingPair = { product: DecodedTrackingCode | null; persona: DecodedTrackingCode | null };
+
+/**
+ * Translate a product_persona value (`aie:cc,afx:exp`, or full ids) back to pairs. The persona
+ * is resolved within its pair's product. `aie:` = product without persona; `:raw` = persona
+ * whose product is unknown; `all` / `none` come back as a sentinel product.
+ */
+export function decodeTrackingPairs(
+  value: string,
+  index: TrackingKeyIndex | TrackingKeyLookup | null | undefined,
+): DecodedTrackingPair[] {
+  const lookup = buildTrackingKeyLookup(index);
+  return splitRefs(value).map((item): DecodedTrackingPair => {
+    if (isSentinel(item)) return { product: { code: item, status: "sentinel" }, persona: null };
+    const at = item.indexOf(":");
+    const productCode = (at < 0 ? item : item.slice(0, at)).trim();
+    const personaCode = (at < 0 ? "" : item.slice(at + 1)).trim();
+    const product = productCode ? decodeProduct(lookup, productCode) : null;
+    const persona = personaCode ? decodePersona(lookup, personaCode, product?.product) : null;
+    return { product, persona };
   });
 }
