@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpDown, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Clock, CloudUpload, Code, Copy, Database, Download, ExternalLink, Eye, File, HeartPulse, HelpCircle, Image, Info, Link as LinkIcon, Loader2, Network, Pencil, Play, Plus, RefreshCw, Save, Search, Server, Settings, SlidersHorizontal, Sparkles, Table, Tags, TestTube, Trash2, Upload, Wand2, Webhook, X} from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useRoute, Link, useLocation } from "wouter";
+import { useRoute, Link, useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +46,15 @@ import {
   decodeFunctionMapping,
   encodeFunctionMapping,
 } from "@shared/functionEncoding";
+import {
+  DATABASE_ITEMS_SORT_DEFAULT,
+  DATABASE_ITEMS_SORT_PARAMS,
+  nextDatabaseItemsSort,
+  parseDatabaseItemsSortSearch,
+  serializeDatabaseItemsSort,
+  sortDatabaseItemEntries,
+  type DatabaseItemsSort,
+} from "@shared/database-items-sort";
 
 /** True when the role may browse banks (manage OR edit-data with * / non-empty list). */
 function hasDatabasesBrowseAccess(
@@ -230,6 +239,8 @@ interface DatasetFile {
 
 interface DatabaseItems {
   items: Record<string, unknown>[];
+  /** Stored position of each row in `items` (what PATCH/DELETE `/items/:index` expect). */
+  indices?: number[];
   total_count: number;
   page: number;
   limit: number;
@@ -3970,8 +3981,25 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
   const editScopeLabel = databasesEditDataScopeLabel(capabilities);
   const PAGE_SIZE = 100;
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [pathname, setLocation] = useLocation();
+  const searchString = useSearch();
+  const { key: sortKey, dir: sortDir } = useMemo(
+    () => parseDatabaseItemsSortSearch(searchString),
+    [searchString],
+  );
+  const setSort = (next: DatabaseItemsSort) => {
+    const qs = serializeDatabaseItemsSort(next, searchString);
+    const pathOnly = pathname.split("?")[0];
+    setLocation(qs ? `${pathOnly}?${qs}` : pathOnly, { replace: true });
+  };
+  // `score` only exists on semantic search results, which are sorted in the browser.
+  const serverSortKey = sortKey && sortKey !== "score" ? sortKey : null;
+  const serverSortParams = serverSortKey
+    ? [
+        `${DATABASE_ITEMS_SORT_PARAMS.sort}=${encodeURIComponent(serverSortKey)}`,
+        `${DATABASE_ITEMS_SORT_PARAMS.dir}=${sortDir}`,
+      ]
+    : [];
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isReindexing, setIsReindexing] = useState(false);
   const [activePanel, setActivePanel] = useState<"settings" | "mappings" | "usage" | null>(null);
@@ -4070,9 +4098,9 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     isFetching: itemsFetching,
     refetch: refetchItems,
   } = useQuery<DatabaseItems>({
-    queryKey: [`/api/databases/${dbName}/items`, page, PAGE_SIZE, tagFilters],
+    queryKey: [`/api/databases/${dbName}/items`, page, PAGE_SIZE, tagFilters, serverSortKey, sortDir],
     queryFn: () => {
-      const parts: string[] = [`page=${page}`, `limit=${PAGE_SIZE}`];
+      const parts: string[] = [`page=${page}`, `limit=${PAGE_SIZE}`, ...serverSortParams];
       for (const [field, values] of Object.entries(tagFilters)) {
         for (const v of values) parts.push(`filter[${field}]=${encodeURIComponent(v)}`);
       }
@@ -4089,9 +4117,11 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     isLoading: rawItemsLoading,
     refetch: refetchRawItems,
   } = useQuery<DatabaseItems>({
-    queryKey: [`/api/databases/${dbName}/raw-items`, page, PAGE_SIZE],
+    queryKey: [`/api/databases/${dbName}/raw-items`, page, PAGE_SIZE, serverSortKey, sortDir],
     queryFn: () =>
-      apiFetch(`/api/databases/${dbName}/raw-items?page=${page}&limit=${PAGE_SIZE}`).then(async (r) => {
+      apiFetch(
+        `/api/databases/${dbName}/raw-items?${[`page=${page}`, `limit=${PAGE_SIZE}`, ...serverSortParams].join("&")}`,
+      ).then(async (r) => {
         if (!r.ok) throw new Error(`raw-items ${r.status}`);
         return r.json();
       }),
@@ -4243,6 +4273,17 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
           })
         );
       }
+      if (sortKey === "score") {
+        const sign = sortDir === "asc" ? 1 : -1;
+        const scoreOf = (item: Record<string, unknown>) =>
+          typeof item.score === "number" ? item.score : Number.NEGATIVE_INFINITY;
+        items = [...items].sort((a, b) => sign * (scoreOf(a) - scoreOf(b)));
+      } else if (sortKey) {
+        items = sortDatabaseItemEntries(
+          items.map((item, index) => ({ item, index })),
+          { key: sortKey, dir: sortDir },
+        ).map((e) => e.item);
+      }
     } else if (!activeItems?.items) {
       return [];
     } else {
@@ -4257,30 +4298,21 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
       }
     }
 
-    if (sortKey) {
-      items = [...items].sort((a, b) => {
-        if (sortKey === "score") {
-          const av = typeof a.score === "number" ? a.score : Number.NEGATIVE_INFINITY;
-          const bv = typeof b.score === "number" ? b.score : Number.NEGATIVE_INFINITY;
-          return sortDir === "asc" ? av - bv : bv - av;
-        }
-        const av = a[sortKey] ?? "";
-        const bv = b[sortKey] ?? "";
-        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true });
-        return sortDir === "asc" ? cmp : -cmp;
-      });
-    }
-
     return items;
   })();
 
   const handleSort = (key: string) => {
-    if (sortKey === key) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortKey(key);
-      setSortDir("asc");
-    }
+    setSort(nextDatabaseItemsSort({ key: sortKey, dir: sortDir }, key));
+    setPage(1);
+  };
+
+  /** Stored position of a rendered row, for PATCH/DELETE `/items/:index`. */
+  const storedIndexOf = (item: Record<string, unknown>, rowIdx: number): number => {
+    const source = !editMode && dataView === "raw" ? rawItemsData : itemsData;
+    const pageItems = source?.items ?? [];
+    const pageIdx = pageItems.indexOf(item);
+    const localIdx = pageIdx >= 0 ? pageIdx : rowIdx;
+    return source?.indices?.[localIdx] ?? (page - 1) * PAGE_SIZE + localIdx;
   };
 
   useEffect(() => {
@@ -5003,7 +5035,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                         variant="ghost"
                         size="sm"
                         className={`rounded-r-none border-r toggle-elevate ${dataView === "mapped" ? "toggle-elevated bg-muted" : ""}`}
-                        onClick={() => { setDataView("mapped"); setSortKey(null); setSearch(""); setTagFilters({}); setPage(1); }}
+                        onClick={() => { setDataView("mapped"); setSort(DATABASE_ITEMS_SORT_DEFAULT); setSearch(""); setTagFilters({}); setPage(1); }}
                         data-testid="button-view-mapped"
                       >
                         Mapped
@@ -5012,7 +5044,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                         variant="ghost"
                         size="sm"
                         className={`rounded-l-none toggle-elevate ${dataView === "raw" ? "toggle-elevated bg-muted" : ""}`}
-                        onClick={() => { setDataView("raw"); setSortKey(null); setSearch(""); setTagFilters({}); setPage(1); }}
+                        onClick={() => { setDataView("raw"); setSort(DATABASE_ITEMS_SORT_DEFAULT); setSearch(""); setTagFilters({}); setPage(1); }}
                         data-testid="button-view-raw"
                       >
                         Raw
@@ -5443,11 +5475,8 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                     <tbody>
                       {(editMode ? (itemsData?.items || []) : filteredItems).map((item, i) => {
                         const openItemEdit = () => {
-                          const pageItems = itemsData?.items || [];
-                          const pageIdx = pageItems.indexOf(item);
-                          const localIdx = pageIdx >= 0 ? pageIdx : i;
                           setEditingItem(item);
-                          setEditingItemIndex((page - 1) * PAGE_SIZE + localIdx);
+                          setEditingItemIndex(storedIndexOf(item, i));
                           setIsAddingItem(false);
                         };
                         return (
@@ -5477,7 +5506,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                                   variant="ghost"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setDeleteConfirmIndex(i);
+                                    setDeleteConfirmIndex(storedIndexOf(item, i));
                                   }}
                                   disabled={savingItems}
                                   data-testid={`button-delete-row-${i}`}

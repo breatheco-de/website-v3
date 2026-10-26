@@ -21,6 +21,7 @@ import {
   type LocationPage,
   type TemplatePage,
 } from "@shared/schema";
+import { parseDatabaseItemsSort, sortDatabaseItemEntries } from "@shared/database-items-sort";
 import {
   getSitemap,
   clearSitemapCache,
@@ -470,11 +471,21 @@ export function registerDatabasesRoutes(app: Express): void {
       const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
       const limit = Math.max(1, Math.min(1000, parseInt(String(req.query.limit || "100"), 10)));
       const rawItems = getDB(res).getRawItems(req.params.name);
-      const allItems = rawItems || [];
-      const total_count = allItems.length;
+      const sort = parseDatabaseItemsSort(req.query.sort, req.query.dir);
+      const entries = sortDatabaseItemEntries(
+        (rawItems || []).map((item, index) => ({ item, index })),
+        sort,
+      );
+      const total_count = entries.length;
       const start = (page - 1) * limit;
-      const paginatedItems = allItems.slice(start, start + limit);
-      res.json({ items: paginatedItems, total_count, page, limit });
+      const pageEntries = entries.slice(start, start + limit);
+      res.json({
+        items: pageEntries.map((e) => e.item),
+        indices: pageEntries.map((e) => e.index),
+        total_count,
+        page,
+        limit,
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("not found")) {
@@ -632,12 +643,12 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
 
       // Apply tag/select field filters: filter[fieldName]=value (multi-value OR per field, AND across fields)
       const filterParam = req.query.filter as Record<string, string | string[]> | undefined;
-      let items = result.items;
+      let entries = result.items.map((item, index) => ({ item, index }));
       if (filterParam && typeof filterParam === "object") {
         for (const [field, rawValues] of Object.entries(filterParam)) {
           const values = Array.isArray(rawValues) ? rawValues : [rawValues];
           if (values.length === 0) continue;
-          items = items.filter((item) => {
+          entries = entries.filter(({ item }) => {
             const fieldVal = item[field];
             if (Array.isArray(fieldVal)) {
               return values.some((v) => (fieldVal as unknown[]).map(String).includes(v));
@@ -647,10 +658,20 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         }
       }
 
-      const total_count = items.length;
+      entries = sortDatabaseItemEntries(entries, parseDatabaseItemsSort(req.query.sort, req.query.dir));
+
+      const total_count = entries.length;
       const start = (page - 1) * limit;
-      const paginatedItems = items.slice(start, start + limit);
-      res.json({ ...result, items: paginatedItems, total_count, page, limit });
+      const pageEntries = entries.slice(start, start + limit);
+      res.json({
+        ...result,
+        items: pageEntries.map((e) => e.item),
+        // Stored position of each returned row; PATCH/DELETE /items/:index expect this, not the page row.
+        indices: pageEntries.map((e) => e.index),
+        total_count,
+        page,
+        limit,
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("not found")) {

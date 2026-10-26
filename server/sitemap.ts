@@ -15,6 +15,7 @@ import {
   listDraftLocales,
 } from "./draft-entry";
 import { isTemplateVersioningSlug } from "./shared-layout-entry";
+import { AB_CHECK_SLUG, isAbCheckPage } from "./ab-testing/state";
 import path from "path";
 const log = child({ module: "sitemap" });
 
@@ -974,6 +975,9 @@ function buildDebugSitemapUrlsUncached(ctx?: ActiveSiteCtx): DebugSitemapUrl[] {
       isDraft?: boolean;
     }) => {
       if (seen.has(opts.loc)) return;
+      const { content_type, slug } = splitContentKey(opts.contentKey);
+      // The hidden A/B check page never appears in staff lists.
+      if (content_type && slug === AB_CHECK_SLUG && isAbCheckPage(content_type, slug, contentRoot)) return;
       seen.add(opts.loc);
       const inSitemap = !siteBlocked && opts.indexable && !opts.isDraft;
       pushDebugUrl(out, {
