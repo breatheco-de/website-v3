@@ -268,6 +268,7 @@ async function resolvePageQueryInner(
         const resolvedVars = resolveAllTemplateVars(pageData, {
           ...(singleEntry && Object.keys(singleEntry).length > 0 ? { singleEntry } : {}),
           param,
+          contentType,
           contentRoot: ci.contentRoot,
           context: { locale: normalizedLocale },
         }) as Record<string, unknown>;
@@ -393,6 +394,7 @@ async function resolvePageQueryInner(
         const resolved = resolveAllTemplateVars(data, {
           singleEntry,
           param,
+          contentType,
           contentRoot: ci.contentRoot,
           context: { locale },
         }) as Record<string, unknown>;
@@ -400,6 +402,7 @@ async function resolvePageQueryInner(
       } else {
         const resolved = resolveAllTemplateVars(data, {
           param,
+          contentType,
           contentRoot: ci.contentRoot,
           context: { locale },
         }) as Record<string, unknown>;

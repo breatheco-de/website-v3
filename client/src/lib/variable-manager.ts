@@ -11,9 +11,11 @@ const TEMPLATE_REGEX = /\{\{\s*([^|}]+?)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
 const META_PREFIX = "meta.";
 const PARAM_PREFIX = "param.";
 const VISITOR_PREFIX = "visitor.";
+const FUNNEL_PREFIX = "funnel.";
 const EXACT_META_VAR_PATTERN = /^\{\{\s*meta\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 const EXACT_PARAM_VAR_PATTERN = /^\{\{\s*param\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 const EXACT_VISITOR_VAR_PATTERN = /^\{\{\s*visitor\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
+const EXACT_FUNNEL_VAR_PATTERN = /^\{\{\s*funnel\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 
 export interface VariableCondition {
   query: Record<string, string>;
@@ -44,7 +46,7 @@ export interface ResolvedVariable {
   original: string;
   variableName: string;
   resolvedValue: string;
-  source: "condition" | "location" | "region" | "locale" | "default" | "inline" | "single" | "meta" | "param" | "visitor";
+  source: "condition" | "location" | "region" | "locale" | "default" | "inline" | "single" | "meta" | "param" | "visitor" | "funnel";
   defaultValue: string;
 }
 
@@ -57,6 +59,8 @@ export interface ResolveOptions {
   param?: Record<string, unknown>;
   /** Logged-in consumer profile (AuthUserProfile-shaped) for {{ visitor.* }} */
   visitor?: Record<string, unknown>;
+  /** Page funnel wire JSON for {{ funnel.products }} (already URL-encoded). */
+  funnel?: Record<string, unknown>;
 }
 
 function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown {
@@ -167,6 +171,7 @@ export function resolveTemplateString(
   const meta = options?.meta;
   const param = options?.param;
   const visitor = options?.visitor;
+  const funnel = options?.funnel;
 
   const resolved = text.replace(regex, (match, expression: string, inlineDefault: string) => {
     const name = expression.trim();
@@ -269,6 +274,39 @@ export function resolveTemplateString(
         defaultValue: defVal,
       });
       return paramValue;
+    }
+
+    if (name.startsWith(FUNNEL_PREFIX)) {
+      if (!funnel) {
+        return match;
+      }
+      const fieldPath = name.slice(FUNNEL_PREFIX.length);
+      const funnelResult = resolveParamVariable(fieldPath, funnel);
+
+      if (preserveTemplate) {
+        if (!funnelResult && !defVal) {
+          return match;
+        }
+        const displayValue = funnelResult ? bagValueToDisplay(funnelResult.value) : defVal;
+        variables.push({
+          original: match,
+          variableName: name,
+          resolvedValue: displayValue,
+          source: funnelResult ? "funnel" : "inline",
+          defaultValue: defVal,
+        });
+        return `{{ ${name} | ${displayValue} }}`;
+      }
+
+      const funnelValue = funnelResult ? bagValueToDisplay(funnelResult.value) : defVal || name;
+      variables.push({
+        original: match,
+        variableName: name,
+        resolvedValue: funnelValue,
+        source: funnelResult ? "funnel" : "inline",
+        defaultValue: defVal,
+      });
+      return funnelValue;
     }
 
     if (name.startsWith(VISITOR_PREFIX)) {
@@ -417,6 +455,33 @@ export function resolveDeep(
               variableName: `param.${fieldPath}`,
               resolvedValue: displayValue,
               source: resolved !== undefined && resolved !== null ? "param" : "inline",
+              defaultValue: fallback || "",
+            });
+
+            return resolvedValue;
+          }
+        }
+
+        if (options?.funnel) {
+          const exactFunnel = value.match(EXACT_FUNNEL_VAR_PATTERN);
+          if (exactFunnel) {
+            const fieldPath = exactFunnel[1];
+            const hasFallback = exactFunnel[2] !== undefined;
+            const fallback = exactFunnel[2]?.trim();
+            const resolved = getNestedValue(options.funnel, fieldPath);
+            const resolvedValue =
+              resolved !== undefined && resolved !== null
+                ? resolved
+                : hasFallback
+                  ? parsePipeFallback(fallback ?? "")
+                  : value;
+            const displayValue = typeof resolvedValue === "object" ? JSON.stringify(resolvedValue) : String(resolvedValue);
+
+            allVariables.push({
+              original: value,
+              variableName: `funnel.${fieldPath}`,
+              resolvedValue: displayValue,
+              source: resolved !== undefined && resolved !== null ? "funnel" : "inline",
               defaultValue: fallback || "",
             });
 

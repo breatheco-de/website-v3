@@ -12,6 +12,7 @@ import { useMenuVisualContext } from "@/contexts/MenuVisualContext";
 import { VariableHighlightProvider } from "@/components/editing/VariableHighlight";
 import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
 import { resolveDeep, patchVariableFieldHighlights, type ResolveOptions, type VariableDefinition } from "@/lib/variable-manager";
+import { funnelProductsQueryValue } from "@shared/tracking-context";
 import { useLlmAudience } from "@/contexts/LlmAudienceContext";
 import { describePageSection, llmLocationCatalog } from "@/lib/llmAudienceCatalog";
 import { expandLlmVariablesDeep, type LlmVariableDef } from "@shared/llm-html-audience";
@@ -691,6 +692,9 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
   }, [contentType, slug, locale, sections, toast]);
 
   const resolvedSections = (() => {
+    const funnelBag = {
+      products: funnelProductsQueryValue(funnel, contentType, slug),
+    };
     const llmLocale = locale || "en";
     if (llmAudience) {
       const defs = (varDefinitions || {}) as Record<string, LlmVariableDef>;
@@ -699,7 +703,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
         const { data: resolvedMeta } = resolveDeep(meta, {}, { locale: llmLocale }, { singleEntry });
         metaBag = resolvedMeta as Record<string, unknown>;
       }
-      const resolveOptions: ResolveOptions = { singleEntry, meta: metaBag, param };
+      const resolveOptions: ResolveOptions = { singleEntry, meta: metaBag, param, funnel: funnelBag };
       return sections.map((section) => {
         const audience = describePageSection(section, llmLocale);
         if (audience.kind === "hidden") return section;
@@ -717,7 +721,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
     }
 
     const hasGlobalDefs = varDefinitions && Object.keys(varDefinitions).length > 0;
-    if (!hasGlobalDefs && !singleEntry && !meta && !param) {
+    if (!hasGlobalDefs && !singleEntry && !meta && !param && !funnel) {
       return sections;
     }
     // Resolve {{ single.* }} inside meta so {{ meta.page_title }} sees concrete SEO strings
@@ -735,6 +739,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
         singleEntry,
         meta: metaBag,
         param,
+        funnel: funnelBag,
       },
     );
     let result = data as Section[];

@@ -166,6 +166,7 @@ function finish(
   return out;
 }
 
+
 export type PageRef = { contentType: string; contentSlug: string };
 
 function baseContext(funnel: FunnelBlock | null | undefined, page: PageRef): PageTrackingContext {
@@ -200,6 +201,31 @@ export function buildFunnelTrackingContext(
   if (bindings === "all") return { ...base, ...ALL };
   const lookup = buildTrackingKeyLookup(index);
   return finish(base, valuesFromRefs(bindingPairs(bindings), lookup, mode), mode === "codes");
+}
+
+/**
+ * `{{ funnel.products }}` for query strings: webhook id lists as JSON, then encodeURIComponent.
+ * Type + slug are optional (program self-include only). `products: all` / missing funnel
+ * resolve without them.
+ */
+export function funnelProductsQueryValue(
+  funnel: FunnelBlock | null | undefined,
+  contentType?: string | null,
+  contentSlug?: string | null,
+): string {
+  const ctx = buildFunnelTrackingContext(
+    funnel,
+    { contentType: contentType ?? "", contentSlug: contentSlug ?? "" },
+    null,
+    { mode: "ids" },
+  );
+  return encodeURIComponent(
+    JSON.stringify({
+      product: ctx.product ?? NONE.product,
+      persona: ctx.persona ?? NONE.persona,
+      product_persona: ctx.product_persona ?? NONE.product_persona,
+    }),
+  );
 }
 
 const splitRefs = (raw: string | undefined): string[] =>

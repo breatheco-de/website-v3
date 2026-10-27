@@ -7,6 +7,7 @@ import {
   EVENT_WEBHOOK_ALLOWLIST,
   EVENT_WEBHOOK_DELIVERY_RETENTION_MS,
   EVENT_WEBHOOK_FILE,
+  filterKeysForEventType,
   buildWebhookBody,
   clearHookBuffer,
   computeDroppedBuffersOnSave,
@@ -24,13 +25,25 @@ import {
   parseEventWebhookConfig,
   previewDeliveryPayload,
   recordDelivery,
+  redactEventWebhookConfigForStaff,
   saveEventWebhookConfig,
   type EventWebhookConfig,
   type EventWebhookHook,
 } from "../events/event-webhooks";
 import { child } from "../logger";
+import { EventWebhookHeaderSecretError } from "../events/event-webhook-header-secrets";
 
 const log = child({ module: "routes/event-webhooks" });
+
+function respondWebhookSaveError(res: Response, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  if (err instanceof EventWebhookHeaderSecretError) {
+    res.status(400).json({ error: message });
+    return;
+  }
+  log.error({ err }, "[EventWebhooks] Failed to save config");
+  res.status(500).json({ error: message });
+}
 
 function actorUsername(auth: { username: string | null; author: string | null }): string {
   return (auth.username || auth.author || "dev").trim() || "dev";
@@ -51,6 +64,14 @@ function siteCtx(res: Response): SiteContext | null {
   return site;
 }
 
+function filterKeysByType(): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const type of EVENT_WEBHOOK_ALLOWLIST) {
+    out[type] = [...filterKeysForEventType(type)];
+  }
+  return out;
+}
+
 function summarizeConfig(site: string, contentRoot: string) {
   let config: EventWebhookConfig;
   try {
@@ -61,6 +82,7 @@ function summarizeConfig(site: string, contentRoot: string) {
       config: { version: 1 as const, subscriptions: {} },
       pending: {},
       allowlist: [...EVENT_WEBHOOK_ALLOWLIST],
+      filter_keys: filterKeysByType(),
       enabled_hook_count: 0,
       last_delivery: null as ReturnType<typeof listDeliveries>[number] | null,
       site,
@@ -75,9 +97,10 @@ function summarizeConfig(site: string, contentRoot: string) {
   }
   const deliveries = listDeliveries(site, { limit: 1 });
   return {
-    config,
+    config: redactEventWebhookConfigForStaff(config),
     pending,
     allowlist: [...EVENT_WEBHOOK_ALLOWLIST],
+    filter_keys: filterKeysByType(),
     enabled_hook_count: enabled,
     last_delivery: deliveries[0] ?? null,
     file: EVENT_WEBHOOK_FILE,
@@ -115,8 +138,7 @@ export function registerEventWebhookRoutes(app: Express): void {
       saveEventWebhookConfig(site.contentRoot, next);
       markFileAsModified(EVENT_WEBHOOK_FILE, auth.actor, undefined, site.contentRoot);
     } catch (err) {
-      log.error({ err }, "[EventWebhooks] Failed to save config");
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      respondWebhookSaveError(res, err);
       return;
     }
 
@@ -176,7 +198,7 @@ export function registerEventWebhookRoutes(app: Express): void {
         saveEventWebhookConfig(site.contentRoot, next);
         markFileAsModified(EVENT_WEBHOOK_FILE, auth.actor, undefined, site.contentRoot);
       } catch (err) {
-        res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+        respondWebhookSaveError(res, err);
         return;
       }
       res.json({

@@ -170,6 +170,7 @@ export async function buildPreviewPropResolveContext(opts: {
 
   const resolvedMeta = resolveAllTemplateVars(rawMeta, {
     singleEntry: opts.entry,
+    contentType: opts.contentType,
     contentRoot,
     context: { locale: opts.locale },
     skipSiteVars: false,

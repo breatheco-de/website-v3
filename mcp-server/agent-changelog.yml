@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-10-27"
+    summary: "{{ funnel.products }} is URL-encoded lead-webhook JSON of the page funnel"
+    agent_impact:
+      - "In section/meta URLs, {{ funnel.products }} becomes encodeURIComponent of {product, persona, product_persona} full ids (sorted, all/none sentinels, program page includes itself). Same merge as GTM/webhook; not GTM codes, not experiment/variant."
+      - "Not entry.* / meta.* / Fields picker. Does not write _common.yml or the dataLayer. Hidden form product/persona overrides do not change this token."
+    tools_changed: false
+    paths:
+      - shared/tracking-context.ts
+      - server/resolve-template-vars.ts
+      - mcp-server/explain/content_system.md
+      - mcp-server/explain/funnel.md
+      - mcp-server/explain/lead-forms.md
   - date: "2026-10-26"
     summary: "Ads data refreshes daily at 5 AM ET on the live server"
     agent_impact:

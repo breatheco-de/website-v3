@@ -424,6 +424,7 @@ export async function generateSsrSchemaHtml(url: string, ci: typeof contentIndex
     if (merged.data && merged.isSharedTemplate) {
       pageData = resolveAllTemplateVars(pageData, {
         singleEntry: pageData,
+        contentType: route.contentType,
         contentRoot,
         context: { locale: route.locale },
         skipSiteVars: false,

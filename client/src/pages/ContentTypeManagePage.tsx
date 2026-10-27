@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { typeUsesSharedTemplate } from "@shared/sharedLayoutPaths";
 import { AlertTriangle, Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Copy, Crosshair, Database, Download, ExternalLink, Eye, EyeOff, FileText, Filter, Folder, GitBranch, Globe, HelpCircle, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, Megaphone, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
 import { ContentTypeAdsList } from "@/components/ads/ContentTypeAdsList";
-import { IconChess, IconChevronDown, IconChevronRight, IconExternalLink } from "@tabler/icons-react";
+import { IconChess, IconChevronDown, IconChevronRight, IconExternalLink, IconWebhook } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
 import { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from "react";
 import {
@@ -6172,6 +6172,110 @@ function SeoSettingsDialog({
   );
 }
 
+function filterListHits(contentType: string, list: string[] | undefined): boolean {
+  if (!list || list.length === 0) return false;
+  const key = contentType.toLowerCase();
+  return list.some((value) => {
+    const needle = value.toLowerCase();
+    if (needle.endsWith("*")) {
+      const prefix = needle.slice(0, -1);
+      return prefix.length === 0 || key.startsWith(prefix);
+    }
+    return key === needle;
+  });
+}
+
+function hookSendsThisContentType(
+  contentType: string,
+  filter: { content_types?: string[]; exclude_content_types?: string[] } | undefined,
+): boolean {
+  if (filterListHits(contentType, filter?.exclude_content_types)) return false;
+  const included = filter?.content_types ?? [];
+  if (included.length === 0) return true;
+  return filterListHits(contentType, included);
+}
+
+/** Points staff at outbound event webhooks for saves of this content type. */
+function ContentTypeWebhooksCard({ contentType }: { contentType: string }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["/api/admin/event-webhooks"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/admin/event-webhooks");
+      if (!res.ok) throw new Error("Failed to load webhooks");
+      return res.json() as Promise<{
+        config: {
+          subscriptions: Record<
+            string,
+            Array<{
+              enabled?: boolean;
+              url?: string;
+              filter?: { content_types?: string[]; exclude_content_types?: string[] };
+            }>
+          >;
+        };
+      }>;
+    },
+    staleTime: 30_000,
+  });
+
+  let sending = 0;
+  if (data?.config?.subscriptions) {
+    for (const [eventType, hooks] of Object.entries(data.config.subscriptions)) {
+      if (eventType.startsWith("proposal_")) continue;
+      for (const hook of hooks) {
+        if (!hook.enabled || !hook.url) continue;
+        if (hookSendsThisContentType(contentType, hook.filter)) sending += 1;
+      }
+    }
+  }
+
+  const badgeLabel =
+    sending === 0
+      ? "No webhooks set"
+      : sending === 1
+        ? "1 webhook set"
+        : `${sending} webhooks set`;
+
+  return (
+    <Card data-testid="card-kpi-event-webhooks">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
+        <CardTitle className="text-sm font-medium text-muted-foreground">Webhooks</CardTitle>
+        <IconWebhook className="h-4 w-4 text-muted-foreground" aria-hidden />
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          When someone saves an entry of this type, the site can notify another system. Open Webhooks to
+          choose the address and which saves to send.
+        </p>
+        <div className="flex flex-col items-start gap-2">
+          {isLoading || isError ? (
+            <p className="text-xs text-muted-foreground" data-testid="text-event-webhooks-status">
+              {isLoading
+                ? "Checking which webhooks send saves of this type."
+                : "Webhook settings could not be loaded."}
+            </p>
+          ) : (
+            <Badge
+              variant={sending > 0 ? "secondary" : "outline"}
+              className="text-xs font-medium"
+              data-testid="badge-event-webhooks-status"
+            >
+              {badgeLabel}
+            </Badge>
+          )}
+          <Link
+            href="/private/webhooks/hooks"
+            className="text-xs text-primary hover:underline"
+            data-testid="link-content-type-webhooks"
+          >
+            Open webhooks
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function ContentTypeManagePage() {
   const { toast } = useToast();
   const [, params] = useRoute("/private/type/:contentType");
@@ -8336,6 +8440,7 @@ export default function ContentTypeManagePage() {
               </div>
             </CardContent>
           </Card>
+          <ContentTypeWebhooksCard contentType={contentType} />
           <EntryPreviewCard
             contentType={contentType}
             preview={typeConfig?.preview}

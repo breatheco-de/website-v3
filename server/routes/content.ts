@@ -548,6 +548,7 @@ export function registerContentRoutes(app: Express): void {
         resolveAllTemplateVars(programData, {
           singleEntry,
           param,
+          contentType: "program",
           contentRoot: getContentRoot(res),
           context: { locale },
         }) as Record<string, unknown>,
@@ -557,6 +558,7 @@ export function registerContentRoutes(app: Express): void {
         programData,
         resolveAllTemplateVars(programData, {
           param,
+          contentType: "program",
           contentRoot: getContentRoot(res),
           context: { locale },
         }) as Record<string, unknown>,
@@ -666,6 +668,7 @@ export function registerContentRoutes(app: Express): void {
         resolveAllTemplateVars(landingData, {
           singleEntry,
           param,
+          contentType: "landing",
           contentRoot: getContentRoot(res),
           context: { locale },
         }) as Record<string, unknown>,
@@ -675,6 +678,7 @@ export function registerContentRoutes(app: Express): void {
         landingData,
         resolveAllTemplateVars(landingData, {
           param,
+          contentType: "landing",
           contentRoot: getContentRoot(res),
           context: { locale },
         }) as Record<string, unknown>,
@@ -766,6 +770,7 @@ export function registerContentRoutes(app: Express): void {
         resolveAllTemplateVars(locationData, {
           singleEntry,
           param,
+          contentType: "location",
           contentRoot: getContentRoot(res),
           context: { locale },
         }) as Record<string, unknown>,
@@ -775,6 +780,7 @@ export function registerContentRoutes(app: Express): void {
         locationData,
         resolveAllTemplateVars(locationData, {
           param,
+          contentType: "location",
           contentRoot: getContentRoot(res),
           context: { locale },
         }) as Record<string, unknown>,
@@ -925,6 +931,7 @@ export function registerContentRoutes(app: Express): void {
     const resolvedPage = resolveAllTemplateVars(pageData, {
       singleEntry: singleEntry || undefined,
       param,
+      contentType: "page",
       contentRoot: getContentRoot(res),
       context: { locale },
     }) as Record<string, unknown>;
@@ -1027,6 +1034,7 @@ export function registerContentRoutes(app: Express): void {
       const resolvedPage = resolveAllTemplateVars(pageData, {
         ...(singleEntry && Object.keys(singleEntry).length > 0 ? { singleEntry } : {}),
         param,
+        contentType,
         contentRoot: root,
         context: { locale },
       }) as Record<string, unknown>;
@@ -1089,6 +1097,7 @@ export function registerContentRoutes(app: Express): void {
         const resolved = resolveAllTemplateVars(variantPage, {
           singleEntry: variantSingleEntry,
           param,
+          contentType,
           contentRoot: getContentRoot(res),
           context: { locale },
         }) as Record<string, unknown>;
@@ -1096,6 +1105,7 @@ export function registerContentRoutes(app: Express): void {
       } else {
         const resolved = resolveAllTemplateVars(variantPage, {
           param,
+          contentType,
           contentRoot: getContentRoot(res),
           context: { locale },
         }) as Record<string, unknown>;
@@ -1157,6 +1167,7 @@ export function registerContentRoutes(app: Express): void {
       const resolved = resolveAllTemplateVars(genericPageData, {
         singleEntry,
         param,
+        contentType,
         contentRoot: getContentRoot(res),
         context: { locale },
       }) as Record<string, unknown>;
@@ -1164,6 +1175,7 @@ export function registerContentRoutes(app: Express): void {
     } else {
       const resolved = resolveAllTemplateVars(genericPageData, {
         param,
+        contentType,
         contentRoot: getContentRoot(res),
         context: { locale },
       }) as Record<string, unknown>;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildFunnelTrackingContext,
+  funnelProductsQueryValue,
   decodeTrackingCodes,
   decodeTrackingPairs,
   joinCapped,
@@ -125,6 +126,34 @@ describe("buildFunnelTrackingContext", () => {
       persona: "none",
       content_key: "landing:apply",
     });
+  });
+
+  it("encodes webhook ids for query strings", () => {
+    const encoded = funnelProductsQueryValue(
+      {
+        products: [
+          { product: "ai-flex", persona: "the-explorer" },
+          { product: "ai-engineering", persona: "the-career-changer" },
+        ],
+      },
+      "landing",
+      "apply",
+    );
+    expect(encoded).toBe(
+      encodeURIComponent(
+        JSON.stringify({
+          product: "ai-engineering,ai-flex",
+          persona: "the-career-changer,the-explorer",
+          product_persona: "ai-engineering:the-career-changer,ai-flex:the-explorer",
+        }),
+      ),
+    );
+    expect(funnelProductsQueryValue(null, "landing", "apply")).toBe(
+      encodeURIComponent(JSON.stringify({ product: "none", persona: "none", product_persona: "none" })),
+    );
+    expect(funnelProductsQueryValue({ products: "all" }, null, null)).toBe(
+      encodeURIComponent(JSON.stringify({ product: "all", persona: "all", product_persona: "all" })),
+    );
   });
 
   it("includes the program itself on its own page", () => {

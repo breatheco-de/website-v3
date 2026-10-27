@@ -248,7 +248,8 @@ export function templateVarsNoteForBodyModel(bodyModel: string): string {
   const common =
     "{{ entry.<field> }} resolves from this type's field_mapping (plus slug/locale/image/updated_at aliases). " +
     "Not the shared shell filename. Legacy {{ single.* }} still resolves on delivery; saves reject single.*. " +
-    "In listing item_template, entry.* means each list row.";
+    "In listing item_template, entry.* means each list row. " +
+    "{{ funnel.products }} is URL-encoded JSON of the page funnel's product/persona/product_persona ids (lead webhook shape; none without a funnel). Not Fields, not SEO, not the entry picker; does not write _common.yml or the dataLayer.";
   if (bodyModel === "locale_fields_plus_shared_single") {
     return (
       common +

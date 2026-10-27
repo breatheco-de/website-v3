@@ -131,6 +131,7 @@ type WebhookSummary = {
   config: EventWebhookConfig;
   pending: Record<string, number>;
   allowlist: string[];
+  filter_keys?: Record<string, string[]>;
   enabled_hook_count: number;
   last_delivery: DeliveryRow | null;
   file?: string;
@@ -414,7 +415,8 @@ function headerPreviewLines(headers?: Record<string, string>): string[] {
   if (!headers) return base;
   for (const [k, v] of Object.entries(headers)) {
     const sensitive = /auth|token|secret|key|password|bearer/i.test(k);
-    base.push(`${k}: ${sensitive ? "••••••••" : v}`);
+    const shown = sensitive && !v.startsWith("•") ? "••••••••" : v;
+    base.push(`${k}: ${shown}`);
   }
   return base;
 }
@@ -714,6 +716,23 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
   const pendingForEdit = editing
     ? pending[bufferKey(editing.eventType, editing.hook.id)] ?? 0
     : 0;
+
+  const declaredFilterKeys = summaryQuery.data?.filter_keys;
+  const filterKeysForEdit = editing
+    ? declaredFilterKeys
+      ? new Set(declaredFilterKeys[editing.eventType] ?? [])
+      : null
+    : new Set<string>();
+  const showFilter = (key: string) =>
+    filterKeysForEdit === null || filterKeysForEdit.has(key);
+  const pageContentType = showFilter("content_types") && !showFilter("kinds");
+  const showExcludeLists =
+    showFilter("exclude_proposal_authors") ||
+    showFilter("exclude_kinds") ||
+    showFilter("exclude_content_types") ||
+    showFilter("exclude_locales") ||
+    showFilter("exclude_funnel_stages") ||
+    showFilter("exclude_funnel_products");
 
   const previousHook =
     editing && !editing.isNew
@@ -1255,11 +1274,12 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                     className="w-full min-h-[72px] rounded-md border border-input bg-background px-3 py-2 text-sm"
                     value={editing.headersText}
                     onChange={(e) => setEditing({ ...editing, headersText: e.target.value })}
-                    placeholder={"Authorization: Bearer …\nX-Custom: value"}
+                    placeholder={"Authorization: Bearer …"}
                   />
                   <p className="text-xs text-muted-foreground">
-                    One header per line as <code className="font-mono">Name: value</code>. Use for
-                    API keys or auth your endpoint expects. Leave blank if none.
+                    One header per line as <code className="font-mono">Name: value</code>. Secrets
+                    such as Authorization are stored encrypted. A masked value is already saved:
+                    leave it to keep it, replace it to change it, or delete the line to remove it.
                   </p>
                 </div>
                 {willDropOnSave ? (
@@ -1351,7 +1371,9 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 py-1">
+                {showFilter("proposal_authors") || showFilter("proposal_models") ? (
                 <div className="grid gap-3 sm:grid-cols-2">
+                  {showFilter("proposal_authors") ? (
                   <div className="space-y-1.5">
                     <Label>Proposal writer</Label>
                     <SearchableMultiCombobox
@@ -1372,6 +1394,8 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                       mono
                     />
                   </div>
+                  ) : null}
+                  {showFilter("proposal_models") ? (
                   <div className="space-y-1.5">
                     <Label>Writer model</Label>
                     <TagInput
@@ -1462,8 +1486,12 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                       </Popover>
                     </p>
                   </div>
+                  ) : null}
                 </div>
+                ) : null}
+                {showFilter("event_authors") || showFilter("kinds") ? (
                 <div className="grid gap-3 sm:grid-cols-2">
+                  {showFilter("event_authors") ? (
                   <div className="space-y-1.5">
                     <Label>Who triggered this event</Label>
                     <SearchableMultiCombobox
@@ -1484,6 +1512,8 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                       mono
                     />
                   </div>
+                  ) : null}
+                  {showFilter("kinds") ? (
                   <div className="space-y-1.5">
                     <Label>Kind</Label>
                     <KindChips
@@ -1497,8 +1527,12 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                       testId="chips-filter-kinds"
                     />
                   </div>
+                  ) : null}
                 </div>
+                ) : null}
+                {showFilter("content_types") || showFilter("locales") ? (
                 <div className="grid gap-3 sm:grid-cols-2">
+                  {showFilter("content_types") ? (
                   <div className="space-y-1.5">
                     <Label>Content type</Label>
                     <SearchableMultiCombobox
@@ -1518,7 +1552,14 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                       testId="filter-content-types"
                       mono
                     />
+                    {pageContentType ? (
+                      <p className="text-xs text-muted-foreground" data-testid="text-page-content-type-filter">
+                        The entry&apos;s content type.
+                      </p>
+                    ) : null}
                   </div>
+                  ) : null}
+                  {showFilter("locales") ? (
                   <div className="space-y-1.5">
                     <Label>Locale</Label>
                     <SearchableMultiCombobox
@@ -1539,9 +1580,13 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                       mono
                     />
                   </div>
+                  ) : null}
                 </div>
+                ) : null}
+                {showFilter("funnel_stages") || showFilter("funnel_products") ? (
                 <div className="space-y-1.5">
                   <div className="grid gap-3 sm:grid-cols-2">
+                    {showFilter("funnel_stages") ? (
                     <div className="space-y-1.5">
                       <Label>Funnel stage</Label>
                       <FunnelStageChips
@@ -1555,6 +1600,8 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                         testId="chips-filter-funnel-stages"
                       />
                     </div>
+                    ) : null}
+                    {showFilter("funnel_products") ? (
                     <div className="space-y-1.5">
                       <Label>Funnel product</Label>
                       <SearchableMultiCombobox
@@ -1575,12 +1622,15 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                         mono
                       />
                     </div>
+                    ) : null}
                   </div>
                   <p className="text-xs text-muted-foreground" data-testid="text-funnel-filter-help">
                     Only idea proposals have a funnel. Edits, notes, and ideas without a funnel
                     won&apos;t match. Ideas for all products match any product.
                   </p>
                 </div>
+                ) : null}
+                {showFilter("event_actor_types") ? (
                 <div className="space-y-1.5">
                   <Label>Event source</Label>
                   <ActorTypeChips
@@ -1594,6 +1644,8 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                     testId="chips-filter-event-actor-types"
                   />
                 </div>
+                ) : null}
+                {showExcludeLists ? (
                 <Collapsible>
                   <CollapsibleTrigger asChild>
                     <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs">
@@ -1602,6 +1654,7 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                     </Button>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="space-y-3 pt-2">
+                    {showFilter("exclude_proposal_authors") ? (
                     <div className="space-y-1.5">
                       <Label>Exclude proposal writers</Label>
                       <SearchableMultiCombobox
@@ -1621,6 +1674,8 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                         mono
                       />
                     </div>
+                    ) : null}
+                    {showFilter("exclude_kinds") ? (
                     <div className="space-y-1.5">
                       <Label>Exclude kinds</Label>
                       <KindChips
@@ -1633,6 +1688,8 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                         }
                       />
                     </div>
+                    ) : null}
+                    {showFilter("exclude_content_types") ? (
                     <div className="space-y-1.5">
                       <Label>Exclude content types</Label>
                       <SearchableMultiCombobox
@@ -1652,6 +1709,8 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                         mono
                       />
                     </div>
+                    ) : null}
+                    {showFilter("exclude_locales") ? (
                     <div className="space-y-1.5">
                       <Label>Exclude locales</Label>
                       <SearchableMultiCombobox
@@ -1671,6 +1730,8 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                         mono
                       />
                     </div>
+                    ) : null}
+                    {showFilter("exclude_funnel_stages") ? (
                     <div className="space-y-1.5">
                       <Label>Exclude funnel stages</Label>
                       <FunnelStageChips
@@ -1684,6 +1745,8 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                         testId="chips-filter-exclude-funnel-stages"
                       />
                     </div>
+                    ) : null}
+                    {showFilter("exclude_funnel_products") ? (
                     <div className="space-y-1.5">
                       <Label>Exclude funnel products</Label>
                       <SearchableMultiCombobox
@@ -1703,8 +1766,10 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                         mono
                       />
                     </div>
+                    ) : null}
                   </CollapsibleContent>
                 </Collapsible>
+                ) : null}
                 {willDropOnSave ? (
                   <p className="text-xs text-amber-500">
                     Saving will drop {pendingForEdit} waiting event(s) for this hook. They will not
