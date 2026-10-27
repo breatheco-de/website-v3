@@ -78,6 +78,7 @@ export async function loadPagePreviewData(
     { ...pageData, sections },
     {
       ...(singleEntry && Object.keys(singleEntry).length > 0 ? { singleEntry } : {}),
+      contentType: p.contentType,
       contentRoot: ci.contentRoot,
       context: { locale: p.locale },
     },

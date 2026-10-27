@@ -77,3 +77,4 @@ Do not treat those two answers as the same list. Tag programs as `decision` so i
 - Edit membership via Funnel tab / `update_fields` / `update_entry_attributes` — not `create_or_update_product` / not retired `update_product_funnel`.
 - Proposal review for funnel-only packets → `explain_site` topic **`funnel-classification-proposals`** (`review_situations: ["funnel_classification"]`).
 - `funnel.products` also scopes analytics `item_id` on forms when set — see topic `lead-forms` / `product`.
+- Delivery token `{{ funnel.products }}` = URL-encoded JSON of those ids (`product`, `persona`, `product_persona`) for CTA query strings. Same merge as the page; writes stay on `_common.yml`. Does not change the dataLayer or the entry field picker.

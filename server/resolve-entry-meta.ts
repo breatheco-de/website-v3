@@ -61,6 +61,7 @@ export function resolveEntryMeta(opts: ResolveEntryMetaOptions): ResolvedEntryMe
   const resolvedMeta = resolveAllTemplateVars(metaInput ?? {}, {
     singleEntry,
     meta: metaInput,
+    contentType,
     contentRoot: contentRoot ?? getDefaultContentRoot(),
     context: { locale, region },
     skipSiteVars: false,

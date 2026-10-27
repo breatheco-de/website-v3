@@ -1,6 +1,6 @@
 /**
  * Multi-bag template resolution for public content delivery.
- * Order: {{ single.* }} → {{ meta.* }} → {{ seo.* }} → {{ param.* }} → optional site vars (brand.* / global.* / reserved.*).
+ * Order: {{ single.* }} → {{ meta.* }} → {{ seo.* }} → {{ param.* }} → {{ funnel.* }} → optional site vars (brand.* / global.* / reserved.*).
  *
  * Site vars default to skipped (`skipSiteVars: true`) so React `SectionRenderer`
  * can resolve them (and preserve `{{ }}` in edit mode). Pass `skipSiteVars: false`
@@ -21,6 +21,8 @@ import {
   extractUrlPatternParams,
 } from "./content-types";
 import { parsePipeFallback } from "@shared/json-field";
+import { funnelProductsQueryValue } from "@shared/tracking-context";
+import { normalizeFunnelBlock } from "@shared/funnel";
 
 function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown {
   const parts = dotPath.split(".");
@@ -176,6 +178,10 @@ export interface ResolveAllTemplateVarsOptions {
   seo?: Record<string, unknown>;
   /** Unified URL path + querystring params (path wins). */
   param?: Record<string, unknown>;
+  /** Merged page funnel; defaults to `data.funnel`. */
+  funnel?: unknown;
+  /** Route identity for program self-include. Omit when unknown. Slug comes from singleEntry. */
+  contentType?: string;
   contentRoot?: string;
   context?: VariableContext;
   /**
@@ -193,7 +199,7 @@ export interface ResolveAllTemplateVarsOptions {
  */
 type NamespaceStep =
   | { kind: "single"; bag: Record<string, unknown> }
-  | { kind: "bag"; prefix: "meta" | "seo" | "param"; bag: Record<string, unknown> };
+  | { kind: "bag"; prefix: "meta" | "seo" | "param" | "funnel"; bag: Record<string, unknown> };
 
 function mentionsNamespace(str: string, step: NamespaceStep): boolean {
   if (step.kind === "single") {
@@ -296,6 +302,25 @@ export function resolveAllTemplateVars(
   if (opts.param && Object.keys(opts.param).length > 0) {
     steps.push({ kind: "bag", prefix: "param", bag: opts.param });
   }
+
+  const funnelRaw = opts.funnel !== undefined ? opts.funnel : page?.funnel;
+  const funnelSlug =
+    typeof singleEntry?.slug === "string"
+      ? singleEntry.slug
+      : typeof singleEntry?._slug === "string"
+        ? singleEntry._slug
+        : undefined;
+  steps.push({
+    kind: "bag",
+    prefix: "funnel",
+    bag: {
+      products: funnelProductsQueryValue(
+        normalizeFunnelBlock(funnelRaw),
+        typeof opts.contentType === "string" ? opts.contentType : undefined,
+        funnelSlug,
+      ),
+    },
+  });
 
   let result = steps.length > 0 ? walkNamespaces(data, steps, 0) : data;
 

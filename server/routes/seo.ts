@@ -1340,6 +1340,7 @@ export function registerSeoRoutes(app: Express): void {
         const rawMeta = metaRecord(page);
         const resolvedPage = resolveAllTemplateVars(page, {
           singleEntry,
+          contentType,
           contentRoot: getContentRoot(res),
           context: { locale },
           skipSiteVars: false,
@@ -1473,6 +1474,7 @@ export function registerSeoRoutes(app: Express): void {
       if (mergedContent.data && mergedContent.isSharedTemplate) {
         sectionsSource = resolveAllTemplateVars(sectionsSource, {
           singleEntry: sectionsSource as Record<string, unknown>,
+          contentType,
           contentRoot,
           context: { locale },
           skipSiteVars: false,
@@ -1568,6 +1570,7 @@ export function registerSeoRoutes(app: Express): void {
           _slug: slug,
         },
         meta: displayMeta,
+        contentType,
         contentRoot,
         context: { locale, region },
         skipSiteVars: false,

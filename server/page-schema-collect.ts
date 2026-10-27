@@ -149,6 +149,8 @@ export async function collectDatabaseRecordSchemas(
     const resolvedSections = resolveAllTemplateVars(templateSections, {
       singleEntry: record,
       meta: template?.meta as Record<string, unknown> | undefined,
+      funnel: record.funnel,
+      contentType,
       contentRoot,
       context: { locale },
       skipSiteVars: false,
@@ -200,6 +202,7 @@ export async function collectStaticPageSchemas(
     if (merged.data && merged.isSharedTemplate) {
       pageData = resolveAllTemplateVars(pageData, {
         singleEntry: pageData,
+        contentType: route.contentType,
         contentRoot,
         context: { locale: route.locale },
         skipSiteVars: false,

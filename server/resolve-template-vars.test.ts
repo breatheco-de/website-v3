@@ -316,4 +316,83 @@ describe("resolveAllTemplateVars", () => {
     fs.rmSync(emptyRoot, { recursive: true, force: true });
     resetVariableManagerCache();
   });
+
+  it("encodes {{ funnel.products }} as webhook id JSON", () => {
+    const encoded = encodeURIComponent(
+      JSON.stringify({
+        product: "ai-engineering,ai-flex",
+        persona: "the-career-changer,the-explorer",
+        product_persona: "ai-engineering:the-career-changer,ai-flex:the-explorer",
+      }),
+    );
+    const result = resolveAllTemplateVars(
+      { url: "/pay?funnel={{ funnel.products }}" },
+      {
+        funnel: {
+          products: [
+            { product: "ai-flex", persona: "the-explorer" },
+            { product: "ai-engineering", persona: "the-career-changer" },
+          ],
+        },
+      },
+    ) as { url: string };
+    expect(result.url).toBe(`/pay?funnel=${encoded}`);
+  });
+
+  it("uses none when there is no funnel and all when products is all", () => {
+    const none = encodeURIComponent(
+      JSON.stringify({ product: "none", persona: "none", product_persona: "none" }),
+    );
+    const all = encodeURIComponent(
+      JSON.stringify({ product: "all", persona: "all", product_persona: "all" }),
+    );
+    expect(
+      (resolveAllTemplateVars({ x: "{{ funnel.products }}" }) as { x: string }).x,
+    ).toBe(none);
+    expect(
+      (
+        resolveAllTemplateVars(
+          { x: "{{ funnel.products }}" },
+          { funnel: { products: "all" } },
+        ) as { x: string }
+      ).x,
+    ).toBe(all);
+    expect(
+      (
+        resolveAllTemplateVars({
+          funnel: { products: "all" },
+          x: "{{ funnel.products }}",
+        }) as { x: string }
+      ).x,
+    ).toBe(all);
+  });
+
+  it("includes the program itself for {{ funnel.products }} when type is passed and slug is on singleEntry", () => {
+    const encoded = encodeURIComponent(
+      JSON.stringify({
+        product: "ai-engineering",
+        persona: "none",
+        product_persona: "ai-engineering:",
+      }),
+    );
+    expect(
+      (
+        resolveAllTemplateVars(
+          { x: "{{ funnel.products }}" },
+          { contentType: "program", singleEntry: { slug: "ai-engineering" }, funnel: {} },
+        ) as { x: string }
+      ).x,
+    ).toBe(encoded);
+    const none = encodeURIComponent(
+      JSON.stringify({ product: "none", persona: "none", product_persona: "none" }),
+    );
+    expect(
+      (
+        resolveAllTemplateVars(
+          { x: "{{ funnel.products }}" },
+          { singleEntry: { contentType: "program", slug: "ai-engineering" }, funnel: {} },
+        ) as { x: string }
+      ).x,
+    ).toBe(none);
+  });
 });

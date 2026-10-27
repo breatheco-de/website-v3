@@ -989,6 +989,11 @@ export default function VariablesPage() {
                   body: "From the URL path and query string (path wins on conflict).",
                 },
                 {
+                  title: "Funnel (links)",
+                  syntax: "{{ funnel.products }}",
+                  body: "This page’s product and persona list as used on leads, already encoded for a query string (Funnel tab — not Fields or SEO).",
+                },
+                {
                   title: "Globals",
                   syntax: "{{ global.campus_phone }}",
                   body: "Site-wide values in this dashboard. Can vary by location, region, or locale.",
