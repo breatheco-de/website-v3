@@ -11,11 +11,20 @@ import { getSiteConfigs } from "../site-config";
 import { ensurePipelineDb } from "../pipeline-db/runner";
 import { enqueueJob } from "../jobs/queue";
 import { sanitizeWebhookHeaders } from "../../shared/webhookHeaders";
+import {
+  isSecretWebhookHeaderName,
+  redactWebhookHeadersForStaff,
+  resolveWebhookHeadersForDelivery,
+  sealSecretHeaderValue,
+} from "./event-webhook-header-secrets";
 import { child } from "../logger";
 import type { ContentEvent, EventType } from "./types";
 import { getEventById } from "./event-store";
 import { FUNNEL_STAGES, type FunnelStage } from "@shared/funnel";
 import { parseIdeaFunnel } from "../content-proposals/idea-funnel";
+import { buildServerPageTracking } from "../tracking-page-context";
+import { getFolder } from "../content-types";
+import { DEFAULT_VARIANT_SLUG, experimentId, hasActiveTraffic } from "../versioning/assignment";
 
 const log = child({ module: "event-webhooks" });
 
@@ -38,6 +47,8 @@ export const EVENT_WEBHOOK_ALLOWLIST = [
   "proposal_needs_author",
   "proposal_dependent_overdue",
   "proposal_reverted",
+  "entry_common_saved",
+  "entry_locale_saved",
 ] as const;
 
 export type EventWebhookAllowlistedType = (typeof EVENT_WEBHOOK_ALLOWLIST)[number];
@@ -128,6 +139,27 @@ const ALL_FILTER_KEYS = new Set<string>([
   ...FILTER_KIND_KEYS,
   ...FILTER_FUNNEL_STAGE_KEYS,
 ]);
+
+/** Non-proposal events. Content type and locale come from `resource`, not a proposal. */
+const NON_PROPOSAL_FILTER_KEYS = [
+  "event_authors",
+  "event_actor_types",
+  "content_types",
+  "exclude_content_types",
+  "locales",
+  "exclude_locales",
+] as const;
+
+/** Keys the parser and the filter dialog accept for this event type. Empty = no filter keys. */
+export function filterKeysForEventType(eventType: string): readonly string[] {
+  if (!isEventWebhookAllowlisted(eventType)) return [];
+  if (eventType.startsWith("proposal_")) return [...ALL_FILTER_KEYS];
+  // The common file has no language. A locale filter on it never matches.
+  if (eventType === "entry_common_saved") {
+    return NON_PROPOSAL_FILTER_KEYS.filter((key) => key !== "locales" && key !== "exclude_locales");
+  }
+  return NON_PROPOSAL_FILTER_KEYS;
+}
 
 export type EventWebhookProposalFunnel = {
   stage: FunnelStage;
@@ -289,9 +321,15 @@ function parseFilter(
     throw new Error(`Hook "${hookId}" under ${eventType}: filter must be a mapping`);
   }
   const obj = raw as Record<string, unknown>;
+  const allowedForType = new Set<string>(filterKeysForEventType(eventType));
   for (const key of Object.keys(obj)) {
     if (!ALL_FILTER_KEYS.has(key)) {
       throw new Error(`Hook "${hookId}" under ${eventType}: unknown filter key "${key}"`);
+    }
+    if (!allowedForType.has(key)) {
+      throw new Error(
+        `Hook "${hookId}" under ${eventType}: filter key "${key}" is not allowed for this event`,
+      );
     }
   }
   const filter: EventWebhookFilter = {};
@@ -559,7 +597,7 @@ function funnelMatches(
   return true;
 }
 
-export function hookMatchesEvent(
+export function matchProposalFilter(
   event: ContentEvent,
   hook: EventWebhookHook,
   proposal: EventWebhookProposalSummary | null | undefined,
@@ -654,6 +692,77 @@ export function hookMatchesEvent(
 
   return { ok: true, ...(proposal ? { proposal } : {}) };
 }
+
+export type EventWebhookFilterMatcher = (
+  event: ContentEvent,
+  hook: EventWebhookHook,
+) => HookMatchResult;
+
+/** One slot so several hooks on the same event share a single proposal read. */
+let proposalMatchCache:
+  | { key: string; proposal: EventWebhookProposalSummary | null }
+  | undefined;
+
+function proposalForMatch(event: ContentEvent): EventWebhookProposalSummary | null {
+  const proposalId =
+    typeof event.payload?.proposal_id === "string" ? event.payload.proposal_id : undefined;
+  const key = `${event.site}\0${proposalId ?? ""}`;
+  if (proposalMatchCache?.key === key) return proposalMatchCache.proposal;
+  const proposal = proposalId ? getProposalForWebhookFilter(event.site, proposalId) : null;
+  proposalMatchCache = { key, proposal };
+  return proposal;
+}
+
+/** Proposal events. Loads the proposal only when the hook filter needs it. */
+function matchProposalEvent(event: ContentEvent, hook: EventWebhookHook): HookMatchResult {
+  if (!filterNeedsProposal(hook.filter)) {
+    return matchProposalFilter(event, hook, null, true);
+  }
+  return matchProposalFilter(event, hook, proposalForMatch(event), true);
+}
+
+/** Entry events: content type and locale come from `resource`, not a proposal. */
+function matchEntryEvent(event: ContentEvent, hook: EventWebhookHook): HookMatchResult {
+  const filter = hook.filter;
+  if (!filter || Object.keys(filter).length === 0) return { ok: true };
+
+  const attr = event.attribution?.[0];
+  const eventAuthor = attr?.author?.trim() || undefined;
+  const eventActor = attr?.actor as Record<string, unknown> | undefined;
+  const eventActorType = actorField(eventActor, "type");
+
+  if (!includeListMatches(eventAuthor, filter.event_authors)) return { ok: false, reason: "no_match" };
+  if (filter.event_actor_types?.length) {
+    if (!eventActorType || !filter.event_actor_types.includes(eventActorType as EventWebhookFilterActorType)) {
+      return { ok: false, reason: "no_match" };
+    }
+  }
+
+  const contentType = event.resource.contentType;
+  if (!includeListMatches(contentType, filter.content_types)) return { ok: false, reason: "no_match" };
+  if (excludeListHits(contentType, filter.exclude_content_types)) {
+    return { ok: false, reason: "no_match" };
+  }
+
+  const locale = event.resource.locale;
+  if (!includeListMatches(locale, filter.locales)) return { ok: false, reason: "no_match" };
+  if (excludeListHits(locale, filter.exclude_locales)) return { ok: false, reason: "no_match" };
+
+  return { ok: true };
+}
+
+function buildEventWebhookFilters(): Partial<
+  Record<EventWebhookAllowlistedType, EventWebhookFilterMatcher>
+> {
+  const out: Partial<Record<EventWebhookAllowlistedType, EventWebhookFilterMatcher>> = {};
+  for (const type of EVENT_WEBHOOK_ALLOWLIST) {
+    out[type] = type.startsWith("proposal_") ? matchProposalEvent : matchEntryEvent;
+  }
+  return out;
+}
+
+/** One matcher per allowlisted type. `proposal_*` share `matchProposalEvent`; the rest share `matchEntryEvent`. */
+export const eventWebhookFilters = buildEventWebhookFilters();
 
 function parseHook(raw: unknown, eventType: string, seenIds: Set<string>): EventWebhookHook {
   if (!raw || typeof raw !== "object") {
@@ -781,8 +890,60 @@ export function loadEventWebhookConfigSafe(contentRoot: string): EventWebhookCon
   }
 }
 
+function sealHeaders(
+  incoming: Record<string, string> | undefined,
+  previous: Record<string, string> | undefined,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(incoming ?? {})) {
+    if (!isSecretWebhookHeaderName(name)) {
+      out[name] = value;
+      continue;
+    }
+    out[name] = sealSecretHeaderValue(value, previous?.[name]);
+  }
+  return out;
+}
+
+/** Encrypt new secret headers. A masked value keeps the one already on disk. */
+export function sealEventWebhookHeaders(
+  next: EventWebhookConfig,
+  previous: EventWebhookConfig,
+): EventWebhookConfig {
+  const subscriptions: EventWebhookConfig["subscriptions"] = {};
+  for (const [eventType, hooks] of Object.entries(next.subscriptions)) {
+    if (!hooks) continue;
+    const prevList =
+      previous.subscriptions[eventType as EventWebhookAllowlistedType] ?? [];
+    subscriptions[eventType as EventWebhookAllowlistedType] = hooks.map((hook) => {
+      const prev = prevList.find((item) => item.id === hook.id);
+      const headers = sealHeaders(hook.headers, prev?.headers);
+      if (Object.keys(headers).length === 0) {
+        const { headers: _omit, ...rest } = hook;
+        return rest;
+      }
+      return { ...hook, headers };
+    });
+  }
+  return { ...next, subscriptions };
+}
+
+/** Staff read: secret header values are a tail, never the bearer or the ciphertext. */
+export function redactEventWebhookConfigForStaff(config: EventWebhookConfig): EventWebhookConfig {
+  const subscriptions: EventWebhookConfig["subscriptions"] = {};
+  for (const [eventType, hooks] of Object.entries(config.subscriptions)) {
+    if (!hooks) continue;
+    subscriptions[eventType as EventWebhookAllowlistedType] = hooks.map((hook) => {
+      if (!hook.headers || Object.keys(hook.headers).length === 0) return hook;
+      return { ...hook, headers: redactWebhookHeadersForStaff(hook.headers) };
+    });
+  }
+  return { ...config, subscriptions };
+}
+
 export function saveEventWebhookConfig(contentRoot: string, config: EventWebhookConfig): void {
-  const normalized = parseEventWebhookConfig(config);
+  const previous = loadEventWebhookConfigSafe(contentRoot);
+  const normalized = parseEventWebhookConfig(sealEventWebhookHeaders(config, previous));
   const filePath = getEventWebhooksPath(contentRoot);
   const output = yaml.dump(
     {
@@ -1288,6 +1449,88 @@ export function slimEventForWebhook(
   return out;
 }
 
+function enrichEntrySaved(
+  events: ContentEvent[],
+  _hook: EventWebhookHook,
+): Record<string, unknown>[] {
+  return events.map((event) => {
+    const contentRoot = resolveContentRootForSite(event.site);
+    const contentType = event.resource.contentType;
+    const slug = event.resource.slug;
+    const tracking =
+      contentRoot && contentType && slug
+        ? buildServerPageTracking({ contentRoot, contentType, slug, mode: "ids" })
+        : null;
+    const item: Record<string, unknown> = {
+      id: event.id,
+      type: event.type,
+      created_at: event.created_at,
+      resource: event.resource,
+    };
+    if (tracking) item.tracking = tracking;
+    return item;
+  });
+}
+
+enrichEventWebhookPayload.entry_common_saved = enrichEntrySaved;
+
+/** Variant slug from `b.en.yml`. Live locale files are not a test arm. */
+function savedVariantSlug(resource: ContentEvent["resource"]): string | null {
+  if (resource.layer !== "variant") return null;
+  const file = (resource.path ?? "").split("/").pop() ?? "";
+  const base = file.replace(/\.ya?ml$/i, "");
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return null;
+  return base.slice(0, dot);
+}
+
+function localeVersioning(
+  contentRoot: string,
+  contentType: string,
+  slug: string,
+  locale: string,
+): { started_at?: string | null; variants?: { slug: string; allocation: number }[] } | null {
+  try {
+    const file = path.join(contentRoot, getFolder(contentType, contentRoot), slug, "versioning.yml");
+    if (!fs.existsSync(file)) return null;
+    const parsed = yaml.load(fs.readFileSync(file, "utf-8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const block = (parsed as Record<string, unknown>)[locale];
+    if (!block || typeof block !== "object" || Array.isArray(block)) return null;
+    return block as { started_at?: string | null; variants?: { slug: string; allocation: number }[] };
+  } catch {
+    return null;
+  }
+}
+
+/** Locale-file save. Test fields match a served page: only when that language has traffic. */
+function enrichEntryLocaleSaved(
+  events: ContentEvent[],
+  _hook: EventWebhookHook,
+): Record<string, unknown>[] {
+  return events.map((event) => {
+    const item: Record<string, unknown> = {
+      id: event.id,
+      type: event.type,
+      created_at: event.created_at,
+      resource: event.resource,
+    };
+    const contentRoot = resolveContentRootForSite(event.site);
+    const { contentType, slug, locale } = event.resource;
+    if (!contentRoot || !contentType || !slug || !locale) return item;
+    const config = localeVersioning(contentRoot, contentType, slug, locale);
+    if (!config || !hasActiveTraffic(config.variants)) return item;
+    item.experiment_id = experimentId(contentType, slug, locale, config.started_at ?? null);
+    item.variant =
+      event.resource.layer === "variant"
+        ? savedVariantSlug(event.resource) ?? DEFAULT_VARIANT_SLUG
+        : DEFAULT_VARIANT_SLUG;
+    return item;
+  });
+}
+
+enrichEventWebhookPayload.entry_locale_saved = enrichEntryLocaleSaved;
+
 export function buildWebhookBody(opts: {
   site: string;
   eventType: string;
@@ -1341,12 +1584,24 @@ export async function deliverEventWebhookHttp(opts: {
   const started = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
+  let resolvedHeaders: Record<string, string>;
+  try {
+    resolvedHeaders = resolveWebhookHeadersForDelivery(opts.headers);
+  } catch (err) {
+    clearTimeout(timer);
+    return {
+      ok: false,
+      status: null,
+      error: err instanceof Error ? err.message : "Could not decrypt a webhook header",
+      durationMs: Date.now() - started,
+    };
+  }
   try {
     const response = await fetch(opts.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...sanitizeWebhookHeaders(opts.headers),
+        ...resolvedHeaders,
       },
       body: JSON.stringify(opts.body),
       signal: controller.signal,
@@ -1538,27 +1793,17 @@ export function maybeEnqueueEventWebhook(
     const hooks = listEnabledHooksForType(config, event.type);
     if (hooks.length === 0) return;
 
-    const proposalId =
-      typeof event.payload?.proposal_id === "string" ? event.payload.proposal_id : undefined;
-    const anyNeedsProposal = hooks.some((h) => filterNeedsProposal(h.filter));
-    let proposal: EventWebhookProposalSummary | null = null;
-    let proposalLoaded = false;
-    if (anyNeedsProposal && proposalId) {
-      proposal = getProposalForWebhookFilter(event.site, proposalId);
-      proposalLoaded = true;
-    } else if (anyNeedsProposal && !proposalId) {
-      proposalLoaded = true;
-      proposal = null;
-    }
+    const matcher = isEventWebhookAllowlisted(event.type)
+      ? eventWebhookFilters[event.type]
+      : undefined;
 
     const now = Date.now();
     for (const hook of hooks) {
-      const match = hookMatchesEvent(
-        event,
-        hook,
-        filterNeedsProposal(hook.filter) ? proposal : null,
-        filterNeedsProposal(hook.filter) ? proposalLoaded : true,
-      );
+      const match = matcher
+        ? matcher(event, hook)
+        : !hook.filter || Object.keys(hook.filter).length === 0
+          ? { ok: true as const }
+          : { ok: false as const, reason: "no_match" as const };
       if (!match.ok) {
         if (match.reason === "proposal_unresolved") {
           recordDelivery({

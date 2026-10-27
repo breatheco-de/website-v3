@@ -4,7 +4,11 @@
  */
 
 import { normalizeFunnelBlock } from "@shared/funnel";
-import { buildFunnelTrackingContext, type PageTrackingContext } from "@shared/tracking-context";
+import {
+  buildFunnelTrackingContext,
+  type PageTrackingContext,
+  type TrackingMode,
+} from "@shared/tracking-context";
 import { commonYmlPath, readFunnelBlockFromFile } from "./funnel-fields";
 import { loadTrackingKeyIndex } from "./product/tracking-key-index";
 import { isTrackingReady } from "./product/tracking-readiness";
@@ -15,6 +19,11 @@ export function buildServerPageTracking(opts: {
   slug: string;
   /** Page data; its `funnel` (merged _common.yml) is used when present. */
   data?: Record<string, unknown> | null;
+  /**
+   * `codes` (default) is the Tag Manager shape. `ids` is the slug shape stored in
+   * the YAML and on form entries.
+   */
+  mode?: TrackingMode;
 }): PageTrackingContext | null {
   if (!isTrackingReady(opts.contentRoot)) return null;
   try {
@@ -26,6 +35,7 @@ export function buildServerPageTracking(opts: {
       normalizeFunnelBlock(raw),
       { contentType: opts.contentType, contentSlug: opts.slug },
       loadTrackingKeyIndex(opts.contentRoot),
+      opts.mode ? { mode: opts.mode } : undefined,
     );
   } catch {
     return null;
