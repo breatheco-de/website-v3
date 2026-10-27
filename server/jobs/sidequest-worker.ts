@@ -22,6 +22,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { createSidequestWorkerLogger } from "./sidequest-worker-logger";
 import { flushTick, startTick } from "../process-stats";
+import { scheduleAdsDailySync } from "./definitions/ads-daily-sync";
 
 // Lets shared modules tell the worker apart from web, MCP and scripts (see vector-index-queue).
 process.env.WEBLIFY_PROCESS = process.env.WEBLIFY_PROCESS || "sidequest";
@@ -87,6 +88,11 @@ async function main(): Promise<void> {
   writeSidequestWorkerPid(process.pid);
   clearSidequestRestartFlag();
   startHeartbeatLoop();
+  try {
+    await scheduleAdsDailySync();
+  } catch (err) {
+    log.warn({ err }, "[SidequestWorker] could not schedule the daily ads sync");
+  }
   startTick({ processName: "sidequest", processStartId: randomUUID() });
   log.info({ pid: process.pid }, "[SidequestWorker] engine ready (pid + heartbeat written)");
 }

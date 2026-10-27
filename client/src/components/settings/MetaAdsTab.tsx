@@ -518,7 +518,10 @@ export function MetaAdsTab() {
                   Cache: <code className="font-mono">{data.policy.cache_dir}</code> · refresh last {data.policy.refresh_days} days · keep{" "}
                   {Math.round(data.policy.retention_days / 30)} months · first connect loads {data.policy.backfill_days} days.
                 </p>
-                <p>Marketing API {data.api_version}. Data older than ~24h refreshes in the background when someone opens a report.</p>
+                <p>
+                  Marketing API {data.api_version}. Syncs automatically every day at 5 AM ET on the live site. If that run is missed, opening a
+                  report refreshes data older than ~24h in the background.
+                </p>
               </ReadMore>
             </div>
           )}
@@ -566,6 +569,9 @@ export function MetaAdsTab() {
               : data.sync.backup_pushed_at
                 ? `History backup: last pushed ${fmtWhen(data.sync.backup_pushed_at)}`
                 : "History backup: not pushed yet. Only the live site saves a copy, after a sync."}
+          </p>
+          <p className="text-xs text-muted-foreground" data-testid="text-meta-daily-sync">
+            The live site syncs automatically every day at 5 AM ET. Opening a report only starts a sync when that run was missed.
           </p>
           {progressPct !== null && data.refresh.progress ? (
             <div className="space-y-1.5" data-testid="meta-refresh-progress">
@@ -624,6 +630,11 @@ export function MetaAdsTab() {
               Background job <code className="font-mono">meta_ads_sync</code> runs in the Sidequest worker (locally:{" "}
               <code className="font-mono">npm run sidequest</code>). When the worker is down, Sync now runs the refresh in the web server
               instead; automatic refreshes never do.
+            </p>
+            <p>
+              Daily: <code className="font-mono">ads_daily_sync</code> runs at <code className="font-mono">0 5 * * *</code> America/New_York on the
+              live server only and queues <code className="font-mono">ads_sync</code> for each connected site. If the worker was down at 5 AM, it
+              catches up when it starts. A failed morning run is not retried automatically; the next report open retries after the wait.
             </p>
             <p>
               A job still waiting after 5 minutes counts as failed. A started sync with no finish after 15 minutes counts as stopped.

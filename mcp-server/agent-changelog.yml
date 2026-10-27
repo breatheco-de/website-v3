@@ -5,6 +5,15 @@
 window_days: 6
 
 entries:
+  - date: "2026-10-26"
+    summary: "Ads data refreshes daily at 5 AM ET on the live server"
+    agent_impact:
+      - "Worker cron ads_daily_sync (0 5 * * * America/New_York, live server only) queues the regular ads_sync for every site with Meta, Google Ads or GA4. Reads (refresh state, retry wait, worker_down) behave as before."
+      - "On worker start, a site with no refresh started since the latest 5 AM slot gets a catch-up run. A failed morning run is not retried by the schedule; the >24h stale read still queues one refresh after the retry wait."
+    tools_changed: false
+    paths:
+      - server/jobs/definitions/ads-daily-sync.ts
+      - mcp-server/explain/ads.md
   - date: "2026-10-25"
     summary: "Product / persona values are sorted; get_leads_breakdown groups and filters by page funnel product and persona"
     agent_impact:

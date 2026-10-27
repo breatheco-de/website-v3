@@ -76,7 +76,7 @@ const ContentTypesYmlEditorPanel = lazy(() => import("@/components/editing/Conte
 const PageStatsDrawer = lazy(() =>
   import("@/components/page-stats/PageStatsDrawer").then((m) => ({ default: m.PageStatsDrawer })),
 );
-import { PageStatsEdgeTab } from "@/components/page-stats/PageStatsEdgeTab";
+import { PageStatsBubble } from "@/components/page-stats/PageStatsBubble";
 import type { PageStatsScope } from "@shared/page-stats";
 
 function pathnameOf(urlOrPath: string): string {
@@ -169,7 +169,7 @@ export function DebugBubble() {
   );
   
   const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, startGitHubLogin, clearToken, logoutEverywhere, authError, dismissDebugUi, checkSession, hasCapability } = useDebugAuth();
-  // Collapsing unmounts the drawer and leaves an edge tab; "closing" lets the slide-out finish first.
+  // Collapsing unmounts the drawer and leaves a stats bubble; "closing" lets the slide-out finish first.
   const [pageStatsMode, setPageStatsMode] = useState<"never" | "open" | "closing" | "minimized">("never");
   const [pageStatsScope, setPageStatsScope] = useState<PageStatsScope>("url");
   const pageStatsTabRef = useRef<HTMLButtonElement>(null);
@@ -2364,6 +2364,14 @@ export function DebugBubble() {
         slug={contentInfo.slug}
         proposalsByVariant={versioningData?.proposalsByVariant}
       />
+      {pageStatsMode === "minimized" && publicPageDiagnosticsUrl && (
+        <PageStatsBubble
+          ref={pageStatsTabRef}
+          path={pathnameOf(publicPageDiagnosticsUrl)}
+          pageErrorCount={pageErrorCount}
+          onExpand={() => setPageStatsMode("open")}
+        />
+      )}
       {showForkBubble && (
         <div className="relative flex items-center">
           {pageIsSharedLayout && (
@@ -2752,14 +2760,6 @@ export function DebugBubble() {
             }}
           />
         </Suspense>
-      )}
-      {pageStatsMode === "minimized" && publicPageDiagnosticsUrl && (
-        <PageStatsEdgeTab
-          ref={pageStatsTabRef}
-          path={pathnameOf(publicPageDiagnosticsUrl)}
-          pageErrorCount={pageErrorCount}
-          onExpand={() => setPageStatsMode("open")}
-        />
       )}
       <SeoModal
         open={seoModalOpen}

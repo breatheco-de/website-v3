@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
+import { ipApiUrl } from "../ads/visitor-country";
 import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedEntries, retryFailedImages, resetOptimizeSession, getOptimizeSession, enqueueExternalImage } from "../image-registry";
 import { getAllQueueState } from "../image-queue-state";
 
@@ -214,19 +215,16 @@ export function registerGeoRoutes(app: Express): void {
 
       const isLocal =
         !clientIp || clientIp === "127.0.0.1" || clientIp === "::1" || clientIp === "::ffff:127.0.0.1";
+      // Local dev resolves the machine's own public IP; cache it so reloads don't repeat the lookup.
+      const cacheKey = isLocal ? "__local__" : clientIp;
 
-      if (!isLocal) {
-        const cached = geoGet(clientIp);
-        if (cached) {
-          res.json(cached);
-          return;
-        }
+      const cached = geoGet(cacheKey);
+      if (cached) {
+        res.json(cached);
+        return;
       }
 
-      const url =
-        clientIp && !isLocal
-          ? `http://ip-api.com/json/${clientIp}?fields=status,city,country,countryCode,regionName,timezone,lat,lon`
-          : `http://ip-api.com/json/?fields=status,city,country,countryCode,regionName,timezone,lat,lon`;
+      const url = ipApiUrl(isLocal ? undefined : clientIp);
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
@@ -238,51 +236,7 @@ export function registerGeoRoutes(app: Express): void {
         return;
       }
       const data = await response.json();
-      if (!isLocal) geoSet(clientIp, data);
-      res.json(data);
-    } catch {
-      res.status(502).json({ status: "fail" });
-    }
-  });
-  app.get("/api/geo", async (req, res) => {
-    try {
-      const apiKey = process.env.IPAPI_PRO_KEY;
-      const forwarded = (req.headers["x-forwarded-for"] as string)
-        ?.split(",")[0]
-        ?.trim();
-      const rawIp = forwarded || req.ip || "";
-      const isLocal =
-        !rawIp ||
-        rawIp === "127.0.0.1" ||
-        rawIp === "::1" ||
-        rawIp === "::ffff:127.0.0.1";
-
-      if (!isLocal) {
-        const cached = geoGet(rawIp);
-        if (cached) {
-          res.json(cached);
-          return;
-        }
-      }
-
-      const ipSegment = isLocal ? "" : `/${rawIp}`;
-      const fields =
-        "status,city,country,countryCode,regionName,timezone,lat,lon";
-      const url = apiKey
-        ? `https://pro.ip-api.com/json${ipSegment}?key=${apiKey}&fields=${fields}`
-        : `http://ip-api.com/json${ipSegment}?fields=${fields}`;
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      const response = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-
-      if (!response.ok) {
-        res.status(502).json({ status: "fail" });
-        return;
-      }
-      const data = await response.json();
-      if (!isLocal) geoSet(rawIp, data);
+      if ((data as { status?: string })?.status === "success") geoSet(cacheKey, data);
       res.json(data);
     } catch {
       res.status(502).json({ status: "fail" });

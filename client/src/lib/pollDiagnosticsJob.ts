@@ -1,5 +1,7 @@
 /** Poll a diagnostics job until it leaves queued/running. */
 
+import { apiFetch } from "./queryClient";
+
 export type DiagnosticsJobPoll = {
   status: string;
   job_id?: string;
@@ -15,7 +17,7 @@ export type DiagnosticsJobPoll = {
 
 export async function pollDiagnosticsJob(jobId: string): Promise<DiagnosticsJobPoll> {
   for (;;) {
-    const res = await fetch(`/api/validation/diagnostics-jobs/${encodeURIComponent(jobId)}`, {
+    const res = await apiFetch(`/api/validation/diagnostics-jobs/${encodeURIComponent(jobId)}`, {
       credentials: "include",
     });
     const data = (await res.json().catch(() => ({}))) as DiagnosticsJobPoll;

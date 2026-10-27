@@ -530,3 +530,35 @@ export async function enqueueJob(
     throw err;
   }
 }
+
+export type ScheduleJobOpts = {
+  /** IANA zone for the cron expression (e.g. "America/New_York"); omitted = server clock. */
+  timezone?: string;
+  queue?: string;
+  payload?: Record<string, unknown>;
+};
+
+const scheduledJobTypes = new Set<string>();
+
+/**
+ * Worker-only: enqueue `jobType` on a cron schedule. In memory, so call it on every worker start.
+ * No uniqueness: Sidequest freezes the job data at schedule time, and a duplicate insert would
+ * throw inside the cron callback. Jobs scheduled this way must tolerate an occasional double run.
+ */
+export async function scheduleJob(jobType: string, cronExpression: string, opts?: ScheduleJobOpts): Promise<boolean> {
+  if (scheduledJobTypes.has(jobType)) return false;
+  await configureJobQueue();
+  const JobClass = jobClassRegistry.get(jobType);
+  if (!JobClass) {
+    log.error({ jobType }, "[JobQueue] Unknown job type (schedule)");
+    return false;
+  }
+  type PayloadJobClass = new () => Job & { run(payload: Record<string, unknown>): Promise<unknown> };
+  await Sidequest.build(JobClass as PayloadJobClass)
+    .queue(opts?.queue ?? "default")
+    .scheduleOptions({ timezone: opts?.timezone, noOverlap: true })
+    .schedule(cronExpression, opts?.payload ?? {});
+  scheduledJobTypes.add(jobType);
+  log.info({ jobType, cron: cronExpression, timezone: opts?.timezone ?? null }, "[JobQueue] Job scheduled");
+  return true;
+}

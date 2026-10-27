@@ -126,7 +126,7 @@ When you run `npx weblify` (or a globally linked `weblify`), the **engine** and 
 |---|---|---|---|---|---|
 | `VITE_BREATHECODE_HOST` | No | `https://breathecode.herokuapp.com` | Base URL for the 4Geeks Breathecode REST API. Available on both server and client because of the `VITE_` prefix. Used for **consumer** login/signup and program data — not for staff CMS login. | Breathecode data fetching (programs, consumer auth) | None |
 | `BREATHECODE_HOST` | No | `https://breathecode.herokuapp.com` | Same host for server-side consumer auth proxies. | Consumer auth API | None |
-| `IPAPI_PRO_KEY` | No | — | API key for ipapi.pro, used to geo-locate visitors and redirect them to a locale-appropriate page. | IP-based locale detection | Register at ipapi.pro |
+| `IPAPI_PRO_KEY` | No | — | API key for ipapi.pro, used to geo-locate visitors and redirect them to a locale-appropriate page. Only used on the live server; dev and preview builds use the free endpoint. | IP-based locale detection | Register at ipapi.pro |
 | `TURNSTILE_SITE_KEY` | No | — | Cloudflare Turnstile public site key, embedded in the lead-capture form. | Bot-protection on lead forms | Must also set `TURNSTILE_SECRET_KEY` |
 | `TURNSTILE_SECRET_KEY` | No | — | Cloudflare Turnstile secret key, validated server-side. | Bot-protection on lead forms | Must also set `TURNSTILE_SITE_KEY` |
 | `CLOUDFLARE_ACCOUNT_ID` | No* | — | Cloudflare account id for Browser Run `/screenshot` (entry-preview OG images). Env only — never stored in `settings.yml`. SEO/GEO → OG Image shows configured status. | Server-side OG / entry-preview capture | `CLOUDFLARE_API_TOKEN`, public `SITE_URL` |
