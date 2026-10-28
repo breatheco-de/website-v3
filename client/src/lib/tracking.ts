@@ -52,6 +52,28 @@ export function setPageTrackingContext(
   for (const listener of Array.from(contextListeners)) listener(pathname);
 }
 
+/** First HTML already carries `_tracking` on the page query. Apply it before React effects. */
+function seedInitialContextFromSsr(): void {
+  if (typeof document === "undefined") return;
+  const script = document.getElementById("__INITIAL_DATA__");
+  if (!script?.textContent) return;
+  try {
+    const payload = JSON.parse(script.textContent) as {
+      queries?: Array<{ data?: { _tracking?: unknown } }>;
+    };
+    for (const query of payload.queries ?? []) {
+      const seeded = query?.data?._tracking;
+      if (!seeded || typeof seeded !== "object" || Array.isArray(seeded)) continue;
+      setPageTrackingContext(seeded as PageTrackingContext, window.location.pathname);
+      return;
+    }
+  } catch {
+    /* initial payload is optional */
+  }
+}
+
+seedInitialContextFromSsr();
+
 let seededFromServer = false;
 
 /** The server writes the first page's values before GTM; don't push them a second time. */
@@ -83,6 +105,9 @@ export function onPageContextSet(pathname: string, cb: () => void): () => void {
   return () => contextListeners.delete(listener);
 }
 
+/** How long an event waits for the page that is already on screen to publish its funnel. */
+const PAGE_CONTEXT_WAIT_MS = 500;
+
 /** Promise form of {@link onPageContextSet} with a fallback timer. */
 export function waitForPageContext(pathname: string, timeoutMs: number): Promise<"ready" | "timeout"> {
   return new Promise((resolve) => {
@@ -97,6 +122,14 @@ export function waitForPageContext(pathname: string, timeoutMs: number): Promise
     const timer = setTimeout(() => finish("timeout"), timeoutMs);
     const off = onPageContextSet(pathname, () => finish("ready"));
   });
+}
+
+/** No-op when this path already has context (SSR seed or the page hook). */
+async function ensureCurrentPageContext(): Promise<void> {
+  if (typeof window === "undefined") return;
+  const pathname = currentPathname();
+  if (isPageContextSet(pathname)) return;
+  await waitForPageContext(pathname, PAGE_CONTEXT_WAIT_MS);
 }
 
 export type ConversionName = string;
@@ -196,10 +229,12 @@ export function resolveEcommerceProduct(
  * Track an ecommerce funnel event. No-ops unless a purchasable product resolves
  * (via program_id / item_id + registered product lookup).
  */
-export function trackEcommerce(
+export async function trackEcommerce(
   eventName: EcommerceWiredEventName,
   payload: EcommercePayload = {},
-): void {
+): Promise<void> {
+  await ensureCurrentPageContext();
+
   const programId =
     (typeof payload.program_id === "string" && payload.program_id) || undefined;
 
@@ -416,8 +451,8 @@ function pushToDataLayer(data: Record<string, unknown>): void {
   
   window.dataLayer.push(data);
   refreshVisitExperiment();
-  
   console.log("[Tracking] dataLayer.push:", data);
+  
 }
 
 /** First test seen this visit: `experiment_id|variant`, shared across tabs. */
@@ -514,10 +549,11 @@ export function trackConversion(
 /**
  * Track a general event (page views, clicks, etc.)
  */
-export function track(
+export async function track(
   eventName: EventName,
   payload: TrackingPayload = {}
-): void {
+): Promise<void> {
+  await ensureCurrentPageContext();
   pushToDataLayer({
     event: eventName,
     user_id: getUserIdFromCookie() ?? undefined,

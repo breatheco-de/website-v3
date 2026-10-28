@@ -399,6 +399,7 @@ import {
   buildSingleEntryFromContent,
   listTemplatePages,
   detectLanguageFromRequest,
+  markServedPage,
   ValidationFixRunState,
   ValidationFixRunLogEntry,
   FixerItemStatus,
@@ -488,6 +489,7 @@ export function registerContentRoutes(app: Express): void {
 
   app.get("/api/career-programs/:slug", async (req, res) => {
     const { slug } = req.params;
+    markServedPage(res, "program", slug);
     const locale = normalizeLocale(req.query.locale as string);
     const forceVariant = req.query.force_variant as string | undefined;
     const forceVersion = req.query.force_version
@@ -582,6 +584,7 @@ export function registerContentRoutes(app: Express): void {
 
   app.get("/api/landings/:slug", async (req, res) => {
     const { slug } = req.params;
+    markServedPage(res, "landing", slug);
     const forceVariant = req.query.force_variant as string | undefined;
     const forceVersion = req.query.force_version
       ? parseInt(req.query.force_version as string, 10)
@@ -711,6 +714,7 @@ export function registerContentRoutes(app: Express): void {
 
   app.get("/api/locations/:slug", async (req, res) => {
     const { slug } = req.params;
+    markServedPage(res, "location", slug);
     const locale = normalizeLocale(req.query.locale as string);
     const forceVariant = req.query.force_variant as string | undefined;
 
@@ -819,11 +823,13 @@ export function registerContentRoutes(app: Express): void {
     const cpLayout = resolveLayout("page", cpRaw.data || {}, getContentRoot(res));
     injectCanonicalIfMissing(cpPageData, "page", locale);
     const { layout: _cpStripLayout, ...cpRest } = cpPageData;
+    markServedPage(res, "page", "career-programs");
     res.json({ ...cpRest, layout: cpLayout });
   });
 
   // Special handler for apply page (includes programs and locations from _common.yml)
   app.get("/api/pages/apply", (req, res) => {
+    markServedPage(res, "page", "apply");
     const locale = normalizeLocale(req.query.locale as string);
     const forceVariant = req.query.force_variant as string | undefined;
 
@@ -872,6 +878,7 @@ export function registerContentRoutes(app: Express): void {
   // Apply form submission endpoint
   app.get("/api/pages/:slug", async (req, res) => {
     const { slug } = req.params;
+    markServedPage(res, "page", slug);
     const locale = normalizeLocale(req.query.locale as string);
     const forceVariant = req.query.force_variant as string | undefined;
 
@@ -954,6 +961,7 @@ export function registerContentRoutes(app: Express): void {
     }
 
     const slug = resolvePreviewBaseSlug(requestSlug, contentType, getCI(res));
+    markServedPage(res, contentType, slug);
     const emptyRoot = getContentRoot(res);
     if (
       !skipEmptyLocaleGateForForceVariant(forceVariant) &&
@@ -1289,6 +1297,7 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/blog/posts/:slug", async (req, res) => {
     try {
       const { slug } = req.params;
+      markServedPage(res, "blog", slug);
       const locale = req.query.locale as string | undefined;
       const normalizedLocale = locale ? normalizeLocale(locale) : undefined;
       const blogRoot = getContentRoot(res);

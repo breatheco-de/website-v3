@@ -179,6 +179,8 @@ import type { CapabilityName } from "../user-store";
 import { getCapabilityScopeKind } from "../user-store";
 import { resolveOwnedStaffSession } from "../staff-session-resolve";
 import { child } from "../logger";
+import { buildServerPageTracking } from "../tracking-page-context";
+import { getDefaultContentRoot } from "../site-config";
 const log = child({ module: "routes/_helpers" });
 
 
@@ -792,6 +794,45 @@ export function attachPageVersionToJson(_req: Request, res: Response, next: () =
     const pv = res.locals.pageVersion as ServedPageVersion | undefined;
     if (pv && body && typeof body === "object" && !Array.isArray(body)) {
       return original({ ...(body as Record<string, unknown>), _page_version: pv });
+    }
+    return original(body);
+  }) as typeof res.json;
+  next();
+}
+
+export type ServedPageRef = { contentType: string; slug: string };
+
+/** Remember which content page this JSON response is, so `_tracking` can be attached. */
+export function markServedPage(res: Response, contentType: string, slug: string): void {
+  (res.locals as { servedPage?: ServedPageRef }).servedPage = { contentType, slug };
+}
+
+/**
+ * Express middleware: add `_tracking` when the handler marked a served page.
+ * Same object the first HTML load already seeds. Unmarked (list/admin) responses stay as-is.
+ */
+export function attachTrackingToJson(_req: Request, res: Response, next: () => void): void {
+  const original = res.json.bind(res);
+  res.json = ((body: unknown) => {
+    const ref = (res.locals as { servedPage?: ServedPageRef }).servedPage;
+    if (
+      ref &&
+      res.statusCode < 400 &&
+      body &&
+      typeof body === "object" &&
+      !Array.isArray(body) &&
+      !("_tracking" in (body as Record<string, unknown>))
+    ) {
+      const site = res.locals.site as { contentRoot?: string } | undefined;
+      const tracking = buildServerPageTracking({
+        contentRoot: site?.contentRoot ?? getDefaultContentRoot(),
+        contentType: ref.contentType,
+        slug: ref.slug,
+        data: body as Record<string, unknown>,
+      });
+      if (tracking) {
+        return original({ ...(body as Record<string, unknown>), _tracking: tracking });
+      }
     }
     return original(body);
   }) as typeof res.json;
