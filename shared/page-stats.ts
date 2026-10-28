@@ -17,7 +17,8 @@ export const PAGE_STATS_WINDOW_DAYS = 28;
 export const PAGE_STATS_MIN_SESSIONS = 100;
 
 export type PageStatsScope = "url" | "entry";
-export type SectionStatus = "ok" | "not_configured" | "insufficient_data" | "error";
+/** `not_split`: the source can't be split by page version (test view hides it). */
+export type SectionStatus = "ok" | "not_configured" | "insufficient_data" | "error" | "not_split";
 
 export type Section<T> = {
   status: SectionStatus;
@@ -96,7 +97,45 @@ export type CtaRow = {
   sessions: number;
 };
 
+/** Where the visit numbers come from: GA4 (consented visitors) or the site's own anonymous counts. */
+export type TrafficSource = "ga4" | "first_party";
+
+/** Landing visits from ads (click ID present) with missing or broken campaign tags. */
+export type UtmGapFacts = {
+  /** Landing visits classified paid or unclear (fbclid-only). */
+  ad_visits: number;
+  /** Of those, classified paid (click ID that only ads add, or paid medium). */
+  paid_visits: number;
+  untagged: number;
+  untagged_paid: number;
+  broken: number;
+  broken_paid: number;
+  by_platform: Array<{ platform: string; ad_visits: number; untagged: number; broken: number }>;
+  top_broken: Array<{ code: string; param: string; value: string; visits: number }>;
+};
+
+export type FirstPartyFacts = {
+  /** First day "Optimize for ads" was on for this content type (YYYY-MM-DD). */
+  collecting_since: string | null;
+  /** Last day it was on, when it is off now. */
+  until: string | null;
+  enabled: boolean;
+  /** Periods inside the window when it was off (inclusive days). */
+  gaps: Array<{ start: string; end: string }>;
+  /** Counted visits marked suspected low quality (excluded from sessions and rates). */
+  low_quality: number;
+  low_quality_campaigns: Array<{ label: string; visits: number }>;
+  /** Visits per served page version (only when 2+ versions). primary = the stage's main numerator. */
+  versions: Array<{ version: string; visits: number; engaged: number; primary: number }>;
+  /** Returning share from GA4 (consented visitors only); null when GA4 is unavailable. */
+  returning_share_ga4: number | null;
+  utm: UtmGapFacts;
+};
+
 export type TrafficFacts = {
+  /** Omitted = GA4 (older payloads). */
+  source?: TrafficSource;
+  first_party?: FirstPartyFacts;
   current: TrafficTotals;
   prior: TrafficTotals;
   series: Array<{ day: string; sessions: number; prior_sessions: number }>;
@@ -149,6 +188,8 @@ export type LeadsFacts = {
   excluded_test: number;
   excluded_repeat: number;
   collecting_since: string | null;
+  /** Test view only: leads carrying this test and version, wherever the form was sent. */
+  all_from_test?: number;
 };
 
 export type KeywordRow = {
@@ -314,6 +355,8 @@ export type ObjectiveBlock = {
     target: number | null;
     target_source: TargetSource;
     benchmark: number | null;
+    /** Same-stage pages the benchmark median was taken over. */
+    benchmark_pages: number;
     status: "on_track" | "behind" | "too_little_data" | "no_target";
   };
   cost: {
@@ -324,6 +367,7 @@ export type ObjectiveBlock = {
     target: Money | null;
     target_source: TargetSource;
     benchmark: Money | null;
+    benchmark_pages: number;
     status: "on_track" | "behind" | "too_little_data" | "no_target" | "no_spend";
   } | null;
   funnel: ObjectiveFunnelStep[];
@@ -365,6 +409,12 @@ export type PageStatsResponse = {
   entry: { content_type: string; slug: string; locale: string; key: string; title: string | null } | null;
   locale_urls: Record<string, string>;
   stage: FunnelStage | null;
+  /** Source used for visit numbers in this payload. */
+  source: TrafficSource;
+  /** The page's content type has (or had) "Optimize for ads": the other source can be requested. */
+  first_party_available: boolean;
+  /** Last day of the site's own counts when "Optimize for ads" is off now (YYYY-MM-DD). */
+  first_party_until: string | null;
   objective: ObjectiveBlock | null;
   advice: PageAdvice;
   sections: {
@@ -375,6 +425,89 @@ export type PageStatsResponse = {
     links: Section<LinksFacts>;
     changes: Section<ChangesFacts>;
   };
+  /** Running or last finished A/B test for this URL's language ("This URL" scope only). */
+  test: PageTestInfo | null;
+  generated_at: string;
+};
+
+/** Reserved version slug: visitors who saw the live page during a test. */
+export const TEST_DEFAULT_VERSION = "default";
+
+export type PageTestInfo = {
+  experiment_id: string;
+  status: "running" | "ended";
+  started_at: string | null;
+  ended_at: string | null;
+  /** `default` first, then every version that had traffic during the run. */
+  versions: string[];
+  split_changes: Array<{ day: string; from: Record<string, number>; to: Record<string, number> }>;
+  /** Set when the test runs on a shared template; `pages` = entries using it in this language. */
+  shared_template: { pages: number } | null;
+};
+
+export type TestNotice =
+  /** GA4 reported no `experiment_exposure` visits for this test yet. */
+  | { kind: "no_ga4_exposure" }
+  /** "Optimize for ads" was off for these days inside the test. */
+  | { kind: "first_party_gap"; start: string; end: string }
+  /** The site's own counts started after the test did. */
+  | { kind: "first_party_started"; day: string }
+  /** No visit source could be read (not configured / failed). */
+  | { kind: "visits_unavailable"; message: string };
+
+export type CompareRowId =
+  | "visits"
+  | "primary"
+  | "leads_here"
+  | "leads_here_rate"
+  | "leads_all"
+  | "leads_all_rate"
+  | "engaged_rate"
+  | "median_seconds"
+  | "bounce_rate"
+  | "paid_visits"
+  | "paid_leads";
+
+export type CompareRow = {
+  id: CompareRowId;
+  label: string;
+  format: "count" | "rate" | "seconds";
+  values: Record<string, number | null>;
+  /** Primary metric target (rate), when one is set. */
+  target: number | null;
+  higher_is_better: boolean;
+  /** Version with the better value; null while any version is under the minimum visits. */
+  best: string | null;
+};
+
+export type VersionPaidSummary = {
+  paid_visits: number;
+  paid_leads: number;
+  conversion_rate: number | null;
+  low_sample: boolean;
+};
+
+export type VersionFacts = {
+  traffic: Section<TrafficFacts>;
+  leads: Section<LeadsFacts>;
+  paid_summary: VersionPaidSummary;
+  objective: ObjectiveBlock | null;
+  advice: PageAdvice;
+};
+
+/** GET /api/analytics/page-stats?view=test: one test run, split by version. */
+export type PageStatsTestView = {
+  path: string;
+  test: PageTestInfo;
+  source: TrafficSource;
+  window: Period;
+  /** The test is longer than the cap; only its last days are shown. */
+  capped: boolean;
+  cap_days: number;
+  min_visits: number;
+  notices: TestNotice[];
+  compare: CompareRow[];
+  by_version: Record<string, VersionFacts>;
   generated_at: string;
 };
 

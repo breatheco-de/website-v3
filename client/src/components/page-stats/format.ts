@@ -91,6 +91,7 @@ export const CHANNEL_LABELS: Record<string, string> = {
   meta_unclear: "Meta, unclear",
   tagged_other: "Other tagged",
   "(not tracked)": "Not tracked",
+  internal: "From another page on the site",
 };
 
 export function channelLabel(key: string): string {

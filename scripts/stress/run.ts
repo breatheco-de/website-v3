@@ -280,6 +280,7 @@ async function discoverCtx(
   }
 
   const dbEntry = discoverDbEntry(site);
+  const adsEntry = discoverAdsOptimizedEntry(site);
 
   let componentName: string | undefined;
   const compCall = await client.callTool("list_components", siteArg);
@@ -358,6 +359,7 @@ async function discoverCtx(
     componentName,
     seoClusterId,
     ...(dbEntry ? { dbEntrySlug: dbEntry.slug, dbEntryLocale: dbEntry.locale, dbEntryContentType: dbEntry.contentType } : {}),
+    ...(adsEntry ? { adsEntrySlug: adsEntry.slug, adsEntryLocale: adsEntry.locale, adsEntryContentType: adsEntry.contentType } : {}),
   };
 }
 
@@ -372,6 +374,21 @@ function discoverDbEntry(site: SiteEntry): { contentType: string; slug: string; 
     }
   } catch {
     // Scenario skips when no database entry is found.
+  }
+  return null;
+}
+
+/** First page of an "Optimize for ads" type (local read; no MCP call). */
+function discoverAdsOptimizedEntry(site: SiteEntry): { contentType: string; slug: string; locale: string } | null {
+  try {
+    const contentPath = path.resolve(process.cwd(), site.contentFolder);
+    for (const [contentType, config] of Object.entries(loadContentTypes(contentPath))) {
+      if ((config as { ads?: { optimize?: boolean } }).ads?.optimize !== true) continue;
+      const first = listTypePages(entrySourceRoot(contentPath), contentType)?.pages[0];
+      if (first) return { contentType, slug: first.slug, locale: first.locale };
+    }
+  } catch {
+    // Scenario skips when no ads-optimized page is found.
   }
   return null;
 }

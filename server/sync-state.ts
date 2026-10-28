@@ -191,7 +191,8 @@ export function shouldTrackFile(filePath: string, allowedExceptions?: Set<string
     return false;
   }
 
-  if (basename === 'seo-index.json') {
+  // Derived indexes rebuilt on every content save; production persists them to GCS.
+  if (basename === 'seo-index.json' || basename === 'link-index.json' || basename === 'relation-index.json') {
     return false;
   }
 

@@ -227,6 +227,11 @@ export function getAdsRefreshStatus(site: string, deps: RefreshStatusDeps = {}):
   return build("idle");
 }
 
+/** When the last refresh run started (any trigger: daily, Sync now, stale read). */
+export function lastAdsRefreshStartedAt(site: string): string | undefined {
+  return loadState(site).started_at;
+}
+
 /** True while a refresh is queued or running. */
 export function isAdsRefreshing(site: string, deps?: RefreshStatusDeps): boolean {
   return isRefreshActive(getAdsRefreshStatus(site, deps));

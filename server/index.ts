@@ -35,6 +35,7 @@ import { startEventWebhookDueScan } from "./events/event-webhooks";
 import { registerAllJobs } from "./jobs/register";
 import { configureJobQueue } from "./jobs/queue";
 import { ensurePipelineDbForSites } from "./pipeline-db/runner";
+import { ensureVisitsDbForSites } from "./analytics/first-party/visits-db";
 import { warnIfLiveServerMisconfigured } from "./live-server";
 import { markInterruptedOnBoot } from "./data-migrations/ledger";
 import { startJobApplier, stopJobApplier } from "./jobs/applier";
@@ -505,6 +506,7 @@ app.use((req, res, next) => {
     const { urlBakesStoredPageQuery } = await import("./initial-data-middleware");
     rehydrateHtmlPageCache();
     const { resolveHtmlVariantKey } = await import("./html-variant-key");
+    const { applyPageBoot, needsPageBoot } = await import("./ads/ads-first");
     app.use(async (req, res, next) => {
       if (req.path.startsWith("/api/") || req.path.startsWith("/private/")) {
         return next();
@@ -553,8 +555,12 @@ app.use((req, res, next) => {
         return next();
       }
 
-      const encoding = pickCachedEncoding(req.headers["accept-encoding"]);
-      const body = encoding === "br" ? cached.br : encoding === "gzip" ? cached.gzip : cached.html;
+      // Per-request page boot (token, ads-first flags) cannot go into precompressed bodies.
+      const boot = needsPageBoot(res);
+      const encoding = boot ? "identity" : pickCachedEncoding(req.headers["accept-encoding"]);
+      const body = boot
+        ? applyPageBoot(cached.html, req, res)
+        : encoding === "br" ? cached.br : encoding === "gzip" ? cached.gzip : cached.html;
       logHtmlRender({
         url: cleanUrl,
         ms: Math.round(performance.now() - started),
@@ -772,6 +778,11 @@ app.use((req, res, next) => {
       logger.error({ err, worker: "PipelineDb" }, "failed to apply pipeline SQLite migrations");
       process.exit(1);
     }
+    try {
+      ensureVisitsDbForSites(siteNames);
+    } catch (err) {
+      logger.error({ err, worker: "VisitsDb" }, "failed to migrate visits.db");
+    }
     warnIfLiveServerMisconfigured();
     markInterruptedOnBoot(siteNames);
     if (process.env.NODE_ENV !== "production") {
@@ -894,6 +905,12 @@ app.use((req, res, next) => {
       flushTick();
     } catch (err) {
       logger.warn({ err }, "[Shutdown] process stats flush failed");
+    }
+    try {
+      const { flushAllVisits } = await import("./analytics/first-party/ingest");
+      flushAllVisits();
+    } catch (err) {
+      logger.warn({ err }, "[Shutdown] visit counts flush failed");
     }
 
     logger.info({ signal }, "[Shutdown] flushing pending GCS uploads…");

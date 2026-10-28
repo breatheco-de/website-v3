@@ -7,8 +7,19 @@
 import type { Request } from "express";
 import { geoGet, geoSet } from "../geo-cache";
 import { normalizeCountryCode } from "@shared/consent";
+import { isLiveServer } from "../live-server";
 
 const LOOKUP_TIMEOUT_MS = 1500;
+const IP_API_FIELDS = "status,city,country,countryCode,regionName,timezone,lat,lon";
+
+/** Paid ip-api (IPAPI_PRO_KEY) only on the live server; dev and preview builds use the free endpoint. Omit `ip` to resolve the caller's own IP. */
+export function ipApiUrl(ip?: string): string {
+  const ipSegment = ip ? `/${ip}` : "";
+  const apiKey = isLiveServer() ? process.env.IPAPI_PRO_KEY : undefined;
+  return apiKey
+    ? `https://pro.ip-api.com/json${ipSegment}?key=${apiKey}&fields=${IP_API_FIELDS}`
+    : `http://ip-api.com/json${ipSegment}?fields=${IP_API_FIELDS}`;
+}
 
 export function clientIpFromRequest(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
@@ -45,11 +56,7 @@ export async function resolveVisitorCountry(req: Request): Promise<string | null
   if (cached) return cached;
 
   try {
-    const apiKey = process.env.IPAPI_PRO_KEY;
-    const fields = "status,city,country,countryCode,regionName,timezone,lat,lon";
-    const url = apiKey
-      ? `https://pro.ip-api.com/json/${ip}?key=${apiKey}&fields=${fields}`
-      : `http://ip-api.com/json/${ip}?fields=${fields}`;
+    const url = ipApiUrl(ip);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), LOOKUP_TIMEOUT_MS);
     const response = await fetch(url, { signal: controller.signal });

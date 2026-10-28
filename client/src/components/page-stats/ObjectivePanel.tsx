@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { ArrowDown, ArrowRight, ExternalLink, Target, TrendingDown } from "lucide-react";
+import { useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { ArrowDown, ArrowRight, ExternalLink, Info, Target, TrendingDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -17,14 +17,17 @@ import type {
   Finding,
   FindingLink,
   ObjectiveBlock,
+  ObjectiveDriver,
   ObjectiveFunnelStep,
   PageAdvice,
   TrafficFacts,
+  TrafficSource,
 } from "@shared/page-stats";
-import { biggestFunnelDrop } from "@shared/page-stats";
+import { biggestFunnelDrop, PAGE_STATS_MIN_SESSIONS, PAGE_STATS_WINDOW_DAYS } from "@shared/page-stats";
 import { OBJECTIVE_FUNNEL_STEP, type FunnelStepId } from "@shared/page-objectives";
 import type { FunnelStage } from "@shared/funnel";
-import { channelLabel, money, num, pct, shortDay, targetSourceLabel, TONE_BORDER, TONE_TEXT } from "./format";
+import { channelLabel, delta, money, num, pct, shortDay, targetSourceLabel, TONE_BORDER, TONE_TEXT } from "./format";
+import { useTestView } from "./test-view-context";
 
 const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   on_track: { label: "On track", className: "border-status-online/40 text-status-online" },
@@ -53,8 +56,109 @@ function StatusBadge({ status, detail }: { status: string; detail?: string }) {
           {badge}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-3 text-xs text-foreground" data-testid="popover-objective-status-detail">
+      <PopoverContent align="end" className="z-[10003] w-64 p-3 text-xs text-foreground" data-testid="popover-objective-status-detail">
         {detail}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+const RATE_NUMERATOR: Record<ObjectiveBlock["primary"]["id"], string> = {
+  moved_forward_rate: "sessions that went on to a later-stage page",
+  reached_decision_rate: "sessions that reached a decision page",
+  task_click_rate: "sessions that clicked the page's main task",
+  conversion_rate: "leads from the page",
+};
+
+/** "similar pages" as a popover trigger that spells out how the benchmark target is computed. */
+function TargetSource({ objective, kind }: { objective: ObjectiveBlock; kind: "rate" | "cost" }) {
+  const source = kind === "rate" ? objective.primary.target_source : objective.cost?.target_source ?? "none";
+  const label = targetSourceLabel(source);
+  if (source !== "benchmark") return <>{label}</>;
+  const stage = FUNNEL_STAGE_LABEL[objective.stage];
+  const pages = (kind === "rate" ? objective.primary.benchmark_pages : objective.cost?.benchmark_pages) ?? 0;
+  const pageCount = pages > 0 ? `${pages} ${pages === 1 ? "page" : "pages"}` : "those pages";
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="underline decoration-dotted underline-offset-2 hover:text-foreground"
+          data-testid={`button-target-source-${kind}`}
+        >
+          {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="z-[10003] w-80 space-y-2 p-3 text-xs text-foreground" data-testid={`popover-target-source-${kind}`}>
+        <p className="font-medium">What “similar pages” means</p>
+        {kind === "rate" ? (
+          <>
+            <p>
+              The other pages on this site whose funnel stage is <span className="font-medium">{stage}</span>, like this one. This page
+              itself is left out.
+            </p>
+            <p>
+              For each of them with at least {PAGE_STATS_MIN_SESSIONS} sessions in the last {PAGE_STATS_WINDOW_DAYS} days, we take its{" "}
+              {objective.primary.label.toLowerCase()} rate ({RATE_NUMERATOR[objective.primary.id]} ÷ sessions). The target is the middle
+              value (median) of {pageCount}: half of them do better, half do worse.
+            </p>
+          </>
+        ) : (
+          <>
+            <p>
+              The other <span className="font-medium">{stage}</span> pages on this site that ran ads in the last {PAGE_STATS_WINDOW_DAYS}{" "}
+              days with enough paid visits to count. This page itself is left out.
+            </p>
+            <p>
+              The target is the middle value (median) of their {objective.cost?.label.toLowerCase()} across {pageCount}, per currency.
+            </p>
+          </>
+        )}
+        <p className="text-muted-foreground">
+          It needs at least 3 such pages; with fewer, the target falls back to this page's own previous {PAGE_STATS_WINDOW_DAYS} days. Set
+          your own target to replace it for every {stage} page.
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** "Previous was X%" as a popover trigger that explains the comparison window and what 0% / — mean. */
+function PriorRateInfo({ objective }: { objective: ObjectiveBlock }) {
+  const p = objective.primary;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="tabular-nums underline decoration-dotted underline-offset-2 hover:text-foreground"
+          data-testid="button-objective-prior"
+        >
+          Previous was {pct(p.prior_value)}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="z-[10003] w-80 space-y-2 p-3 text-xs text-foreground" data-testid="popover-objective-prior">
+        <p className="font-medium">Previous {PAGE_STATS_WINDOW_DAYS} days</p>
+        <p>
+          The same {p.label.toLowerCase()} ({RATE_NUMERATOR[p.id]} ÷ sessions), measured over the {PAGE_STATS_WINDOW_DAYS} days just before the
+          current window. Compare it with the big number above to see whether the page is improving.
+        </p>
+        {p.prior_value === null ? (
+          <p>
+            <span className="font-medium">—</span> means the page had no sessions in that period, so there is nothing to compare.
+          </p>
+        ) : p.prior_value === 0 ? (
+          <p>
+            <span className="font-medium tabular-nums">0.0%</span> means the page had visits then, but none of them got there. Usually the
+            action wasn't on the page or wasn't tracked yet, the page changed since (vertical lines on the chart below), or there were too few
+            visits to read much into it.
+          </p>
+        ) : null}
+        {p.target_source === "previous_period" && (
+          <p className="text-muted-foreground">
+            No target is set and there are too few similar pages to compare with, so this previous value is also the target.
+          </p>
+        )}
       </PopoverContent>
     </Popover>
   );
@@ -89,33 +193,265 @@ function ProgressToTarget({ value, target, lowerIsBetter = false }: { value: num
   );
 }
 
-function Sparkline({ series, markers }: { series: TrafficFacts["series"]; markers: ChangeMarker[] }) {
+function priorDayOf(day: string, offsetDays: number): string {
+  const d = new Date(`${day}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() - offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
+function Sparkline({
+  series,
+  markers,
+  gaps = [],
+}: {
+  series: TrafficFacts["series"];
+  markers: ChangeMarker[];
+  /** Days when the site's own counting was off (shaded). */
+  gaps?: Array<{ start: string; end: string }>;
+}) {
+  const [hover, setHover] = useState<{ i: number; left: number; width: number } | null>(null);
+  const testView = useTestView();
   if (series.length < 2) return null;
   const w = 280;
   const h = 44;
+  const last = series.length - 1;
   const max = Math.max(1, ...series.map((p) => Math.max(p.sessions, p.prior_sessions)));
-  const x = (i: number) => (i / (series.length - 1)) * w;
+  const x = (i: number) => (i / last) * w;
   const y = (v: number) => h - (v / max) * (h - 4) - 2;
   const line = (key: "sessions" | "prior_sessions") => series.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p[key]).toFixed(1)}`).join(" ");
   const markerDays = new Set(markers.map((m) => m.day));
+
+  const hoverAt = (svg: SVGSVGElement, i: number) => {
+    const ctm = svg.getScreenCTM();
+    const box = svg.getBoundingClientRect();
+    if (!ctm) return;
+    setHover({ i, left: ctm.a * x(i) + ctm.e - box.left, width: box.width });
+  };
+  const onMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    const svg = e.currentTarget;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return;
+    const svgX = (e.clientX - ctm.e) / ctm.a;
+    hoverAt(svg, Math.max(0, Math.min(last, Math.round((svgX / w) * last))));
+  };
+  const onKey = (e: ReactKeyboardEvent<SVGSVGElement>) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const step = e.key === "ArrowLeft" ? -1 : 1;
+    hoverAt(e.currentTarget, Math.max(0, Math.min(last, (hover?.i ?? (step > 0 ? -1 : series.length)) + step)));
+  };
+
+  const point = hover ? series[hover.i]! : null;
+  const change = point && !testView ? delta(point.sessions, point.prior_sessions) : null;
+  const tooltipAlign = !hover ? "" : hover.left < 70 ? "left-0" : hover.left > hover.width - 70 ? "right-0" : "-translate-x-1/2";
+
   return (
     <div className="space-y-1">
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-11" role="img" aria-label="Sessions per day, current vs previous 28 days">
-        <path d={line("prior_sessions")} className="stroke-muted-foreground/50" fill="none" strokeWidth={1.25} strokeDasharray="3 3" />
-        <path d={line("sessions")} className="stroke-primary" fill="none" strokeWidth={1.75} />
-        {series.map((p, i) =>
-          markerDays.has(p.day) ? (
-            <g key={p.day}>
-              <line x1={x(i)} x2={x(i)} y1={0} y2={h} className="stroke-chart-4/70" strokeWidth={1} />
-              <title>{`Content changed on ${shortDay(p.day)}`}</title>
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${w} ${h}`}
+          className="w-full h-11 cursor-crosshair touch-none outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+          role="img"
+          aria-label={
+            testView
+              ? "Sessions per day since the test started. Use left and right arrows to read each day."
+              : "Sessions per day, current vs previous 28 days. Use left and right arrows to read each day."
+          }
+          tabIndex={0}
+          onPointerMove={onMove}
+          onPointerDown={onMove}
+          onPointerLeave={() => setHover(null)}
+          onBlur={() => setHover(null)}
+          onKeyDown={onKey}
+          data-testid="sparkline-sessions"
+        >
+          <rect x={0} y={0} width={w} height={h} fill="transparent" />
+          {series.map((p, i) =>
+            gaps.some((g) => p.day >= g.start && p.day <= g.end) ? (
+              <rect
+                key={`gap-${p.day}`}
+                x={Math.max(0, x(i) - w / last / 2)}
+                y={0}
+                width={w / last}
+                height={h}
+                className="fill-muted pointer-events-none"
+              />
+            ) : null,
+          )}
+          {!testView && (
+            <path d={line("prior_sessions")} className="stroke-muted-foreground/50 pointer-events-none" fill="none" strokeWidth={1.25} strokeDasharray="3 3" />
+          )}
+          <path d={line("sessions")} className="stroke-primary pointer-events-none" fill="none" strokeWidth={1.75} />
+          {series.map((p, i) =>
+            markerDays.has(p.day) ? (
+              <line key={p.day} x1={x(i)} x2={x(i)} y1={0} y2={h} className="stroke-chart-4/70 pointer-events-none" strokeWidth={1} />
+            ) : null,
+          )}
+          {hover && point && (
+            <g className="pointer-events-none">
+              <line x1={x(hover.i)} x2={x(hover.i)} y1={0} y2={h} className="stroke-foreground/40" strokeWidth={1} />
+              {!testView && <circle cx={x(hover.i)} cy={y(point.prior_sessions)} r={2.5} className="fill-muted-foreground stroke-card" strokeWidth={1} />}
+              <circle cx={x(hover.i)} cy={y(point.sessions)} r={3} className="fill-primary stroke-card" strokeWidth={1} />
             </g>
-          ) : null,
+          )}
+        </svg>
+        {hover && point && (
+          <div
+            className={cn(
+              "pointer-events-none absolute bottom-full mb-1.5 z-10 whitespace-nowrap rounded-md border border-border bg-popover px-2.5 py-1.5 text-[11px] text-popover-foreground shadow-md",
+              tooltipAlign,
+            )}
+            style={tooltipAlign === "-translate-x-1/2" ? { left: hover.left } : undefined}
+            aria-live="polite"
+            data-testid="sparkline-tooltip"
+          >
+            <div className="grid grid-cols-[auto_auto_auto] items-center gap-x-2 gap-y-0.5">
+              <span className="h-0.5 w-3 rounded-full bg-primary" />
+              <span className="text-foreground">{shortDay(point.day)}</span>
+              <span className="tabular-nums text-right font-medium text-foreground">{num(point.sessions)} sessions</span>
+              {!testView && (
+                <>
+                  <span className="h-0 w-3 border-t border-dashed border-muted-foreground" />
+                  <span className="text-muted-foreground">{shortDay(priorDayOf(point.day, series.length))}</span>
+                  <span className="tabular-nums text-right text-muted-foreground">{num(point.prior_sessions)} sessions</span>
+                </>
+              )}
+            </div>
+            {(change !== null || markerDays.has(point.day)) && (
+              <p className="mt-1 border-t border-border/60 pt-1 text-muted-foreground">
+                {change !== null && (
+                  <span className={cn("tabular-nums", change >= 0 ? "text-status-online" : "text-status-busy")}>
+                    {change >= 0 ? "+" : ""}
+                    {pct(change, 0)} vs previous 28 days
+                  </span>
+                )}
+                {change !== null && markerDays.has(point.day) && " · "}
+                {markerDays.has(point.day) && <span className="text-chart-4">Content changed</span>}
+              </p>
+            )}
+          </div>
         )}
-      </svg>
-      <p className="text-[10px] text-muted-foreground">
+      </div>
+      <p className="text-center text-[10px] text-muted-foreground">
         Sessions per day · dashed: previous 28 days{markerDays.size > 0 ? " · vertical lines: content changes" : ""}
+        {gaps.length > 0 ? " · shaded: own counting was off" : ""}
       </p>
     </div>
+  );
+}
+
+const DRIVER_OUTCOME: Record<ObjectiveBlock["primary"]["id"], string> = {
+  moved_forward_rate: "went on to a later-stage page",
+  reached_decision_rate: "went on to reach a decision page",
+  task_click_rate: "clicked the page's main task",
+  conversion_rate: "became a lead later in the same visit",
+};
+
+function DriverInfo({ driver, objective }: { driver: ObjectiveDriver; objective: ObjectiveBlock }) {
+  const d = driver;
+  const p = objective.primary;
+  const isCampaign = d.kind === "campaign";
+  const comparison = d.rate !== null && p.value !== null ? (d.rate >= p.value ? "above" : "below") : null;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="tabular-nums text-muted-foreground rounded-sm hover:text-foreground hover:underline decoration-dotted underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`${d.label}: what these numbers mean`}
+          data-testid={`button-driver-${d.kind}-${d.label}`}
+        >
+          {num(d.contribution)} · {pct(d.rate)}
+          {d.cost ? ` · ${money(d.cost)}` : ""}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="z-[10003] w-80 space-y-2 p-3 text-xs text-foreground" data-testid={`popover-driver-${d.kind}-${d.label}`}>
+        <p className="font-medium">
+          {d.label}
+          {isCampaign ? " (ad campaign)" : " visits"}
+        </p>
+        <p>
+          <span className="font-medium tabular-nums">{num(d.contribution)}</span>{" "}
+          {isCampaign
+            ? `leads came from this campaign in the last ${PAGE_STATS_WINDOW_DAYS} days.`
+            : `${d.label} sessions on this page ${DRIVER_OUTCOME[p.id]} in the last ${PAGE_STATS_WINDOW_DAYS} days.`}
+        </p>
+        <p>
+          <span className="font-medium tabular-nums">{pct(d.rate)}</span>{" "}
+          {isCampaign
+            ? "of the campaign's paid visits to this page became a lead."
+            : `of all ${d.label} sessions on this page did that.`}
+          {comparison && (
+            <>
+              {" "}
+              That is {comparison} the page's overall {p.label.toLowerCase()} of {pct(p.value)}.
+            </>
+          )}
+        </p>
+        {d.cost && (
+          <p>
+            <span className="font-medium tabular-nums">{money(d.cost)}</span>{" "}
+            {isCampaign ? "is what each lead from this campaign cost in ad spend." : `is the ${objective.cost?.label.toLowerCase() ?? "cost"} from ad spend.`}
+          </p>
+        )}
+        <p className="text-muted-foreground">
+          These are the sources that brought the most {isCampaign ? "leads" : "sessions that reached the objective"}, biggest first.
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function ChannelRateInfo({ channel, stage }: { channel: ChannelRow; stage: ObjectiveBlock["stage"] }) {
+  const c = channel;
+  const isDecision = stage === "decision";
+  const outcome = isDecision ? c.lead_later : c.engaged;
+  const rate = c.sessions > 0 ? outcome / c.sessions : null;
+  const better = rate !== null && c.benchmark_rate !== null ? rate >= c.benchmark_rate : null;
+  const label = channelLabel(c.channel);
+  const stageLabel = FUNNEL_STAGE_LABEL[stage].toLowerCase();
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="tabular-nums text-right min-w-[8rem] rounded-sm hover:underline decoration-dotted underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`${label}: what these numbers mean`}
+          data-testid={`button-channel-rate-${c.channel}`}
+        >
+          <span className={cn(better === null ? "text-foreground" : better ? "text-status-online" : "text-status-busy")}>{pct(rate)}</span>
+          <span className="text-muted-foreground"> vs {c.benchmark_rate === null ? "—" : pct(c.benchmark_rate)}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="z-[10003] w-80 space-y-2 p-3 text-xs text-foreground" data-testid={`popover-channel-rate-${c.channel}`}>
+        <p className="font-medium">{label} visits to this page</p>
+        <p>
+          <span className="font-medium tabular-nums">{pct(rate)}</span> is this page's {isDecision ? "lead rate" : "engaged rate"}:{" "}
+          {num(outcome)} of {num(c.sessions)} {label} sessions in the last {PAGE_STATS_WINDOW_DAYS} days{" "}
+          {isDecision ? "became a lead later in the same visit" : "stayed more than 10 seconds, viewed a second page, or converted"}.
+        </p>
+        {c.benchmark_rate === null ? (
+          <p>
+            <span className="font-medium">—</span> means there is no comparison yet: similar pages don't have enough {label} sessions to
+            compare against.
+          </p>
+        ) : (
+          <p>
+            <span className="font-medium tabular-nums">{pct(c.benchmark_rate)}</span> is the typical {isDecision ? "conversion" : "engaged"}{" "}
+            rate for {label} visits on {stageLabel} pages of the same type on this site.
+          </p>
+        )}
+        {better !== null && (
+          <p className={better ? "text-status-online" : "text-status-busy"}>
+            {better ? `This page does as well as or better than usual for ${label} visits.` : `This page does worse than usual for ${label} visits.`}
+          </p>
+        )}
+        <p className="text-muted-foreground">
+          The comparison is refreshed nightly from the last 90 days and includes this page. When those pages have too few {label} sessions, it
+          uses {label} visits across all pages instead.
+        </p>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -130,20 +466,13 @@ function ChannelRows({ channels, stage }: { channels: ChannelRow[]; stage: Objec
         {isDecision ? "Lead rate" : "Engaged rate"} compared with this channel on other {FUNNEL_STAGE_LABEL[stage].toLowerCase()} pages.
       </p>
       <div className="space-y-1">
-        {rows.map((c) => {
-          const rate = c.sessions > 0 ? (isDecision ? c.lead_later : c.engaged) / c.sessions : null;
-          const better = rate !== null && c.benchmark_rate !== null ? rate >= c.benchmark_rate : null;
-          return (
-            <div key={c.channel} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 text-xs">
-              <span className="truncate text-foreground">{channelLabel(c.channel)}</span>
-              <span className="tabular-nums text-muted-foreground">{num(c.sessions)} sessions</span>
-              <span className="tabular-nums text-right min-w-[8rem]">
-                <span className={cn(better === null ? "text-foreground" : better ? "text-status-online" : "text-status-busy")}>{pct(rate)}</span>
-                <span className="text-muted-foreground"> vs {c.benchmark_rate === null ? "—" : pct(c.benchmark_rate)}</span>
-              </span>
-            </div>
-          );
-        })}
+        {rows.map((c) => (
+          <div key={c.channel} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 text-xs">
+            <span className="truncate text-foreground">{channelLabel(c.channel)}</span>
+            <span className="tabular-nums text-muted-foreground">{num(c.sessions)} sessions</span>
+            <ChannelRateInfo channel={c} stage={stage} />
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -166,6 +495,7 @@ export function ObjectiveCard({
   stageControl?: ReactNode;
 }) {
   const o = objective;
+  const testView = useTestView();
   const taper = FUNNEL_STAGE_TAPER[o.stage];
   const Icon = FUNNEL_STAGE_ICON[o.stage];
   const p = o.primary;
@@ -197,10 +527,16 @@ export function ObjectiveCard({
         <ProgressToTarget value={p.value} target={p.target} />
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
           <span>
-            {num(p.numerator)} of {num(p.denominator)} sessions · before {pct(p.prior_value)}
+            {num(p.numerator)} of {num(p.denominator)} sessions
+            {!testView && (
+              <>
+                {" "}
+                · <PriorRateInfo objective={o} />
+              </>
+            )}
           </span>
           <span className="flex items-center gap-1">
-            Target {pct(p.target)} ({targetSourceLabel(p.target_source)})
+            Target {pct(p.target)} (<TargetSource objective={o} kind="rate" />)
             {p.target_source !== "settings" && (
               <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={onSetTarget} data-testid="button-objective-set-target">
                 Set target
@@ -221,13 +557,13 @@ export function ObjectiveCard({
           </div>
           {o.cost.status !== "no_spend" && (
             <p className="text-[11px] text-muted-foreground">
-              Target {money(o.cost.target)} ({targetSourceLabel(o.cost.target_source)}) · before {money(o.cost.prior_value)}
+              Target {money(o.cost.target)} (<TargetSource objective={o} kind="cost" />) · before {money(o.cost.prior_value)}
             </p>
           )}
         </div>
       )}
 
-      {traffic && <Sparkline series={traffic.series} markers={markers} />}
+      {traffic && <Sparkline series={traffic.series} markers={markers} gaps={traffic.first_party?.gaps} />}
 
       {(o.drivers.length > 0 || o.dragging) && (
         <div className="space-y-1.5">
@@ -239,10 +575,7 @@ export function ObjectiveCard({
                   {d.label}
                   {d.kind === "campaign" && <span className="text-muted-foreground"> · campaign</span>}
                 </span>
-                <span className="tabular-nums text-muted-foreground">
-                  {num(d.contribution)} · {pct(d.rate)}
-                  {d.cost ? ` · ${money(d.cost)}` : ""}
-                </span>
+                <DriverInfo driver={d} objective={o} />
               </div>
             ))}
             {o.dragging && (
@@ -359,6 +692,96 @@ function stepMeaning(id: FunnelStepId, stage: FunnelStage): string {
   }
 }
 
+function stepSource(id: FunnelStepId, stage: FunnelStage, source: TrafficSource = "ga4"): string[] {
+  const own = source === "first_party";
+  const ga = own
+    ? "Counted by this site, anonymously and without cookies, so visitors who decline cookies count too. Logged-in staff and suspected low-quality visits are left out."
+    : "From Google Analytics (BigQuery export), so visitors who decline cookies or block tracking are not counted.";
+  if (own && id === "visits") {
+    return [
+      "Page views of this page counted by this site, from any source. Reloads and back-button returns are not new visits.",
+      "Paid and organic are split by where the visit started (campaign tags, ad click IDs, referrer).",
+      ga,
+    ];
+  }
+  if (own && id === "engaged") {
+    return ["Visits that stayed more than 10 seconds in view, clicked a call to action, started a form, or went to another page.", ga];
+  }
+  if (own && (id === "moved_forward" || id === "reached_decision")) {
+    return [
+      id === "moved_forward"
+        ? "Visits whose next page in the same tab belongs to a later funnel stage, using each page's stage in the content."
+        : "Visits that opened a decision-stage page later in the same tab.",
+      ga,
+    ];
+  }
+  switch (id) {
+    case "impressions":
+      return [
+        "Ads: impressions reported by Google Ads and Meta for ads whose destination URL is this page.",
+        "Search: impressions reported by Google Search Console for this page's URLs.",
+        "Both are counted by Google and Meta, not by this site.",
+      ];
+    case "clicks":
+      return [
+        "Ads: clicks reported by Google Ads and link clicks reported by Meta, for ads whose destination URL is this page.",
+        "Search: clicks reported by Google Search Console for this page's URLs.",
+        "Counted by Google and Meta, so a click still counts when the person leaves before the page loads, declines cookies or lands on a redirected URL. That is why clicks can be much higher than visits.",
+      ];
+    case "visits":
+      return [
+        "Sessions with at least one page view of this page, from any source.",
+        "Paid and organic are split by the session's first traffic source.",
+        ga,
+      ];
+    case "engaged":
+      return ["Visits that Google Analytics marks as engaged: more than 10 seconds, a second page view, or a conversion.", ga];
+    case "moved_forward":
+      return ["Visits whose next page in the same session belongs to a later funnel stage, using each page's stage in the content.", ga];
+    case "reached_decision":
+      return ["Visits that viewed a decision-stage page later in the same session.", ga];
+    case "form_or_cta":
+      return [
+        "Visits that clicked a tracked call to action on this page, started a form on this page, or fired a lead event later in the session.",
+        ga,
+      ];
+    case "lead":
+      return [
+        stage === "decision"
+          ? "Form submissions saved by this site that were submitted on this page."
+          : "Form submissions saved by this site whose visit started on this page, wherever the form was.",
+        "Test and repeat submissions are excluded. These come from the site's lead records, not Google Analytics, so they can be higher than the steps above.",
+      ];
+    case "task_click":
+      return ["Visits that clicked a call to action on this page that leads to an external tool or site.", ga];
+  }
+}
+
+function StepSourceInfo({ step, stage, source }: { step: ObjectiveFunnelStep; stage: FunnelStage; source: TrafficSource }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`How ${step.label.toLowerCase()} is measured`}
+          data-testid={`button-funnel-source-${step.id}`}
+        >
+          <Info className="h-3 w-3" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="z-[10003] w-72 space-y-1.5 p-3 text-xs" data-testid={`popover-funnel-source-${step.id}`}>
+        <p className="font-medium text-foreground">Where {step.label.toLowerCase()} comes from</p>
+        {stepSource(step.id, stage, source).map((line) => (
+          <p key={line} className="text-muted-foreground">
+            {line}
+          </p>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function FunnelStepExplainer({ steps, index, stage, goalId }: { steps: ObjectiveFunnelStep[]; index: number | null; stage: FunnelStage; goalId: FunnelStepId }) {
   const s = index === null ? null : steps[index];
   if (!s || index === null) {
@@ -398,7 +821,7 @@ function FunnelStepExplainer({ steps, index, stage, goalId }: { steps: Objective
   );
 }
 
-export function ObjectiveFunnel({ objective }: { objective: ObjectiveBlock }) {
+export function ObjectiveFunnel({ objective, source = "ga4" }: { objective: ObjectiveBlock; source?: TrafficSource }) {
   const [active, setActive] = useState<number | null>(null);
   const steps = objective.funnel;
   if (steps.length < 2) return null;
@@ -448,7 +871,10 @@ export function ObjectiveFunnel({ objective }: { objective: ObjectiveBlock }) {
             >
               {i > 0 && <FunnelConnector step={s} prev={steps[i - 1]!} biggest={i === biggest} />}
               <div className="grid grid-cols-[7.5rem_1fr_auto] items-center gap-2 text-xs">
-                <span className="truncate text-foreground">{s.label}</span>
+                <span className="flex min-w-0 items-center gap-1">
+                  <span className="truncate text-foreground">{s.label}</span>
+                  <StepSourceInfo step={s} stage={objective.stage} source={source} />
+                </span>
                 <FunnelBar step={s} width={width} capped={total > scale} />
                 <span className="tabular-nums text-foreground min-w-[3.5rem] text-right">{num(s.total)}</span>
               </div>
@@ -472,7 +898,12 @@ export function ObjectiveFunnel({ objective }: { objective: ObjectiveBlock }) {
             {pct(goalRate)}
           </span>{" "}
           of visits reached <span className="font-medium">{goal.label.toLowerCase()}</span>
-          {hasTarget && <span className="text-muted-foreground"> · target {pct(p.target)} ({targetSourceLabel(p.target_source)})</span>}
+          {hasTarget && (
+            <span className="text-muted-foreground">
+              {" "}
+              · target {pct(p.target)} (<TargetSource objective={objective} kind="rate" />)
+            </span>
+          )}
         </p>
       )}
 

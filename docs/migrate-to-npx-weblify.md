@@ -7,7 +7,7 @@ Greenfield sites can use `npx weblify` from day one. 4Geeks-style VPS stays on t
 ## What stays the same
 
 - `sites.yml` and `site_*` content (content GitHub, GCS sync)
-- Cloudflare orange-cloud in front of origin
+- DNS straight to the droplet, Nginx + Let's Encrypt in front of the app (no CDN)
 - Durable `SITE_URL` in project `.env` / host env
 - OAuth MCP at `https://<SITE_URL>/mcp` on the same process (no tunnel in production)
 - Sidequest as a separate unit if you already run it separately

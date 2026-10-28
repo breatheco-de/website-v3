@@ -174,7 +174,7 @@ Page tests run only after **Settings → Tracking → A/B testing → Setup** pa
 - `experiment_exposure` with `experiment_id` and `variant`, once per page and version. Sent for every test participant, including the Default group (`variant: "default"`).
 - `experiment_id` is `contentType:slug:locale@YYYY-MM-DD` (the test run's start date). Tests started before run dates existed have no `@date`. Two tests started the same day on the same page share an id.
 - Before Tag Manager loads, tested pages write `{ experiment_id, variant }` into the dataLayer (no event), so `page_view` and every later event can read them.
-- Conversion pushes (form submissions and other conversions) carry the visit's **first** test: `experiment_id` and `variant` from the `4g_visit_exp` cookie (30 minutes, refreshed on activity, shared across tabs, like a GA4 session). The CRM lead uses the same rule (`page_experiment_id` / `page_variant`).
+- Conversion pushes (form submissions and other conversions) carry the visit's **first** test: `experiment_id` and `variant` from the `4g_visit_exp` cookie (30 minutes, refreshed on activity, shared across tabs, like a GA4 session). The CRM lead uses the same rule and the same field names (`experiment_id` / `variant`).
 - Staff, bots, and forced previews (`?force_variant=`) are never put in a test and send no exposure.
 
 **Web container**

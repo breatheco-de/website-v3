@@ -73,6 +73,14 @@ We use Google Consent Mode v2 in **advanced** mode:
 - **Unknown country** (location could not be detected): notice by default; can be changed to ask in Consent Window.
 - The country list can be the default or a custom list (Consent Window).
 
+## Ads-first pages
+
+Content types with **Optimize for ads** on (content type dashboard) are ad landing pages:
+
+- **Notice regions:** consent counts as soon as the visitor lands (stored as "accepted by browsing"); the notice bar still shows with **OK**. Ask regions are unchanged: Accept or Reject. When the server already knows the visitor's country (cached IP lookup), consent is granted before Tag Manager starts; otherwise it is granted once the banner's country lookup answers, so the very first page view of that visit may go out cookieless.
+- **Unknown country** follows the Consent Window setting, like the rest of the site.
+- Tag Manager loads on page load instead of on first interaction. Any page opened with `gclid`, `fbclid`, `gbraid` or `wbraid` in the URL also loads it on page load (consent is unchanged there).
+
 ## Adding a new cookie
 
 1. Pick a category: necessary, analytics or advertising.
@@ -97,5 +105,8 @@ We use Google Consent Mode v2 in **advanced** mode:
 | Consent Mode default | `client/index.html` (inline script before GTM) |
 | Banner + settings | `client/src/components/ConsentBanner.tsx`, `client/src/components/settings/ConsentWindowCard.tsx`, `settings.yml` → `consent.window` |
 | Consent counts | `server/ads/consent-store.ts` → pipeline SQLite `consent_daily` (25 months) |
+| Ads-first visit channel | `shared/page-visit-channel.ts` maps `classifyChannel` (`shared/traffic-channel.ts`) onto the page stats buckets |
+| Ads-first pages | `server/ads/ads-first.ts` (`applyPageBoot` → `window.__4G_PAGE__`: ads-first flag, visitor consent mode, page token), inline scripts in `client/index.html`, landing consent persisted by `ConsentBanner.tsx` |
+| Own visit counts (no cookie) | `client/src/lib/page-ready.ts` → `POST /api/page-ready`, `/api/page-link` → `data/<site>/visits.db`. Sets and reads no cookie or storage; nothing to add to the table above |
 
 Parent-domain scope comes from `getParentCookieDomain` (skipped on localhost and IPs).

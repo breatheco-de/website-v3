@@ -20,6 +20,7 @@ export { DraftLinkCheckJob, ProposalStaleSweepJob } from "./server/jobs/definiti
 export { MetaAdsSyncJob } from "./server/jobs/definitions/meta-ads-sync";
 export { AdsSyncJob } from "./server/jobs/definitions/ads-sync";
 export { AdsRecheckJob } from "./server/jobs/definitions/ads-recheck";
+export { AdsDailySyncJob } from "./server/jobs/definitions/ads-daily-sync";
 export { HtmlPageRebuildJob } from "./server/jobs/definitions/html-page-rebuild";
 export { HtmlDbReaderRebuildJob } from "./server/jobs/definitions/html-db-reader-rebuild";
 export { HtmlContentTypeListingRebuildJob } from "./server/jobs/definitions/html-content-type-listing-rebuild";

@@ -15,6 +15,7 @@ import {
   hasActiveTraffic,
   pickVariant,
 } from "./assignment";
+import { applyRunTransitions, latestRun, type TestRun, type TestRuns } from "./test-runs";
 
 /** `_draft` is variant-file system metadata, never page content (see draft-meta.ts). */
 function stripDraftMeta(data: Record<string, unknown>): Record<string, unknown> {
@@ -110,6 +111,8 @@ interface VersioningState {
   counts: Record<string, number>;
   visitors: Record<string, string[]>;
   lastFlushed: number;
+  /** Test run history keyed by experiment id; survives epoch resets. */
+  runs: TestRuns;
 }
 
 export type ExistingAssignment = string | { variantSlug: string; run?: string | null };
@@ -137,6 +140,7 @@ export class VersioningManager {
     counts: {},
     visitors: {},
     lastFlushed: Date.now(),
+    runs: {},
   };
   private saveTimer: NodeJS.Timeout | null = null;
   private readonly contentRoot: string;
@@ -276,6 +280,7 @@ export class VersioningManager {
 
   private applyLoadedState(loaded: any): void {
     const loadedEpoch = typeof loaded?.epoch === "number" ? loaded.epoch : 1;
+    const runs: TestRuns = loaded?.runs && typeof loaded.runs === "object" ? loaded.runs : {};
     if (loadedEpoch < VERSIONING_STATE_EPOCH) {
       this.archiveOldEpoch(loaded, loadedEpoch);
       this.state = {
@@ -283,6 +288,7 @@ export class VersioningManager {
         counts: {},
         visitors: {},
         lastFlushed: Date.now(),
+        runs,
       };
       this.visitorSets.clear();
       this.saveState();
@@ -295,6 +301,7 @@ export class VersioningManager {
       counts: loaded.counts || {},
       visitors: loaded.visitors || {},
       lastFlushed: loaded.lastFlushed || Date.now(),
+      runs,
     };
 
     this.visitorSets.clear();
@@ -485,23 +492,44 @@ export class VersioningManager {
       return this.configCache.get(cacheKey)!;
     }
 
+    const parsed = this.readVersioningConfigFromDisk(contentType, slug);
+    if (parsed) this.configCache.set(cacheKey, parsed);
+    return parsed;
+  }
+
+  /** Uncached read (callers may have mutated the cached object before writing it back). */
+  private readVersioningConfigFromDisk(contentType: string, slug: string): VersioningFile | null {
     const configPath = this.getVersioningFilePath(contentType, slug);
-
-    if (!fs.existsSync(configPath)) {
-      return null;
-    }
-
+    if (!fs.existsSync(configPath)) return null;
     try {
       const content = fs.readFileSync(configPath, "utf-8");
       const { escaped, map } = escapeTemplateVars(content);
       const rawParsed = yaml.load(escaped);
-      const parsed = (rawParsed ? unescapeObjectVars(rawParsed, map) : rawParsed) as VersioningFile;
-      this.configCache.set(cacheKey, parsed);
-      return parsed;
+      return (rawParsed ? unescapeObjectVars(rawParsed, map) : rawParsed) as VersioningFile;
     } catch (error) {
       log.error({ err: error }, `[Versioning] Error loading config for ${contentType}/${slug}:`);
       return null;
     }
+  }
+
+  private recordRunTransitions(contentType: string, slug: string, before: VersioningFile | null, after: VersioningFile | null): void {
+    try {
+      const changed = applyRunTransitions(this.state.runs, {
+        contentType,
+        slug,
+        before,
+        after,
+        today: new Date().toISOString().slice(0, 10),
+      });
+      if (changed) this.scheduleSave();
+    } catch (error) {
+      log.error({ err: error }, `[Versioning] Error recording test run for ${contentType}/${slug}:`);
+    }
+  }
+
+  /** Running test for a page and language, otherwise the most recently ended one (null = none recorded). */
+  public getLatestRun(contentType: string, slug: string, locale: string): (TestRun & { experiment_id: string }) | null {
+    return latestRun(this.state.runs, contentType, slug, locale);
   }
 
   /**
@@ -765,6 +793,7 @@ export class VersioningManager {
     opts?: { author?: string | null; contentRoot?: string },
   ): void {
     const configPath = this.getVersioningFilePath(contentType, slug);
+    const before = this.readVersioningConfigFromDisk(contentType, slug);
     const yamlContent = yaml.dump(data, {
       indent: 2,
       lineWidth: 120,
@@ -775,6 +804,7 @@ export class VersioningManager {
     const cacheKey = `${contentType}:${slug}`;
     this.configCache.delete(cacheKey);
     this.contentCache.clear();
+    this.recordRunTransitions(contentType, slug, before, data);
     markFileAsModified(configPath, opts?.author || "System", undefined, opts?.contentRoot ?? this.contentRoot);
     log.info(`[Versioning] Updated versioning.yml for ${contentType}/${slug} — queued for auto-commit (${configPath})`);
   }
@@ -788,10 +818,12 @@ export class VersioningManager {
   ): boolean {
     const configPath = this.getVersioningFilePath(contentType, slug);
     if (!fs.existsSync(configPath)) return false;
+    const before = this.readVersioningConfigFromDisk(contentType, slug);
     fs.unlinkSync(configPath);
     const cacheKey = `${contentType}:${slug}`;
     this.configCache.delete(cacheKey);
     this.contentCache.clear();
+    this.recordRunTransitions(contentType, slug, before, null);
     markFileAsModified(configPath, author, undefined, contentRoot);
     log.info(`[Versioning] Deleted versioning.yml for ${contentType}/${slug} (${configPath})`);
     return true;

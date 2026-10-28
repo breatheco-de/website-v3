@@ -1686,6 +1686,7 @@ export function registerContentRoutes(app: Express): void {
           };
         })(),
         strategy: config.strategy || null,
+        ads: config.ads?.optimize ? { optimize: true } : null,
         static_entry_count: getCI(res).findByType(type).length,
       });
     } catch (err) {
@@ -2156,6 +2157,17 @@ export function registerContentRoutes(app: Express): void {
         }
       }
 
+      if (body.ads !== undefined) {
+        if (body.ads === null) {
+          update.ads = null;
+        } else if (typeof body.ads === "object") {
+          update.ads = (body.ads as Record<string, unknown>).optimize === true ? { optimize: true } : null;
+        } else {
+          res.status(400).json({ error: "ads must be an object or null" });
+          return;
+        }
+      }
+
       // Gate: required fields need a valid CT strategy (merged post-update view).
       {
         const {
@@ -2270,6 +2282,20 @@ export function registerContentRoutes(app: Express): void {
           diff.type,
           diff.urlPatternChanged ? { previousUrlPattern: diff.previousUrlPattern ?? null } : undefined,
         );
+      }
+
+      if (body.ads !== undefined) {
+        const wasOn = beforeEntry?.ads?.optimize === true;
+        const isOn = afterEntry?.ads?.optimize === true;
+        if (wasOn !== isOn) {
+          try {
+            const { recordAdsOptimizeChange } = await import("../analytics/first-party/windows");
+            const { getType } = await import("../content-types");
+            recordAdsOptimizeChange(getContentRootName(res), getType(type, ctRoot(res)), isOn);
+          } catch (adsErr) {
+            log.warn({ adsErr, type }, "ads-first on/off period not recorded");
+          }
+        }
       }
 
       if (body.seo_monitoring !== undefined) {

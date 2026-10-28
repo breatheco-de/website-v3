@@ -3,7 +3,7 @@ import { isServiceCommitAuthor } from "./auto-commit";
 
 describe("isServiceCommitAuthor", () => {
   it("treats non-person authors as the service account, in any case", () => {
-    for (const a of [undefined, null, "", "System", "system", "SYSTEM", "Unknown", "unknown", "github-pull", "agent", "api", "migration:006"]) {
+    for (const a of [undefined, null, "", "System", "system", "SYSTEM", "Unknown", "unknown", "github-pull", "agent", "api", "ads-sync", "migration:006"]) {
       expect(isServiceCommitAuthor(a), String(a)).toBe(true);
     }
   });

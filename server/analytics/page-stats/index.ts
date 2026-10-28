@@ -17,16 +17,24 @@ import { queryPageChanges } from "./changes";
 import { channelBaselineRate, saveStageBenchmark, stageRateBenchmark } from "./benchmarks";
 import { buildObjective } from "./objective";
 import { buildPageAdvice } from "./advice";
+import { firstPartyTraffic, resolveTrafficSource } from "./source";
+import { PageStatsNotFoundError } from "./errors";
+import { resolvePageTest } from "./test-view";
+import { getVersioningManager, type VersioningManager } from "../../versioning/VersioningManager";
 import { STAGE_OBJECTIVES } from "@shared/page-objectives";
-import { PAGE_STATS_WINDOW_DAYS, type PageStatsResponse, type Section } from "@shared/page-stats";
+import { PAGE_STATS_WINDOW_DAYS, type PageStatsResponse, type Section, type TrafficFacts, type TrafficSource } from "@shared/page-stats";
 import { child } from "../../logger";
+
+export { PageStatsNotFoundError, PageTestNotFoundError } from "./errors";
+export { getPageTestStats, clearPageTestStatsCache } from "./test-view";
+
+/** First-party peers needed before a same-stage benchmark is shown (fewer = hidden). */
+const FIRST_PARTY_MIN_PEERS = 5;
 
 const log = child({ module: "page-stats" });
 
 const TTL_MS = 10 * 60 * 1000;
 const cache = new Map<string, { expires: number; payload: PageStatsResponse }>();
-
-export class PageStatsNotFoundError extends Error {}
 
 function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00.000Z`);
@@ -51,13 +59,24 @@ export async function getPageStats(opts: {
   scope: PageStatsScope;
   refresh?: boolean;
   now?: Date;
+  /** Force a visit source; default = site's own counts when the type has "Optimize for ads" on. */
+  source?: TrafficSource;
+  versioningManager?: VersioningManager;
 }): Promise<PageStatsResponse> {
   const days = PAGE_STATS_WINDOW_DAYS;
   const index = getPathStageIndex(opts.site, opts.ci);
   const page = resolvePage({ site: opts.site, ci: opts.ci, path: opts.path, scope: opts.scope, index });
   if (!page) throw new PageStatsNotFoundError("path could not be normalized to a public page path.");
 
-  const key = `${opts.site}|${opts.scope}|${page.paths.join(",")}`;
+  const { source, contentType, flaggedNow, windows, firstPartyUntil } = resolveTrafficSource({
+    site: opts.site,
+    contentRoot: opts.contentRoot,
+    entryContentType: page.entry?.content_type ?? null,
+    requested: opts.source,
+  });
+  const hasHistory = windows.length > 0;
+
+  const key = `${opts.site}|${opts.scope}|${source}|${page.paths.join(",")}`;
   const hit = cache.get(key);
   if (!opts.refresh && hit && hit.expires > Date.now()) return hit.payload;
 
@@ -67,7 +86,7 @@ export async function getPageStats(opts: {
   const stage = page.stage;
   const peerPaths = stage ? index.pathsByStage[stage] : [];
 
-  const [traffic, organic, paid] = await Promise.all([
+  const [ga4Traffic, organic, paid] = await Promise.all([
     queryPageFlow({
       paths: page.paths,
       stage,
@@ -95,6 +114,10 @@ export async function getPageStats(opts: {
       peerPaths,
     }).catch((err) => failed<NonNullable<PageStatsResponse["sections"]["paid"]["data"]>>(err)),
   ]);
+  const traffic: Section<TrafficFacts> =
+    source === "first_party"
+      ? firstPartyTraffic({ ...opts, paths: page.paths, stage, index, contentType, current, prior, ga4: ga4Traffic })
+      : ga4Traffic;
   const leads = queryPageLeads({ site: opts.site, paths: page.paths, current, prior });
   const changes = queryPageChanges({ site: opts.site, entry: page.entry, start: prior.start, end: current.end });
 
@@ -112,7 +135,8 @@ export async function getPageStats(opts: {
     nextPages: traffic.data?.next_pages ?? null,
   });
 
-  if (traffic.data) {
+  // GA4 channel baselines are not mixed into first-party rows.
+  if (traffic.data && source === "ga4") {
     for (const c of traffic.data.channels) {
       c.benchmark_rate = channelBaselineRate(opts.site, c.channel, page.entry?.content_type ?? null, stage);
     }
@@ -125,9 +149,11 @@ export async function getPageStats(opts: {
       metric === "conversion_rate" && traffic.data
         ? convertedByPath(opts.site, traffic.data.peers.map((p) => p.path), current)
         : new Map<string, number>();
-    const bench = traffic.data
+    const rawBench = traffic.data
       ? stageRateBenchmark({ metric, peers: traffic.data.peers, ownPaths: page.paths, converted })
       : { rate: null, pages: 0 };
+    const bench =
+      source === "first_party" && rawBench.pages < FIRST_PARTY_MIN_PEERS ? { rate: null, pages: rawBench.pages } : rawBench;
     objective = buildObjective({
       stage,
       traffic: traffic.data,
@@ -136,8 +162,10 @@ export async function getPageStats(opts: {
       organic: organic.data,
       target: getFunnelSettings(opts.contentRoot).targets?.[stage],
       rateBenchmark: bench.rate,
+      rateBenchmarkPages: bench.pages,
     });
-    if (bench.rate !== null || paid.data?.stage_cost_benchmark?.cost) {
+    // Stage benchmarks cache stays GA4-only (Settings → Ads → Targets reads it).
+    if (source === "ga4" && (bench.rate !== null || paid.data?.stage_cost_benchmark?.cost)) {
       saveStageBenchmark(opts.site, stage, {
         rate: bench.rate,
         cost: paid.data?.stage_cost_benchmark?.cost ?? null,
@@ -165,12 +193,19 @@ export async function getPageStats(opts: {
     entry: page.entry,
     locale_urls: page.locale_urls,
     stage,
+    source,
+    first_party_available: hasHistory || flaggedNow,
+    first_party_until: firstPartyUntil,
     objective,
     advice,
     sections: { traffic, leads, organic, paid, links, changes },
+    test:
+      page.scope === "url" && page.entry
+        ? resolvePageTest({ vm: opts.versioningManager ?? getVersioningManager(), contentRoot: opts.contentRoot, entry: page.entry })
+        : null,
     generated_at: new Date().toISOString(),
   };
   cache.set(key, { expires: Date.now() + TTL_MS, payload });
-  log.info({ site: opts.site, path: page.path, scope: opts.scope, stage }, "[page-stats] built");
+  log.info({ site: opts.site, path: page.path, scope: opts.scope, stage, source }, "[page-stats] built");
   return payload;
 }

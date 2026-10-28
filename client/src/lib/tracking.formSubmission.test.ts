@@ -41,3 +41,47 @@ describe("trackFormSubmission extras", () => {
     expect(last.event_id).toBe(2537);
   });
 });
+
+describe("is_staff on dataLayer pushes", () => {
+  const storage = (entries: Record<string, string>) => ({
+    getItem: (key: string) => entries[key] ?? null,
+    setItem: () => {},
+    removeItem: () => {},
+  });
+  const lastPush = () => {
+    const pushes = (window as unknown as { dataLayer: Record<string, unknown>[] }).dataLayer;
+    return pushes[pushes.length - 1];
+  };
+
+  beforeEach(() => {
+    vi.stubGlobal("window", { dataLayer: [] as Record<string, unknown>[] });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is false without a staff session", async () => {
+    vi.stubGlobal("localStorage", storage({}));
+    await trackFormSubmission("request_more_info", { email: "a@b.com" });
+    expect(lastPush().is_staff).toBe(false);
+  });
+
+  it("is true with a non-expired staff token", async () => {
+    vi.stubGlobal(
+      "localStorage",
+      storage({ debug_token: "t", debug_validated_expiry: String(Date.now() + 60_000) }),
+    );
+    await trackFormSubmission("request_more_info", { email: "a@b.com" });
+    expect(lastPush().is_staff).toBe(true);
+  });
+
+  it("is false once the staff token has expired", async () => {
+    vi.stubGlobal(
+      "localStorage",
+      storage({ debug_token: "t", debug_validated_expiry: String(Date.now() - 1) }),
+    );
+    await trackFormSubmission("request_more_info", { email: "a@b.com" });
+    expect(lastPush().is_staff).toBe(false);
+  });
+});

@@ -36,6 +36,9 @@ export type ObjectiveInputs = {
   organic: OrganicFacts | null;
   target: StageTargetValues | undefined;
   rateBenchmark: number | null;
+  rateBenchmarkPages?: number;
+  /** One version of a test: no cost block (spend can't be split) and no previous-period target. */
+  testView?: boolean;
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -46,6 +49,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   social: "Social",
   referral: "Referral",
   other: "Other",
+  internal: "From another page on the site",
 };
 
 export function channelLabel(channel: string): string {
@@ -270,7 +274,7 @@ export function buildObjective(inputs: ObjectiveInputs): ObjectiveBlock {
   } else if (inputs.rateBenchmark !== null) {
     target = inputs.rateBenchmark;
     targetSource = "benchmark";
-  } else if (priorValue !== null && (t?.prior.sessions ?? 0) >= PAGE_STATS_MIN_SESSIONS) {
+  } else if (!inputs.testView && priorValue !== null && (t?.prior.sessions ?? 0) >= PAGE_STATS_MIN_SESSIONS) {
     target = priorValue;
     targetSource = "previous_period";
   }
@@ -284,7 +288,9 @@ export function buildObjective(inputs: ObjectiveInputs): ObjectiveBlock {
           : "behind";
 
   let cost: ObjectiveBlock["cost"] = null;
-  if (def.cost && inputs.paid) {
+  if (inputs.testView) {
+    cost = null;
+  } else if (def.cost && inputs.paid) {
     const { value: cv, prior: cp } = costValues(inputs.stage, t, inputs.paid);
     const benchmark = inputs.paid.stage_cost_benchmark?.cost ?? null;
     let ct: Money | null = null;
@@ -308,6 +314,7 @@ export function buildObjective(inputs: ObjectiveInputs): ObjectiveBlock {
       target: ct,
       target_source: cs,
       benchmark,
+      benchmark_pages: inputs.paid.stage_cost_benchmark?.pages ?? 0,
       status: !hasSpend(inputs.paid.spend)
         ? "no_spend"
         : inputs.paid.low_sample || !cv
@@ -327,6 +334,7 @@ export function buildObjective(inputs: ObjectiveInputs): ObjectiveBlock {
       target: inputs.target?.cost ?? null,
       target_source: inputs.target?.cost ? "settings" : "none",
       benchmark: null,
+      benchmark_pages: 0,
       status: "no_spend",
     };
   }
@@ -341,10 +349,11 @@ export function buildObjective(inputs: ObjectiveInputs): ObjectiveBlock {
       value,
       numerator,
       denominator,
-      prior_value: priorValue,
+      prior_value: inputs.testView ? null : priorValue,
       target,
       target_source: targetSource,
       benchmark: inputs.rateBenchmark,
+      benchmark_pages: inputs.rateBenchmarkPages ?? 0,
       status,
     },
     cost,

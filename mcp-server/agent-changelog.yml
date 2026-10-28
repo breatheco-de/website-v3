@@ -6,6 +6,58 @@ window_days: 6
 
 entries:
   - date: "2026-10-27"
+    summary: "get_analytics_report page_detail uses the site's own visit counts on Optimize for ads pages; every report is site-aware"
+    agent_impact:
+      - "page_detail picks its source like the staff page-stats drawer and returns source (ga4 | first_party). New optional source arg (page_detail only). first_party: same views/sessions, top_events [], totals.interactions + low_quality_excluded, low_sample below 100 sessions. One session = one counted view, not comparable with GA4."
+      - "first_party never stitches GA4. days passed and reaching outside the latest on-period fails (details.max_days / available_from); days omitted shortens (days_shortened, window_start / window_end). Explicit first_party on a never-flagged type fails; on a switched-off type the window ends on the switch-off day (window_end_shifted)."
+      - "Every get_analytics_report now reads the site it is called for. Before, all sites read the default site's BigQuery settings and pages, so numbers for non-default sites may change or show not_configured."
+    tools_changed: false
+    paths:
+      - server/analytics/reports.ts
+      - server/analytics/first-party/page-detail.ts
+      - server/routes/analytics.ts
+      - mcp-server/tools/analytics.ts
+      - mcp-server/explain/analytics.md
+  - date: "2026-10-27"
+    summary: "get_leads_breakdown kpis add test_staff / test_email; Leads page can show test leads only"
+    agent_impact:
+      - "kpis.test_staff / kpis.test_email count test leads in view by reason (staff_session / email_pattern). Both are 0 unless include_test is true, since test leads are excluded by default. Args unchanged."
+      - "The staff Leads page now has Real leads / All / Test only (URL ?show=real|all|test). The API still accepts include_test=1 as show=all; the tool has no test-only mode."
+    tools_changed: false
+    paths:
+      - shared/leads-query.ts
+      - server/ads/leads-query.ts
+  - date: "2026-10-27"
+    summary: "Lead webhook sends the page test as experiment_id / variant (was page_experiment_id / page_variant)"
+    agent_impact:
+      - "CRM lead fields renamed to match GTM conversion pushes: experiment_id (contentType:slug:locale@YYYY-MM-DD) and variant (slug or default). Same rule: visit's first test, only when it matches the visitor's 4g_versioning_v2 assignment; otherwise both omitted."
+      - "Form bodies cannot set experiment_id / variant themselves (stripped before the CRM). The form still sends page_experiment_id to the server; ledger columns experiment_id / variant are unchanged. Older leads in the CRM carry page_experiment_id / page_variant."
+    tools_changed: false
+    paths:
+      - server/ads/lead-ledger.ts
+      - mcp-server/explain/lead-forms.md
+  - date: "2026-10-27"
+    summary: "get_content_type_info reports ads_optimized (Optimize for ads, staff-only)"
+    agent_impact:
+      - "ads_optimized (boolean) + ads_optimized_note on get_content_type_info. Staff turn it on from the content type dashboard; update_content_type does not set it."
+      - "When true: Tag Manager loads on page open, notice-country visitors count as consented on landing (ask countries unchanged), and page stats use the site's own anonymous visit counts (data/<site>/visits.db) instead of GA4. Page content, the Ads report and platform conversions do not change."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/pages.ts
+      - server/content-types.ts
+      - server/ads/ads-first.ts
+  - date: "2026-10-27"
+    summary: "Lead webhook and every GTM dataLayer push carry is_staff"
+    agent_impact:
+      - "Webhook is_staff (always boolean) is true only for test_reason staff_session (server-verified). Email-pattern test leads stay is_test: true, is_staff: false. is_test / test_reason are unchanged."
+      - "Every dataLayer push (conversions, page context, website-route-change, consent_update) carries is_staff from the browser staff token, so GTM can skip conversion tags or set GA4 traffic_type internal. Needs GTM container setup; no lead ledger column added."
+      - "Staff submitting a lead form now confirm a dialog first (once per browser session if they tick don't ask again). Staff are still never assigned to A/B tests, so their leads have no page_experiment_id / page_variant."
+    tools_changed: false
+    paths:
+      - server/ads/lead-ledger.ts
+      - client/src/lib/tracking.ts
+      - mcp-server/explain/lead-forms.md
+  - date: "2026-10-27"
     summary: "{{ funnel.products }} is URL-encoded lead-webhook JSON of the page funnel"
     agent_impact:
       - "In section/meta URLs, {{ funnel.products }} becomes encodeURIComponent of {product, persona, product_persona} full ids (sorted, all/none sentinels, program page includes itself). Same merge as GTM/webhook; not GTM codes, not experiment/variant."
@@ -17,6 +69,15 @@ entries:
       - mcp-server/explain/content_system.md
       - mcp-server/explain/funnel.md
       - mcp-server/explain/lead-forms.md
+  - date: "2026-10-26"
+    summary: "Ads data refreshes daily at 5 AM ET on the live server"
+    agent_impact:
+      - "Worker cron ads_daily_sync (0 5 * * * America/New_York, live server only) queues the regular ads_sync for every site with Meta, Google Ads or GA4. Reads (refresh state, retry wait, worker_down) behave as before."
+      - "On worker start, a site with no refresh started since the latest 5 AM slot gets a catch-up run. A failed morning run is not retried by the schedule; the >24h stale read still queues one refresh after the retry wait."
+    tools_changed: false
+    paths:
+      - server/jobs/definitions/ads-daily-sync.ts
+      - mcp-server/explain/ads.md
   - date: "2026-10-25"
     summary: "Product / persona values are sorted; get_leads_breakdown groups and filters by page funnel product and persona"
     agent_impact:

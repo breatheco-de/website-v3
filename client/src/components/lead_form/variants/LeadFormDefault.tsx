@@ -1,5 +1,5 @@
 // section-spacing: self-padded
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -21,7 +21,13 @@ import { useSession, useLocation as useSessionLocation, useUTM } from "@/context
 import { useSectionContext } from "@/contexts/SectionContext";
 import { useLocation } from "wouter";
 import { apiRequest, apiRequestWithAuth, apiFetch, queryClient } from "@/lib/queryClient";
-import { buildLeadAdContext, newSubmissionId, staffLeadHeaders } from "@/lib/leadAdContext";
+import {
+  buildLeadAdContext,
+  needsStaffSubmitConfirm,
+  newSubmissionId,
+  skipStaffSubmitConfirmThisSession,
+  staffLeadHeaders,
+} from "@/lib/leadAdContext";
 import { getApiPath } from "@shared/api-paths";
 import type { Country } from "react-phone-number-input";
 import { trackFormSubmission, trackConversion, resolveWebhook, hashEmail, getEcommerceProductLookup, type ConversionName, type FormSubmissionTrackingData, type TrackingSettingsResponse } from "@/lib/tracking";
@@ -83,6 +89,8 @@ import {
   type FormFieldOption as RelationFormFieldOption,
 } from "@shared/resolveFormFieldRelationSource";
 import type { RelationEditorHint } from "@shared/relation-field";
+
+const StaffLeadConfirmDialog = lazy(() => import("@/components/lead_form/StaffLeadConfirmDialog"));
 
 /** Runtime defaults when YAML omits `fields.*.component_renderer`. */
 const SELECT_DEFAULT_FIELDS = new Set(["program", "plan", "location", "region"]);
@@ -728,6 +736,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showTurnstileModal, setShowTurnstileModal] = useState(false);
   const [pendingFormData, setPendingFormData] = useState<FormValues | null>(null);
+  const [staffConfirmValues, setStaffConfirmValues] = useState<FormValues | null>(null);
   const [loginMode, setLoginMode] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -1980,6 +1989,32 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   });
 
   const onSubmit = (values: FormValues) => {
+    // Read at submit time: the staff token and the session opt-out live in browser storage.
+    if (needsStaffSubmitConfirm()) {
+      setStaffConfirmValues(values);
+      return;
+    }
+    submitLead(values);
+  };
+
+  const confirmStaffSubmit = (skipForSession: boolean) => {
+    const values = staffConfirmValues;
+    setStaffConfirmValues(null);
+    if (skipForSession) skipStaffSubmitConfirmThisSession();
+    if (values) submitLead(values);
+  };
+
+  const staffConfirmDialog = staffConfirmValues ? (
+    <Suspense fallback={null}>
+      <StaffLeadConfirmDialog
+        locale={locale}
+        onConfirm={confirmStaffSubmit}
+        onCancel={() => setStaffConfirmValues(null)}
+      />
+    </Suspense>
+  ) : null;
+
+  const submitLead = (values: FormValues) => {
     setTurnstileError(null);
     setSubmitError(null);
 
@@ -2522,6 +2557,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         </Form>
         {signupLoginPrompt}
         {switchAccountPrompt}
+        {staffConfirmDialog}
       </div>
     );
   }
@@ -3047,6 +3083,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       </Form>
       {signupLoginPrompt}
       {switchAccountPrompt}
+      {staffConfirmDialog}
     </div>
   );
 }

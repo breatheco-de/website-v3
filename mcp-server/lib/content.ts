@@ -308,6 +308,7 @@ export interface ContentTypeConfig {
   indexes?: string[];
   schema_org_requirements?: Array<{ schema_type: string }>;
   strategy?: { purpose: string; constraints?: string[] };
+  ads?: { optimize?: boolean };
 }
 
 export function loadContentTypes(contentPath?: string): Record<string, ContentTypeConfig> {

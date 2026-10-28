@@ -213,7 +213,7 @@ NODE_ENV=production npm start
 | Understand multi-site setup | [docs/multi-site.md](docs/multi-site.md) |
 | Deploy to a VPS | [docs/vps.md](docs/vps.md) |
 | Put media in Google Cloud Storage | [docs/media-storage.md](docs/media-storage.md) |
-| Put the site behind a CDN | [docs/cloudflare-cdn-setup.md](docs/cloudflare-cdn-setup.md) |
+| Put the site behind a CDN (optional; not in use today) | [docs/cloudflare-cdn-setup.md](docs/cloudflare-cdn-setup.md) |
 | Wire up analytics | [docs/gtm-analytics-setup.md](docs/gtm-analytics-setup.md) |
 | Add a new section component | [shared/component-registry/README.md](shared/component-registry/README.md) |
 | Connect an AI agent | [mcp-server/README.md](mcp-server/README.md) |

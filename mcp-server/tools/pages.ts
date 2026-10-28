@@ -9857,6 +9857,12 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
               "Any editor.required true|attached requires a valid strategy (non-empty purpose). " +
               "Clear rejected while required fields remain (code: missing_strategy). " +
               "Not insights_intent. Patch via update_content_type (strategy-only call, separate from field_action).",
+            ads_optimized: config.ads?.optimize === true,
+            ads_optimized_note:
+              "Staff-only toggle (content type dashboard → Optimize for ads; content-types.yml ads.optimize). update_content_type does not set it. " +
+              "When true, pages of this type: load Tag Manager on page open; count as consented on landing in notice countries (ask countries unchanged); " +
+              "use the site's own anonymous visit counts (data/<site>/visits.db, no cookies) for page stats and get_analytics_report page_detail instead of GA4. " +
+              "Does not change page content, the Ads report, or Google Ads / Meta conversions.",
             field_patch_note:
               "Schema fields: MCP update_content_type with field_action add|update|remove (one field per call). " +
               "Preview (omit confirm) then confirm:true after principal approval. " +

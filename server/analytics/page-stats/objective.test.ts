@@ -61,6 +61,21 @@ describe("buildObjective", () => {
     expect(withPrior.primary.target).toBeCloseTo(0.3);
   });
 
+  it("test view: no cost block, no previous value and no previous-period target", () => {
+    const o = buildObjective({
+      stage: "decision",
+      traffic: traffic({ sessions: 400 }, { sessions: 300 }),
+      leads: leads(12, 9),
+      paid: null,
+      organic: null,
+      target: undefined,
+      rateBenchmark: null,
+      testView: true,
+    });
+    expect(o.cost).toBeNull();
+    expect(o.primary).toMatchObject({ value: 0.03, prior_value: null, target: null, target_source: "none", status: "no_target" });
+  });
+
   it("reports too little data below the session minimum", () => {
     const o = buildObjective({
       stage: "awareness", traffic: traffic({ sessions: 40, moved_forward: 10 }), leads: null, paid: null, organic: null,

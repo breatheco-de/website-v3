@@ -35,6 +35,15 @@ import { AGENT_SESSION_IDLE_MS } from "../../shared/agent-identity";
 
 const TEST_SITE = "site_test-events";
 
+function removeTestSiteDirs(): void {
+  if (!fs.existsSync("data")) return;
+  for (const name of fs.readdirSync("data")) {
+    if (name === TEST_SITE || name.startsWith(`${TEST_SITE}-`)) {
+      fs.rmSync(path.join("data", name), { recursive: true, force: true });
+    }
+  }
+}
+
 describe("event-store", () => {
   beforeEach(() => {
     resetPipelineDbCache();
@@ -48,8 +57,7 @@ describe("event-store", () => {
   afterEach(() => {
     resetPipelineDbCache();
     clearSiteSqliteCacheForTests();
-    const dbPath = path.join("data", TEST_SITE.replace(/\//g, "-"), "app.db");
-    if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+    removeTestSiteDirs();
   });
 
   it("uses rowid as generation", () => {

@@ -76,7 +76,7 @@ const ContentTypesYmlEditorPanel = lazy(() => import("@/components/editing/Conte
 const PageStatsDrawer = lazy(() =>
   import("@/components/page-stats/PageStatsDrawer").then((m) => ({ default: m.PageStatsDrawer })),
 );
-import { PageStatsEdgeTab } from "@/components/page-stats/PageStatsEdgeTab";
+import { PageStatsBubble } from "@/components/page-stats/PageStatsBubble";
 import type { PageStatsScope } from "@shared/page-stats";
 
 function pathnameOf(urlOrPath: string): string {
@@ -169,9 +169,10 @@ export function DebugBubble() {
   );
   
   const { isValidated, hasToken, isLoading, isDebugMode, retryValidation, validateManualToken, startGitHubLogin, clearToken, logoutEverywhere, authError, dismissDebugUi, checkSession, hasCapability } = useDebugAuth();
-  // Collapsing unmounts the drawer and leaves an edge tab; "closing" lets the slide-out finish first.
-  const [pageStatsMode, setPageStatsMode] = useState<"never" | "open" | "closing" | "minimized">("never");
+  // The stats bubble shows whenever the drawer is closed; "closing" lets the slide-out finish first.
+  const [pageStatsMode, setPageStatsMode] = useState<"closed" | "open" | "closing">("closed");
   const [pageStatsScope, setPageStatsScope] = useState<PageStatsScope>("url");
+  const [pageStatsBlocked, setPageStatsBlocked] = useState<{ title: string; body: string } | null>(null);
   const pageStatsTabRef = useRef<HTMLButtonElement>(null);
   const focusPageStatsTab = useRef(false);
   const { criticalAlerts } = useSystemAlerts();
@@ -194,10 +195,10 @@ export function DebugBubble() {
 
   useEffect(() => {
     if (pageStatsMode === "closing") {
-      const t = window.setTimeout(() => setPageStatsMode((m) => (m === "closing" ? "minimized" : m)), 400);
+      const t = window.setTimeout(() => setPageStatsMode((m) => (m === "closing" ? "closed" : m)), 400);
       return () => window.clearTimeout(t);
     }
-    if (pageStatsMode === "minimized" && focusPageStatsTab.current) {
+    if (pageStatsMode === "closed" && focusPageStatsTab.current) {
       focusPageStatsTab.current = false;
       pageStatsTabRef.current?.focus();
     }
@@ -2150,6 +2151,47 @@ export function DebugBubble() {
     return null;
   })();
 
+  const openPageStats = () => {
+    if (!hasCapability("metrics_view")) {
+      setPageStatsBlocked({
+        title: "You don't have access to page stats",
+        body: "Your staff role doesn't include viewing metrics. Ask an admin to give you the Metrics Viewer role (or another role that includes metrics_view), then sign in again.",
+      });
+      return;
+    }
+    if (!publicPageDiagnosticsUrl) {
+      if (pageDiagnosticsLoading) {
+        setPageStatsBlocked({
+          title: "Page details are still loading",
+          body: "Stats need this page's public address, which is still being looked up. Try again in a moment.",
+        });
+      } else if (isPreviewPath) {
+        setPageStatsBlocked({
+          title: "Couldn't find this page's public address",
+          body: "Stats are tracked by public URL. This preview's content type uses a URL pattern with extra parts (for example a category) that couldn't be filled in, so there is no live address to look up. Open the live page and try again.",
+        });
+      } else if (pathname.startsWith("/private/")) {
+        setPageStatsBlocked({
+          title: "No stats for admin pages",
+          body: "Stats are tracked for public pages only. Open a live page or its preview and try again.",
+        });
+      } else if (pageDiagnosticsError) {
+        setPageStatsBlocked({
+          title: "Couldn't load page details",
+          body: `Stats need this page's details, but loading them failed: ${pageDiagnosticsError}`,
+        });
+      } else {
+        setPageStatsBlocked({
+          title: "Couldn't find this page's public address",
+          body: "Stats are tracked by public URL, and this page's address couldn't be determined. Reload the page and try again.",
+        });
+      }
+      return;
+    }
+    setOpen(false);
+    setPageStatsMode("open");
+  };
+
   const panelContentProps = {
     noTokenDetected,
     tokenWithoutCapabilities,
@@ -2177,12 +2219,7 @@ export function DebugBubble() {
     pathname,
     navigate,
     setSeoModalOpen,
-    openPageStats: hasCapability("metrics_view")
-      ? () => {
-          setOpen(false);
-          setPageStatsMode("open");
-        }
-      : undefined,
+    openPageStats,
     fetchSeoPreview,
     menuView,
     setMenuView,
@@ -2364,6 +2401,14 @@ export function DebugBubble() {
         slug={contentInfo.slug}
         proposalsByVariant={versioningData?.proposalsByVariant}
       />
+      {pageStatsMode === "closed" && publicPageDiagnosticsUrl && hasCapability("metrics_view") && (
+        <PageStatsBubble
+          ref={pageStatsTabRef}
+          path={pathnameOf(publicPageDiagnosticsUrl)}
+          pageErrorCount={pageErrorCount}
+          onExpand={openPageStats}
+        />
+      )}
       {showForkBubble && (
         <div className="relative flex items-center">
           {pageIsSharedLayout && (
@@ -2735,7 +2780,7 @@ export function DebugBubble() {
                 setPageStatsMode("closing");
               }
             }}
-            onExitComplete={() => setPageStatsMode((m) => (m === "closing" ? "minimized" : m))}
+            onExitComplete={() => setPageStatsMode((m) => (m === "closing" ? "closed" : m))}
             path={publicPageDiagnosticsUrl ? pathnameOf(publicPageDiagnosticsUrl) : null}
             pageErrorCount={pageErrorCount}
             scope={pageStatsScope}
@@ -2752,14 +2797,6 @@ export function DebugBubble() {
             }}
           />
         </Suspense>
-      )}
-      {pageStatsMode === "minimized" && publicPageDiagnosticsUrl && (
-        <PageStatsEdgeTab
-          ref={pageStatsTabRef}
-          path={pathnameOf(publicPageDiagnosticsUrl)}
-          pageErrorCount={pageErrorCount}
-          onExpand={() => setPageStatsMode("open")}
-        />
       )}
       <SeoModal
         open={seoModalOpen}
@@ -2836,6 +2873,24 @@ export function DebugBubble() {
         }}
         target={managedSeoModalTarget}
       />
+      <AlertDialog
+        open={pageStatsBlocked !== null}
+        onOpenChange={(next) => {
+          if (!next) setPageStatsBlocked(null);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-page-stats-blocked">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{pageStatsBlocked?.title}</AlertDialogTitle>
+            <AlertDialogDescription data-testid="text-page-stats-blocked-reason">
+              {pageStatsBlocked?.body}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction data-testid="button-page-stats-blocked-ok">OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog open={dismissConfirmOpen} onOpenChange={setDismissConfirmOpen}>
         <AlertDialogContent data-testid="dialog-dismiss-debug-ui">
           <AlertDialogHeader>

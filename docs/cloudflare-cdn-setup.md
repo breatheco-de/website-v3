@@ -1,5 +1,7 @@
 # Cloudflare CDN Setup Guide
 
+> **Not in use today.** The 4Geeks sites are served straight from the droplet (DNS → Nginx, no CDN or proxy in front); see [`vps.md`](vps.md). This guide is an optional future setup. If you adopt it, also update `vps.md` and `vps-deployment.md`, and note that ads-first pages are sent as `Cache-Control: private` because their consent mode depends on the visitor's country.
+
 This guide explains how to place Cloudflare's free tier in front of the origin server (the DigitalOcean droplet) to improve LCP and overall performance.
 
 ## Prerequisites

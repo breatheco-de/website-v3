@@ -10,13 +10,18 @@ import {
   getBigQuerySettings,
 } from "../ecommerce/bigquery-client";
 import { normalizeAnalyticsPath } from "../ecommerce/journey-analytics";
-import { contentIndex } from "../content-index";
+import { contentIndex, type ContentIndex } from "../content-index";
 import {
   getLeadConversionEventNames,
   getTrackingSettings,
   isCountsAsLeadConfigured,
 } from "../settings";
 import { child } from "../logger";
+import { latestCoverage, planFirstPartyWindow, queryFirstPartyPageDetail } from "./first-party/page-detail";
+import { getVisitsDb } from "./first-party/visits-db";
+import { flushSite } from "./first-party/ingest";
+import type { TypeWindow } from "./first-party/windows";
+import { PAGE_STATS_MIN_SESSIONS } from "@shared/page-stats";
 
 const log = child({ module: "analytics-reports" });
 
@@ -43,6 +48,9 @@ export type AnalyticsAttribution = (typeof ANALYTICS_ATTRIBUTIONS)[number];
 
 export type AnalyticsWarning = { code: string; message: string };
 
+export const ANALYTICS_SOURCES = ["ga4", "first_party"] as const;
+export type AnalyticsSource = (typeof ANALYTICS_SOURCES)[number];
+
 export type AnalyticsReportResult = {
   report: AnalyticsReportName;
   status: "ok" | "not_configured";
@@ -52,6 +60,16 @@ export type AnalyticsReportResult = {
   totals: Record<string, unknown>;
   warnings: AnalyticsWarning[];
   resolved_paths?: string[];
+  /** page_detail only: which visit counts the numbers come from. */
+  source?: AnalyticsSource;
+  window_start?: string;
+  window_end?: string;
+  /** first_party: days omitted and shortened to the covered days. */
+  days_shortened?: boolean;
+  /** first_party: window ends on the switch-off day instead of yesterday. */
+  window_end_shifted?: boolean;
+  /** first_party: sessions below the page-stats minimum. */
+  low_sample?: boolean;
 };
 
 type CacheEntry = { expires: number; payload: AnalyticsReportResult };
@@ -66,6 +84,12 @@ export type GetAnalyticsReportOpts = {
   slug?: string;
   locale?: string;
   contentRoot?: string;
+  /** Site content folder name (e.g. site_4geeks-com); defaults to the first site in sites.yml. */
+  site?: string;
+  /** Site content index; defaults to the default site's. */
+  ci?: ContentIndex;
+  /** page_detail only: force GA4 or the site's own counts (default: same pick as page stats). */
+  source?: AnalyticsSource;
   /** Optional event name filter for events_by_name */
   event_names?: string[];
   /** traffic_source_conversions only — default session_last_click */
@@ -146,6 +170,7 @@ export function resolvePageDetailPaths(opts: {
   content_type?: string;
   slug?: string;
   locale?: string;
+  ci?: ContentIndex;
 }): ResolvePagePathsResult {
   const pathRaw = (opts.path || "").trim();
   const ct = (opts.content_type || "").trim();
@@ -178,7 +203,7 @@ export function resolvePageDetailPaths(opts: {
 
   let urls: Record<string, string> = {};
   try {
-    urls = contentIndex.getAlternateUrls(slug, ct) ?? {};
+    urls = (opts.ci ?? contentIndex).getAlternateUrls(slug, ct) ?? {};
   } catch (err) {
     log.warn({ err, content_type: ct, slug }, "[analytics] getAlternateUrls failed");
   }
@@ -255,8 +280,9 @@ function notConfiguredResult(
   report: AnalyticsReportName,
   days: number,
   extraWarnings: AnalyticsWarning[] = [],
+  contentRoot?: string,
 ): AnalyticsReportResult {
-  const status = getBigQueryConfigStatus();
+  const status = getBigQueryConfigStatus(contentRoot);
   return emptyResult(report, days, "not_configured", [
     ...status.warnings.map((m) => ({ code: "bigquery_not_configured", message: m })),
     {
@@ -1016,10 +1042,125 @@ async function runTrafficSourceConversions(
  * bad args return via thrown ValidationError message for the route to map to 400.
  */
 export class AnalyticsReportValidationError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly details?: Record<string, unknown>,
+  ) {
     super(message);
     this.name = "AnalyticsReportValidationError";
   }
+}
+
+/** Same GA4 vs own-counts pick as the page-stats drawer (lazy import: page-stats imports this module). */
+async function pickPageDetailSource(opts: {
+  site: string;
+  contentRoot?: string;
+  ci: ContentIndex;
+  paths: string[];
+  contentType: string | null;
+  requested?: AnalyticsSource;
+}) {
+  const [{ resolveTrafficSource }, { getPathStageIndex, resolvePage }] = await Promise.all([
+    import("./page-stats/source"),
+    import("./page-stats/resolve"),
+  ]);
+  let entryContentType = opts.contentType;
+  if (!entryContentType && opts.paths[0]) {
+    const index = getPathStageIndex(opts.site, opts.ci);
+    const page = resolvePage({ site: opts.site, ci: opts.ci, path: opts.paths[0], scope: "url", index });
+    entryContentType = page?.entry?.content_type ?? null;
+  }
+  return resolveTrafficSource({
+    site: opts.site,
+    contentRoot: opts.contentRoot,
+    entryContentType,
+    requested: opts.requested,
+  });
+}
+
+function runFirstPartyPageDetail(opts: {
+  site: string;
+  windows: TypeWindow[];
+  paths: string[];
+  days: number;
+  daysExplicit: boolean;
+  explicitFirstParty: boolean;
+  resolveWarnings: AnalyticsWarning[];
+}): AnalyticsReportResult {
+  const now = Date.now();
+  const coverage = latestCoverage(opts.windows, now);
+  const planned = planFirstPartyWindow({
+    coverage,
+    days: opts.days,
+    daysExplicit: opts.daysExplicit,
+    defaultDays: DEFAULT_DAYS,
+    shiftEnd: opts.explicitFirstParty && coverage != null && !coverage.enabled,
+    now,
+  });
+  if (!planned.ok) throw new AnalyticsReportValidationError(planned.error.message, planned.error.details);
+  const { plan } = planned;
+
+  flushSite(opts.site);
+  const db = getVisitsDb(opts.site);
+  if (!db) {
+    throw new AnalyticsReportValidationError('No site visit counts stored yet. Use source "ga4".', {
+      source: "first_party",
+      available_from: null,
+      max_days: 0,
+    });
+  }
+  const detail = queryFirstPartyPageDetail(db, opts.paths, plan, now);
+
+  const warnings: AnalyticsWarning[] = [
+    ...opts.resolveWarnings,
+    {
+      code: "first_party_counts",
+      message:
+        "Site's own visit counts (same as the staff page-stats drawer), not GA4. One session = one counted view of this page; " +
+        "reloads, back/forward, bots, logged-in staff and suspected low-quality visits are left out (totals.low_quality_excluded). " +
+        "Views count every page view. Not comparable with GA4 sessions.",
+    },
+    {
+      code: "first_party_no_events",
+      message:
+        "Named events are not collected here, so top_events is empty. See totals.interactions (CTA clicks, form starts, video starts / completes).",
+    },
+  ];
+  if (plan.days_shortened) {
+    warnings.push({
+      code: "first_party_window_shortened",
+      message: `days omitted: shortened to ${plan.days} covered day(s), ${plan.start} to ${plan.end}.`,
+    });
+  }
+  if (plan.window_end_shifted) {
+    warnings.push({
+      code: "first_party_window_end_shifted",
+      message: `Optimize for ads is off for this type: window ends on the switch-off day ${plan.end}, not yesterday.`,
+    });
+  }
+  if (detail.low_sample) {
+    warnings.push({
+      code: "first_party_low_sample",
+      message: `${detail.totals.sessions} session(s), below the page-stats minimum of ${PAGE_STATS_MIN_SESSIONS}: rates and comparisons are unreliable.`,
+    });
+  }
+
+  return {
+    report: "page_detail",
+    status: "ok",
+    source: "first_party",
+    window_days: plan.days,
+    window_start: plan.start,
+    window_end: plan.end,
+    days_shortened: plan.days_shortened,
+    window_end_shifted: plan.window_end_shifted,
+    low_sample: detail.low_sample,
+    as_of: plan.end,
+    rows: detail.rows,
+    totals: detail.totals,
+    warnings,
+    resolved_paths: opts.paths,
+  };
 }
 
 export async function getAnalyticsReport(
@@ -1045,9 +1186,18 @@ export async function getAnalyticsReport(
   }
   const attribution = parseAttribution(opts.attribution);
   const itemId = (opts.item_id || "").trim() || undefined;
+  if (opts.source != null && !ANALYTICS_SOURCES.includes(opts.source)) {
+    throw new AnalyticsReportValidationError(
+      `Unknown source "${String(opts.source)}". Valid: ${ANALYTICS_SOURCES.join(", ")}`,
+    );
+  }
+  if (opts.source != null && report !== "page_detail") {
+    throw new AnalyticsReportValidationError("source applies to page_detail only.");
+  }
 
   let resolvedPaths: string[] | undefined;
   let resolveWarnings: AnalyticsWarning[] = [];
+  let sourceWarnings: AnalyticsWarning[] = [];
 
   if (report === "page_detail") {
     const slugOnly = Boolean((opts.slug || "").trim()) && !(opts.content_type || "").trim() && !(opts.path || "").trim();
@@ -1061,16 +1211,56 @@ export async function getAnalyticsReport(
       content_type: opts.content_type,
       slug: opts.slug,
       locale: opts.locale,
+      ci: opts.ci,
     });
     if (!resolved.ok) {
       throw new AnalyticsReportValidationError(resolved.error);
     }
     resolvedPaths = resolved.paths;
     resolveWarnings = resolved.warnings;
+
+    const site = opts.site ?? (await import("../site-config")).getDefaultContentFolder();
+    const picked = await pickPageDetailSource({
+      site,
+      contentRoot,
+      ci: opts.ci ?? contentIndex,
+      paths: resolvedPaths,
+      contentType: (opts.content_type || "").trim() || null,
+      requested: opts.source,
+    });
+    if (opts.source === "first_party" && picked.windows.length === 0) {
+      throw new AnalyticsReportValidationError(
+        picked.contentType
+          ? `Content type "${picked.contentType}" has never used the site's own visit counts. Ask staff to turn on Optimize for ads (content type dashboard), or use source "ga4".`
+          : 'This path is not a managed page, so it has no site visit counts. Use source "ga4".',
+        { source: "first_party", content_type: picked.contentType, available_from: null, max_days: 0 },
+      );
+    }
+    if (picked.source === "first_party") {
+      return runFirstPartyPageDetail({
+        site,
+        windows: picked.windows,
+        paths: resolvedPaths,
+        days,
+        daysExplicit: opts.days != null && Number.isFinite(opts.days),
+        explicitFirstParty: opts.source === "first_party",
+        resolveWarnings,
+      });
+    }
+    if (opts.source === "ga4" && picked.flaggedNow) {
+      sourceWarnings = [
+        {
+          code: "drawer_uses_first_party",
+          message:
+            "This page's type has Optimize for ads on: the staff page-stats drawer shows the site's own visit counts, not these GA4 numbers. Omit source to get what staff see.",
+        },
+      ];
+    }
   }
 
   const cacheKey = [
     contentRoot || "",
+    opts.site || "",
     report,
     days,
     limit,
@@ -1081,6 +1271,7 @@ export async function getAnalyticsReport(
     (opts.event_names || []).join(","),
     report === "traffic_source_conversions" ? attribution : "",
     report === "traffic_source_conversions" ? itemId || "" : "",
+    report === "page_detail" ? `ga4:${sourceWarnings.length}` : "",
   ].join("|");
 
   const hit = cache.get(cacheKey);
@@ -1088,8 +1279,11 @@ export async function getAnalyticsReport(
 
   const bqStatus = getBigQueryConfigStatus(contentRoot);
   if (!bqStatus.configured) {
-    const payload = notConfiguredResult(report, days, resolveWarnings);
-    if (resolvedPaths) payload.resolved_paths = resolvedPaths;
+    const payload = notConfiguredResult(report, days, [...resolveWarnings, ...sourceWarnings], contentRoot);
+    if (resolvedPaths) {
+      payload.resolved_paths = resolvedPaths;
+      payload.source = "ga4";
+    }
     return payload;
   }
 
@@ -1104,7 +1298,8 @@ export async function getAnalyticsReport(
         message: "Configure project/dataset at /private/tracking/ga4",
       },
       ...resolveWarnings,
-    ], resolvedPaths ? { resolved_paths: resolvedPaths } : undefined);
+      ...sourceWarnings,
+    ], resolvedPaths ? { resolved_paths: resolvedPaths, source: "ga4" } : undefined);
   }
 
   let payload: AnalyticsReportResult;
@@ -1117,7 +1312,8 @@ export async function getAnalyticsReport(
         payload = await runTopPages(days, limit, contentRoot);
         break;
       case "page_detail":
-        payload = await runPageDetail(days, resolvedPaths!, contentRoot, resolveWarnings);
+        payload = await runPageDetail(days, resolvedPaths!, contentRoot, [...resolveWarnings, ...sourceWarnings]);
+        payload.source = "ga4";
         break;
       case "events_by_name":
         payload = await runEventsByName(days, limit, opts.event_names, contentRoot);

@@ -75,7 +75,7 @@ export function filtersFromArgs(args: LeadsBreakdownArgs): LeadsFilters {
 export function leadsQueryParams(args: LeadsBreakdownArgs, domain?: string): URLSearchParams {
   const p = leadsQueryToSearchParams({
     range: args.range ?? "30d",
-    include_test: args.include_test === true,
+    show: args.include_test === true ? "all" : "real",
     page: 1,
     filters: filtersFromArgs(args),
   });

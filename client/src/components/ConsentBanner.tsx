@@ -38,6 +38,7 @@ export function ConsentBanner() {
   const [visible, setVisible] = useState(false);
   const [reopened, setReopened] = useState(false);
   const shownRecorded = useRef(false);
+  const landingSaved = useRef(false);
   const staff = isStaffPath(location);
 
   const load = useCallback(async () => {
@@ -63,6 +64,12 @@ export function ConsentBanner() {
       if (!shownRecorded.current) {
         shownRecorded.current = true;
         void recordBannerShown(data.mode, data.country);
+      }
+      // Ads-first landing in a notice country: consent counts on landing; store it and keep the bar.
+      // index.html already granted it when the server knew the country; otherwise this is the first point we know.
+      if (!landingSaved.current && window.__4G_PAGE__?.af === 1 && data.mode === "notice") {
+        landingSaved.current = true;
+        void saveConsentDecision("granted_implied", "notice", data.country);
       }
     });
     return () => {

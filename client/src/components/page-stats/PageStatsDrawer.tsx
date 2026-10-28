@@ -1,4 +1,4 @@
-import { useRef, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BarChart3, Check, ChevronDown, Info, Loader2, RefreshCw } from "lucide-react";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
@@ -27,8 +27,11 @@ import {
   FUNNEL_STAGE_TAPER,
 } from "@/lib/funnel-stage-ui";
 import { FUNNEL_STAGES, type FunnelStage } from "@shared/funnel";
-import type { Finding, FindingLink, PageAdvice, PageStatsResponse, PageStatsScope } from "@shared/page-stats";
+import type { Finding, FindingLink, PageAdvice, PageStatsResponse, PageStatsScope, PageStatsTestView, TrafficSource } from "@shared/page-stats";
+import { shortDay } from "./format";
 import { AdvicePanel, ObjectiveCard, ObjectiveFunnel } from "./ObjectivePanel";
+import { CompareTable, TestViewHeader, VersionView, versionLabel } from "./PageStatsTestView";
+import { TEST_VIEW_QUERY_KEY } from "./test-view-context";
 import {
   EngagementSection,
   JourneySection,
@@ -54,15 +57,35 @@ type Props = {
   onExitComplete?: () => void;
 };
 
-async function fetchPageStats(path: string, scope: PageStatsScope, refresh: boolean): Promise<PageStatsResponse> {
+async function fetchPageStats(
+  path: string,
+  scope: PageStatsScope,
+  refresh: boolean,
+  source: TrafficSource | null,
+): Promise<PageStatsResponse> {
   const params = new URLSearchParams({ path, scope });
   if (refresh) params.set("refresh", "1");
+  if (source) params.set("source", source);
   const res = await apiFetch(`/api/analytics/page-stats?${params}`);
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(body?.error || `Request failed (${res.status})`);
   }
   return (await res.json()) as PageStatsResponse;
+}
+
+class NoTestError extends Error {}
+
+async function fetchTestView(path: string, refresh: boolean, source: TrafficSource): Promise<PageStatsTestView> {
+  const params = new URLSearchParams({ path, scope: "url", view: "test", source });
+  if (refresh) params.set("refresh", "1");
+  const res = await apiFetch(`/api/analytics/page-stats?${params}`);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string; code?: string } | null;
+    if (body?.code === "no_test") throw new NoTestError(body.error ?? "No test recorded.");
+    throw new Error(body?.error || `Request failed (${res.status})`);
+  }
+  return (await res.json()) as PageStatsTestView;
 }
 
 /** Page errors from the bubble come first: they can break everything else. */
@@ -110,8 +133,23 @@ function AdvancedInfo() {
           excluded. Time on page = until the next page view (or the last event on the page), capped at 30 minutes.
         </p>
         <p>
+          <span className="text-foreground">Site&apos;s own counts.</span> Content types with Optimize for ads use anonymous visits counted
+          by this site (<code>data/&lt;site&gt;/visits.db</code>): one visit = one page view, reloads and back-button returns excluded,
+          suspected low-quality visits (under 1 s, no interaction) reported apart. Same-stage benchmarks only use other ads-first pages
+          (5+ needed). Returning visitors still come from GA4.
+        </p>
+        <p>
           <span className="text-foreground">Campaign goal fit.</span> Meta objective / ad set optimization goal and Google campaign type
           compared with the page's stage (e.g. a Leads campaign on an awareness page is a mismatch).
+        </p>
+        <p>
+          <span className="text-foreground">Compare and version tabs (A/B tests).</span> GA4 view: visits matched by the{" "}
+          <code>experiment_exposure</code> event (<code>experiment_id</code>, <code>variant</code>); visitors without analytics consent
+          are not counted. Site&apos;s own counts: one visit = one counted page view, everyone counted, matched by URL + test dates (
+          <code>page_version</code>). Leads matched by ledger <code>experiment_id</code> + <code>variant</code>. Staff, bots, forced
+          previews and edit mode are never counted, so versions don&apos;t add up to All visitors. At most the last 90 days of a test.
+          Finished tests are kept in the A/B test state (<code>.versioning-state.json</code>, synced to Google Cloud from production; local
+          copies see them after a Cloud Sync download).
         </p>
         <p className="font-mono text-[10px]">server/analytics/page-stats/ · shared/page-objectives.ts · GET /api/analytics/page-stats</p>
       </PopoverContent>
@@ -130,6 +168,7 @@ function StageMenu({ stage, entry }: { stage: FunnelStage | null; entry: { conte
     onSuccess: (body, next) => {
       void queryClient.invalidateQueries({ queryKey: [`/api/content-types/${entry!.content_type}/funnel/${entry!.slug}`] });
       void queryClient.invalidateQueries({ queryKey: ["/api/analytics/page-stats"] });
+      void queryClient.invalidateQueries({ queryKey: [TEST_VIEW_QUERY_KEY] });
       toast({
         title: `Stage set to ${FUNNEL_STAGE_LABEL[next]}`,
         description: body.warnings?.[0]?.message ?? "Page stats now judge this page on its new job.",
@@ -200,12 +239,49 @@ function StageMenu({ stage, entry }: { stage: FunnelStage | null; entry: { conte
   );
 }
 
+/** Which numbers the drawer shows, with a one-click switch to the other source. */
+function SourceLine({ data, onSwitch }: { data: PageStatsResponse; onSwitch: (source: TrafficSource) => void }) {
+  const fp = data.sections.traffic.data?.first_party;
+  const switchButton = (label: string, to: TrafficSource) => (
+    <button
+      type="button"
+      className="underline underline-offset-2 hover:text-foreground"
+      onClick={() => onSwitch(to)}
+      data-testid={`button-page-stats-source-${to}`}
+    >
+      {label}
+    </button>
+  );
+  if (data.source === "first_party") {
+    return (
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground" data-testid="text-page-stats-source">
+        <span className="text-foreground">Visits counted by this site (everyone)</span>
+        {fp?.collecting_since && <span>· collecting since {shortDay(fp.collecting_since)}</span>}
+        {fp && !fp.enabled && fp.until && <span>· until {shortDay(fp.until)}</span>}
+        <span>·</span>
+        {switchButton("Google Analytics view", "ga4")}
+      </p>
+    );
+  }
+  if (!data.first_party_available) return null;
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground" data-testid="text-page-stats-source">
+      <span className="text-foreground">Google Analytics (consented visitors)</span>
+      <span>·</span>
+      {switchButton(
+        data.first_party_until ? `Site's own counts (until ${shortDay(data.first_party_until)})` : "Site's own counts",
+        "first_party",
+      )}
+    </p>
+  );
+}
+
 function LoadingState() {
   return (
     <div className="space-y-3" data-testid="page-stats-loading">
       <p className="flex items-center gap-2 text-xs text-muted-foreground">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        Reading GA4, Search Console, ads and leads. The first open takes a few seconds.
+        Reading visits, Search Console, ads and leads. The first open takes a few seconds.
       </p>
       <Skeleton className="h-48 w-full" />
       <Skeleton className="h-32 w-full" />
@@ -226,21 +302,46 @@ export function PageStatsDrawer({
   onExitComplete,
 }: Props) {
   const forceRefresh = useRef(false);
+  const [sourceOverride, setSourceOverride] = useState<{ path: string | null; source: TrafficSource } | null>(null);
+  const source = sourceOverride && sourceOverride.path === path ? sourceOverride.source : null;
   const resize = useResizableWidth({ storageKey: "page-stats-drawer-width", defaultWidth: 672, minWidth: 420, maxRatio: 0.8 });
   const query = useQuery({
-    queryKey: ["/api/analytics/page-stats", path, scope],
+    queryKey: ["/api/analytics/page-stats", path, scope, source],
     enabled: open && !!path,
     staleTime: 10 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
     queryFn: () => {
       const force = forceRefresh.current;
       forceRefresh.current = false;
-      return fetchPageStats(path!, scope, force);
+      return fetchPageStats(path!, scope, force, source);
     },
   });
   const data = query.data;
   const stage = data?.stage ?? null;
   const multiLocale = data ? Object.keys(data.locale_urls).length > 1 : false;
+
+  // "all" | "compare" | version slug; resets when the page or the language scope changes.
+  const tabKey = `${path ?? ""}|${scope}`;
+  const [tabState, setTabState] = useState<{ key: string; tab: string } | null>(null);
+  const requestedTab = tabState?.key === tabKey ? tabState.tab : "all";
+  const setTab = (tab: string) => setTabState({ key: tabKey, tab });
+  const test = scope === "url" ? data?.test ?? null : null;
+  const tabs = test ? ["all", "compare", ...test.versions] : ["all"];
+  const tab = tabs.includes(requestedTab) ? requestedTab : "all";
+  const missingVersion = tab !== requestedTab && requestedTab !== "compare" ? requestedTab : null;
+  const forceTestRefresh = useRef(false);
+  const testQuery = useQuery({
+    queryKey: [TEST_VIEW_QUERY_KEY, path, data?.source ?? null],
+    enabled: open && !!path && !!test && tab !== "all" && !!data,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+    retry: (count, err) => !(err instanceof NoTestError) && count < 2,
+    queryFn: () => {
+      const force = forceTestRefresh.current;
+      forceTestRefresh.current = false;
+      return fetchTestView(path!, force, data!.source);
+    },
+  });
 
   const handleLink = (link: FindingLink) => {
     switch (link.kind) {
@@ -270,7 +371,9 @@ export function PageStatsDrawer({
 
   const s = data?.sections;
   const markers = s?.changes.data?.markers ?? [];
-  const verdictInBadge = data?.objective?.primary.status === "too_little_data";
+  const primaryStatus = data?.objective?.primary.status;
+  const verdictInBadge =
+    primaryStatus === "too_little_data" || (primaryStatus === "on_track" && data?.advice.verdict.tone !== "warn");
   const sections = data && s
     ? (() => {
         const journey = (title: string) => <JourneySection key="journey" section={s.traffic} title={title} />;
@@ -285,7 +388,9 @@ export function PageStatsDrawer({
             onOpenAds={(platform) => handleLink({ kind: "ads_diagnostics", platform })}
           />
         );
-        const engagement = <EngagementSection key="engagement" section={s.traffic} />;
+        const engagement = (
+          <EngagementSection key="engagement" section={s.traffic} onCompareVersions={test ? () => setTab("compare") : undefined} />
+        );
         const links = <LinksSection key="links" section={s.links} />;
         switch (stage) {
           case "awareness":
@@ -343,17 +448,43 @@ export function PageStatsDrawer({
                 className="h-7 w-7"
                 aria-label="Refresh"
                 title="Re-read every source (skips the 10-minute cache)"
-                disabled={query.isFetching}
+                disabled={query.isFetching || testQuery.isFetching}
                 onClick={() => {
                   forceRefresh.current = true;
                   void query.refetch();
+                  if (tab !== "all") {
+                    forceTestRefresh.current = true;
+                    void testQuery.refetch();
+                  }
                 }}
                 data-testid="button-page-stats-refresh"
               >
-                <RefreshCw className={cn("h-3.5 w-3.5", query.isFetching && "animate-spin")} />
+                <RefreshCw className={cn("h-3.5 w-3.5", (query.isFetching || testQuery.isFetching) && "animate-spin")} />
               </Button>
             </div>
           </div>
+          {test && (
+            <div className="mt-3 overflow-x-auto">
+              <ToggleButtonBar value={tab} onValueChange={setTab} listTestId="toggle-page-stats-test">
+                <ToggleButtonBarTrigger value="all" data-testid="toggle-page-stats-test-all">
+                  All visitors
+                </ToggleButtonBarTrigger>
+                <ToggleButtonBarTrigger value="compare" data-testid="toggle-page-stats-test-compare">
+                  Compare
+                </ToggleButtonBarTrigger>
+                {test.versions.map((v) => (
+                  <ToggleButtonBarTrigger key={v} value={v} data-testid={`toggle-page-stats-test-${v}`}>
+                    {versionLabel(v)}
+                  </ToggleButtonBarTrigger>
+                ))}
+              </ToggleButtonBar>
+              {test.status === "ended" && test.ended_at && (
+                <p className="mt-1 text-[11px] text-muted-foreground" data-testid="text-page-stats-test-ended">
+                  Test ended {shortDay(test.ended_at)}
+                </p>
+              )}
+            </div>
+          )}
           <SheetDescription className="sr-only">
             How this page does at its job, where its visitors come from and go, and what to change first.
           </SheetDescription>
@@ -368,8 +499,47 @@ export function PageStatsDrawer({
             <div className="rounded-lg border border-status-busy/40 bg-status-busy/5 p-3 text-sm text-status-busy" data-testid="page-stats-error">
               Couldn't load page stats: {(query.error as Error).message}
             </div>
+          ) : data && tab !== "all" ? (
+            <>
+              <SourceLine data={data} onSwitch={(next) => setSourceOverride({ path, source: next })} />
+              {testQuery.isLoading ? (
+                <LoadingState />
+              ) : testQuery.error instanceof NoTestError ? (
+                <p className="text-sm text-muted-foreground" data-testid="page-stats-test-missing">
+                  This test is no longer recorded.{" "}
+                  <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => setTab("all")}>
+                    Show all visitors
+                  </button>
+                </p>
+              ) : testQuery.isError ? (
+                <div className="rounded-lg border border-status-busy/40 bg-status-busy/5 p-3 text-sm text-status-busy" data-testid="page-stats-test-error">
+                  Couldn't load the test view: {(testQuery.error as Error).message}
+                </div>
+              ) : testQuery.data ? (
+                <>
+                  <TestViewHeader data={testQuery.data} onLink={handleLink} />
+                  {tab === "compare" ? (
+                    <CompareTable data={testQuery.data} />
+                  ) : (
+                    <VersionView
+                      data={testQuery.data}
+                      version={tab}
+                      stage={stage}
+                      stageControl={<StageMenu stage={stage} entry={data.entry} />}
+                      onLink={handleLink}
+                    />
+                  )}
+                </>
+              ) : null}
+            </>
           ) : data ? (
             <>
+              {missingVersion && (
+                <p className="text-[11px] text-muted-foreground" data-testid="page-stats-version-missing">
+                  {versionLabel(missingVersion)} is no longer part of this test. Showing all visitors.
+                </p>
+              )}
+              <SourceLine data={data} onSwitch={(next) => setSourceOverride({ path, source: next })} />
               {data.objective ? (
                 <ObjectiveCard
                   objective={data.objective}
@@ -395,7 +565,7 @@ export function PageStatsDrawer({
                 </div>
               )}
               <AdvicePanel advice={withPageErrors(data.advice, pageErrorCount)} onLink={handleLink} hideVerdict={verdictInBadge} />
-              {data.objective && <ObjectiveFunnel objective={data.objective} />}
+              {data.objective && <ObjectiveFunnel objective={data.objective} source={data.source} />}
               {sections}
             </>
           ) : null}

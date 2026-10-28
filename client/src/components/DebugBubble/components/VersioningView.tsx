@@ -79,7 +79,7 @@ interface VersioningViewProps {
   pageDiagnosticsUrl?: string | null;
   pageDiagnosticsEntryKey?: string | null;
   onOpenPageErrors?: (tab: PageErrorsTab) => void;
-  /** Opens the page stats drawer; undefined hides the button (no metrics_view). */
+  /** Opens the page stats drawer, or a dialog explaining why it can't (no metrics_view, no public URL). */
   onOpenPageStats?: () => void;
 }
 
@@ -552,6 +552,24 @@ export function VersioningView({
       window.location.href = basePath;
     }
   };
+
+  const canCreateVariant = hasCapability("content_create_variant", contentInfo.type ?? undefined);
+
+  const renderNewVersionButton = (locale: string) =>
+    canCreateVariant ? (
+      <button
+        onClick={() => {
+          setCreateVersionLocale(locale);
+          setCreateVersionSlug("");
+          setCreateVersionOpen(true);
+        }}
+        className="p-1 rounded-md hover-elevate text-muted-foreground"
+        title="New version"
+        data-testid={`button-new-version-${locale}`}
+      >
+        <IconPlus className="h-3.5 w-3.5" />
+      </button>
+    ) : null;
 
   const handleEditDefault = (locale: string) => {
     const { type, slug } = contentInfo;
@@ -1056,10 +1074,13 @@ export function VersioningView({
       setTimeout(() => setSavedLocale(null), 4000);
       setEditingLocale(null);
       setTempAllocations({});
-    } catch {
+    } catch (err) {
       toast({
         title: "Failed to save",
-        description: "Could not update traffic allocation.",
+        description:
+          err instanceof Error && err.message
+            ? `Could not update traffic allocation: ${err.message}`
+            : "Could not update traffic allocation.",
         variant: "destructive",
       });
     } finally {
@@ -1369,7 +1390,7 @@ export function VersioningView({
                     </Badge>
                   </Button>
                 ) : null}
-                {onOpenPageStats && pageDiagnosticsUrl ? (
+                {onOpenPageStats ? (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -1701,15 +1722,18 @@ export function VersioningView({
                   const isDefaultActive = activeVariant === null;
                   return (
                     <div key={locale} className="px-2 py-2">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <span className="text-xs text-muted-foreground">
-                          {isTemplateVersioning ? "Live template for" : "Live version for"}
-                        </span>
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4 gap-1">
-                          <LocaleFlag locale={locale} className="w-3.5 h-2.5 rounded-sm" />
-                          {locale.toUpperCase()}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">locale</span>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-muted-foreground">
+                            {isTemplateVersioning ? "Live template for" : "Live version for"}
+                          </span>
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 leading-4 gap-1">
+                            <LocaleFlag locale={locale} className="w-3.5 h-2.5 rounded-sm" />
+                            {locale.toUpperCase()}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">locale</span>
+                        </div>
+                        {renderNewVersionButton(locale)}
                       </div>
                       <div className={isDefaultActive ? "rounded-md bg-primary/10 px-2 py-1 -mx-2" : ""}>
                         <div className="flex items-center justify-between text-sm gap-2">
@@ -1777,7 +1801,7 @@ export function VersioningView({
                     <p className="text-muted-foreground">
                       Use them for a new headline or CTA, a layout experiment, or a stakeholder preview.
                       They start at <strong>0% traffic</strong>; promote later if it wins.
-                      Click <strong>New</strong> to add one — a versioning file is created automatically then. You do not create it by hand.
+                      Click <strong>+</strong> next to a locale to add one — a versioning file is created automatically then. You do not create it by hand.
                     </p>
                   </>
                 ) : (
@@ -1847,28 +1871,19 @@ export function VersioningView({
                         </Badge>
                       )}
                     </div>
-                    {!isDraftEntry && (!isEditing ? (
+                    {!isEditing ? (
                       <div className="flex items-center gap-0.5">
-                        <button
-                          onClick={() => {
-                            setCreateVersionLocale(locale);
-                            setCreateVersionSlug("");
-                            setCreateVersionOpen(true);
-                          }}
-                          className="p-1 rounded-md hover-elevate text-muted-foreground"
-                          title="New version"
-                          data-testid={`button-new-version-${locale}`}
-                        >
-                          <IconPlus className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => openEditAllocations(locale)}
-                          className="p-1 rounded-md hover-elevate text-muted-foreground"
-                          title="Edit traffic allocation"
-                          data-testid={`button-edit-allocations-${locale}`}
-                        >
-                          <IconPencil className="h-3.5 w-3.5" />
-                        </button>
+                        {renderNewVersionButton(locale)}
+                        {!isDraftEntry && (
+                          <button
+                            onClick={() => openEditAllocations(locale)}
+                            className="p-1 rounded-md hover-elevate text-muted-foreground"
+                            title="Edit traffic allocation"
+                            data-testid={`button-edit-allocations-${locale}`}
+                          >
+                            <IconPencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <div className="flex items-center gap-1">
@@ -1901,7 +1916,7 @@ export function VersioningView({
                           <IconX className="h-3.5 w-3.5" />
                         </button>
                       </div>
-                    ))}
+                    )}
                   </div>
 
                   {isEditing && allocationSaveError && (

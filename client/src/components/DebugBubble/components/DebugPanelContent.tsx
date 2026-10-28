@@ -98,7 +98,7 @@ export interface DebugPanelContentProps {
   pathname: string;
   navigate: (path: string) => void;
   setSeoModalOpen: (v: boolean) => void;
-  /** Opens the page stats drawer (closes the bubble). Undefined when the viewer lacks metrics_view. */
+  /** Opens the page stats drawer (closes the bubble), or a dialog explaining why it can't. */
   openPageStats?: () => void;
   fetchSeoPreview: () => void;
 

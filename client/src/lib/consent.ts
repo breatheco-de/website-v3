@@ -14,6 +14,7 @@ import {
   type ConsentMode,
 } from '@shared/consent';
 import { clearRawCookie, readRawCookie } from './sessionCookie';
+import { getDebugToken } from '@/hooks/useDebugAuth';
 
 export type ConsentState = 'granted' | 'denied' | 'unset';
 
@@ -27,7 +28,8 @@ declare global {
   interface Window {
     gtag?: GtagFn;
     fbq?: FbqFn;
-    __4G_CONSENT__?: { decision: string | null; mode: string | null; granted: boolean };
+    __4G_CONSENT__?: { decision: string | null; mode: string | null; granted: boolean; landingImplied?: boolean };
+    __4G_PAGE__?: { af?: 0 | 1; cm?: "ask" | "notice" | null; fp?: 0 | 1; t?: string };
   }
 }
 
@@ -75,8 +77,12 @@ function pushSignals(granted: boolean): void {
   } catch {
     /* pixel not loaded */
   }
-  window.dataLayer.push({ event: 'consent_update', consent_state: granted ? 'granted' : 'denied' });
-  window.__4G_CONSENT__ = { ...(window.__4G_CONSENT__ ?? { decision: null, mode: null }), granted };
+  window.dataLayer.push({
+    is_staff: !!getDebugToken(),
+    event: 'consent_update',
+    consent_state: granted ? 'granted' : 'denied',
+  });
+  window.__4G_CONSENT__ = { ...(window.__4G_CONSENT__ ?? { decision: null, mode: null }), granted, landingImplied: false };
 }
 
 async function postConsent(body: Record<string, unknown>): Promise<boolean> {

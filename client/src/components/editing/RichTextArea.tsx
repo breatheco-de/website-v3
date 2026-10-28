@@ -11,6 +11,11 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { LinkPicker } from "@/components/editing/LinkPicker";
+import {
+  resolveLineHeightBlocks,
+  setBlockLineHeight,
+  syncLineHeightBlockFontSize,
+} from "@/components/editing/richTextLineHeight";
 
 interface ThemeColor {
   id: string;
@@ -274,6 +279,7 @@ function applyFontSize(
     const sameEnd = range.compareBoundaryPoints(Range.END_TO_END, wholeSpanRange) === 0;
     if (sameStart && sameEnd) {
       spanEl.style.fontSize = sizeValue;
+      syncLineHeightBlockFontSize(editableRef.current, spanEl);
       onChange(editableRef.current!.innerHTML);
       savedRangeRef.current = null;
       return;
@@ -302,6 +308,7 @@ function applyFontSize(
 
   span.appendChild(fragment);
   range.insertNode(span);
+  syncLineHeightBlockFontSize(editableRef.current, span);
 
   onChange(editableRef.current!.innerHTML);
   savedRangeRef.current = null;
@@ -329,45 +336,10 @@ function applyLineHeight(
   const range = sel.getRangeAt(0);
   if (range.collapsed) return;
 
-  let node: Node | null = range.commonAncestorContainer;
-  if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-  if (node?.nodeType === Node.ELEMENT_NODE && (node as Element).tagName === "SPAN") {
-    const spanEl = node as HTMLSpanElement;
-    const wholeSpanRange = document.createRange();
-    wholeSpanRange.selectNodeContents(spanEl);
-    const sameStart = range.compareBoundaryPoints(Range.START_TO_START, wholeSpanRange) === 0;
-    const sameEnd = range.compareBoundaryPoints(Range.END_TO_END, wholeSpanRange) === 0;
-    if (sameStart && sameEnd) {
-      spanEl.style.lineHeight = value;
-      onChange(editableRef.current!.innerHTML);
-      savedRangeRef.current = null;
-      return;
-    }
-  }
+  const blocks = resolveLineHeightBlocks(editableRef.current, range);
+  for (const block of blocks) setBlockLineHeight(block, value);
 
-  const span = document.createElement("span");
-  span.style.lineHeight = value;
-
-  const fragment = range.extractContents();
-  const spans: HTMLSpanElement[] = [];
-  const walk = (n: Node) => {
-    if (n.nodeType === Node.ELEMENT_NODE && (n as Element).tagName === "SPAN") {
-      spans.push(n as HTMLSpanElement);
-    }
-    n.childNodes.forEach(walk);
-  };
-  fragment.childNodes.forEach(walk);
-  for (const s of spans) {
-    if (s.style.lineHeight) {
-      s.style.lineHeight = "";
-      if (!s.style.cssText.trim()) s.removeAttribute("style");
-    }
-  }
-
-  span.appendChild(fragment);
-  range.insertNode(span);
-
-  onChange(editableRef.current!.innerHTML);
+  onChange(editableRef.current.innerHTML);
   savedRangeRef.current = null;
 }
 
@@ -1031,7 +1003,7 @@ export function RichTextArea({
               size="icon"
               className="h-8 w-8"
               onMouseDown={(e) => e.preventDefault()}
-              title="Line height"
+              title="Line height (applies to the whole paragraph)"
               data-testid={testId ? `${testId}-lineheight-trigger` : undefined}
             >
               <AlignJustify className="h-4 w-4" />

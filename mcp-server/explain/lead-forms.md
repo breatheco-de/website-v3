@@ -196,6 +196,7 @@ Every submit (`/api/leads` and `/api/leads/webhook-delivery`) is enriched server
 | `submission_id` | always | Per-submit id (client UUID, server fallback). Not the authored `event_id`. Also on the GTM conversion push. |
 | `is_test` | always (boolean) | Staff session (`X-Debug-Token`) or email matching `ads-config.yml` → `test_email_patterns` (legacy `settings.yml` → `ads.test_email_patterns` until migration 004 runs). Still delivered; excluded from Ads reports. |
 | `test_reason` | only when `is_test` | `staff_session` \| `email_pattern` |
+| `is_staff` | always (boolean) | `true` only for `test_reason: staff_session` (server-verified staff session). Email-pattern test leads are `is_test: true`, `is_staff: false`. Every GTM dataLayer push also carries `is_staff` (browser staff token), so GTM can skip conversion tags or set GA4 `traffic_type: internal`. |
 | `is_repeat` | always (boolean) | Same browser + same `conversion_name` within 24h. Still delivered; counted as a submission, not a lead. |
 | `repeat_of_submission_id` | only when `is_repeat` | First submission in the window. |
 | `gclid` `fbclid` `msclkid` `ttclid` `li_fat_id` … | when present | Per-platform click ids (`ppc_tracking_id` kept for back-compat). |
@@ -204,7 +205,7 @@ Every submit (`/api/leads` and `/api/leads/webhook-delivery`) is enriched server
 | `landing_url` / `conversion_url` | always | First page in this browser / page where the form was sent. |
 | `first_paid_landing_*` / `last_paid_landing_*` | when a paid visit was seen (≤30 days) | URL + ISO time. |
 | `ad_platform` | paid/unclear visits | `meta` \| `google` \| … |
-| `page_experiment_id` / `page_variant` | visitor saw a page test this visit | First test seen this visit (body, else cookie `4g_visit_exp`: 30 min, cross-tab), accepted only when it matches the visitor's assignment in `4g_versioning_v2`. `page_variant` is a variant slug or `default` (live page during the test). Id format `contentType:slug:locale@YYYY-MM-DD` (run start; no `@date` on tests started before run dates). Leads before the A/B tracking fix used a buggy split (Default's share went to the first variant). |
+| `experiment_id` / `variant` | visitor saw a page test this visit | Same names as GTM conversion pushes. First test seen this visit (form body `page_experiment_id`, else cookie `4g_visit_exp`: 30 min, cross-tab), accepted only when it matches the visitor's assignment in `4g_versioning_v2`; otherwise both are omitted (body values with these names are dropped). `variant` is a variant slug or `default` (live page during the test). Leads before 2026-10-27 used `page_experiment_id` / `page_variant`. Id format `contentType:slug:locale@YYYY-MM-DD` (run start; no `@date` on tests started before run dates). Leads before the A/B tracking fix used a buggy split (Default's share went to the first variant). |
 | `consent_state` | always | `granted` \| `denied` \| `unset` (tracking banner). |
 | `channel` `first_channel` `channel_landing_path` `referrer_host` | sent by current pages (session `entry_channel`) | Ledger-only: saved on `lead_submissions` (plus `last_organic_channel`, `country`, `traffic_status`), **stripped before the CRM**. Rules → topic `ads` (Lead channel). |
 
