@@ -44,6 +44,8 @@ function stats(over: Partial<LeadsStatsResponse> = {}, kpis: Partial<LeadsStatsR
       organic_share: 25,
       no_consent: 0,
       meta_unclear: 2,
+      test_staff: 0,
+      test_email: 0,
       ...kpis,
     },
     tracking_since: START - 10 * DAY,
@@ -84,7 +86,7 @@ describe("leadsQueryParams", () => {
       "4geeks.com",
     );
     expect(p.get("range")).toBe("90d");
-    expect(p.get("include_test")).toBe("1");
+    expect(p.get("show")).toBe("all");
     expect(p.get("source")).toBe("google");
     expect(p.get("medium")).toBe("(none)");
     expect(p.get("channel")).toBe("organic_search");

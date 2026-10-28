@@ -45,6 +45,7 @@ const reportSchema = z.object({
     .enum(ANALYTICS_ATTRIBUTIONS as unknown as [AnalyticsAttribution, ...AnalyticsAttribution[]])
     .optional(),
   item_id: z.string().optional(),
+  source: z.enum(["ga4", "first_party"]).optional(),
 });
 
 export function registerAnalyticsRoutes(app: Express): void {
@@ -64,6 +65,7 @@ export function registerAnalyticsRoutes(app: Express): void {
       event_names: req.query.event_names,
       attribution: req.query.attribution,
       item_id: req.query.item_id,
+      source: req.query.source,
     });
     if (!parsed.success) {
       return res.status(400).json({
@@ -83,6 +85,7 @@ export function registerAnalyticsRoutes(app: Express): void {
       event_names,
       attribution,
       item_id,
+      source,
     } = parsed.data;
     const eventList = event_names
       ? event_names
@@ -90,6 +93,7 @@ export function registerAnalyticsRoutes(app: Express): void {
           .map((s) => s.trim())
           .filter(Boolean)
       : undefined;
+    const site = res.locals.site as SiteLocals | undefined;
 
     try {
       const result = await getAnalyticsReport({
@@ -103,11 +107,15 @@ export function registerAnalyticsRoutes(app: Express): void {
         event_names: eventList,
         attribution,
         item_id,
+        source,
+        site: site?.contentRootName,
+        contentRoot: site?.contentRoot,
+        ci: site?.contentIndex,
       });
       res.json(result);
     } catch (err) {
       if (err instanceof AnalyticsReportValidationError) {
-        return res.status(400).json({ error: err.message });
+        return res.status(400).json(err.details ? { error: err.message, details: err.details } : { error: err.message });
       }
       log.error({ err }, "[AnalyticsRoutes] GET /api/analytics/report");
       res.status(500).json({ error: "Internal server error" });

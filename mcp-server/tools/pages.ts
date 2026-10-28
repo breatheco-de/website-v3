@@ -9861,7 +9861,7 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
             ads_optimized_note:
               "Staff-only toggle (content type dashboard → Optimize for ads; content-types.yml ads.optimize). update_content_type does not set it. " +
               "When true, pages of this type: load Tag Manager on page open; count as consented on landing in notice countries (ask countries unchanged); " +
-              "use the site's own anonymous visit counts (data/<site>/visits.db, no cookies) for page stats instead of GA4. " +
+              "use the site's own anonymous visit counts (data/<site>/visits.db, no cookies) for page stats and get_analytics_report page_detail instead of GA4. " +
               "Does not change page content, the Ads report, or Google Ads / Meta conversions.",
             field_patch_note:
               "Schema fields: MCP update_content_type with field_action add|update|remove (one field per call). " +

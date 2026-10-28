@@ -959,7 +959,7 @@ export function registerAdsRoutes(app: Express): void {
 
 /**
  * Leads page (/private/store/leads), metrics_view:
- *   GET /api/ads/leads        — newest-first page of 20 ledger leads (?range, include_test, page, filters)
+ *   GET /api/ads/leads        — newest-first page of 20 ledger leads (?range, show=real|all|test, page, filters; legacy include_test=1 = show=all)
  *   GET /api/ads/leads/stats  — KPIs, UTC timeline and breakdowns for the same params
  *   GET /api/ads/leads/:id    — one lead's full ledger row (no browser_hash); 404 when unknown
  */

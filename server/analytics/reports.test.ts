@@ -98,6 +98,37 @@ describe("getAnalyticsReport validation", () => {
     expect(result.rows).toEqual([]);
     expect(result.warnings.some((w) => w.code === "configure_at")).toBe(true);
   });
+
+  it("reads the calling site's settings, not the default site's", async () => {
+    const status = vi.spyOn(bq, "getBigQueryConfigStatus").mockReturnValue({
+      configured: false,
+      enabled: false,
+      settings: { enabled: false, project_id: "", dataset_id: "", location: "US", table_prefix: "events_" },
+      credentials_hint: "",
+      credentials_source: "none",
+      warnings: [],
+    });
+    await getAnalyticsReport({ report: "site_summary", days: 7, contentRoot: "/tmp/site_other" });
+    expect(status.mock.calls.length).toBeGreaterThan(0);
+    expect(status.mock.calls.every(([root]) => root === "/tmp/site_other")).toBe(true);
+  });
+
+  it("rejects source outside page_detail", async () => {
+    await expect(getAnalyticsReport({ report: "site_summary", source: "ga4" })).rejects.toBeInstanceOf(
+      AnalyticsReportValidationError,
+    );
+  });
+});
+
+describe("resolvePageDetailPaths site index", () => {
+  it("uses the passed site's content index", () => {
+    const ci = { getAlternateUrls: () => ({ en: "/en/other-site/page" }) } as unknown as Parameters<
+      typeof resolvePageDetailPaths
+    >[0]["ci"];
+    const r = resolvePageDetailPaths({ content_type: "blog", slug: "missing", ci });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.paths).toEqual(["/en/other-site/page"]);
+  });
 });
 
 function mockBqReady() {

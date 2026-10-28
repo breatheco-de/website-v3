@@ -4,8 +4,6 @@ import { useLocation, useSearch } from "wouter";
 import { Clock, Compass, FileText, FlaskConical, Info, LogIn, Package, Route, UserRound, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { PrivateHistoryBackButton } from "@/components/private/PrivateHistoryBackButton";
@@ -22,6 +20,8 @@ import {
   LEADS_NONE,
   LEADS_RANGES,
   LEADS_RANGE_LABELS,
+  LEADS_SHOW,
+  LEADS_SHOW_LABELS,
   LEADS_TTL_LABELS,
   hasLeadsFilters,
   leadsQueryToSearchParams,
@@ -30,12 +30,18 @@ import {
   type LeadsListResponse,
   type LeadsQuery,
   type LeadsRange,
+  type LeadsShow,
   type LeadsStatsResponse,
 } from "@shared/leads-query";
 import { isTrafficChannel, TRAFFIC_CHANNEL_LABELS } from "@shared/traffic-channel";
 
 const PAGE_PATH = "/private/store/leads";
-const DEFAULT_QUERY: LeadsQuery = { range: "30d", include_test: false, page: 1, filters: {} };
+const DEFAULT_QUERY: LeadsQuery = { range: "30d", show: "real", page: 1, filters: {} };
+const SHOW_TITLES: Record<LeadsShow, string> = {
+  real: "Hide test and repeat leads",
+  all: "Real, test and repeat leads together",
+  test: "Only leads flagged as tests (staff sessions or test emails)",
+};
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await apiFetch(url);
@@ -112,7 +118,7 @@ function LeadsPageInner() {
     setLocation(qs ? `${PAGE_PATH}?${qs}` : PAGE_PATH, { replace: true });
   };
   const setRange = (range: LeadsRange) => navigate({ ...query, range, page: 1 });
-  const setIncludeTest = (include_test: boolean) => navigate({ ...query, include_test, page: 1 });
+  const setShow = (show: LeadsShow) => navigate({ ...query, show, page: 1 });
   const setPage = (page: number) => navigate({ ...query, page });
   const addFilter = (filter: LeadsFilters) => navigate({ ...query, page: 1, filters: { ...query.filters, ...filter } });
   const removeFilters = (keys: (keyof LeadsFilters)[]) => {
@@ -181,9 +187,11 @@ function LeadsPageInner() {
                   <PopoverContent align="start" className="w-96 space-y-2 text-xs text-muted-foreground leading-relaxed">
                     <p className="font-medium text-foreground text-sm">Read more (advanced)</p>
                     <p>
-                      <span className="text-foreground">Test and repeat leads</span> are hidden unless you turn on Show test/repeat. A lead is a
-                      test when it was sent from a staff session or matches a test email pattern (Settings → Ads). A repeat is the same
-                      browser sending the same form again within 24 hours.
+                      <span className="text-foreground">Real leads</span> leaves out test and repeat leads; <span className="text-foreground">All</span>{" "}
+                      adds them back; <span className="text-foreground">Test only</span> shows just the tests. A lead is a test when it was
+                      sent from a staff session or matches a test email pattern (Settings → Ads), decided when it is submitted (
+                      <code>is_test</code>, <code>test_reason</code>). A repeat is the same browser sending the same form again within 24
+                      hours.
                     </p>
                     <p>
                       <span className="text-foreground">Paid</span> means the visit came from an ad platform (click ID or paid UTMs). A
@@ -231,17 +239,13 @@ function LeadsPageInner() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 shrink-0">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="leads-include-test"
-                checked={query.include_test}
-                onCheckedChange={(v) => setIncludeTest(v === true)}
-                data-testid="switch-leads-include-test"
-              />
-              <Label htmlFor="leads-include-test" className="text-xs font-normal text-muted-foreground">
-                Show test/repeat
-              </Label>
-            </div>
+            <ToggleButtonBar value={query.show} onValueChange={(v) => setShow(v as LeadsShow)} listTestId="toggle-leads-show">
+              {LEADS_SHOW.map((s) => (
+                <ToggleButtonBarTrigger key={s} value={s} title={SHOW_TITLES[s]} data-testid={`toggle-leads-show-${s}`}>
+                  {LEADS_SHOW_LABELS[s]}
+                </ToggleButtonBarTrigger>
+              ))}
+            </ToggleButtonBar>
             <ToggleButtonBar value={query.range} onValueChange={(v) => setRange(v as LeadsRange)} listTestId="toggle-leads-range">
               {LEADS_RANGES.map((r) => (
                 <ToggleButtonBarTrigger key={r} value={r} data-testid={`toggle-leads-range-${r}`}>
@@ -258,6 +262,14 @@ function LeadsPageInner() {
         {error && (
           <p className="text-sm text-destructive" data-testid="text-leads-error">
             Could not load leads: {error.message}
+          </p>
+        )}
+
+        {query.show === "test" && stats.data && (
+          <p className="text-xs text-muted-foreground" data-testid="text-leads-test-reasons">
+            {stats.data.kpis.in_range > 0
+              ? `Test leads in this range: ${stats.data.kpis.test_staff.toLocaleString()} from staff sessions, ${stats.data.kpis.test_email.toLocaleString()} from test email patterns (Settings → Ads). Real leads are hidden.`
+              : "No test leads in this range. A lead counts as a test when it is sent while logged in as staff or from an email that matches a test pattern (Settings → Ads)."}
           </p>
         )}
 
@@ -397,6 +409,7 @@ function LeadsPageInner() {
         <LeadsTable
           data={list.data}
           loading={list.isLoading}
+          show={query.show}
           hasFilters={filtersActive}
           onClearFilters={clearFilters}
           onPage={setPage}

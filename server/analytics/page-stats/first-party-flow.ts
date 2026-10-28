@@ -27,20 +27,14 @@ import { stageRank } from "@shared/page-objectives";
 import { stageOfPath, type PathStageIndex } from "./resolve";
 import { relationTo } from "./ga4-flow";
 import { listWindows, type TypeWindow } from "../first-party/windows";
+import { goodVisitSql, lowQualitySql, SUMMARY_GRACE_MS } from "../first-party/visit-quality";
 
 export type FirstPartyWindow = { current: { start: string; end: string }; prior: { start: string; end: string } };
 
-/** Missing summary after this long = final (counted, not engaged). */
-const SUMMARY_GRACE_MS = 30 * 60 * 1000;
 const SCROLL_DEPTHS = [25, 50, 75, 90] as const;
 
 function placeholders(n: number): string {
   return Array.from({ length: n }, () => "?").join(", ");
-}
-
-/** SQL for "suspected low quality": marked on summary, or never visible with no summary after the grace period. */
-function lowQualitySql(staleBefore: number): string {
-  return `(low_quality = 1 OR (summary_received = 0 AND never_visible = 1 AND arrived_at < ${Math.floor(staleBefore)}))`;
 }
 
 type Grouped = {
@@ -92,7 +86,7 @@ type Ctx = {
 };
 
 function goodSql(ctx: Ctx): string {
-  return `counted_visit = 1 AND NOT ${lowQualitySql(ctx.staleBefore)}`;
+  return goodVisitSql(ctx.staleBefore);
 }
 
 function grouped(ctx: Ctx, keyExpr: string, where: string, params: unknown[], paths = ctx.paths): Grouped[] {

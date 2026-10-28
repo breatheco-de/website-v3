@@ -26,6 +26,15 @@ export const LEADS_RANGE_LABELS: Record<LeadsRange, string> = {
 };
 const RANGE_DAYS: Record<Exclude<LeadsRange, "all">, number> = { "7d": 7, "30d": 30, "90d": 90 };
 
+/** Which leads are in view: real (no test, no repeat), all, or test leads only. */
+export const LEADS_SHOW = ["real", "all", "test"] as const;
+export type LeadsShow = (typeof LEADS_SHOW)[number];
+export const LEADS_SHOW_LABELS: Record<LeadsShow, string> = {
+  real: "Real leads",
+  all: "All",
+  test: "Test only",
+};
+
 export const LEADS_TTL_BUCKETS = ["under_1d", "1_3d", "4_7d", "8_30d", "31d_plus"] as const;
 export type LeadsTtlBucket = (typeof LEADS_TTL_BUCKETS)[number];
 export const LEADS_TTL_LABELS: Record<LeadsTtlBucket, string> = {
@@ -88,7 +97,7 @@ export type LeadsFilterKey = (typeof LEADS_FILTER_KEYS)[number];
 
 export type LeadsQuery = {
   range: LeadsRange;
-  include_test: boolean;
+  show: LeadsShow;
   page: number;
   filters: LeadsFilters;
 };
@@ -100,6 +109,8 @@ const boolParam = z
 
 export const leadsQuerySchema = z.object({
   range: z.enum(LEADS_RANGES).default("30d"),
+  show: z.enum(LEADS_SHOW).optional(),
+  /** Legacy (old links, get_leads_breakdown): include_test=1 means show=all. */
   include_test: boolParam.default("0"),
   page: z.coerce.number().int().min(1).max(100_000).default(1),
   source: filterValue.optional(),
@@ -135,20 +146,20 @@ export function parseLeadsQuery(
     const issue = parsed.error.issues[0];
     return { ok: false, error: `Invalid ${issue?.path.join(".") || "query"}: ${issue?.message ?? "bad value"}` };
   }
-  const { range, include_test, page, ...rest } = parsed.data;
+  const { range, show, include_test, page, ...rest } = parsed.data;
   const filters: LeadsFilters = {};
   for (const key of LEADS_FILTER_KEYS) {
     const v = rest[key];
     if (v !== undefined) (filters as Record<string, string>)[key] = key === "source" || key === "medium" ? normalizeUtmKey(v) : v;
   }
-  return { ok: true, query: { range, include_test, page, filters } };
+  return { ok: true, query: { range, show: show ?? (include_test ? "all" : "real"), page, filters } };
 }
 
 /** Client URL / API query string. Defaults are omitted to keep URLs short. */
 export function leadsQueryToSearchParams(q: Partial<LeadsQuery>): URLSearchParams {
   const p = new URLSearchParams();
   if (q.range && q.range !== "30d") p.set("range", q.range);
-  if (q.include_test) p.set("include_test", "1");
+  if (q.show && q.show !== "real") p.set("show", q.show);
   if (q.page && q.page > 1) p.set("page", String(q.page));
   for (const key of LEADS_FILTER_KEYS) {
     const v = q.filters?.[key];
@@ -363,7 +374,7 @@ export type LeadsStatsResponse = {
   /** First recorded lead (any kind), or null when the ledger is empty. */
   collecting_since: number | null;
   kpis: {
-    /** Full retention (25 months); ignores range and filters, honors include_test. */
+    /** Full retention (25 months); ignores range and filters, honors show. */
     total_all_time: number;
     in_range: number;
     previous: number | null;
@@ -380,6 +391,9 @@ export type LeadsStatsResponse = {
     /** Leads in view from visitors without tracking consent (denied or no choice). */
     no_consent: number;
     meta_unclear: number;
+    /** Test leads in view by why they were flagged (both 0 when show is real). */
+    test_staff: number;
+    test_email: number;
   };
   /** First non-test lead with a channel; null until channel tracking records one. */
   tracking_since: number | null;

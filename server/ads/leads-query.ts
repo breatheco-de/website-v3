@@ -35,6 +35,7 @@ import {
   type LeadsLocalCopy,
   type LeadsOffConventionValue,
   type LeadsQuery,
+  type LeadsShow,
   type LeadsStatsResponse,
   type LeadsTimelinePoint,
   type LeadsTimelineSeries,
@@ -86,17 +87,18 @@ function nullableEq(column: string, value: string, conds: string[], params: (str
 }
 
 /**
- * Parameterized WHERE for the include_test toggle, filter chips and an optional time window.
+ * Parameterized WHERE for the show selector, filter chips and an optional time window.
  * `trackingIndex` resolves persona ids for the funnel_persona filter on rows without pairs.
  */
 export function buildLeadsWhere(
-  q: { include_test: boolean; filters: LeadsFilters },
+  q: { show: LeadsShow; filters: LeadsFilters },
   window?: Window | null,
   trackingIndex?: FunnelIndex,
 ): Where {
   const conds: string[] = [];
   const params: (string | number)[] = [];
-  if (!q.include_test) conds.push("is_test = 0 AND is_repeat = 0");
+  if (q.show === "real") conds.push("is_test = 0 AND is_repeat = 0");
+  else if (q.show === "test") conds.push("is_test = 1");
   if (window) {
     conds.push("created_at >= ?");
     params.push(window.startMs);
@@ -429,7 +431,7 @@ export function productSince(site: string): number | null {
 
 export function getLeadsStats(
   site: string,
-  q: Pick<LeadsQuery, "range" | "include_test" | "filters">,
+  q: Pick<LeadsQuery, "range" | "show" | "filters">,
   opts: {
     convention?: UtmConvention;
     grace?: UtmGrace | null;
@@ -449,7 +451,7 @@ export function getLeadsStats(
   const count = (w: Where, extra?: string): number =>
     (db.prepare(`SELECT COUNT(*) AS n FROM lead_submissions ${extra ? and(w, extra) : w.sql}`).get(...w.params) as { n: number }).n;
 
-  const totalAllTime = count(buildLeadsWhere({ include_test: q.include_test, filters: {} }));
+  const totalAllTime = count(buildLeadsWhere({ show: q.show, filters: {} }));
   const kpiRow = db
     .prepare(
       `SELECT COUNT(*) AS n,
@@ -458,7 +460,9 @@ export function getLeadsStats(
               COALESCE(SUM(CASE WHEN channel IS NOT NULL THEN 1 ELSE 0 END), 0) AS tracked,
               COALESCE(SUM(CASE WHEN channel = 'organic_search' AND NOT ${PAID_SQL} THEN 1 ELSE 0 END), 0) AS organic_search,
               COALESCE(SUM(CASE WHEN ${NO_CONSENT_SQL} THEN 1 ELSE 0 END), 0) AS no_consent,
-              COALESCE(SUM(CASE WHEN ${UNCLEAR_SQL} AND NOT ${PAID_SQL} THEN 1 ELSE 0 END), 0) AS meta_unclear
+              COALESCE(SUM(CASE WHEN ${UNCLEAR_SQL} AND NOT ${PAID_SQL} THEN 1 ELSE 0 END), 0) AS meta_unclear,
+              COALESCE(SUM(CASE WHEN is_test = 1 AND test_reason = 'staff_session' THEN 1 ELSE 0 END), 0) AS test_staff,
+              COALESCE(SUM(CASE WHEN is_test = 1 AND test_reason = 'email_pattern' THEN 1 ELSE 0 END), 0) AS test_email
        FROM lead_submissions ${where.sql}`,
     )
     .get(...where.params) as {
@@ -469,6 +473,8 @@ export function getLeadsStats(
     organic_search: number;
     no_consent: number;
     meta_unclear: number;
+    test_staff: number;
+    test_email: number;
   };
   const inRange = kpiRow.n;
   const previous = bounds.previous ? count(buildLeadsWhere(q, bounds.previous, trackingIndex)) : null;
@@ -555,6 +561,8 @@ export function getLeadsStats(
       organic_share: sharePct(kpiRow.organic_search, kpiRow.tracked),
       no_consent: kpiRow.no_consent,
       meta_unclear: kpiRow.meta_unclear,
+      test_staff: kpiRow.test_staff,
+      test_email: kpiRow.test_email,
     },
     tracking_since: trackingSince(site),
     product_since: productSince(site),

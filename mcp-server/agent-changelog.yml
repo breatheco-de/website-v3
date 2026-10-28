@@ -6,6 +6,28 @@ window_days: 6
 
 entries:
   - date: "2026-10-27"
+    summary: "get_analytics_report page_detail uses the site's own visit counts on Optimize for ads pages; every report is site-aware"
+    agent_impact:
+      - "page_detail picks its source like the staff page-stats drawer and returns source (ga4 | first_party). New optional source arg (page_detail only). first_party: same views/sessions, top_events [], totals.interactions + low_quality_excluded, low_sample below 100 sessions. One session = one counted view, not comparable with GA4."
+      - "first_party never stitches GA4. days passed and reaching outside the latest on-period fails (details.max_days / available_from); days omitted shortens (days_shortened, window_start / window_end). Explicit first_party on a never-flagged type fails; on a switched-off type the window ends on the switch-off day (window_end_shifted)."
+      - "Every get_analytics_report now reads the site it is called for. Before, all sites read the default site's BigQuery settings and pages, so numbers for non-default sites may change or show not_configured."
+    tools_changed: false
+    paths:
+      - server/analytics/reports.ts
+      - server/analytics/first-party/page-detail.ts
+      - server/routes/analytics.ts
+      - mcp-server/tools/analytics.ts
+      - mcp-server/explain/analytics.md
+  - date: "2026-10-27"
+    summary: "get_leads_breakdown kpis add test_staff / test_email; Leads page can show test leads only"
+    agent_impact:
+      - "kpis.test_staff / kpis.test_email count test leads in view by reason (staff_session / email_pattern). Both are 0 unless include_test is true, since test leads are excluded by default. Args unchanged."
+      - "The staff Leads page now has Real leads / All / Test only (URL ?show=real|all|test). The API still accepts include_test=1 as show=all; the tool has no test-only mode."
+    tools_changed: false
+    paths:
+      - shared/leads-query.ts
+      - server/ads/leads-query.ts
+  - date: "2026-10-27"
     summary: "Lead webhook sends the page test as experiment_id / variant (was page_experiment_id / page_variant)"
     agent_impact:
       - "CRM lead fields renamed to match GTM conversion pushes: experiment_id (contentType:slug:locale@YYYY-MM-DD) and variant (slug or default). Same rule: visit's first test, only when it matches the visitor's 4g_versioning_v2 assignment; otherwise both omitted."

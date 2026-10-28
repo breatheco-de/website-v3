@@ -29,6 +29,10 @@ export type DiscoveryCtx = {
   dbEntrySlug?: string;
   dbEntryLocale?: string;
   dbEntryContentType?: string;
+  /** A page whose content type has "Optimize for ads" on (site's own visit counts). */
+  adsEntrySlug?: string;
+  adsEntryLocale?: string;
+  adsEntryContentType?: string;
 };
 
 export type ScenarioClass = "normal" | "docs";
@@ -538,6 +542,20 @@ export const SCENARIOS: Scenario[] = [
     about:
       "GA4 BigQuery traffic_source_conversions (default session_last_click, no item_id). Soft N.C. when tracking.bigquery is unset.",
     buildArgs: (ctx) => withSite(ctx, { report: "traffic_source_conversions" }),
+  },
+  {
+    id: "get_analytics_report_page_detail_first_party",
+    tool: "get_analytics_report",
+    about:
+      "page_detail on an Optimize for ads page: site's own visit counts from visits.db (flushes buffered visits, then one SQLite read). Default days; a not-yet-covered window returns an error, which still measures the path.",
+    buildArgs: (ctx) =>
+      withSite(ctx, {
+        report: "page_detail",
+        content_type: ctx.adsEntryContentType,
+        slug: ctx.adsEntrySlug,
+        locale: ctx.adsEntryLocale,
+      }),
+    skipIf: (ctx) => (ctx.adsEntrySlug ? null : "no Optimize for ads page in inventory"),
   },
   {
     id: "get_paid_traffic_summary",

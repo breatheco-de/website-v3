@@ -75,16 +75,20 @@ function row(over: Partial<LedgerRow>): LedgerRow {
 }
 
 function q(over: Partial<LeadsQuery> = {}): LeadsQuery {
-  return { range: "30d", include_test: false, page: 1, filters: {}, ...over };
+  return { range: "30d", show: "real", page: 1, filters: {}, ...over };
 }
 
 describe("leads query (shared helpers)", () => {
   it("parses URL params, normalizes UTM filters and drops defaults when serializing", () => {
-    const parsed = parseLeadsQuery(new URLSearchParams("range=7d&include_test=1&page=3&source= Google &medium=CPC"));
+    const parsed = parseLeadsQuery(new URLSearchParams("range=7d&show=test&page=3&source= Google &medium=CPC"));
     expect(parsed).toEqual({
       ok: true,
-      query: { range: "7d", include_test: true, page: 3, filters: { source: "google", medium: "cpc" } },
+      query: { range: "7d", show: "test", page: 3, filters: { source: "google", medium: "cpc" } },
     });
+    expect(parseLeadsQuery({ include_test: "1" })).toMatchObject({ ok: true, query: { show: "all" } });
+    expect(parseLeadsQuery({ show: "real", include_test: "1" })).toMatchObject({ ok: true, query: { show: "real" } });
+    expect(parseLeadsQuery({ show: "bogus" }).ok).toBe(false);
+    expect(leadsQueryToSearchParams(q({ show: "test" })).toString()).toBe("show=test");
     expect(parseLeadsQuery({ range: "1y" }).ok).toBe(false);
     expect(parseLeadsQuery({ ttl: "nope" }).ok).toBe(false);
     expect(leadsQueryToSearchParams(q()).toString()).toBe("");
@@ -154,7 +158,7 @@ describe("leads query (shared helpers)", () => {
   });
 
   it("builds parameterized SQL (values never interpolated)", () => {
-    const w = buildLeadsWhere({ include_test: false, filters: { source: "x'; DROP TABLE lead_submissions; --", conversion_path: LEADS_NONE } });
+    const w = buildLeadsWhere({ show: "real", filters: { source: "x'; DROP TABLE lead_submissions; --", conversion_path: LEADS_NONE } });
     expect(w.sql).not.toContain("DROP");
     expect(w.params).toEqual(["x'; drop table lead_submissions; --"]);
     expect(w.sql).toContain("conversion_path IS NULL");
@@ -195,15 +199,22 @@ describe("leads query (database)", () => {
     expect(getLeadDetail(SITE, "missing-lead")).toBeNull();
   });
 
-  it("hides test and repeat leads unless the toggle is on", () => {
+  it("shows real leads by default, everything with all, and only test leads with test", () => {
     insertLedgerRow(SITE, row({}));
     insertLedgerRow(SITE, row({ is_test: 1, test_reason: "staff_session" }));
     insertLedgerRow(SITE, row({ is_repeat: 1, repeat_of: "lead-0001" }));
+    insertLedgerRow(SITE, row({ is_test: 1, test_reason: "email_pattern", is_repeat: 1, repeat_of: "lead-0002" }));
     expect(listLeadsPage(SITE, q(), NOW).total).toBe(1);
-    expect(listLeadsPage(SITE, q({ include_test: true }), NOW).total).toBe(3);
+    expect(listLeadsPage(SITE, q({ show: "all" }), NOW).total).toBe(4);
+    const tests = listLeadsPage(SITE, q({ show: "test" }), NOW);
+    expect(tests.total).toBe(2);
+    expect(tests.rows.every((r) => r.is_test === 1)).toBe(true);
     const s = getLeadsStats(SITE, q(), { nowMs: NOW });
     expect(s.kpis.total_all_time).toBe(1);
-    expect(getLeadsStats(SITE, q({ include_test: true }), { nowMs: NOW }).kpis.total_all_time).toBe(3);
+    expect(s.kpis).toMatchObject({ test_staff: 0, test_email: 0 });
+    expect(getLeadsStats(SITE, q({ show: "all" }), { nowMs: NOW }).kpis.total_all_time).toBe(4);
+    const t = getLeadsStats(SITE, q({ show: "test" }), { nowMs: NOW });
+    expect(t.kpis).toMatchObject({ total_all_time: 2, in_range: 2, test_staff: 1, test_email: 1 });
   });
 
   it("uses UTC day edges for ranges and the timeline", () => {
