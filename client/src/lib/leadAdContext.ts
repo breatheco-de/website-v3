@@ -14,10 +14,30 @@ export function newSubmissionId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
-/** Staff token header so the server can flag staff test leads (`is_test`, reason staff_session). */
+/** Staff token header so the server can flag staff test leads (`is_test` + `is_staff`, reason staff_session). */
 export function staffLeadHeaders(): Record<string, string> {
   const token = getDebugToken();
   return token ? { 'X-Debug-Token': token } : {};
+}
+
+const STAFF_SUBMIT_ACK_KEY = '4g_staff_lead_submit_ack';
+
+/** Staff must confirm a lead submit unless they chose "don't ask again" this browser session. */
+export function needsStaffSubmitConfirm(): boolean {
+  if (!getDebugToken()) return false;
+  try {
+    return sessionStorage.getItem(STAFF_SUBMIT_ACK_KEY) !== '1';
+  } catch {
+    return true;
+  }
+}
+
+export function skipStaffSubmitConfirmThisSession(): void {
+  try {
+    sessionStorage.setItem(STAFF_SUBMIT_ACK_KEY, '1');
+  } catch {
+    /* storage blocked: ask again next time */
+  }
 }
 
 export function buildLeadAdContext(

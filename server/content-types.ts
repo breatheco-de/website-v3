@@ -41,6 +41,15 @@ export interface ContentTypeProductsConfig {
   allow_sellable_entries?: boolean;
 }
 
+/**
+ * Ads-first treatment. Omitted / false = off. When on: Tag Manager loads on page open,
+ * implied consent on landing in notice countries, and the site's own anonymous visit
+ * counts (data/<site>/visits.db) power page stats instead of GA4.
+ */
+export interface ContentTypeAdsConfig {
+  optimize?: boolean;
+}
+
 export interface LayoutMenuConfig {
   top: string | null;
   bottom: string | null;
@@ -183,6 +192,8 @@ export interface ContentTypeEntry {
    * for back-compat when the type already has purchasable products).
    */
   products?: ContentTypeProductsConfig;
+  /** Ads-first landing treatment (staff toggle on the content type dashboard). */
+  ads?: ContentTypeAdsConfig;
   /**
    * Type-level strategy brief for staff/agents (main why of this content type).
    * Required before any editor.required true|attached. Context only for field fill_intent.
@@ -491,6 +502,18 @@ export function getContentTypeConfig(type: string, contentRoot?: string): Conten
   const reg = loadRegistry(contentRoot);
   const singular = getType(type, contentRoot);
   return reg.types[singular];
+}
+
+export function isAdsOptimizedType(type: string, contentRoot?: string): boolean {
+  return getContentTypeConfig(type, contentRoot)?.ads?.optimize === true;
+}
+
+/** Content types with "Optimize for ads" on (registry keys). */
+export function getAdsOptimizedTypes(contentRoot?: string): string[] {
+  const reg = loadRegistry(contentRoot);
+  return Object.entries(reg.types)
+    .filter(([, cfg]) => cfg.ads?.optimize === true)
+    .map(([key]) => key);
 }
 
 export function getPreviewConfig(
@@ -1220,7 +1243,9 @@ export function hasFieldMapping(type: string, contentRoot?: string): boolean {
   return !!getFieldMapping(type, contentRoot);
 }
 
-export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview" | "editor" | "seo_monitoring" | "funnel" | "products" | "strategy">> & {
+export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview" | "editor" | "seo_monitoring" | "funnel" | "products" | "strategy" | "ads">> & {
+  /** Pass `null` to remove ads (same as omitted = off). */
+  ads?: ContentTypeAdsConfig | null;
   /** Pass `null` to unlink a database-backed type (removes the `database` key). */
   database?: DatabaseConfig | null;
   /** Pass `null` to remove preview screenshot config. */
@@ -1259,6 +1284,7 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     funnel: funnelUpdate,
     products: productsUpdate,
     strategy: strategyUpdate,
+    ads: adsUpdate,
     ...rest
   } = update;
   const merged: ContentTypeEntry = { ...existing, ...rest };
@@ -1312,6 +1338,16 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     delete merged.strategy;
   } else if (strategyUpdate) {
     merged.strategy = strategyUpdate;
+  }
+
+  if (adsUpdate === null) {
+    delete merged.ads;
+  } else if (adsUpdate) {
+    if (adsUpdate.optimize === true) {
+      merged.ads = { optimize: true };
+    } else {
+      delete merged.ads;
+    }
   }
 
   // Database-backed types always use a shared template.

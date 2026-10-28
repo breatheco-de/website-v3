@@ -20,7 +20,7 @@ Related runbooks (kept separate on purpose):
 | Lab TLS | Let’s Encrypt on **sslip** hostnames only |
 | Prod DNS cutover | App done; metrics / sGTM — see [§9 Cutover](#9-cutover-pending) |
 
-Security model: **origin behind Cloudflare** (orange proxy, SSL Full or Full strict), not a site meant to be browsed only by raw IP.
+Security model: **no CDN or proxy in front**. DNS points straight at the droplet; Nginx terminates TLS (Let’s Encrypt) and sees real visitor IPs. Not a site meant to be browsed only by raw IP.
 
 Verify droplet IP / hostname in DigitalOcean; do not treat IPs in older notes as source of truth.
 
@@ -247,8 +247,7 @@ Until the web service flip, `deploy.sh` still builds releases and updates `curre
 
 ```text
 Internet
-  → Cloudflare (WAF, TLS to visitor)
-  → Droplet Nginx :443
+  → Droplet Nginx :443 (TLS, Let’s Encrypt)
        → 127.0.0.1:5000  Express (pages, API, /ipn/, /mcp proxy, …)
        → sGTM Docker     (metrics host; /gtm/ → preview)
             → 127.0.0.1:8080 tagging
@@ -313,10 +312,10 @@ No secret values in this doc.
 - Never commit tokens or paste them into chat/logs.
 - Do not leave permanent `127.0.0.1 metrics.4geeks.com` in `/etc/hosts`.
 
-**TLS / Cloudflare**
+**TLS**
 
 - Certbot per hostname only when that DNS already points at the droplet.
-- Cloudflare SSL: Full or Full (strict) once origin has a real cert. Avoid Flexible.
+- Nginx serves the certificate directly to visitors (no proxy in between), so renewals must keep working: `certbot renew --dry-run` after changes.
 
 ### 7.2 Controls already applied (summary)
 
@@ -361,9 +360,11 @@ MCP OAuth persistence across redeploys: see [`docs/runbooks/mcp-oauth-persistenc
 
 ### 7.5 Headers, rate limit, fail2ban nginx
 
-Priority: **(1)** Cloudflare WAF + headers + API rate limits, **(2)** Cloudflare real IP on Nginx, **(3)** optional fail2ban nginx jail only after real IP is correct (otherwise you ban Cloudflare edges).
+Priority: **(1)** Nginx headers + API rate limits, **(2)** optional fail2ban nginx jail. With nothing in front of Nginx, the connecting IP is the visitor’s, so the jail bans real clients (no proxy edges to protect).
 
-Suggested headers at origin and/or CF: `X-Content-Type-Options`, strict `Referrer-Policy`, frame policy / CSP as needed, HSTS only when visitors use prod HTTPS hostnames (not long HSTS on lab sslip).
+Suggested headers at origin (Nginx): `X-Content-Type-Options`, strict `Referrer-Policy`, frame policy / CSP as needed, HSTS only when visitors use prod HTTPS hostnames (not long HSTS on lab sslip).
+
+There is no CDN country header: code that needs the visitor’s country uses the IP lookup in `server/ads/visitor-country.ts` (cached per IP).
 
 Rate limit APIs/forms/`/mcp`, not a blunt global RPS on all static assets.
 
@@ -397,7 +398,7 @@ Rate limit APIs/forms/`/mcp`, not a blunt global RPS on all static assets.
 | Health | web `:5000/health`; MCP `:3001/health`; Sidequest liveness `data/sidequest.pid` |
 | sGTM | `/opt/sgtm` Docker compose |
 
-IP, hostname, and which DNS records already point here: check DigitalOcean + Cloudflare, not this file.
+IP, hostname, and which DNS records already point here: check DigitalOcean and the domain’s DNS provider, not this file.
 
 ---
 
@@ -409,23 +410,22 @@ IP, hostname, and which DNS records already point here: check DigitalOcean + Clo
 
 ### A — sGTM first (metrics only)
 
-1. Cloudflare: `metrics.4geeks.com` → droplet A record (leave Stape until flip).
-2. Cloudflare SSL: Full or Full (strict).
-3. VPS: `certbot --nginx -d metrics.4geeks.com`.
-4. Confirm 443 still has `location ^~ /gtm/` → 8081.
-5. Tagging `.env`: `PREVIEW_SERVER_URL=https://metrics.4geeks.com`.
-6. Tagging: `extra_hosts: metrics.4geeks.com:host-gateway`.
-7. `cd /opt/sgtm && docker compose down && docker compose up -d`.
-8. GTM: Server container URL `https://4geeks.com/sgtm` (no sslip). New preview session.
-9. Check `https://metrics.4geeks.com/healthy` → `ok` (not Stape).
-10. Check `https://4geeks.com/sgtm/healthy`. `/ipn/` must not 502.
-11. Turn off Stape.
+1. DNS: `metrics.4geeks.com` → droplet A record (leave Stape until flip).
+2. VPS: `certbot --nginx -d metrics.4geeks.com`.
+3. Confirm 443 still has `location ^~ /gtm/` → 8081.
+4. Tagging `.env`: `PREVIEW_SERVER_URL=https://metrics.4geeks.com`.
+5. Tagging: `extra_hosts: metrics.4geeks.com:host-gateway`.
+6. `cd /opt/sgtm && docker compose down && docker compose up -d`.
+7. GTM: Server container URL `https://4geeks.com/sgtm` (no sslip). New preview session.
+8. Check `https://metrics.4geeks.com/healthy` → `ok` (not Stape).
+9. Check `https://4geeks.com/sgtm/healthy`. `/ipn/` must not 502.
+10. Turn off Stape.
 
 Do **not** advance `PREVIEW_SERVER_URL` while metrics still points at Stape.
 
 ### B — App (4geeks + Florida) — done
 
-The public sites run on the droplet and Replit is retired. For a new hostname: Cloudflare record → droplet IP, Certbot for that hostname, add it to the Nginx HTTPS `server_name`, then smoke-test the site, `/sgtm`, `/ipn` and a GitHub Actions deploy.
+The public sites run on the droplet and Replit is retired. For a new hostname: DNS A record → droplet IP, Certbot for that hostname, add it to the Nginx HTTPS `server_name`, then smoke-test the site, `/sgtm`, `/ipn` and a GitHub Actions deploy.
 
 Rollback for A: point the metrics CNAME back to Stape.
 

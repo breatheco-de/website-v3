@@ -53,6 +53,7 @@ import {
 } from "./html-page-cache";
 import { buildAnonymousPageHtml } from "./render-hub-html";
 import { injectGtmWebContainerId } from "./gtm-web-inject";
+import { applyPageBoot } from "./ads/ads-first";
 import { child as loggerChild } from "./logger";
 import { notePage, pagePatternForStats } from "./process-stats";
 import { recordPublicNotFound } from "./runtime-issues-store";
@@ -307,6 +308,7 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
       });
 
       html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
+      if (!cleanUrl.startsWith("/private/") && !isEditDocumentRequest(url)) html = applyPageBoot(html, req, res);
 
       maybeRecordPublicNotFound(req, res, status);
       res.status(status).set({ "Content-Type": "text/html" }).end(html);
@@ -562,6 +564,7 @@ export function serveStatic(app: Express) {
             }
           }
           maybeRecordPublicNotFound(_req, res, status);
+          const bootedHtml = applyPageBoot(built.html, _req, res);
           res
             .status(status)
             .set({
@@ -569,7 +572,7 @@ export function serveStatic(app: Express) {
               "Cache-Control": htmlDocumentCacheControlFor(res),
               "X-HTML-Cache": built.fromCache ? "HIT" : "MISS",
             })
-            .send(built.html);
+            .send(bootedHtml);
           return;
         }
       } else if (!clientShellOnly && shouldSkipPublicSsr(status)) {
@@ -603,6 +606,7 @@ export function serveStatic(app: Express) {
         html = applyEntryModulePreload(html);
         html = applyEntryPreloads(html, res);
         html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
+        if (!clientShellOnly) html = applyPageBoot(html, _req, res);
         maybeRecordPublicNotFound(_req, res, status);
         res.status(status).set({ "Content-Type": "text/html" }).send(html);
         return;
@@ -616,6 +620,7 @@ export function serveStatic(app: Express) {
       html = applyEntryModulePreload(html);
       html = applyEntryPreloads(html, res);
       html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
+      if (!clientShellOnly) html = applyPageBoot(html, _req, res);
       maybeRecordPublicNotFound(_req, res, status);
       res.status(status).set({ "Content-Type": "text/html" }).send(html);
     } catch {

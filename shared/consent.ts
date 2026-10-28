@@ -149,12 +149,12 @@ export type CookieBannerKey = (typeof COOKIE_BANNER_KEYS)[number];
 
 export const DEFAULT_COOKIE_BANNER_COPY: Record<CookieBannerKey, Record<string, string>> = {
   cookie_banner_notice: {
-    en: "We use cookies to see which ads and pages bring students to our programs. By continuing to browse, you agree to this.",
-    es: "Usamos cookies para saber qué anuncios y páginas traen estudiantes a nuestros programas. Al seguir navegando, aceptas su uso.",
+    en: "We use cookies to improve your experience and measure how our site is used. By continuing to browse, you agree.",
+    es: "Usamos cookies para mejorar tu experiencia y medir cómo se usa nuestro sitio. Al seguir navegando, aceptas su uso.",
   },
   cookie_banner_ask: {
-    en: "We'd like to use cookies to see which ads and pages bring students to our programs. You can accept or reject. The site works the same either way.",
-    es: "Queremos usar cookies para saber qué anuncios y páginas traen estudiantes a nuestros programas. Puedes aceptar o rechazar: el sitio funciona igual en ambos casos.",
+    en: "We use cookies to improve your experience and measure how our site is used.",
+    es: "Usamos cookies para mejorar tu experiencia y medir cómo se usa nuestro sitio.",
   },
   cookie_banner_ok: { en: "OK", es: "Entendido" },
   cookie_banner_accept: { en: "Accept", es: "Aceptar" },

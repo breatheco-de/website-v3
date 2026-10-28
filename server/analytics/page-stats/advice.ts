@@ -33,7 +33,13 @@ export type AdviceInputs = {
   organic: OrganicFacts | null;
   paid: PaidFacts | null;
   links: LinksFacts | null;
+  /** One version of a test: findings come from visits and leads only. */
+  testView?: boolean;
 };
+
+function periodPhrase(inputs: AdviceInputs): string {
+  return inputs.testView ? "since the test started" : "in the last 28 days";
+}
 
 export function pct(n: number | null | undefined, digits = 0): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return "—";
@@ -81,7 +87,7 @@ function verdict(inputs: AdviceInputs): PageAdvice["verdict"] {
   }
   const o = inputs.objective;
   if (!o || sessions < PAGE_STATS_MIN_SESSIONS) {
-    return { tone: "info", text: `Too little traffic to judge: ${sessions} sessions in the last 28 days (needs ${PAGE_STATS_MIN_SESSIONS}).` };
+    return { tone: "info", text: `Too little traffic to judge: ${sessions} sessions ${periodPhrase(inputs)} (needs ${PAGE_STATS_MIN_SESSIONS}).` };
   }
   const p = o.primary;
   const label = p.label.toLowerCase();
@@ -98,7 +104,10 @@ function verdict(inputs: AdviceInputs): PageAdvice["verdict"] {
       text: `Behind: ${pct(p.value, 1)} ${label} vs ${pct(p.target, 1)} for ${targetPhrase(p.target_source)}.`,
     };
   }
-  return { tone: "info", text: `${pct(p.value, 1)} ${label} this period. Set a target in Settings → Ads → Targets to track progress.` };
+  return {
+    tone: "info",
+    text: `${pct(p.value, 1)} ${label} ${inputs.testView ? "since the test started" : "this period"}. Set a target in Settings → Ads → Targets to track progress.`,
+  };
 }
 
 function biggestLoss(o: ObjectiveBlock): Finding | null {
@@ -235,6 +244,53 @@ function paidFindings(inputs: AdviceInputs, out: Finding[]): void {
   }
 }
 
+/** Untagged / broken campaign tags on ad visits: below this many ad visits, no finding. */
+export const UTM_GAP_MIN_AD_VISITS = 10;
+export const UTM_GAP_WARN_SHARE = 0.03;
+export const UTM_GAP_ERROR_SHARE = 0.1;
+
+const UTM_CAUSE_ISSUES = new Set(["missing_tracking_params", "ad_url_redirects", "non_paid_medium", "unrecognized_campaign"]);
+
+const PLATFORM_LABELS: Record<string, string> = { google: "Google", meta: "Meta", microsoft: "Microsoft", tiktok: "TikTok", linkedin: "LinkedIn" };
+
+/**
+ * Site's own counts only: landing visits that came from an ad (click ID) but carry no or broken
+ * UTMs. fbclid-only visits ("unclear": Meta also tags organic shares) can raise a warning, never an error.
+ */
+export function utmGapFinding(inputs: AdviceInputs): Finding | null {
+  const utm = inputs.traffic?.first_party?.utm;
+  if (!utm || utm.ad_visits < UTM_GAP_MIN_AD_VISITS) return null;
+  const bad = utm.untagged + utm.broken;
+  const share = bad / utm.ad_visits;
+  if (share < UTM_GAP_WARN_SHARE) return null;
+  const paidShare = (utm.untagged_paid + utm.broken_paid) / utm.ad_visits;
+  const isError = paidShare >= UTM_GAP_ERROR_SHARE;
+  const platforms = utm.by_platform
+    .filter((p) => p.untagged + p.broken > 0)
+    .slice(0, 3)
+    .map((p) => `${PLATFORM_LABELS[p.platform] ?? p.platform} ${p.untagged + p.broken}`)
+    .join(", ");
+  const brokenValue = utm.top_broken[0];
+  const related = (inputs.paid?.issues ?? []).filter((i) => UTM_CAUSE_ISSUES.has(i.code));
+  const parts = [
+    utm.untagged > 0 ? `${utm.untagged} had no UTMs` : null,
+    utm.broken > 0 ? `${utm.broken} had broken ones${brokenValue ? ` (e.g. ${brokenValue.param}=${brokenValue.value || "(empty)"})` : ""}` : null,
+  ].filter(Boolean);
+  const top = utm.by_platform.find((p) => p.untagged + p.broken > 0)?.platform;
+  return {
+    id: "ad_visits_untagged",
+    tone: isError ? "bad" : "warn",
+    title: utm.broken > utm.untagged ? "Ad visits arriving with broken campaign tags" : "Ad visits arriving without campaign tags",
+    evidence: `${bad} of ${utm.ad_visits} visits from ads (${pct(share)}): ${parts.join(", ")}, so their leads can't be credited to a campaign.${
+      platforms ? ` By platform: ${platforms}.` : ""
+    }${related.length > 0 ? ` Related: ${related.map((i) => i.title).slice(0, 2).join("; ")}.` : ""}`,
+    action:
+      "Add the UTM template to the ads sending people here (Settings → Ads). A redirect that drops the query string causes the same problem: point ads at the final URL.",
+    link: { kind: "ads_diagnostics", platform: top === "google" ? "google" : top === "meta" ? "meta" : null },
+    weight: isError ? 88 : 66,
+  };
+}
+
 function organicFindings(inputs: AdviceInputs, out: Finding[]): void {
   const org = inputs.organic;
   if (!org || inputs.stage === "post-enrollment") return;
@@ -365,7 +421,7 @@ function journeyFindings(inputs: AdviceInputs, out: Finding[]): void {
         weight: 50,
       });
     }
-    if (inputs.objective?.primary.status === "behind") {
+    if (!inputs.testView && inputs.objective?.primary.status === "behind") {
       out.push({
         id: "decision_test_variant",
         tone: "warn",
@@ -410,7 +466,7 @@ function journeyFindings(inputs: AdviceInputs, out: Finding[]): void {
         id: "post_leads",
         tone: "info",
         title: "Leads are arriving on a post-enrollment page",
-        evidence: `${inputs.leads!.converted_here.count} leads converted here in 28 days.`,
+        evidence: `${inputs.leads!.converted_here.count} leads converted here ${periodPhrase(inputs)}.`,
         action: "Check that this page's funnel stage is right.",
         link: { kind: "funnel_tab" },
         weight: 52,
@@ -448,6 +504,8 @@ export function buildPageAdvice(inputs: AdviceInputs): PageAdvice {
     }
   }
   paidFindings(inputs, findings);
+  const utmGap = inputs.testView ? null : utmGapFinding(inputs);
+  if (utmGap) findings.push(utmGap);
   organicFindings(inputs, findings);
   journeyFindings(inputs, findings);
 

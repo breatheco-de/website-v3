@@ -58,7 +58,7 @@ export const fieldEditors: Record<string, EditorType> = {
   "ApplyFormProductShowcase:image": "image-with-style-picker",
   "productShowcase:form_vertical_align": "string-picker:top,center,bottom" as EditorType,
   "ApplyFormProductShowcase:form_vertical_align": "string-picker:top,center,bottom" as EditorType,
-  "productShowcase:title": "rich-text-editor",
+  "productShowcase:title": "rich-text-editor:custom-font-size,custom-letter-spacing,custom-line-height,custom-font-weight",
   "productShowcase:brand_mark.prefix": "rich-text-editor",
   "productShowcase:brand_mark.highlight": "rich-text-editor",
   "productShowcase:brand_mark.suffix": "rich-text-editor",

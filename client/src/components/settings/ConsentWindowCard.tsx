@@ -574,7 +574,8 @@ export function ConsentWindowCard({
               <code className="font-mono">POST /api/consent</code>. Until it says granted, Google Consent Mode stays
               denied, the Meta pixel is revoked, the <code className="font-mono">4g_ads</code> cookie is not set, and
               marketing fields in <code className="font-mono">4g_ctx</code> stay in memory only. In notice countries,
-              OK or the first scroll counts as consent. Default locale: <code className="font-mono">{defaultLocale}</code>.
+              OK or the first scroll counts as consent; on pages of content types with Optimize for ads on, landing
+              counts as consent (the notice still shows). Default locale: <code className="font-mono">{defaultLocale}</code>.
               Full cookie list: <code className="font-mono">docs/cookies.md</code>.
             </p>
           </div>

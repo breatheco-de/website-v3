@@ -19,12 +19,19 @@ export type TrackingEventDoc = {
   source: string;
 };
 
+const STAFF_FIELD = {
+  name: "is_staff",
+  meaning:
+    "On every push. true when a signed-in staff member triggered it; use it in Tag Manager to skip conversion tags or set GA4 traffic_type to internal.",
+};
+
 const PAGE_FIELDS = [
   {
     name: "product / persona / product_persona",
     meaning: "The page's products and personas as short codes, comma-joined (\"all\" or \"none\" when the page covers every product or has no funnel).",
   },
   { name: "content_key", meaning: "The page: content type and slug, e.g. landing:apply." },
+  STAFF_FIELD,
 ];
 
 export const TRACKING_EVENT_DOCS: Record<TrackingEventName, TrackingEventDoc> = {
@@ -137,6 +144,7 @@ export const PUSH_DOCS: Record<string, TrackingEventDoc> = {
         name: "product / persona",
         meaning: "Not on this event: Tag Manager reads them from the page tracking context object pushed just before.",
       },
+      STAFF_FIELD,
     ],
     source:
       "client/src/hooks/usePageTracking.ts. Sent on the first of: the new page's values are set, about 2 seconds, the next navigation, or the tab is hidden / closed.",
@@ -158,6 +166,7 @@ export const PUSH_DOCS: Record<string, TrackingEventDoc> = {
       { name: "funnel_stage", meaning: "The page's funnel stage." },
       { name: "content_key", meaning: "Content type and slug." },
       { name: "tracking_truncated", meaning: "true when a list was cut at Google Analytics' 100-character limit." },
+      STAFF_FIELD,
     ],
     source:
       "client/src/lib/tracking.ts → setPageTrackingContext; server: utils/html-inject.ts → injectPageTrackingDataLayer. Keys a page doesn't have are pushed empty so the previous page's values clear.",
@@ -170,6 +179,7 @@ export const PUSH_DOCS: Record<string, TrackingEventDoc> = {
     fields: [
       { name: "visitor_location_* / visitor_language", meaning: "Where the visitor is and their language." },
       { name: "utm_*", meaning: "The campaign that brought them." },
+      STAFF_FIELD,
     ],
     source: "client/src/lib/tracking.ts → setVisitorContext (called from SessionContext).",
   },

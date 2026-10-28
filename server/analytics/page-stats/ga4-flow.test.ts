@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPageFlowSql, parsePageFlowRows, relationTo, type FlowRow } from "./ga4-flow";
+import { buildPageFlowSql, parsePageFlowRows, parsePageFlowRowsByVariant, relationTo, type FlowRow } from "./ga4-flow";
 import type { PathStageIndex } from "./resolve";
 
 const index: PathStageIndex = {
@@ -25,6 +25,44 @@ describe("buildPageFlowSql", () => {
     expect(sql).toContain("IN UNNEST(@decision_paths)");
     expect(sql).toContain("NOT LOGICAL_OR(STARTS_WITH(path, '/private'))");
     expect(sql.match(/UNION ALL/g)?.length).toBe(12);
+    expect(sql).not.toContain("experiment_exposure");
+  });
+
+  it("by-variant mode tags sessions by exposure, labels rows by version and skips peers", () => {
+    const sql = buildPageFlowSql("`p.d.events_*`", { byVariant: true });
+    expect(sql).toContain("event_name = 'experiment_exposure' AND exp_id = @experiment_id");
+    expect(sql).toContain("JOIN exposure x USING (sid)");
+    expect(sql).toContain("h.variant AS period");
+    expect(sql).not.toContain("peer_views");
+    expect(sql).toContain("PARTITION BY q.period ORDER BY q.sessions DESC");
+    expect(sql.match(/UNION ALL/g)?.length).toBe(11);
+  });
+});
+
+describe("parsePageFlowRowsByVariant", () => {
+  it("returns one TrafficFacts per version, sharing tracking-since rows", () => {
+    const testWindow = { start: "2026-10-01", end: "2026-10-03", cur_start: "2026-10-01" };
+    const byVariant = parsePageFlowRowsByVariant(
+      [
+        row("totals", "default", { sessions: 40 }),
+        row("totals", "b", { sessions: 35, reached_decision: 7 }),
+        row("day", "b", { a: "20261002", sessions: 20 }),
+        row("channel", "b", { a: "paid", sessions: 10 }),
+        row("since", "current", { a: "scroll_depth", b: "20260901" }),
+      ],
+      { stage: "consideration", index, window: testWindow },
+    );
+    expect([...byVariant.keys()].sort()).toEqual(["b", "default"]);
+    const b = byVariant.get("b")!;
+    expect(b.current).toMatchObject({ sessions: 35, reached_decision: 7 });
+    expect(b.prior.sessions).toBe(0);
+    expect(b.series).toEqual([
+      { day: "2026-10-01", sessions: 0, prior_sessions: 0 },
+      { day: "2026-10-02", sessions: 20, prior_sessions: 0 },
+      { day: "2026-10-03", sessions: 0, prior_sessions: 0 },
+    ]);
+    expect(b.channels[0]).toMatchObject({ channel: "paid", sessions: 10 });
+    expect(byVariant.get("default")!.tracking_since.scroll_depth).toBe("2026-09-01");
   });
 });
 

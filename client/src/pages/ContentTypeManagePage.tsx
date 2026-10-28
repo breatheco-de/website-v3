@@ -102,6 +102,7 @@ import {
   SharedLayoutEnableFields,
 } from "@/components/editing/SharedLayoutEnableDialog";
 import { LinkedDatabaseExplainDialog } from "@/components/editing/LinkedDatabaseExplainDialog";
+import { AdsFirstCard } from "@/components/editing/AdsFirstCard";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
 import {
@@ -316,6 +317,7 @@ interface ContentTypeConfig {
   funnel?: { enforcement?: boolean } | null;
   products?: { allow_sellable_entries?: boolean; coerced_from_inventory?: boolean } | null;
   strategy?: { purpose: string; constraints?: string[] } | null;
+  ads?: { optimize?: boolean } | null;
 }
 
 interface SchemaOrgCoverageRow {
@@ -8380,6 +8382,11 @@ export default function ContentTypeManagePage() {
               </p>
             </CardContent>
           </Card>
+          <AdsFirstCard
+            contentType={contentType}
+            enabled={typeConfig?.ads?.optimize === true}
+            loading={typeConfig === undefined}
+          />
           <Card data-testid="card-kpi-products-allow-sellable">
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">

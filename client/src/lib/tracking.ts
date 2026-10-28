@@ -4,6 +4,7 @@
  */
 
 import { getUserIdFromCookie } from "./sessionBootstrap";
+import { getDebugToken } from "@/hooks/useDebugAuth";
 import { useQuery } from "@tanstack/react-query";
 import {
   PAGE_TRACKING_KEYS,
@@ -404,8 +405,13 @@ export async function hashEmail(email: string): Promise<string> {
   return hashHex.substring(0, 16);
 }
 
+/** True while a signed-in staff session is active in this browser. */
+export function isStaffSession(): boolean {
+  return !!getDebugToken();
+}
+
 /**
- * Push data to GTM dataLayer
+ * Push data to GTM dataLayer. Every push carries `is_staff` so GTM can drop staff traffic.
  */
 function pushToDataLayer(data: Record<string, unknown>): void {
   if (typeof window === "undefined") return;
@@ -414,10 +420,11 @@ function pushToDataLayer(data: Record<string, unknown>): void {
     window.dataLayer = [];
   }
   
-  window.dataLayer.push(data);
+  const pushed = { is_staff: isStaffSession(), ...data };
+  window.dataLayer.push(pushed);
   refreshVisitExperiment();
   
-  console.log("[Tracking] dataLayer.push:", data);
+  console.log("[Tracking] dataLayer.push:", pushed);
 }
 
 /** First test seen this visit: `experiment_id|variant`, shared across tabs. */
@@ -493,6 +500,25 @@ export function isValidEventName(name: string): boolean {
   );
 }
 
+type TrackListener = (eventName: string, payload: Record<string, unknown>, kind: "event" | "conversion") => void;
+const trackListeners = new Set<TrackListener>();
+
+/** Observe track() / trackConversion() calls (the site's own visit counting). Returns an unsubscribe. */
+export function onTrack(listener: TrackListener): () => void {
+  trackListeners.add(listener);
+  return () => trackListeners.delete(listener);
+}
+
+function notifyTrackListeners(eventName: string, payload: Record<string, unknown>, kind: "event" | "conversion"): void {
+  for (const listener of Array.from(trackListeners)) {
+    try {
+      listener(eventName, payload, kind);
+    } catch {
+      /* listeners must not break tracking */
+    }
+  }
+}
+
 /**
  * Track a conversion event (form submissions, signups, etc.)
  */
@@ -500,6 +526,7 @@ export function trackConversion(
   eventName: ConversionName,
   payload: ConversionPayload = {}
 ): void {
+  notifyTrackListeners(eventName, payload as Record<string, unknown>, "conversion");
   pushToDataLayer({
     event: eventName,
     user_id: getUserIdFromCookie() ?? undefined,
@@ -518,6 +545,7 @@ export function track(
   eventName: EventName,
   payload: TrackingPayload = {}
 ): void {
+  notifyTrackListeners(eventName, payload as Record<string, unknown>, "event");
   pushToDataLayer({
     event: eventName,
     user_id: getUserIdFromCookie() ?? undefined,
@@ -652,9 +680,10 @@ export const SAMPLE_LEAD_PAYLOAD: Record<string, unknown> = {
   last_paid_landing_url: "https://example.com/en/ai-engineering",
   last_paid_landing_at: "2026-09-28T14:03:00.000Z",
   ad_platform: "google",
-  page_experiment_id: "",
-  page_variant: "",
+  experiment_id: "",
+  variant: "",
   is_test: false,
+  is_staff: false,
   is_repeat: false,
   consent_state: "granted",
 };

@@ -72,6 +72,7 @@ describe("lead ledger", () => {
     });
     expect(wire.is_test).toBe(true);
     expect(wire.test_reason).toBe("email_pattern");
+    expect(wire.is_staff).toBe(false);
     expect(wire.is_repeat).toBe(false);
     expect(wire.repeat_of_submission_id).toBeUndefined();
     expect(row.platform).toBe("meta");
@@ -87,6 +88,14 @@ describe("lead ledger", () => {
       { email: "someone@example.com" },
     );
     expect(wire.test_reason).toBe("staff_session");
+    expect(wire.is_test).toBe(true);
+    expect(wire.is_staff).toBe(true);
+  });
+
+  it("never lets the form body claim is_staff", async () => {
+    const { wire } = await prepareLead(fakeReq(), fakeRes(), { email: "v@example.com", is_staff: true });
+    expect(wire.is_staff).toBe(false);
+    expect(enrichLeadBody({ email: "v@example.com", is_staff: true }, wire).is_staff).toBe(false);
   });
 
   it("marks a second submission from the same browser and form within 24h as repeat", async () => {
@@ -185,6 +194,27 @@ describe("lead ledger", () => {
     expect(out.channel_landing_path).toBeUndefined();
     expect(out.referrer_host).toBeUndefined();
     expect(out.submission_id).toBe("s");
+  });
+
+  it("sends the page test to the CRM as experiment_id / variant, never from the raw body", async () => {
+    const versioning = Buffer.from(
+      JSON.stringify({
+        userId: "u3",
+        assignments: [
+          { contentType: "landing", slug: "promo", locale: "en", variantSlug: "b", run: "2026-10-01", assignedAt: 1 },
+        ],
+      }),
+    ).toString("base64");
+    const body = { email: "e@example.com", page_experiment_id: "landing:promo:en@2026-10-01" };
+    const { wire } = await prepareLead(fakeReq({ cookies: { "4g_versioning_v2": versioning } }), fakeRes(), body);
+    expect(wire.experiment_id).toBe("landing:promo:en@2026-10-01");
+    expect(wire.variant).toBe("b");
+    expect(wire.page_variant).toBeUndefined();
+    expect(enrichLeadBody(body, wire)).toMatchObject({ experiment_id: "landing:promo:en@2026-10-01", variant: "b" });
+
+    const spoofed = enrichLeadBody({ email: "e@example.com", experiment_id: "x", variant: "y" }, { submission_id: "s" });
+    expect(spoofed.experiment_id).toBeUndefined();
+    expect(spoofed.variant).toBeUndefined();
   });
 
   it("stores the organic channel, landing path and referrer host", async () => {

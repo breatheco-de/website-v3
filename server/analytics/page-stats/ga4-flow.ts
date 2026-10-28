@@ -68,15 +68,22 @@ function select(opts: {
   from: string;
   where?: string;
   groupBy?: string;
-  orderLimit?: string;
+  top?: { by: MetricKey; n: number };
+  /** Top-N per `period` value instead of overall (by-variant mode, where period = version). */
+  topPerPeriod?: boolean;
 }): string {
   const labels = LABEL_COLS.map((c) => `CAST(${opts.labels?.[c] ?? "NULL"} AS STRING) AS ${c}`).join(", ");
   const metrics = METRIC_KEYS.map((k) => {
     const expr = opts.metrics === "all" ? (k === "clicks" ? null : METRIC_SQL[k]) : opts.metrics[k];
     return `CAST(${expr ?? "NULL"} AS FLOAT64) AS ${k}`;
   }).join(", ");
-  return `(SELECT '${opts.kind}' AS kind, ${opts.period} AS period, ${labels}, ${metrics}
-    FROM ${opts.from}${opts.where ? ` WHERE ${opts.where}` : ""}${opts.groupBy ? ` GROUP BY ${opts.groupBy}` : ""}${opts.orderLimit ? ` ${opts.orderLimit}` : ""})`;
+  const body = `SELECT '${opts.kind}' AS kind, ${opts.period} AS period, ${labels}, ${metrics}
+    FROM ${opts.from}${opts.where ? ` WHERE ${opts.where}` : ""}${opts.groupBy ? ` GROUP BY ${opts.groupBy}` : ""}`;
+  if (!opts.top) return `(${body})`;
+  if (opts.topPerPeriod) {
+    return `(SELECT * EXCEPT (_rn) FROM (SELECT q.*, ROW_NUMBER() OVER (PARTITION BY q.period ORDER BY q.${opts.top.by} DESC) AS _rn FROM (${body}) q) WHERE _rn <= ${opts.top.n})`;
+  }
+  return `(${body} ORDER BY ${opts.top.by} DESC LIMIT ${opts.top.n})`;
 }
 
 function strParam(key: string): string {
@@ -87,10 +94,32 @@ function intParam(key: string): string {
   return `(SELECT COALESCE(value.int_value, CAST(value.double_value AS INT64), SAFE_CAST(value.string_value AS INT64)) FROM UNNEST(event_params) WHERE key = '${key}' LIMIT 1)`;
 }
 
-export function buildPageFlowSql(eventsTable: string): string {
+/**
+ * `byVariant`: one test run instead of current vs prior. Sessions are tagged with their first
+ * `experiment_exposure` variant for `@experiment_id` (untagged sessions dropped) and `period`
+ * carries that variant, so every row comes back per version; peer benchmarks are skipped.
+ */
+export function buildPageFlowSql(eventsTable: string, opts: { byVariant?: boolean } = {}): string {
+  const byVariant = !!opts.byVariant;
   const pathExpr = bqNormalizedPagePathSql();
   const channel = bqChannelCaseSql("IFNULL(first_loc, '')", "IFNULL(first_medium, '')", "IFNULL(first_source, '')");
-  const cur = "period = 'current'";
+  const cur = byVariant ? "TRUE" : "period = 'current'";
+  const curPeriod = byVariant ? "period" : "'current'";
+  const top = (by: MetricKey, n: number) => ({ top: { by, n }, topPerPeriod: byVariant });
+  const exposureCols = byVariant
+    ? `,
+        ${strParam("experiment_id")} AS exp_id,
+        ${strParam("variant")} AS exp_variant`
+    : "";
+  const exposureCte = byVariant
+    ? `
+    exposure AS (
+      SELECT sid, ARRAY_AGG(exp_variant ORDER BY event_timestamp LIMIT 1)[OFFSET(0)] AS variant
+      FROM ev
+      WHERE event_name = 'experiment_exposure' AND exp_id = @experiment_id AND exp_variant IS NOT NULL AND sid IS NOT NULL
+      GROUP BY sid
+    ),`
+    : "";
   return `
     WITH ev AS (
       SELECT
@@ -112,10 +141,10 @@ export function buildPageFlowSql(eventsTable: string): string {
         ${intParam("section_index")} AS section_index,
         ${strParam("label")} AS label,
         ${strParam("destination")} AS destination,
-        ${intParam("depth")} AS depth
+        ${intParam("depth")} AS depth${exposureCols}
       FROM ${eventsTable}
       WHERE _TABLE_SUFFIX BETWEEN FORMAT_DATE('%Y%m%d', DATE(@start)) AND FORMAT_DATE('%Y%m%d', DATE(@end))
-    ),
+    ),${exposureCte}
     hit_sessions AS (
       SELECT sid FROM ev
       WHERE event_name = 'page_view' AND sid IS NOT NULL
@@ -147,13 +176,13 @@ export function buildPageFlowSql(eventsTable: string): string {
       GROUP BY sid
     ),
     hit AS (
-      SELECT s.*, (SELECT MIN(o) FROM UNNEST(s.views) v WITH OFFSET o WHERE v.path IN UNNEST(@paths)) AS hit_o
-      FROM sess s
+      SELECT s.*,${byVariant ? " x.variant," : ""} (SELECT MIN(o) FROM UNNEST(s.views) v WITH OFFSET o WHERE v.path IN UNNEST(@paths)) AS hit_o
+      FROM sess s${byVariant ? " JOIN exposure x USING (sid)" : ""}
     ),
     flow AS (
       SELECT
-        h.* EXCEPT (views, lead_ts),
-        IF(h.day >= @cur_start_s, 'current', 'prior') AS period,
+        h.* EXCEPT (views, lead_ts${byVariant ? ", variant" : ""}),
+        ${byVariant ? "h.variant" : "IF(h.day >= @cur_start_s, 'current', 'prior')"} AS period,
         ARRAY_LENGTH(h.views) AS view_count,
         h.hit_o = 0 AS entrance,
         IF(h.hit_o > 0, h.views[OFFSET(h.hit_o - 1)].path, NULL) AS prev_path,
@@ -198,10 +227,86 @@ export function buildPageFlowSql(eventsTable: string): string {
       FROM ranked r
     ),
     page_ev AS (
-      SELECT ev.*, IF(event_date >= @cur_start_s, 'current', 'prior') AS period
-      FROM ev
+      SELECT ev.*, ${byVariant ? "x.variant" : "IF(event_date >= @cur_start_s, 'current', 'prior')"} AS period
+      FROM ev${byVariant ? " JOIN exposure x USING (sid)" : ""}
       WHERE event_name IN ('cta_click', 'scroll_depth') AND path IN UNNEST(@paths)
-    ),
+    )${byVariant ? "" : `,${PEER_CTES}`}
+    ${[
+      select({ kind: "totals", period: "period", metrics: "all", from: "s", groupBy: "period" }),
+      select({ kind: "day", period: "period", labels: { a: "day" }, metrics: { sessions: METRIC_SQL.sessions }, from: "s", groupBy: "period, day" }),
+      select({
+        kind: "prev", period: curPeriod, labels: { a: "IFNULL(prev_path, '(entrance)')" },
+        metrics: { sessions: METRIC_SQL.sessions }, from: "s", where: cur, groupBy: "1, 2, 3", ...top("sessions", 25),
+      }),
+      select({
+        kind: "next", period: curPeriod, labels: { a: "IFNULL(next_path, '(exit)')" },
+        metrics: { sessions: METRIC_SQL.sessions }, from: "s", where: cur, groupBy: "1, 2, 3", ...top("sessions", 30),
+      }),
+      select({
+        kind: "ref", period: curPeriod, labels: { a: "REGEXP_REPLACE(ref_host, r'^www\\.', '')" },
+        metrics: { sessions: METRIC_SQL.sessions }, from: "s",
+        where: `${cur} AND entrance AND ref_host IS NOT NULL AND REGEXP_REPLACE(ref_host, r'^www\\.', '') != REGEXP_REPLACE(IFNULL(page_host, ''), r'^www\\.', '')`,
+        groupBy: "1, 2, 3", ...top("sessions", 20),
+      }),
+      select({
+        kind: "channel", period: "period", labels: { a: "channel" },
+        metrics: {
+          sessions: METRIC_SQL.sessions, engaged_sessions: METRIC_SQL.engaged_sessions, moved_forward: METRIC_SQL.moved_forward,
+          reached_decision: METRIC_SQL.reached_decision, lead_later: METRIC_SQL.lead_later, bounces: METRIC_SQL.bounces,
+          task_clicks: METRIC_SQL.task_clicks,
+        },
+        from: "s", groupBy: "period, channel",
+      }),
+      select({
+        kind: "campaign", period: curPeriod,
+        labels: { a: "IFNULL(first_source, '')", b: "IFNULL(first_medium, '')", c: "IFNULL(first_campaign, '')" },
+        metrics: {
+          sessions: METRIC_SQL.sessions, engaged_sessions: METRIC_SQL.engaged_sessions, moved_forward: METRIC_SQL.moved_forward,
+          reached_decision: METRIC_SQL.reached_decision, lead_later: METRIC_SQL.lead_later,
+        },
+        from: "s", where: `${cur} AND (channel = 'paid' OR first_campaign IS NOT NULL)`,
+        groupBy: "1, 2, 3, 4, 5", ...top("sessions", 25),
+      }),
+      select({
+        kind: "device", period: curPeriod, labels: { a: "IFNULL(device, '(unknown)')" },
+        metrics: { sessions: METRIC_SQL.sessions }, from: "s", where: cur, groupBy: "1, 2, 3",
+      }),
+      select({
+        kind: "country", period: curPeriod, labels: { a: "IFNULL(country, '(unknown)')" },
+        metrics: { sessions: METRIC_SQL.sessions }, from: "s", where: cur, groupBy: "1, 2, 3", ...top("sessions", 12),
+      }),
+      select({
+        kind: "cta", period: curPeriod,
+        labels: { a: "IFNULL(section_type, '')", b: "section_index", c: "IFNULL(label, '')", d: "IFNULL(destination, '')" },
+        metrics: { clicks: "COUNT(*)", sessions: "COUNT(DISTINCT sid)" },
+        from: "page_ev", where: `event_name = 'cta_click' AND ${cur}`,
+        groupBy: "1, 2, 3, 4, 5, 6", ...top("clicks", 30),
+      }),
+      select({
+        kind: "scroll", period: curPeriod, labels: { a: "depth" },
+        metrics: { sessions: "COUNT(DISTINCT sid)" }, from: "page_ev", where: `event_name = 'scroll_depth' AND ${cur}`, groupBy: "1, 2, 3",
+      }),
+      select({
+        kind: "since", period: "'current'", labels: { a: "event_name", b: "MIN(event_date)" },
+        metrics: {}, from: "ev", where: "event_name IN ('cta_click', 'scroll_depth')", groupBy: "event_name",
+      }),
+      ...(byVariant
+        ? []
+        : [
+            select({
+              kind: "peer", period: "'current'", labels: { a: "path" },
+              metrics: {
+                sessions: "sessions", engaged_sessions: "engaged", moved_forward: "moved_forward",
+                reached_decision: "reached_decision", task_clicks: "task_sessions",
+              },
+              from: "peer_out",
+            }),
+          ]),
+    ].join("\n    UNION ALL\n    ")}
+  `;
+}
+
+const PEER_CTES = `
     -- Same-stage pages in the current window, for benchmark medians (same scan, no extra bytes).
     peer_views AS (
       SELECT
@@ -244,77 +349,7 @@ export function buildPageFlowSql(eventsTable: string): string {
     ),
     peer_out AS (
       SELECT p.*, IFNULL(t.sessions, 0) AS task_sessions FROM peer p LEFT JOIN peer_tasks t USING (path)
-    )
-    ${[
-      select({ kind: "totals", period: "period", metrics: "all", from: "s", groupBy: "period" }),
-      select({ kind: "day", period: "period", labels: { a: "day" }, metrics: { sessions: METRIC_SQL.sessions }, from: "s", groupBy: "period, day" }),
-      select({
-        kind: "prev", period: "'current'", labels: { a: "IFNULL(prev_path, '(entrance)')" },
-        metrics: { sessions: METRIC_SQL.sessions }, from: "s", where: cur, groupBy: "1, 2, 3", orderLimit: "ORDER BY sessions DESC LIMIT 25",
-      }),
-      select({
-        kind: "next", period: "'current'", labels: { a: "IFNULL(next_path, '(exit)')" },
-        metrics: { sessions: METRIC_SQL.sessions }, from: "s", where: cur, groupBy: "1, 2, 3", orderLimit: "ORDER BY sessions DESC LIMIT 30",
-      }),
-      select({
-        kind: "ref", period: "'current'", labels: { a: "REGEXP_REPLACE(ref_host, r'^www\\.', '')" },
-        metrics: { sessions: METRIC_SQL.sessions }, from: "s",
-        where: `${cur} AND entrance AND ref_host IS NOT NULL AND REGEXP_REPLACE(ref_host, r'^www\\.', '') != REGEXP_REPLACE(IFNULL(page_host, ''), r'^www\\.', '')`,
-        groupBy: "1, 2, 3", orderLimit: "ORDER BY sessions DESC LIMIT 20",
-      }),
-      select({
-        kind: "channel", period: "period", labels: { a: "channel" },
-        metrics: {
-          sessions: METRIC_SQL.sessions, engaged_sessions: METRIC_SQL.engaged_sessions, moved_forward: METRIC_SQL.moved_forward,
-          reached_decision: METRIC_SQL.reached_decision, lead_later: METRIC_SQL.lead_later, bounces: METRIC_SQL.bounces,
-          task_clicks: METRIC_SQL.task_clicks,
-        },
-        from: "s", groupBy: "period, channel",
-      }),
-      select({
-        kind: "campaign", period: "'current'",
-        labels: { a: "IFNULL(first_source, '')", b: "IFNULL(first_medium, '')", c: "IFNULL(first_campaign, '')" },
-        metrics: {
-          sessions: METRIC_SQL.sessions, engaged_sessions: METRIC_SQL.engaged_sessions, moved_forward: METRIC_SQL.moved_forward,
-          reached_decision: METRIC_SQL.reached_decision, lead_later: METRIC_SQL.lead_later,
-        },
-        from: "s", where: `${cur} AND (channel = 'paid' OR first_campaign IS NOT NULL)`,
-        groupBy: "1, 2, 3, 4, 5", orderLimit: "ORDER BY sessions DESC LIMIT 25",
-      }),
-      select({
-        kind: "device", period: "'current'", labels: { a: "IFNULL(device, '(unknown)')" },
-        metrics: { sessions: METRIC_SQL.sessions }, from: "s", where: cur, groupBy: "1, 2, 3",
-      }),
-      select({
-        kind: "country", period: "'current'", labels: { a: "IFNULL(country, '(unknown)')" },
-        metrics: { sessions: METRIC_SQL.sessions }, from: "s", where: cur, groupBy: "1, 2, 3", orderLimit: "ORDER BY sessions DESC LIMIT 12",
-      }),
-      select({
-        kind: "cta", period: "'current'",
-        labels: { a: "IFNULL(section_type, '')", b: "section_index", c: "IFNULL(label, '')", d: "IFNULL(destination, '')" },
-        metrics: { clicks: "COUNT(*)", sessions: "COUNT(DISTINCT sid)" },
-        from: "page_ev", where: `event_name = 'cta_click' AND ${cur}`,
-        groupBy: "1, 2, 3, 4, 5, 6", orderLimit: "ORDER BY clicks DESC LIMIT 30",
-      }),
-      select({
-        kind: "scroll", period: "'current'", labels: { a: "depth" },
-        metrics: { sessions: "COUNT(DISTINCT sid)" }, from: "page_ev", where: `event_name = 'scroll_depth' AND ${cur}`, groupBy: "1, 2, 3",
-      }),
-      select({
-        kind: "since", period: "'current'", labels: { a: "event_name", b: "MIN(event_date)" },
-        metrics: {}, from: "ev", where: "event_name IN ('cta_click', 'scroll_depth')", groupBy: "event_name",
-      }),
-      select({
-        kind: "peer", period: "'current'", labels: { a: "path" },
-        metrics: {
-          sessions: "sessions", engaged_sessions: "engaged", moved_forward: "moved_forward",
-          reached_decision: "reached_decision", task_clicks: "task_sessions",
-        },
-        from: "peer_out",
-      }),
-    ].join("\n    UNION ALL\n    ")}
-  `;
-}
+    )`;
 
 export type FlowRow = { kind: string; period: string | null; a: string | null; b: string | null; c: string | null; d: string | null } & Partial<
   Record<MetricKey, number | null>
@@ -482,8 +517,91 @@ export function parsePageFlowRows(
   };
 }
 
+/** By-variant rows (period = version) → one TrafficFacts per version (pure; exported for tests). */
+export function parsePageFlowRowsByVariant(
+  rows: FlowRow[],
+  ctx: { stage: FunnelStage | null; index: PathStageIndex | null; window: FlowWindow },
+): Map<string, TrafficFacts> {
+  const shared = rows.filter((r) => r.kind === "since");
+  const variants = new Set(rows.filter((r) => r.kind === "totals" && r.period).map((r) => r.period!));
+  const out = new Map<string, TrafficFacts>();
+  for (const v of variants) {
+    const mine = rows.filter((r) => r.kind !== "since" && r.period === v).map((r) => ({ ...r, period: "current" }));
+    out.set(v, parsePageFlowRows([...mine, ...shared], ctx));
+  }
+  return out;
+}
+
 function compact(d: string): string {
   return d.replace(/-/g, "");
+}
+
+function flowParams(opts: {
+  paths: string[];
+  stage: FunnelStage | null;
+  index: PathStageIndex | null;
+  window: FlowWindow;
+  contentRoot?: string;
+}): Record<string, unknown> {
+  const list = (xs: string[] | undefined) => (xs && xs.length > 0 ? xs : [NONE]);
+  const paths = Array.from(new Set(opts.paths.map(normalizeAnalyticsPath).filter(Boolean)));
+  const byStage = opts.index?.pathsByStage;
+  return {
+    start: opts.window.start,
+    end: opts.window.end,
+    cur_start_s: compact(opts.window.cur_start),
+    paths: list(paths),
+    decision_paths: list(byStage?.decision),
+    consideration_paths: list(byStage?.consideration),
+    awareness_paths: list(byStage?.awareness),
+    post_paths: list(byStage?.["post-enrollment"]),
+    stage_rank: stageRank(opts.stage),
+    peer_paths: list(opts.stage ? byStage?.[opts.stage] : undefined),
+    lead_events: list(getLeadConversionEventNames(opts.contentRoot)),
+    intent_events: list([...JOURNEY_ECOMMERCE_INTENT_EVENTS]),
+  };
+}
+
+export type VariantFlowResult = {
+  status: "ok" | "not_configured" | "insufficient_data" | "error";
+  message?: string;
+  as_of: string | null;
+  byVariant: Map<string, TrafficFacts>;
+};
+
+/** One GA4 read for a test run, split by the version each session was shown. */
+export async function queryPageFlowByVariant(opts: {
+  paths: string[];
+  stage: FunnelStage | null;
+  index: PathStageIndex | null;
+  window: { start: string; end: string };
+  experimentId: string;
+  contentRoot?: string;
+}): Promise<VariantFlowResult> {
+  const empty = new Map<string, TrafficFacts>();
+  const status = getBigQueryConfigStatus(opts.contentRoot);
+  if (!status.configured) {
+    return { status: "not_configured", as_of: null, message: "GA4 BigQuery export is not connected (Settings → Tracking → BigQuery).", byVariant: empty };
+  }
+  const client = getBigQueryClient(opts.contentRoot);
+  if (!client) return { status: "not_configured", as_of: null, message: "BigQuery client unavailable.", byVariant: empty };
+  const settings = getBigQuerySettings(opts.contentRoot);
+  const window: FlowWindow = { start: opts.window.start, end: opts.window.end, cur_start: opts.window.start };
+  try {
+    const [raw] = await client.query({
+      query: buildPageFlowSql(fqEventsWildcard(settings), { byVariant: true }),
+      params: { ...flowParams({ ...opts, window }), experiment_id: opts.experimentId },
+      location: settings.location || undefined,
+      maximumBytesBilled: MAX_BYTES_BILLED,
+    });
+    const rows = ((raw || []) as Record<string, unknown>[]).map((r) => r as FlowRow);
+    const byVariant = parsePageFlowRowsByVariant(rows, { stage: opts.stage, index: opts.index, window });
+    return { status: byVariant.size > 0 ? "ok" : "insufficient_data", as_of: opts.window.end, byVariant };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn({ err, experiment: opts.experimentId }, "[page-stats] GA4 by-variant flow query failed");
+    return { status: "error", as_of: null, message, byVariant: empty };
+  }
 }
 
 export async function queryPageFlow(opts: {
@@ -500,27 +618,11 @@ export async function queryPageFlow(opts: {
   const client = getBigQueryClient(opts.contentRoot);
   if (!client) return { status: "not_configured", as_of: null, message: "BigQuery client unavailable.", data: null };
   const settings = getBigQuerySettings(opts.contentRoot);
-  const leadEvents = getLeadConversionEventNames(opts.contentRoot);
-  const list = (xs: string[] | undefined) => (xs && xs.length > 0 ? xs : [NONE]);
   const paths = Array.from(new Set(opts.paths.map(normalizeAnalyticsPath).filter(Boolean)));
-  const byStage = opts.index?.pathsByStage;
   try {
     const [raw] = await client.query({
       query: buildPageFlowSql(fqEventsWildcard(settings)),
-      params: {
-        start: opts.window.start,
-        end: opts.window.end,
-        cur_start_s: compact(opts.window.cur_start),
-        paths: list(paths),
-        decision_paths: list(byStage?.decision),
-        consideration_paths: list(byStage?.consideration),
-        awareness_paths: list(byStage?.awareness),
-        post_paths: list(byStage?.["post-enrollment"]),
-        stage_rank: stageRank(opts.stage),
-        peer_paths: list(opts.stage ? byStage?.[opts.stage] : undefined),
-        lead_events: list(leadEvents),
-        intent_events: list([...JOURNEY_ECOMMERCE_INTENT_EVENTS]),
-      },
+      params: flowParams(opts),
       location: settings.location || undefined,
       maximumBytesBilled: MAX_BYTES_BILLED,
     });

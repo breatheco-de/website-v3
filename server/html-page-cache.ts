@@ -771,12 +771,13 @@ export function htmlDocumentCacheControl(): string {
 }
 
 /**
- * Cache-Control for a document response. Pages with an active A/B test are
- * `private`: shared caches (Cloudflare) never store them, while the visitor's own
- * browser may (back/forward cache keeps working).
+ * Cache-Control for a document response. Pages with an active A/B test, and ads-first
+ * pages (consent mode varies by visitor country), are `private`: shared caches (a CDN
+ * or proxy, if one is ever added in front of Nginx) never store them, while the
+ * visitor's own browser may (back/forward cache keeps working).
  */
 export function htmlDocumentCacheControlFor(res: { locals?: Record<string, unknown> }): string {
-  if (res.locals?.abTestedPage) {
+  if (res.locals?.abTestedPage || res.locals?.visitorSpecificHtml) {
     return process.env.NODE_ENV === "production" ? "private, max-age=60" : "private, no-store";
   }
   return htmlDocumentCacheControl();

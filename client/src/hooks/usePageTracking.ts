@@ -1,8 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { installSectionTracking } from "@/lib/section-tracking";
+import { notePageRoute, startPageReady } from "@/lib/page-ready";
 import {
   isPageContextSet,
+  isStaffSession,
   onPageContextSet,
   refreshVisitExperiment,
   setPageTrackingContext,
@@ -25,6 +27,11 @@ export function usePageTracking() {
   useEffect(() => installSectionTracking(location), [location]);
 
   useEffect(() => {
+    startPageReady();
+    notePageRoute(window.location.pathname);
+  }, [location]);
+
+  useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
       return;
@@ -43,6 +50,7 @@ export function usePageTracking() {
       const dataLayer = (window as unknown as { dataLayer: DataLayerEvent[] }).dataLayer || [];
       (window as unknown as { dataLayer: DataLayerEvent[] }).dataLayer = dataLayer;
       dataLayer.push({
+        is_staff: isStaffSession(),
         event: "website-route-change",
         pagePath: location,
         pageTitle: document.title,

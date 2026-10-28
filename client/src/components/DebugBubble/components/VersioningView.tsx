@@ -79,7 +79,7 @@ interface VersioningViewProps {
   pageDiagnosticsUrl?: string | null;
   pageDiagnosticsEntryKey?: string | null;
   onOpenPageErrors?: (tab: PageErrorsTab) => void;
-  /** Opens the page stats drawer; undefined hides the button (no metrics_view). */
+  /** Opens the page stats drawer, or a dialog explaining why it can't (no metrics_view, no public URL). */
   onOpenPageStats?: () => void;
 }
 
@@ -1390,7 +1390,7 @@ export function VersioningView({
                     </Badge>
                   </Button>
                 ) : null}
-                {onOpenPageStats && pageDiagnosticsUrl ? (
+                {onOpenPageStats ? (
                   <Button
                     size="sm"
                     variant="ghost"

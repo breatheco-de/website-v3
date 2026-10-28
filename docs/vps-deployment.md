@@ -12,8 +12,8 @@ operational reference for how the app runs today, not a migration plan.
 - App process: `website.service`
 - Internal health check: `http://127.0.0.1:5000/health`
 
-Production traffic is intended to flow through Cloudflare to Nginx, then to the
-Node app on loopback.
+Production traffic goes straight from visitors to Nginx (DNS points at the
+droplet; no CDN or proxy in front), then to the Node app on loopback.
 
 ## Network layout
 
@@ -22,8 +22,7 @@ loopback:
 
 ```text
 Internet
-  -> Cloudflare
-  -> Nginx :80/:443
+  -> Nginx :80/:443 (TLS, Let's Encrypt)
   -> website.service
        -> 127.0.0.1:5000 Express
        -> 127.0.0.1:6333 Qdrant

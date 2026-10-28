@@ -15,6 +15,12 @@
       window.dataLayer = window.dataLayer || [];
     </script>
 
+    <!-- Page boot config, replaced per request by server/ads/ads-first.ts (applyPageBoot):
+         af = ads-first page, cm = visitor consent mode (ads-first only), fp = site counts its own visits, t = page token. -->
+    <script>
+      window.__4G_PAGE__ = {"af":0,"cm":null,"fp":0,"t":""};
+    </script>
+
     <!-- Google Consent Mode v2 (advanced): everything denied until the visitor's
          choice in the 4g_consent cookie (set by POST /api/consent) says otherwise.
          Must run before GTM loads. See docs/cookies.md. -->
@@ -43,6 +49,14 @@
             state.granted = parts[1] === "granted_explicit" || parts[1] === "granted_implied";
           }
         } catch (e) {}
+        // Ads-first page in a notice country with no stored choice: consent counts on landing.
+        // cm is only set when the server already knew the country; otherwise ConsentBanner
+        // grants after its country lookup. Either way it is stored as granted_implied.
+        var page = window.__4G_PAGE__ || {};
+        if (!state.decision && page.af === 1 && page.cm === "notice") {
+          state.granted = true;
+          state.landingImplied = true;
+        }
         window.__4G_CONSENT__ = state;
         if (state.granted) {
           window.gtag("consent", "update", {
@@ -66,7 +80,8 @@
     <!-- Google Tag Manager — load on first interaction (or 15s fallback).
          dataLayer pushes before load are queued and replayed. The fallback sits
          past Lighthouse's trace window (~10-12s) so GTM never counts against
-         TBT, while bounced no-interaction sessions still get tracked. -->
+         TBT, while bounced no-interaction sessions still get tracked.
+         Exception: ads-first pages and URLs with an ad click id load GTM on page load. -->
     <script>
       (function () {
         var loaded = false;
@@ -94,6 +109,13 @@
           } else {
             setTimeout(injectGTM, 0);
           }
+        }
+        // Ads-first pages and visits from an ad click load on page load, not on interaction.
+        var bootPage = window.__4G_PAGE__ || {};
+        if (bootPage.af === 1 || /[?&](gclid|fbclid|gbraid|wbraid)=/.test(window.location.search)) {
+          if (document.readyState === "complete") scheduleGTM();
+          else window.addEventListener("load", scheduleGTM, { once: true });
+          return;
         }
         var events = ["pointerdown", "keydown", "scroll", "touchstart"];
         function onInteract() {

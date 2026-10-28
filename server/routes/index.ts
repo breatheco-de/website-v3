@@ -263,6 +263,7 @@ import { registerTrackingKeyRoutes } from "./tracking-keys";
 import { registerWebhooksRoutes } from "./webhooks";
 import { registerOverlaysRoutes } from "./overlays";
 import { registerConsentRoutes } from "./consent";
+import { registerPageReadyRoutes } from "./page-ready";
 import { registerAdsRoutes } from "./ads";
 import { attachPageVersionToJson } from "./_helpers";
 import { setWorkerRunNow } from "./_worker-state";
@@ -331,6 +332,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerStaffAuthRoutes(app);
   registerFormsRoutes(app);
   registerConsentRoutes(app);
+  registerPageReadyRoutes(app);
   registerAdsRoutes(app);
   registerSettingsRoutes(app);
   registerContentRoutes(app);

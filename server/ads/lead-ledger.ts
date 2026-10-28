@@ -205,7 +205,7 @@ async function staffSessionUsername(req: Request): Promise<string | null> {
 }
 
 export type PreparedLead = {
-  /** Scalars merged onto the webhook payload (always includes is_test / is_repeat). */
+  /** Scalars merged onto the webhook payload (always includes is_test / is_staff / is_repeat). */
   wire: Record<string, string | number | boolean>;
   row: LedgerRow;
 };
@@ -359,6 +359,7 @@ export async function prepareLead(req: Request, res: Response, body: Record<stri
   const wire: Record<string, string | number | boolean> = {
     submission_id: submissionId,
     is_test: !!testReason,
+    is_staff: testReason === "staff_session",
     is_repeat: !!repeatOf,
     consent_state: consentState,
   };
@@ -387,8 +388,8 @@ export async function prepareLead(req: Request, res: Response, body: Record<stri
   }
   if (cls.status !== "organic" && cls.platform) wire.ad_platform = cls.platform;
   if (version) {
-    wire.page_experiment_id = version.experiment_id;
-    wire.page_variant = version.variant;
+    wire.experiment_id = version.experiment_id;
+    wire.variant = version.variant;
   }
 
   return { wire, row };
@@ -406,6 +407,9 @@ export const LEDGER_ONLY_BODY_KEYS = new Set([
     ["platform", "campaign_id", "adset_id", "ad_id"].map((k) => `${p}_paid_landing_${k}`),
   ),
   "page_experiment_id",
+  // Only the server-verified page test may reach the CRM under these names.
+  "experiment_id",
+  "variant",
   "channel",
   "first_channel",
   "channel_landing_path",

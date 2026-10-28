@@ -40,6 +40,7 @@ import {
   seconds,
   shortDay,
 } from "./format";
+import { useTestView } from "./test-view-context";
 
 export function SectionCard({
   title,
@@ -75,8 +76,9 @@ export function SectionCard({
 }
 
 function Delta({ cur, prior, invert = false }: { cur: number | null | undefined; prior: number | null | undefined; invert?: boolean }) {
+  const testView = useTestView();
   const d = delta(cur, prior);
-  if (d === null) return null;
+  if (d === null || testView) return null;
   const good = invert ? d < 0 : d > 0;
   return (
     <span className={cn("text-[10px] tabular-nums", Math.abs(d) < 0.02 ? "text-muted-foreground" : good ? "text-status-online" : "text-status-busy")}>
@@ -169,16 +171,32 @@ export function JourneySection({ section, title }: { section: Section<TrafficFac
 export function SourcesSection({ section }: { section: Section<TrafficFacts> }) {
   const t = section.data;
   const total = t?.current.sessions ?? 0;
+  const fp = t?.source === "first_party" ? t.first_party ?? null : null;
   return (
     <SectionCard title="Where visitors come from" icon={Users} section={section} testId="section-sources">
       {t && (
         <>
           <KpiGrid>
-            <Kpi label="Sessions" value={num(total)} cur={total} prior={t.prior.sessions} />
+            <Kpi label={fp ? "Visits" : "Sessions"} value={num(total)} cur={total} prior={t.prior.sessions} />
             <Kpi label="Entrances" value={num(t.current.entrances)} cur={t.current.entrances} prior={t.prior.entrances} />
             <Kpi label="Engaged" value={pct(total ? t.current.engaged_sessions / total : null, 0)} />
-            <Kpi label="Returning visitors" value={pct(total ? t.current.returning_sessions / total : null, 0)} />
+            {fp ? (
+              <Kpi label="Returning visitors" value={pct(fp.returning_share_ga4, 0)} hint="Consented visitors only (GA4)" />
+            ) : (
+              <Kpi label="Returning visitors" value={pct(total ? t.current.returning_sessions / total : null, 0)} />
+            )}
           </KpiGrid>
+          {fp && fp.low_quality > 0 && (
+            <p className="text-[11px] text-muted-foreground" data-testid="text-page-stats-low-quality">
+              <span className="text-foreground">{num(fp.low_quality)} suspected low-quality visits</span> (under 1 second, no
+              scroll, click or tap) are left out of visits and rates.
+              {fp.low_quality_campaigns.length > 0 &&
+                ` Most from: ${fp.low_quality_campaigns
+                  .slice(0, 3)
+                  .map((c) => `${c.label} (${num(c.visits)})`)
+                  .join(", ")}.`}
+            </p>
+          )}
           <div className="space-y-1">
             {t.channels.map((c) => (
               <div key={c.channel} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 text-xs">
@@ -231,8 +249,13 @@ export function SourcesSection({ section }: { section: Section<TrafficFacts> }) 
   );
 }
 
-function leadsHref(filter: "conversion_path" | "landing_path", path: string): string {
-  const qs = leadsQueryToSearchParams({ filters: { [filter]: path } }).toString();
+type LeadsTestFilter = { experiment: string; variant: string };
+
+function leadsHref(filter: "conversion_path" | "landing_path" | null, path: string, test?: LeadsTestFilter): string {
+  const filters: Record<string, string> = {};
+  if (filter) filters[filter] = path;
+  if (test) Object.assign(filters, test);
+  const qs = leadsQueryToSearchParams({ filters }).toString();
   return `/private/store/leads?${qs}`;
 }
 
@@ -264,6 +287,7 @@ function LeadBlockView({
   href: string;
   testId: string;
 }) {
+  const testView = useTestView();
   return (
     <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-2" data-testid={testId}>
       <div className="flex items-start justify-between gap-2">
@@ -279,17 +303,17 @@ function LeadBlockView({
         {block.count} <Delta cur={block.count} prior={block.prior_count} />
       </p>
       <p className="text-[10px] text-muted-foreground">
-        {block.paid_count} from paid ads · before {block.prior_count}
+        {block.paid_count} from paid ads{testView ? "" : ` · before ${block.prior_count}`}
       </p>
       <Breakdown title="Form" rows={block.by_form} />
       <Breakdown title="Channel" rows={block.by_channel} label={channelLabel} />
       <Breakdown title="Campaign" rows={block.by_campaign} />
-      <Breakdown title="Page version" rows={block.by_version} />
+      {!testView && <Breakdown title="Page version" rows={block.by_version} />}
     </div>
   );
 }
 
-export function LeadsSection({ section, path }: { section: Section<LeadsFacts>; path: string }) {
+export function LeadsSection({ section, path, test }: { section: Section<LeadsFacts>; path: string; test?: LeadsTestFilter }) {
   const l = section.data;
   return (
     <SectionCard title="Leads" icon={MousePointerClick} section={section} testId="section-leads">
@@ -297,19 +321,37 @@ export function LeadsSection({ section, path }: { section: Section<LeadsFacts>; 
         <>
           <div className="grid gap-2 sm:grid-cols-2">
             <LeadBlockView
-              title="Converted on this page"
-              description="The form was submitted here."
+              title={test ? "Leads sent on this page" : "Converted on this page"}
+              description={test ? "The form was sent here by visitors who saw this version." : "The form was submitted here."}
               block={l.converted_here}
-              href={leadsHref("conversion_path", path)}
+              href={leadsHref("conversion_path", path, test)}
               testId="leads-converted-here"
             />
-            <LeadBlockView
-              title="Started their visit here"
-              description="The visit began here; the form may be elsewhere."
-              block={l.started_here}
-              href={leadsHref("landing_path", path)}
-              testId="leads-started-here"
-            />
+            {test && l.all_from_test !== undefined ? (
+              <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-2" data-testid="leads-all-from-test">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-medium text-foreground">All leads from visitors who saw it</p>
+                    <p className="text-[10px] text-muted-foreground">Wherever the form was sent, as long as the visitor saw this version first.</p>
+                  </div>
+                  <Link
+                    href={leadsHref(null, path, test)}
+                    className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground shrink-0"
+                  >
+                    View leads
+                  </Link>
+                </div>
+                <p className="text-xl font-semibold tabular-nums text-foreground">{l.all_from_test}</p>
+              </div>
+            ) : (
+              <LeadBlockView
+                title="Started their visit here"
+                description="The visit began here; the form may be elsewhere."
+                block={l.started_here}
+                href={leadsHref("landing_path", path)}
+                testId="leads-started-here"
+              />
+            )}
           </div>
           <p className="text-[11px] text-muted-foreground">
             {l.both > 0 ? `${l.both} lead${l.both === 1 ? "" : "s"} started and converted here (counted in both). ` : ""}
@@ -550,22 +592,40 @@ export function PaidSection({
   );
 }
 
-export function EngagementSection({ section }: { section: Section<TrafficFacts> }) {
+export function EngagementSection({ section, onCompareVersions }: { section: Section<TrafficFacts>; onCompareVersions?: () => void }) {
   const t = section.data;
   const total = t?.current.sessions ?? 0;
+  const fp = t?.source === "first_party" ? t.first_party ?? null : null;
   return (
     <SectionCard title="What visitors do on the page" icon={MousePointerClick} section={section} testId="section-engagement">
       {t && (
         <>
           <KpiGrid>
             <Kpi label="Median time on page" value={seconds(t.current.median_engaged_seconds)} cur={t.current.median_engaged_seconds} prior={t.prior.median_engaged_seconds} />
-            <Kpi label="Median visit length" value={seconds(t.current.median_session_seconds)} />
+            {fp ? (
+              <Kpi label="Started a form" value={num(t.current.form_starts)} />
+            ) : (
+              <Kpi label="Median visit length" value={seconds(t.current.median_session_seconds)} />
+            )}
             <Kpi label="Clicked a CTA" value={pct(total ? t.current.cta_sessions / total : null, 0)} />
             <Kpi label="Videos" value={`${num(t.current.video_starts)} plays`} hint={`${num(t.current.video_completes)} completed`} />
           </KpiGrid>
+          {fp && fp.versions.length > 0 && onCompareVersions && (
+            <p className="text-[11px] text-muted-foreground" data-testid="page-stats-versions">
+              This page ran an A/B test in this period.{" "}
+              <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={onCompareVersions} data-testid="button-page-stats-compare-versions">
+                Compare versions
+              </button>
+            </p>
+          )}
           <div className="space-y-1">
             <p className="text-xs font-medium text-foreground">CTA clicks by section</p>
-            {t.cta.length === 0 ? (
+            {fp ? (
+              <p className="text-[11px] text-muted-foreground">
+                The site&apos;s own counts record CTA clicks per visit, not per section. Use the Google Analytics view for the
+                section breakdown.
+              </p>
+            ) : t.cta.length === 0 ? (
               <p className="text-[11px] text-muted-foreground">
                 {t.tracking_since.cta_click
                   ? `Collecting since ${shortDay(t.tracking_since.cta_click)}; no clicks on this page yet.`
@@ -590,7 +650,11 @@ export function EngagementSection({ section }: { section: Section<TrafficFacts> 
             <p className="text-xs font-medium text-foreground">How far down visitors scroll</p>
             {t.scroll.length === 0 ? (
               <p className="text-[11px] text-muted-foreground">
-                {t.tracking_since.scroll_depth ? `Collecting since ${shortDay(t.tracking_since.scroll_depth)}.` : "Collecting starts with this release."}
+                {fp
+                  ? "No scrolling recorded yet."
+                  : t.tracking_since.scroll_depth
+                    ? `Collecting since ${shortDay(t.tracking_since.scroll_depth)}.`
+                    : "Collecting starts with this release."}
               </p>
             ) : (
               <div className="grid grid-cols-4 gap-2">

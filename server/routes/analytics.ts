@@ -17,11 +17,18 @@ import {
 
 const log = child({ module: "routes/analytics" });
 
-const pageStatsSchema = z.object({
-  path: z.string().trim().min(1).max(500),
-  scope: z.enum(["url", "entry"]).default("url"),
-  refresh: z.enum(["0", "1"]).optional(),
-});
+export const pageStatsSchema = z
+  .object({
+    path: z.string().trim().min(1).max(500),
+    scope: z.enum(["url", "entry"]).default("url"),
+    refresh: z.enum(["0", "1"]).optional(),
+    source: z.enum(["ga4", "first_party"]).optional(),
+    view: z.enum(["test"]).optional(),
+  })
+  .refine((q) => q.view !== "test" || q.scope === "url", {
+    message: "view=test needs scope=url: tests run per language.",
+    path: ["view"],
+  });
 
 type SiteLocals = { contentRoot?: string; contentRootName?: string; contentIndex?: import("../content-index").ContentIndex };
 
@@ -111,26 +118,38 @@ export function registerAnalyticsRoutes(app: Express): void {
     const { requireCapability } = await import("./_helpers");
     const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;
-    const parsed = pageStatsSchema.safeParse({ path: req.query.path, scope: req.query.scope, refresh: req.query.refresh });
+    const parsed = pageStatsSchema.safeParse({
+      path: req.query.path,
+      scope: req.query.scope,
+      refresh: req.query.refresh,
+      source: req.query.source,
+      view: req.query.view,
+    });
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
     }
-    const site = res.locals.site as SiteLocals | undefined;
+    const site = res.locals.site as (SiteLocals & { versioningManager?: import("../versioning/VersioningManager").VersioningManager }) | undefined;
     const { getDefaultContentFolder } = await import("../site-config");
     const { contentIndex } = await import("../content-index");
-    const { getPageStats, PageStatsNotFoundError } = await import("../analytics/page-stats");
+    const { getPageStats, getPageTestStats, PageStatsNotFoundError, PageTestNotFoundError } = await import("../analytics/page-stats");
+    const common = {
+      site: site?.contentRootName ?? getDefaultContentFolder(),
+      contentRoot: site?.contentRoot,
+      ci: site?.contentIndex ?? contentIndex,
+      path: parsed.data.path,
+      refresh: parsed.data.refresh === "1",
+      source: parsed.data.source,
+      versioningManager: site?.versioningManager,
+    };
     try {
-      const report = await getPageStats({
-        site: site?.contentRootName ?? getDefaultContentFolder(),
-        contentRoot: site?.contentRoot,
-        ci: site?.contentIndex ?? contentIndex,
-        path: parsed.data.path,
-        scope: parsed.data.scope,
-        refresh: parsed.data.refresh === "1",
-      });
+      const report =
+        parsed.data.view === "test"
+          ? await getPageTestStats(common)
+          : await getPageStats({ ...common, scope: parsed.data.scope });
       res.json(report);
     } catch (err) {
       if (err instanceof PageStatsNotFoundError) return res.status(400).json({ error: err.message });
+      if (err instanceof PageTestNotFoundError) return res.status(404).json({ error: err.message, code: "no_test" });
       log.error({ err }, "[AnalyticsRoutes] GET /api/analytics/page-stats");
       res.status(500).json({ error: "Internal server error" });
     }
