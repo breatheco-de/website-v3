@@ -93,6 +93,8 @@ import {
   parseReviewSnapshot,
   siteFactsInputText,
   snapshotFromReviewContext,
+  evidenceInputText,
+  evidenceLiveText,
   type EntryExistenceLookup,
   type RelatedOpenProposal,
   type ReviewContext,
@@ -100,13 +102,26 @@ import {
 } from "./review-context";
 import type { ExistenceState } from "./proposal-review-rules";
 import {
+  askNamesThirdParties,
   askTouchesOutcomeFigures,
   askTouchesSiteFacts,
   getDecisionClient,
+  NAMES_THIRD_PARTIES_MAX_CANDIDATES,
 } from "../ai/decisions";
 import { recordDecisionOutcome } from "../ai/decisions/health";
 import { anyEntryHasCountsAsLeadForm } from "./counts-as-lead-hint";
-import { textFromUnknown, evaluateClaimCues } from "./claim-cues";
+import { textFromUnknown, evaluateClaimCues, THIRD_PARTY_CUE } from "./claim-cues";
+import {
+  buildEvidenceIndex,
+  candidateNamesNearCues,
+  findEvidenceRow,
+  knownNamesInText,
+  normalizeName,
+  resolveEvidenceClaims,
+  type EvidenceCheck,
+  type EvidenceDismissal,
+} from "./evidence-match";
+import { loadEvidenceSourcesForSite, type EvidenceSourcesSnapshot } from "./evidence-sources";
 import { findFigureVariableTokens } from "./figure-variable-tokens";
 import type { VariableDefinition } from "../variable-manager";
 import {
@@ -1795,6 +1810,8 @@ export type ProposalServiceDeps = {
   knownContentTypes?: () => string[];
   /** Site variables (variables.yml). Absent (tests) → no figure/fact token checks. */
   variableDefinitions?: () => Record<string, VariableDefinition>;
+  /** Evidence databases (own site + fallback site) and brand terms. Absent (tests) → no evidence check. */
+  evidenceSources?: () => Promise<EvidenceSourcesSnapshot>;
   /** Per-language URL facts. Absent (tests) → no address checks at accept or filing. */
   localeUrlSlug?: LocaleUrlSlugDeps;
 };
@@ -3942,6 +3959,114 @@ export function createProposalService(deps: ProposalServiceDeps) {
     return { outcome, categories };
   }
 
+  type StoredEvidenceJev = { key_hash: string; outcome: "ok" | "unavailable"; names: string[]; at: number };
+
+  function readEvidenceDismissals(proposalId: string): EvidenceDismissal[] {
+    try {
+      const row = dbFor(site)
+        .prepare(`SELECT evidence_dismissals_json FROM content_proposals WHERE id = ?`)
+        .get(proposalId) as { evidence_dismissals_json: string | null } | undefined;
+      const parsed = parseJson<EvidenceDismissal[]>(row?.evidence_dismissals_json ?? null, []);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function readEvidenceJevCache(proposalId: string): StoredEvidenceJev | null {
+    try {
+      const row = dbFor(site)
+        .prepare(`SELECT evidence_check_json FROM content_proposals WHERE id = ?`)
+        .get(proposalId) as { evidence_check_json: string | null } | undefined;
+      const parsed = parseJson<StoredEvidenceJev | null>(row?.evidence_check_json ?? null, null);
+      return parsed && typeof parsed.key_hash === "string" && Array.isArray(parsed.names) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Named third-party claims vs evidence rows. Jev confirms which candidates are claimed as a
+   * relationship with us (cached per text + candidates); matching, live split and dismissals rerun every read.
+   */
+  async function resolveEvidenceCheck(proposal: ProposalRecord, promoteDraftText: string | null): Promise<EvidenceCheck> {
+    const snapshot = deps.evidenceSources ? await deps.evidenceSources() : null;
+    const sources = snapshot?.sources ?? [];
+    const databases = sources.map((s) => ({ site: s.site, domain: s.domain, database: s.database, label: s.label, proves: s.config.proves }));
+    if (!snapshot || sources.length === 0) {
+      return { outcome: "ok", claims: [], blocking: [], databases };
+    }
+    const index = buildEvidenceIndex(sources, snapshot.brand);
+    const text = evidenceInputText(proposal, promoteDraftText);
+    const byKey = new Map<string, string>();
+    for (const n of candidateNamesNearCues(text, THIRD_PARTY_CUE, snapshot.brand)) {
+      byKey.set(normalizeName(n), n);
+    }
+    for (const n of knownNamesInText(index, text)) {
+      if (!byKey.has(normalizeName(n))) byKey.set(normalizeName(n), n);
+    }
+    const candidates = [...byKey.values()].slice(0, NAMES_THIRD_PARTIES_MAX_CANDIDATES);
+    if (candidates.length === 0) return { outcome: "ok", claims: [], blocking: [], databases };
+
+    const keyHash = createHash("sha256").update(JSON.stringify([text, candidates])).digest("hex");
+    const cached = readEvidenceJevCache(proposal.id);
+    let outcome: "ok" | "unavailable";
+    let names: string[];
+    if (cached && cached.key_hash === keyHash && cached.outcome === "ok") {
+      outcome = "ok";
+      names = cached.names;
+    } else {
+      const res = await askNamesThirdParties(getDecisionClient(), text, candidates, snapshot.brandLabel);
+      recordDecisionOutcome(site, res.raw);
+      outcome = res.outcome;
+      names = res.outcome === "ok" ? res.names : candidates.filter((c) => findEvidenceRow(index, c));
+      try {
+        const stored: StoredEvidenceJev = { key_hash: keyHash, outcome, names, at: Date.now() };
+        dbFor(site)
+          .prepare(`UPDATE content_proposals SET evidence_check_json = ? WHERE id = ?`)
+          .run(JSON.stringify(stored), proposal.id);
+      } catch {
+        /* cache is best-effort */
+      }
+      mergeProposalTags(proposal.id, [outcome === "unavailable" ? "used_jev_unavailable" : "used_jev"]);
+    }
+
+    const { claims, blocking } = resolveEvidenceClaims({
+      names,
+      index,
+      liveText: evidenceLiveText(proposal),
+      dismissals: readEvidenceDismissals(proposal.id),
+    });
+    return { outcome, claims, blocking: outcome === "unavailable" ? [] : blocking, databases };
+  }
+
+  function dismissEvidenceName(
+    proposalId: string,
+    input: { name: string; reason: string; by: string | null },
+  ): { ok: true; dismissals: EvidenceDismissal[] } | { ok: false; status: number; code: string; error: string } {
+    const name = input.name.trim();
+    const reason = input.reason.trim();
+    if (!name) return { ok: false, status: 400, code: "name_required", error: "name is required" };
+    if (reason.length < 10) {
+      return { ok: false, status: 400, code: "reason_required", error: "Give a reason (at least 10 characters)." };
+    }
+    const proposal = loadProposal(dbFor(site), proposalId);
+    if (!proposal) return { ok: false, status: 404, code: "not_found", error: "Proposal not found" };
+    if (proposal.status !== "open" && proposal.status !== "partial") {
+      return { ok: false, status: 409, code: "not_open", error: "Only open proposals can be changed." };
+    }
+    const existing = readEvidenceDismissals(proposalId);
+    const key = normalizeName(name);
+    const next = [
+      ...existing.filter((d) => normalizeName(d.name) !== key),
+      { name, reason: reason.slice(0, 500), by: input.by, at: Date.now() },
+    ];
+    dbFor(site)
+      .prepare(`UPDATE content_proposals SET evidence_dismissals_json = ?, updated_at = ? WHERE id = ?`)
+      .run(JSON.stringify(next), Date.now(), proposalId);
+    return { ok: true, dismissals: next };
+  }
+
   async function classifyLive(
     proposal: ProposalRecord,
     opts?: { persistIfMissingSnapshot?: boolean; refreshSnapshot?: boolean },
@@ -4021,6 +4146,12 @@ export function createProposalService(deps: ProposalServiceDeps) {
     if (ctx.needs_site_facts_check) {
       const siteFactsCheck = await resolveSiteFactsCheck(proposal, promoteDraftText);
       enrichedOpts = { ...enrichedOpts, siteFactsCheck };
+      ctx = classifyProposalReview(enrichedOpts);
+    }
+
+    if (ctx.needs_evidence_check) {
+      const evidenceCheck = await resolveEvidenceCheck(proposal, promoteDraftText);
+      enrichedOpts = { ...enrichedOpts, evidenceCheck };
       ctx = classifyProposalReview(enrichedOpts);
     }
 
@@ -7999,6 +8130,18 @@ export function createProposalService(deps: ProposalServiceDeps) {
           review_context: reviewForApply,
         };
       }
+      if (reviewForApply?.evidence_block) {
+        const names = reviewForApply.evidence?.blocking ?? [];
+        return {
+          ok: false,
+          code: "evidence_missing",
+          error:
+            `This proposal names ${names.join(", ")} as a partner, press outlet or award, and no evidence database has a row for it. ` +
+            "Add a row with a source link to an evidence database (list_databases shows evidence sources), or ask staff to dismiss the name as not a claim about us. Agents cannot dismiss.",
+          proposal: enrichRecentActivity(proposal),
+          review_context: reviewForApply,
+        };
+      }
 
       const work = proposal.entries.filter((e) => e.status === "pending" || e.status === "failed");
       if (work.length > 0) {
@@ -8979,6 +9122,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
     update,
     classifyLive,
     contentTypeStrategiesFor,
+    dismissEvidenceName,
   };
 }
 
@@ -9584,6 +9728,7 @@ export function proposalServiceForSite(ctx: SiteContext) {
       parseContentTypeStrategy(getContentTypeConfig(contentType, ctx.contentRoot)?.strategy),
     knownContentTypes: () => getAllTypes(ctx.contentRoot),
     variableDefinitions: () => ctx.variableManager.getDefinitions(),
+    evidenceSources: () => loadEvidenceSourcesForSite(ctx),
     localeUrlSlug: localeUrlSlugDepsForSite(ctx),
   });
 }

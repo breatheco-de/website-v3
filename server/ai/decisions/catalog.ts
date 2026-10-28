@@ -46,6 +46,66 @@ export async function askTouchesOutcomeFigures(
   };
 }
 
+export const DECISION_ID_NAMES_THIRD_PARTIES = "proposal.names_third_parties";
+
+/** Noul above this → the text presents that name as a relationship with us. */
+export const NAMES_THIRD_PARTIES_NOUL_THRESHOLD = 0.55;
+
+/** Candidate names asked per call (one noul question each). */
+export const NAMES_THIRD_PARTIES_MAX_CANDIDATES = 10;
+
+export type NamesThirdPartiesOutcome = "ok" | "unavailable";
+
+/**
+ * Which candidate names does the text present as having chosen, partnered with, covered, endorsed,
+ * ranked or awarded the brand? Mentions of tools, studies, employers in general, or examples are not claims.
+ */
+export async function askNamesThirdParties(
+  client: DecisionClient,
+  text: string,
+  candidates: string[],
+  brand: string,
+): Promise<{ outcome: NamesThirdPartiesOutcome; names: string[]; raw?: DecideResult }> {
+  const list = candidates.slice(0, NAMES_THIRD_PARTIES_MAX_CANDIDATES);
+  if (list.length === 0) return { outcome: "ok", names: [] };
+  const truncated = text.length > 12_000 ? `${text.slice(0, 12_000)}\n…` : text;
+  const questions = Object.fromEntries(
+    list.map((name, i) => [
+      `candidate_${i}`,
+      {
+        type: "noul" as const,
+        instructions:
+          `Does this text present "${name}" as having a relationship with ${brand}: chose, selected, hired or contracted ${brand}; ` +
+          `partnered or works alongside ${brand} on a program; covered ${brand} in the press; endorsed, ranked, accredited or awarded ${brand}?`,
+        true: `"${name}" is claimed as a partner, client, press outlet, endorser, ranker or award giver of ${brand}.`,
+        false:
+          `"${name}" is only mentioned: a tool or technology, a study or statistic source, an example employer, ` +
+          `a place, a topic, or a company the article teaches about — not a claimed relationship with ${brand}.`,
+      },
+    ]),
+  );
+  const raw = await client.decide({
+    timeoutMs: 2500,
+    state: {
+      decision_id: DECISION_ID_NAMES_THIRD_PARTIES,
+      brand,
+      proposed_text: truncated,
+      candidates: list,
+    },
+    questions,
+  });
+
+  if (raw.status === "unavailable") {
+    return { outcome: "unavailable", names: [], raw };
+  }
+
+  const names = list.filter((_, i) => {
+    const ans = raw.answers[`candidate_${i}`] as { noul?: number } | undefined;
+    return typeof ans?.noul === "number" && ans.noul >= NAMES_THIRD_PARTIES_NOUL_THRESHOLD;
+  });
+  return { outcome: "ok", names, raw };
+}
+
 export const DECISION_ID_TOUCHES_SITE_FACTS = "proposal.touches_site_facts";
 
 /** Noul above this → the proposal touches that fact category. */

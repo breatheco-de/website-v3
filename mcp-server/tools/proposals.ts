@@ -2733,6 +2733,36 @@ export function registerProposalTools(
               ],
             });
           }
+          if (data.code === "evidence_missing") {
+            return fail(String(data.error ?? "evidence missing"), {
+              code: "evidence_missing",
+              details: {
+                blocking_names: (data.review_context as { evidence?: { blocking?: string[] } } | undefined)?.evidence
+                  ?.blocking ?? [],
+              },
+              warnings: [
+                {
+                  code: "agents_cannot_dismiss",
+                  message:
+                    "Only staff can dismiss a name as not a claim about us (Proposals page, Evidence block). A row an agent adds counts as unverified until staff verify it.",
+                },
+              ],
+              next_actions: [
+                {
+                  tool: "list_databases",
+                  reason: "Find evidence databases (evidence != null) that prove this kind of claim; add a row with a source link via add_database_item.",
+                  priority: "required",
+                  args_hint: { site: args.site },
+                },
+                {
+                  tool: "update_proposal",
+                  reason: "Or add_blocker asking staff to verify/dismiss the name — do not retry apply until the block clears.",
+                  priority: "optional",
+                  args_hint: { proposal_id: args.proposal_id, action: "add_blocker", site: args.site },
+                },
+              ],
+            });
+          }
           if (data.code === "not_claimant") {
             return fail(String(data.error ?? "not claimant"), {
               code: "not_claimant",

@@ -1720,7 +1720,7 @@ export function registerSeoRoutes(app: Express): void {
           return {
             contentType: r.contentType,
             slug: r.slug,
-            patternLocale: r.patternLocale,
+            patternLocale: ci.servedLocale(r.contentType, r.slug, r.patternLocale),
           };
         },
         site,

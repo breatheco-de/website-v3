@@ -213,6 +213,17 @@ export function isAbCheckPage(contentType: string, slug: string, contentRoot: st
   return readCommonYml(entryDir(contentRoot, contentType, slug))?.system === AB_CHECK_SYSTEM_MARKER;
 }
 
+/** Drops the hidden A/B check page from listing rows (public listings and staff lists). */
+export function withoutAbCheckPage<T extends { slug?: unknown }>(
+  rows: T[],
+  contentType: string,
+  contentRoot: string,
+): T[] {
+  if (!rows.some((row) => row.slug === AB_CHECK_SLUG)) return rows;
+  if (!isAbCheckPage(contentType, AB_CHECK_SLUG, contentRoot)) return rows;
+  return rows.filter((row) => row.slug !== AB_CHECK_SLUG);
+}
+
 export const SYSTEM_PAGE_LOCKED_CODE = "system_page_locked";
 export const SYSTEM_PAGE_LOCKED_MESSAGE =
   "This page is used by A/B testing setup and can't be changed. Only Settings → Tracking → A/B testing → Setup can create or re-create it.";

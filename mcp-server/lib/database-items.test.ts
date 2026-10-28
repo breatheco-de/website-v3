@@ -362,6 +362,15 @@ describe("databaseReadWarnings", () => {
     expect(codes).toContain("global_index");
     expect(codes).toContain("refresh_done");
   });
+
+  it("includes refresh_requires_edit_or_manage when a view-only refresh was skipped", () => {
+    const codes = databaseReadWarnings({
+      sourceType: "api",
+      refreshSkipped: true,
+    }).map((w) => w.code);
+    expect(codes).toContain("refresh_requires_edit_or_manage");
+    expect(codes).not.toContain("refresh_done");
+  });
 });
 
 describe("resolveContentTypesForDatabase / nonLocalMutateFailDetails", () => {

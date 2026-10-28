@@ -76,7 +76,7 @@ Skip is allowed. Unavailable tools stay listed with `available: false`. **Skip n
 - **Dilution** — new slug with no retrieval evidence; dead inventory forever (no kill criterion)
 - **Freshness** — `refresh_tier: fast` without owner + recrawl trigger
 - **Cannibal** — same angle as an existing spoke; unjustified EN+ES doubling
-- **False claims / endorsement** — named third parties without primary sources
+- **False claims / endorsement** — named third parties without primary sources. A sourced row in an evidence database (`review_context.evidence` status `sourced`, e.g. a press mention with its article link) counts as the source; `no_evidence` / `unverified` names → add_blocker (explain_site topic `local_databases`, Evidence databases)
 - **Spam / brand** — generic listicle, padded FAQ, invented figures
 - **Unachievable SERP** — official-domain queries a roundup cannot beat
 - **Ops load** — competing locks; every later pass scores two more locales

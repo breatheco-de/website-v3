@@ -5,6 +5,49 @@
 window_days: 6
 
 entries:
+  - date: "2026-10-28"
+    summary: "Evidence databases prove named partner / press / award claims in proposal review; unproven new names refuse apply"
+    agent_impact:
+      - "list_proposals review_context.evidence lists each name the text presents as choosing, partnering with, covering or awarding us, with the matched evidence row (own site + fallback_content_folder site) and status sourced | unsourced | unverified | no_evidence | already_live | dismissed. New checklist third_party_evidence; discovery_path adds get_database_item per matched row. Numbers still go to list_variables."
+      - "Apply refuses with code evidence_missing while a new name has no row and no staff dismissal (next_actions: list_databases → add a sourced row, or add_blocker). already_live and unsourced are warnings only. Agents cannot dismiss names or verify rows."
+      - "list_databases returns evidence { proves, proof_field, match_fields, also_used_by_sites } | null. On evidence banks, item writes that add a row or change its link / match fields / title / excerpt return evidence_row_unverified — the row does not prove claims until staff verify it. The server stamps _changed_by; client values are dropped."
+    tools_changed: false
+    paths:
+      - server/content-proposals/evidence-match.ts
+      - server/content-proposals/review-context.ts
+      - server/content-proposals/proposal-review-rules.ts
+      - server/content-proposals/proposal-discovery-path.ts
+      - mcp-server/tools/databases.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/local_databases.md
+      - mcp-server/explain/idea-opportunity-harm-proposals.md
+  - date: "2026-10-28"
+    summary: "New read-only databases_view cap opens list_databases / list_database_items / get_database_item"
+    agent_impact:
+      - "Database reads now accept databases_view, databases_edit_data (any scope), or databases_manage. Content Viewer, copy_editor, seo_specialist, translator, and proposal_reviewer have databases_view; no row writes or definition changes."
+      - "refresh:true on list_database_items / get_database_item needs databases_edit_data for that slug or databases_manage; otherwise it is ignored and the read returns cache with warning refresh_requires_edit_or_manage."
+      - "Refresh/reconnect the MCP connector so the three read tools appear for roles that just gained databases_view."
+    tools_changed: false
+    paths:
+      - shared/capabilities.ts
+      - shared/mcp-tool-catalog.ts
+      - shared/agentic-swarm-roles.ts
+      - mcp-server/tools/databases.ts
+      - mcp-server/lib/database-items.ts
+      - mcp-server/explain/local_databases.md
+  - date: "2026-10-28"
+    summary: "Missing-language errors name the page's live languages; single-address pages (landings) report their real language"
+    agent_impact:
+      - "get_entry_content / get_entry_seo / update_fields / remove_section / reorder_sections / replace_entry_sections on a page without a live {locale}.yml now fail with code locale_not_available + available_locales, primary_locale (_common.yml locale), suggested_locale. Reads: next_actions retries the same tool in suggested_locale. Writes: next_actions get_entry_content in suggested_locale (editing another language is a different change; translate_entry adds a language). Variant and shared-template targets keep the old file-not-found error."
+      - "get_validation_issues with slug and no locale uses the page's own language when it has no en (warning locale_fallback); an explicit locale that is missing still warns slug_unresolved, now listing live languages."
+      - "get_organic_traffic leaderboard identity and opportunities entry_key use the served language for one-address-for-all-languages types (e.g. landing): a Spanish-only landing is es, not \"default\" / en."
+    tools_changed: false
+    paths:
+      - mcp-server/lib/missing-locale.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/tools/validation-issues.ts
+      - mcp-server/lib/organic-traffic-mcp.ts
+      - server/content-index.ts
   - date: "2026-10-27"
     summary: "get_analytics_report page_detail uses the site's own visit counts on Optimize for ads pages; every report is site-aware"
     agent_impact:

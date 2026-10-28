@@ -223,6 +223,13 @@ const REGISTRY = [
     description: "Create or patch private database definitions (config) and run vector reindex. Does not authorize editing rows — use Edit database data for that.",
   },
   {
+    name: "databases_view",
+    label: "View databases",
+    scoped: false,
+    scopeKind: "none" as const,
+    description: "Browse private databases and their rows. Cannot edit rows or change settings.",
+  },
+  {
     name: "databases_edit_data",
     label: "Edit database data",
     // scoped:false so SCOPED_CAPABILITIES stays content-type-only; scopeKind drives DB grant checks.
@@ -346,6 +353,7 @@ export const VIEW_ONLY_CAPABILITIES: ReadonlySet<CapabilityName> = new Set([
   "metrics_view",
   "content_view",
   "read_redirects",
+  "databases_view",
 ]);
 
 /**

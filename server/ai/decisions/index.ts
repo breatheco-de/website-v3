@@ -15,6 +15,11 @@ export {
   askTouchesSiteFacts,
   type SiteFactQuestionCategory,
   type TouchesSiteFactsOutcome,
+  DECISION_ID_NAMES_THIRD_PARTIES,
+  NAMES_THIRD_PARTIES_NOUL_THRESHOLD,
+  NAMES_THIRD_PARTIES_MAX_CANDIDATES,
+  askNamesThirdParties,
+  type NamesThirdPartiesOutcome,
 } from "./catalog";
 export {
   createOpenRouterJevClient,

@@ -15,6 +15,8 @@ import { setJobState } from "./db-job-state";
 import type { MediaGallery } from "./media-gallery";
 import { expandEditorFieldTokens } from "@shared/editor-field-values";
 import { resolveCacheTtlMinutes, resolveRefreshRetryMinutes, type DbCacheTtlConfig } from "@shared/db-cache-ttl";
+import type { DatabaseEvidenceConfig } from "@shared/evidence-kinds";
+import { stripRowStamp } from "./database-row-stamp";
 import { freezeShared } from "./utils/deepFreeze";
 import { child } from "./logger";
 const log = child({ module: "database" });
@@ -67,6 +69,26 @@ export interface DatabaseConfig {
   editor?: Record<string, { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; split_comma_values?: boolean; cache_images?: boolean; description?: string }>;
   vector_search?: VectorSearchConfig;
   search_fields?: string[];
+  /** Rows prove named third-party claims during proposal review (shared/evidence-kinds.ts). */
+  evidence?: DatabaseEvidenceConfig;
+}
+
+/**
+ * Copy of the config without source connection settings (API endpoint, params, headers,
+ * auth; remote URL). For staff who can browse databases but not manage them.
+ */
+export function redactDatabaseSourceConnection(config: DatabaseConfig): DatabaseConfig {
+  const source: DatabaseConfig["source"] = { type: config.source.type };
+  if (config.source.local) source.local = { ...config.source.local };
+  if (config.source.api) {
+    const { results_path } = config.source.api;
+    source.api = { endpoint: "", ...(results_path ? { results_path } : {}) };
+  }
+  if (config.source.remote) {
+    const { results_path } = config.source.remote;
+    source.remote = { url: "", ...(results_path ? { results_path } : {}) };
+  }
+  return { ...config, source };
 }
 
 const VALID_DB_NAME = /^[a-z0-9_-]+$/;
@@ -950,7 +972,7 @@ export class DatabaseManager {
             config.field_mapping!
           )
         )
-      : (rawItems as Record<string, unknown>[]);
+      : (rawItems as Record<string, unknown>[]).map(stripRowStamp);
 
     const overridesFile = this.loadOverridesFile(name);
     if (overridesFile && Object.keys(overridesFile.entries).length > 0) {
@@ -1299,7 +1321,7 @@ export class DatabaseManager {
     const keys = new Set<string>();
     const sample = rawItems.slice(0, 5);
     for (const item of sample) {
-      collectAllPaths(item, "", keys);
+      collectAllPaths(stripRowStamp(item), "", keys);
     }
     return Array.from(keys).sort();
   }

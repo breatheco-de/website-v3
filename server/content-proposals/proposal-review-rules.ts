@@ -40,7 +40,12 @@ export type ChecklistId =
   | "existence_unknown"
   | "target_missing"
   | "layout_structure"
-  | "template_blast_radius";
+  | "template_blast_radius"
+  | "third_party_evidence";
+
+/** Staff always-visible line when a new named third-party claim has no evidence row. */
+export const EVIDENCE_MISSING_STAFF_NOTE =
+  "Names a partner, press outlet or award with no proof on file. Add a row with a source link to an evidence database, or dismiss the name if it isn't a claim about us.";
 
 /** Staff always-visible line when idea_opportunity_harm is active. */
 export const IDEA_OPPORTUNITY_HARM_STAFF_NOTE =
@@ -165,7 +170,8 @@ export const THINK_TEMPLATES: Record<ChecklistId, ThinkTemplate> = {
     look_for: [
       "defensible technical or educational angle",
       "facts checked against the product",
-      "stat or company fact → check it against list_variables (site facts); a literal for a fact that varies by region → add_blocker asking for the token, unless it equals literal_ok for this page",
+      "number or stat (price, hire rate, rating) → check it against list_variables (site facts); a literal for a fact that varies by region → add_blocker asking for the token, unless it equals literal_ok for this page",
+      "named partner, client, press outlet or award → review_context.evidence (evidence databases), not list_variables",
       "fact disagrees with the catalog → the catalog wins; if the author says it is stale, ask for a notes handoff to update the variable (not a literal)",
       "CTA or link to a real program",
       "reject or add_blocker if any of the three fails",
@@ -214,8 +220,8 @@ export const THINK_TEMPLATES: Record<ChecklistId, ThinkTemplate> = {
       "Goal: one 90-day outcome — cite, rank, or assist a real program (not fill a cluster hole)",
       "Evidence: follow declared demand label when present (anticipated_demand / existing_demand / fast_decay_news / broken_url); with no label, score the summary — demand keyword volume only for a search claim; search/cite + volume/KD without existing_demand → add_blocker naming the label; launch or 404 cues without a label → add_blocker naming the label",
       "Fit: not a dupe of a sibling; locale justified; wrong vehicle (funnel/SERP/hub-links-only) → close and refile as edits",
-      "Brand: educational angle, checkable facts, real program CTA — invent/endorsement without source → reject or close",
-      "stat or company fact → check it against list_variables (site facts); a literal for a fact that varies by region → add_blocker asking for the token, unless it equals literal_ok for this page",
+      "Brand: educational angle, checkable facts, real program CTA — invented endorsement → reject or close; a named partner/press/award counts as sourced when review_context.evidence shows a sourced row",
+      "number or stat → check it against list_variables (site facts); a literal for a fact that varies by region → add_blocker asking for the token, unless it equals literal_ok for this page",
       "fact disagrees with the catalog → the catalog wins; if the author says it is stale, ask for a notes handoff to update the variable (not a literal)",
       "Dilution: if this ships and gets ~0 visits, would we still pay crawl, freshness, inventory? A page that does not deserve a hub link does not deserve accept",
       "Kill criterion named (including removing the hub link if the page is retired); refresh_tier:fast needs owner + recrawl trigger; accepted idea gets a hub → spoke link at go-live (chained internal_links proposal with applies_after_proposal_id)",
@@ -501,6 +507,21 @@ export const THINK_TEMPLATES: Record<ChecklistId, ThinkTemplate> = {
       "apply needs confirm_affected_entries equal to the count",
     ],
     priority: 12,
+  },
+  third_party_evidence: {
+    id: "third_party_evidence",
+    title: "Named third party → evidence rows attached",
+    why: "The text presents someone as choosing, partnering with, covering or awarding us. review_context.evidence lists each name with the evidence row the server matched.",
+    look_for: [
+      "sourced → pass; open the row (discovery get_database_item) and confirm the claim is not stronger than the row (e.g. \"contracted\" vs \"selected\") — stronger → add_blocker",
+      "unsourced (row has no link) → warning only; you may still apply",
+      "unverified (an agent last changed the row's link or claim) → add_blocker asking staff to verify the row",
+      "no_evidence → apply is refused (evidence_missing); add_blocker asking for a sourced row, or for staff to dismiss the name",
+      "already_live → the claim is already published; warning only, never a blocker",
+      "dismissed → staff marked it \"not a claim about us\"; do not review again",
+      "numbers and stats still go to list_variables; evidence covers named relationships only",
+    ],
+    priority: 9,
   },
   target_missing: {
     id: "target_missing",

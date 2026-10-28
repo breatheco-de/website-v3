@@ -253,8 +253,11 @@ const BUILT_IN_METRICS_VIEWER_ROLE: RoleDefinition = {
 const BUILT_IN_CONTENT_VIEWER_ROLE: RoleDefinition = {
   label: "Content Viewer",
   description:
-    "Read-only content and playbooks (YAML entries, type contracts, component schemas). Cannot write entries, SEO, redirects, or run mutating diagnostics.",
-  capabilities: [{ name: "content_view", contentTypes: "*" }],
+    "Read-only content and playbooks (YAML entries, type contracts, component schemas) plus private databases and their rows. Cannot write entries, database rows, SEO, redirects, or run mutating diagnostics.",
+  capabilities: [
+    { name: "content_view", contentTypes: "*" },
+    { name: "databases_view" },
+  ],
 };
 
 const BUILT_IN_ADS_MANAGER_ROLE: RoleDefinition = {
@@ -635,6 +638,37 @@ export function ensureConsentSettingsOnAdsSettingsRoles(
   return true;
 }
 
+export const DATABASES_VIEW_CONTENT_EDITORS_MIGRATION = "databases_view_content_editors";
+
+/**
+ * One-time: custom roles that can edit text (any scope) get View databases so editors can
+ * see what the private databases hold. Skips roles that already browse databases via
+ * databases_view, databases_edit_data, or databases_manage. Recorded in `applied` so a
+ * later staff removal sticks.
+ * @returns true when roles or `applied` changed (caller should persist).
+ */
+export function ensureDatabasesViewOnContentEditors(
+  roles: Record<string, RoleDefinition>,
+  applied: string[],
+): boolean {
+  if (applied.includes(DATABASES_VIEW_CONTENT_EDITORS_MIGRATION)) return false;
+  for (const [roleId, role] of Object.entries(roles)) {
+    if (isBuiltInRole(roleId) || role?.agentic || isAgenticSwarmRoleId(roleId)) continue;
+    if (!role?.capabilities) continue;
+    if (!role.capabilities.some((g) => g.name === "content_edit_text")) continue;
+    const hasBrowse = role.capabilities.some(
+      (g) =>
+        g.name === "databases_view" ||
+        g.name === "databases_edit_data" ||
+        g.name === "databases_manage",
+    );
+    if (hasBrowse) continue;
+    role.capabilities = [...role.capabilities, { name: "databases_view" }];
+  }
+  applied.push(DATABASES_VIEW_CONTENT_EDITORS_MIGRATION);
+  return true;
+}
+
 /** True when grants include a mutating cap (not only metrics_view / content_view). */
 export function grantsCanMutateMetrics(caps: CapabilityGrant[]): boolean {
   return caps.some((g) => !VIEW_ONLY_CAPABILITIES.has(g.name));
@@ -668,6 +702,9 @@ function finishLoad(persist: "local" | "all"): void {
   if (!state.appliedMigrations) state.appliedMigrations = [];
   if (ensureConsentSettingsOnAdsSettingsRoles(state.roles, state.appliedMigrations)) {
     log.info("[UserStore] Migrated custom roles: added consent_settings from ads_settings (one-time)");
+  }
+  if (ensureDatabasesViewOnContentEditors(state.roles, state.appliedMigrations)) {
+    log.info("[UserStore] Migrated custom roles: added databases_view from content_edit_text (one-time)");
   }
   if (ensureAgenticSwarmRoles(state.roles)) {
     log.info("[UserStore] Seeded agentic swarm roles");
@@ -1217,7 +1254,7 @@ export function hasCapability(
 /**
  * True when a databases_edit_data grant authorizes browse (any bank list/get).
  * Requires `*` or a non-empty slug list — omit/empty fails closed.
- * Used by requireDatabasesBrowseAccess (OR databases_manage).
+ * Used by grantsAllowDatabasesBrowse (OR databases_manage / databases_view).
  */
 export function grantAllowsAnyDatabasesEditDataAccess(
   grant: CapabilityGrant | undefined,
@@ -1235,6 +1272,19 @@ export function grantAllowsAnyDatabasesEditDataAccess(
 export function hasAnyDatabasesEditDataAccess(username: string): boolean {
   const grant = getEffectiveCapabilities(username).find((g) => g.name === "databases_edit_data");
   return grantAllowsAnyDatabasesEditDataAccess(grant);
+}
+
+/**
+ * True when grants allow browsing private databases (list/get items/config):
+ * databases_manage, databases_view, or databases_edit_data with `*` / a non-empty slug list.
+ */
+export function grantsAllowDatabasesBrowse(caps: CapabilityGrant[]): boolean {
+  if (caps.some((g) => g.name === "databases_manage" || g.name === "databases_view")) return true;
+  return grantAllowsAnyDatabasesEditDataAccess(caps.find((g) => g.name === "databases_edit_data"));
+}
+
+export function hasDatabasesBrowseAccess(username: string): boolean {
+  return grantsAllowDatabasesBrowse(getEffectiveCapabilities(username));
 }
 
 /** Whether the user is assigned the given role id. */

@@ -23,6 +23,7 @@ import {
 import { assertSafeSegment, assertSafeLocale, assertWithinBase } from "../lib/sanitize.js";
 import { abTestingWarnings } from "../lib/ab-testing-warnings.js";
 import { notifyMcpContentWrite } from "../lib/content-write-notify.js";
+import { missingLocaleFail } from "../lib/missing-locale.js";
 import { writePausedResult } from "../lib/write-pause.js";
 import { checkCap, denyResponse, denyWriteSuggestPropose, denyUnlessContentView, denyUnlessContentViewOrSeo } from "../lib/auth.js";
 import {
@@ -1867,7 +1868,7 @@ export function registerPageTools(
 
   type PagePayloadError = { content: [{ type: "text"; text: string }]; isError: true };
 
-  function resolvePagePayload(slug: string, locale: string, contentType: string | undefined, contentPath: string): PagePayload | PagePayloadError {
+  function resolvePagePayload(tool: string, slug: string, locale: string, contentType: string | undefined, contentPath: string): PagePayload | PagePayloadError {
     try {
       assertSafeSegment(slug, "slug");
       assertSafeLocale(locale);
@@ -1881,7 +1882,15 @@ export function registerPageTools(
     }
     const result = loadPage(resolved.contentType, slug, locale, contentPath);
     if (!result) {
-      return { content: [{ type: "text", text: `Locale '${locale}' not found for page '${slug}' (contentType: ${resolved.contentType}).${entryNotFoundNote(resolved.contentType, contentPath)}` }], isError: true };
+      return missingLocaleFail({
+        tool,
+        mode: "read",
+        contentType: resolved.contentType,
+        slug,
+        locale,
+        contentPath,
+        note: entryNotFoundNote(resolved.contentType, contentPath),
+      }) as PagePayloadError;
     }
 
     const pageDir = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug);
@@ -1982,7 +1991,7 @@ export function registerPageTools(
         return { content: [{ type: "text", text: JSON.stringify({ contentType: resolved.contentType, slug, locale, variant, ...layout, ...merged, deprecated_fields_present, validation_issues: [], claimed_issues: [], completed_issues: [], validation_pending: false }, null, 2) }] };
       }
 
-      const payload = resolvePagePayload(slug, locale, contentType, contentPath);
+      const payload = resolvePagePayload("get_entry_content", slug, locale, contentType, contentPath);
       if ("isError" in payload) return payload;
       const viewDeniedLive = await denyUnlessContentView(mcpToken, payload.contentType, grants);
       if (viewDeniedLive) return viewDeniedLive;
@@ -2182,7 +2191,7 @@ export function registerPageTools(
         };
       }
 
-      const payload = resolvePagePayload(slug, locale, contentType, contentPath);
+      const payload = resolvePagePayload("get_entry_seo", slug, locale, contentType, contentPath);
       if ("isError" in payload) return payload;
       const seoDeniedLive = await denyUnlessContentViewOrSeo(mcpToken, payload.contentType, grants);
       if (seoDeniedLive) return seoDeniedLive;
@@ -4002,6 +4011,9 @@ export function registerPageTools(
       const commonRelPath = `${contentFolder}/${ctDir}/${slug}/_common.yml`;
 
       if (localeEntries.length > 0 && !fs.existsSync(pathInfo.filePath)) {
+        if (!variant && layoutTarget === "entry") {
+          return missingLocaleFail({ tool: "update_fields", mode: "write", contentType: resolved.contentType, slug, locale, contentPath });
+        }
         return fail(`File not found: ${pathInfo.relativeHint}`);
       }
 
@@ -7694,6 +7706,9 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         return fail((e as Error).message);
       }
       if (!fs.existsSync(pathInfo.filePath)) {
+        if (!variant && layoutTarget === "entry") {
+          return missingLocaleFail({ tool: "remove_section", mode: "write", contentType: resolved.contentType, slug, locale, contentPath });
+        }
         return fail(`Locale file not found: ${pathInfo.relativeHint}`);
       }
 
@@ -7885,6 +7900,9 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         return fail((e as Error).message);
       }
       if (!fs.existsSync(pathInfo.filePath)) {
+        if (!variant && layoutTarget === "entry") {
+          return missingLocaleFail({ tool: "reorder_sections", mode: "write", contentType: resolved.contentType, slug, locale, contentPath });
+        }
         return fail(`Locale file not found: ${pathInfo.relativeHint}`);
       }
 
@@ -8092,6 +8110,9 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         return fail((e as Error).message);
       }
       if (!fs.existsSync(pathInfo.filePath)) {
+        if (!variant && layoutTarget === "entry") {
+          return missingLocaleFail({ tool: "replace_entry_sections", mode: "write", contentType: resolved.contentType, slug, locale, contentPath });
+        }
         return fail(`File not found: ${pathInfo.relativeHint}`);
       }
 

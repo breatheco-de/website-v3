@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { api } from "../rate-limit/api";
 import * as userStore from "../user-store";
-import { requireAnyCapability } from "./_helpers";
+import { isMcpLoopbackRequest, requireAnyCapability } from "./_helpers";
 import {
   proposalServiceForSite,
   exportAllProposals,
@@ -490,6 +490,31 @@ export function registerProposalRoutes(app: Express): void {
       return;
     }
     res.json(result);
+  });
+
+  api.post(app, "/api/admin/proposals/:id/evidence-dismissals", { rate: "staffWrite" }, async (req, res) => {
+    if (isMcpLoopbackRequest(req) || typeof req.headers["x-mcp-author"] === "string") {
+      res.status(403).json({
+        ok: false,
+        code: "staff_only",
+        error: "Only staff can dismiss a name as not a claim about us. Agents cannot dismiss.",
+      });
+      return;
+    }
+    const auth = await requireProposalWrite(req, res);
+    if (!auth) return;
+    const svc = siteService(req, res);
+    if (!svc) return;
+    const name = typeof req.body?.name === "string" ? req.body.name : "";
+    const reason = typeof req.body?.reason === "string" ? req.body.reason : "";
+    const result = svc.dismissEvidenceName(req.params.id, { name, reason, by: auth.actor });
+    if (!result.ok) {
+      res.status(result.status).json({ ok: false, code: result.code, error: result.error });
+      return;
+    }
+    const proposal = svc.get(req.params.id);
+    const review_context = proposal ? await svc.classifyLive(proposal) : null;
+    res.json({ ok: true, dismissals: result.dismissals, review_context });
   });
 
   api.post(app, "/api/admin/proposals/:id/:action", { rate: "staffWrite" }, async (req, res) => {

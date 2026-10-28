@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import {AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpDown, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Clock, CloudUpload, Code, Copy, Database, Download, ExternalLink, Eye, File, HeartPulse, HelpCircle, Image, Info, Link as LinkIcon, Loader2, Network, Pencil, Play, Plus, RefreshCw, Save, Search, Server, Settings, SlidersHorizontal, Sparkles, Table, Tags, TestTube, Trash2, Upload, Wand2, Webhook, X} from "lucide-react";
+import {AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpDown, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Clock, CloudUpload, Code, Copy, Database, Download, ExternalLink, Eye, File, HeartPulse, HelpCircle, Image, Info, Link as LinkIcon, Loader2, Network, Pencil, Play, Plus, RefreshCw, Save, Search, Server, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Table, Tags, TestTube, Trash2, Upload, Wand2, Webhook, X} from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link, useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,13 +55,39 @@ import {
   sortDatabaseItemEntries,
   type DatabaseItemsSort,
 } from "@shared/database-items-sort";
+import type { DatabaseEvidenceConfig, EvidenceRowTrust } from "@shared/evidence-kinds";
+import { EvidenceSourceKpiCard } from "@/components/databases/EvidenceSourceKpiCard";
 
-/** True when the role may browse banks (manage OR edit-data with * / non-empty list). */
+const RELATIVE_FETCHED_AT_MAX_MS = 2 * 24 * 60 * 60 * 1000;
+
+function shortTimeAgo(ageMs: number): string {
+  const minutes = Math.floor(ageMs / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function FetchedAtLabel({ fetchedAt }: { fetchedAt?: string | number | null }) {
+  if (!fetchedAt) return <span data-testid="text-fetched-at">Never fetched</span>;
+  const date = new Date(fetchedAt);
+  const absolute = date.toLocaleString();
+  const ageMs = Date.now() - date.getTime();
+  const label = ageMs >= 0 && ageMs < RELATIVE_FETCHED_AT_MAX_MS ? shortTimeAgo(ageMs) : absolute;
+  return (
+    <span data-testid="text-fetched-at" title={absolute}>
+      {label}
+    </span>
+  );
+}
+
+/** True when the role may browse banks (manage, view, OR edit-data with * / non-empty list). */
 function hasDatabasesBrowseAccess(
   hasCapability: (cap: string, scope?: string) => boolean,
   capabilities: CapabilityGrant[],
 ): boolean {
-  if (hasCapability("databases_manage")) return true;
+  if (hasCapability("databases_manage") || hasCapability("databases_view")) return true;
   const grant = capabilities.find((g) => g.name === "databases_edit_data");
   if (!grant) return false;
   if (grant.databases === "*") return true;
@@ -124,7 +150,12 @@ interface DatabaseDetail {
     filter_by_locale?: boolean;
     editor?: Record<string, { type?: string; options?: (string | { value: string; label: string })[]; populate_options?: boolean; allow_custom_values?: boolean; split_comma_values?: boolean; cache_images?: boolean; description?: string }>;
     vector_search?: { enabled: boolean; fields: string[] };
+    evidence?: DatabaseEvidenceConfig;
   };
+  /** True when the server stripped source connection settings (no Manage databases). */
+  connection_hidden?: boolean;
+  /** Sites whose fallback_content_folder is this site (they also use its evidence rows). */
+  evidence_fallback_sites?: string[];
   cache_status?: {
     fetched_at: string;
     item_count: number;
@@ -248,6 +279,8 @@ interface DatabaseItems {
   fetched_at?: string;
   from_cache?: boolean;
   facets?: Record<string, string[]>;
+  /** Evidence databases only: who last changed each returned row's link or claim. */
+  evidence_trust?: EvidenceRowTrust[];
 }
 
 interface KeyValuePair {
@@ -1357,12 +1390,12 @@ function DatabaseList() {
           data-testid="banner-databases-access"
         >
           You can browse private databases here.
-          {!canManageDatabases && " Creating or changing settings needs Manage databases."}
           {editScopeLabel
             ? ` You can edit rows in: ${editScopeLabel}.`
             : !hasCapability("databases_edit_data")
-              ? " Row edits need Edit database data for the bank you want to change."
+              ? " Row edits need Edit database data."
               : null}
+          {!canManageDatabases && " Creating or changing settings needs Manage databases."}
         </div>
       )}
 
@@ -4319,6 +4352,34 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     setPage(1);
   }, [dataView, search]);
 
+  const showEvidenceTrust = Boolean(config?.evidence?.enabled && itemsData?.evidence_trust && (editMode || dataView !== "raw"));
+  const trustOf = (item: Record<string, unknown>): EvidenceRowTrust | null => {
+    if (!showEvidenceTrust) return null;
+    const idx = (itemsData?.items ?? []).indexOf(item);
+    return idx >= 0 ? itemsData?.evidence_trust?.[idx] ?? null : null;
+  };
+  const [verifyingIndex, setVerifyingIndex] = useState<number | null>(null);
+  const verifyEvidenceRow = async (storedIndex: number) => {
+    setVerifyingIndex(storedIndex);
+    try {
+      const res = await apiFetch(`/api/databases/${dbName}/items/${storedIndex}/verify`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error || "Failed to verify");
+      }
+      await refetchItems();
+      toast({ title: "Row verified", description: "Proposals can now use this row as proof." });
+    } catch (err) {
+      toast({
+        title: "Error verifying",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
+    } finally {
+      setVerifyingIndex(null);
+    }
+  };
+
   const runForceRefresh = async () => {
     if (!canManageDatabases) {
       toast({
@@ -4724,7 +4785,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
               : false;
             const optionalCount = (hasCachedFields ? 1 : 0) + (hasSemanticSearch ? 1 : 0);
             const lgCols =
-              optionalCount === 2 ? "lg:grid-cols-6" : optionalCount === 1 ? "lg:grid-cols-5" : "lg:grid-cols-4";
+              optionalCount === 2 ? "lg:grid-cols-5" : optionalCount === 1 ? "lg:grid-cols-4" : "lg:grid-cols-3";
             return (
           <div className={`grid gap-4 sm:grid-cols-2 ${lgCols}`}>
             <Card>
@@ -4734,27 +4795,32 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                     <Webhook className="h-3.5 w-3.5" />
                     <span>Source</span>
                   </div>
-                  {config?.source.api?.params && Object.keys(config.source.api.params).length > 0 && (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button size="icon" variant="ghost" className="h-6 w-6" title="View query params" data-testid="button-view-source-params">
-                          <SlidersHorizontal className="h-3.5 w-3.5" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent side="bottom" align="end" className="w-72 p-3 space-y-2">
-                        <p className="text-xs font-medium">Query Parameters</p>
-                        <div className="space-y-1">
-                          {Object.entries(config.source.api.params).map(([k, v]) => (
-                            <div key={k} className="flex items-start gap-2 text-xs">
-                              <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-foreground shrink-0">{k}</code>
-                              <span className="text-muted-foreground mt-0.5">=</span>
-                              <code className="text-muted-foreground font-mono break-all">{String(v)}</code>
-                            </div>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  )}
+                  <div className="flex items-center gap-0.5">
+                    {config?.source.type === "api" && (
+                      <WebhookUrlPopover type={dbName} variant="icon" />
+                    )}
+                    {config?.source.api?.params && Object.keys(config.source.api.params).length > 0 && (
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button size="icon" variant="ghost" className="h-6 w-6" title="View query params" data-testid="button-view-source-params">
+                            <SlidersHorizontal className="h-3.5 w-3.5" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent side="bottom" align="end" className="w-72 p-3 space-y-2">
+                          <p className="text-xs font-medium">Query Parameters</p>
+                          <div className="space-y-1">
+                            {Object.entries(config.source.api.params).map(([k, v]) => (
+                              <div key={k} className="flex items-start gap-2 text-xs">
+                                <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-foreground shrink-0">{k}</code>
+                                <span className="text-muted-foreground mt-0.5">=</span>
+                                <code className="text-muted-foreground font-mono break-all">{String(v)}</code>
+                              </div>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    )}
+                  </div>
                 </div>
                 <p className="text-sm font-medium">{config?.source.type || "\u2014"}</p>
                 {config?.source.api?.endpoint && (
@@ -4784,50 +4850,37 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                     </Button>
                   </div>
                 )}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4 pb-3 space-y-1">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Table className="h-3.5 w-3.5" />
-                  <span>Items</span>
-                </div>
-                <p className="text-sm font-medium" data-testid="text-item-count">
-                  {itemsData ? itemsData.raw_count ?? itemsData.total_count : detail?.cache_status ? detail.cache_status.item_count : itemsLoading || itemsFetching ? "..." : "\u2014"}
-                </p>
-                {(itemsData?.from_cache || (!itemsData && detail?.cache_status)) && (
-                  <p className="text-xs text-muted-foreground">from cache</p>
-                )}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-4 pb-3 space-y-1">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Clock className="h-3.5 w-3.5" />
-                    <span>Last Fetched</span>
-                  </div>
-                  {config?.source.type === "api" && (
-                    <WebhookUrlPopover type={dbName} variant="icon" />
+                {detail?.connection_hidden &&
+                  (config?.source.type === "api" || config?.source.type === "remote") && (
+                    <p className="text-xs text-muted-foreground" data-testid="text-source-connection-hidden">
+                      Connection details are visible to people who can manage databases.
+                    </p>
                   )}
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Table className="h-3 w-3" />
+                  <span data-testid="text-item-count">
+                    {itemsData ? itemsData.raw_count ?? itemsData.total_count : detail?.cache_status ? detail.cache_status.item_count : itemsLoading || itemsFetching ? "..." : "\u2014"}
+                  </span>
+                  <span>items</span>
+                  {(itemsData?.from_cache || (!itemsData && detail?.cache_status)) && <span>· from cache</span>}
                 </div>
                 {fetchRunning ? (
-                  <div className="flex items-center gap-1.5" data-testid="text-fetched-at">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />
-                    <span className="text-sm font-medium">
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="text-fetched-at">
+                    <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                    <span>
                       Fetching{jobStatus?.fetch?.fetched !== undefined ? `\u2026 ${jobStatus.fetch.fetched} items` : "\u2026"}
                       {jobStatus?.fetch?.page ? ` (page ${jobStatus.fetch.page})` : ""}
                     </span>
                   </div>
                 ) : jobStatus?.fetch?.status === "error" ? (
-                  <div className="space-y-1">
-                    <p className="text-xs text-destructive truncate" title={jobStatus.fetch?.error} data-testid="text-fetched-at">
-                      Error: {jobStatus.fetch?.error ?? "unknown"}
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <p className="text-xs text-destructive truncate min-w-0 flex-1" title={jobStatus.fetch?.error} data-testid="text-fetched-at">
+                      Fetch error: {jobStatus.fetch?.error ?? "unknown"}
                     </p>
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-6 text-xs px-2"
+                      className="h-6 text-xs px-2 shrink-0"
                       onClick={handleRetryFetch}
                       disabled={isRefreshing}
                       data-testid="button-retry-fetch"
@@ -4837,19 +4890,29 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                     </Button>
                   </div>
                 ) : (
-                  <p className="text-sm font-medium" data-testid="text-fetched-at">
-                    {itemsData?.fetched_at
-                      ? new Date(itemsData.fetched_at).toLocaleString()
-                      : detail?.cache_status?.fetched_at
-                        ? new Date(detail.cache_status.fetched_at).toLocaleString()
-                        : "\u2014"}
-                  </p>
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Clock className="h-3 w-3 shrink-0" />
+                    <FetchedAtLabel fetchedAt={itemsData?.fetched_at ?? detail?.cache_status?.fetched_at} />
+                    <span title="How long cached items are reused before the next fetch">
+                      · TTL {resolveCacheTtlMinutes(config?.cache)}m
+                    </span>
+                  </div>
                 )}
-                <p className="text-xs text-muted-foreground">
-                  TTL: {resolveCacheTtlMinutes(config?.cache)}m
-                </p>
               </CardContent>
             </Card>
+            {config ? (
+              <EvidenceSourceKpiCard
+                dbName={dbName}
+                config={config as unknown as Record<string, unknown> & { evidence?: DatabaseEvidenceConfig }}
+                fields={
+                  config.field_mapping && Object.keys(config.field_mapping).length
+                    ? Object.keys(config.field_mapping)
+                    : Object.keys((itemsData?.items?.[0] as Record<string, unknown> | undefined) ?? {})
+                }
+                fallbackSites={detail?.evidence_fallback_sites ?? []}
+                canManage={canManageDatabases}
+              />
+            ) : null}
             <ErrorsKpiCard
               errorCount={detail?.error_count ?? 0}
               errorSummary={detail?.error_summary}
@@ -4986,6 +5049,34 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                                   <code key={o} className="bg-muted px-1.5 py-0.5 rounded text-[10px]">{o}</code>
                                 ))}
                               </div>
+                            )}
+                          </PopoverContent>
+                        </Popover>
+                      )}
+                      {config?.evidence?.enabled &&
+                        (config.evidence.proof_field === key || config.evidence.match_fields?.includes(key)) && (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <span className="inline-flex items-center text-orange-500 shrink-0 cursor-pointer hover:opacity-80 transition-opacity" data-testid={`badge-evidence-${key}`}>
+                              <ShieldCheck className="h-3 w-3" />
+                            </span>
+                          </PopoverTrigger>
+                          <PopoverContent side="top" className="w-72 text-xs p-3 space-y-2">
+                            {config.evidence.proof_field === key && (
+                              <>
+                                <p className="font-medium text-sm">Evidence proof</p>
+                                <p className="text-muted-foreground">
+                                  The <code className="bg-muted px-1 rounded font-mono">{key}</code> field holds the link or text that proves a claim. A row counts as evidence only if this is filled in.
+                                </p>
+                              </>
+                            )}
+                            {config.evidence.match_fields?.includes(key) && (
+                              <>
+                                <p className="font-medium text-sm">Evidence statement</p>
+                                <p className="text-muted-foreground">
+                                  Names in the <code className="bg-muted px-1 rounded font-mono">{key}</code> field are compared with the partners, press outlets or awards a proposal names.
+                                </p>
+                              </>
                             )}
                           </PopoverContent>
                         </Popover>
@@ -5437,6 +5528,11 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                     <thead>
                       <tr className="border-b bg-muted/50">
                         {editMode && <th className="px-2 py-2 w-20" />}
+                        {showEvidenceTrust && (
+                          <th className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap">
+                            Proof
+                          </th>
+                        )}
                         {columns.map((col) => (
                           <th
                             key={col}
@@ -5514,6 +5610,38 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                                   <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                 </Button>
                               </div>
+                            </td>
+                          )}
+                          {showEvidenceTrust && (
+                            <td className="px-3 py-1.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                              {trustOf(item) === "unverified" ? (
+                                <div className="flex items-center gap-1.5">
+                                  <Badge
+                                    variant="outline"
+                                    className="font-normal text-[10px]"
+                                    title="An agent changed this row's link or claim. Proposals will not treat it as proof until you verify it."
+                                    data-testid={`badge-evidence-unverified-${i}`}
+                                  >
+                                    Added by agent, not verified
+                                  </Badge>
+                                  {canEditRows && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-6 px-2 text-[10px]"
+                                      disabled={verifyingIndex !== null}
+                                      onClick={() => void verifyEvidenceRow(storedIndexOf(item, i))}
+                                      data-testid={`button-verify-evidence-${i}`}
+                                    >
+                                      {verifyingIndex === storedIndexOf(item, i) ? "Verifying…" : "Mark verified"}
+                                    </Button>
+                                  )}
+                                </div>
+                              ) : trustOf(item) === "verified" ? (
+                                <span className="text-[10px] text-muted-foreground">Verified</span>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground">—</span>
+                              )}
                             </td>
                           )}
                           {columns.map((col) => {

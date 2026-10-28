@@ -45,9 +45,10 @@ export const AGENTIC_SWARM_ROLES_BY_ID: Record<AgenticSwarmRoleId, AgenticSwarmR
   copy_editor: {
     label: "Copy Editor",
     description:
-      "Draft and locale body copy; may file and withdraw proposals — not layout, SEO meta, apply/reject, or publish.",
+      "Draft and locale body copy; may read private databases and file and withdraw proposals — not layout, SEO meta, database row edits, apply/reject, or publish.",
     capabilities: [
       { name: "content_view", contentTypes: "*" },
+      { name: "databases_view" },
       { name: "content_edit_text", contentTypes: "*" },
       { name: "content_create_variant", contentTypes: "*" },
       { name: "content_edit_variant", contentTypes: "*" },
@@ -57,9 +58,10 @@ export const AGENTIC_SWARM_ROLES_BY_ID: Record<AgenticSwarmRoleId, AgenticSwarmR
   seo_specialist: {
     label: "SEO Specialist",
     description:
-      "Per-entry SEO and clusters; may file and withdraw proposals — not page structure, apply/reject, or publish.",
+      "Per-entry SEO and clusters; may read private databases and file and withdraw proposals — not page structure, database row edits, apply/reject, or publish.",
     capabilities: [
       { name: "content_view", contentTypes: "*" },
+      { name: "databases_view" },
       { name: "seo_edit", contentTypes: "*" },
       { name: "proposals_create" },
     ],
@@ -77,9 +79,10 @@ export const AGENTIC_SWARM_ROLES_BY_ID: Record<AgenticSwarmRoleId, AgenticSwarmR
   translator: {
     label: "Translator",
     description:
-      "Locale variants and translation writes; may file and withdraw proposals — not structure, SEO, apply/reject, or publish.",
+      "Locale variants and translation writes; may read private databases and file and withdraw proposals — not structure, SEO, database row edits, apply/reject, or publish.",
     capabilities: [
       { name: "content_view", contentTypes: "*" },
+      { name: "databases_view" },
       { name: "content_edit_text", contentTypes: "*" },
       { name: "content_create_variant", contentTypes: "*" },
       { name: "content_edit_variant", contentTypes: "*" },
@@ -100,9 +103,10 @@ export const AGENTIC_SWARM_ROLES_BY_ID: Record<AgenticSwarmRoleId, AgenticSwarmR
   proposal_reviewer: {
     label: "Proposal Reviewer",
     description:
-      "List and decide proposals (apply/reject/accept/close/blockers). Approve can change live or draft content that was already proposed. Not for creating proposals, withdrawing, attaching drafts, or editing page copy/layout.",
+      "List and decide proposals (apply/reject/accept/close/blockers) and read private databases for context. Approve can change live or draft content that was already proposed. Not for creating proposals, withdrawing, attaching drafts, editing page copy/layout, or editing database rows.",
     capabilities: [
       { name: "content_view", contentTypes: "*" },
+      { name: "databases_view" },
       { name: "proposals_review" },
     ],
   },

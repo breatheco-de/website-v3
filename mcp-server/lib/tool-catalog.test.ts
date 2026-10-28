@@ -207,6 +207,18 @@ describe("allowedToolNames", () => {
     expect(names.has("reindex_database")).toBe(false);
   });
 
+  it("databases_view reveals read tools only", () => {
+    const names = new Set(allowedToolNames([{ name: "databases_view" }]));
+    expect(names.has("list_databases")).toBe(true);
+    expect(names.has("list_database_items")).toBe(true);
+    expect(names.has("get_database_item")).toBe(true);
+    expect(names.has("add_database_item")).toBe(false);
+    expect(names.has("update_database_items")).toBe(false);
+    expect(names.has("delete_database_item")).toBe(false);
+    expect(names.has("create_or_update_database")).toBe(false);
+    expect(names.has("reindex_database")).toBe(false);
+  });
+
   it("content_edit_text alone does not reveal database tools", () => {
     const names = new Set(
       allowedToolNames([{ name: "content_edit_text", contentTypes: "*" }]),

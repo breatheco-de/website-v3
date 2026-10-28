@@ -95,6 +95,7 @@ import {
   ProposalSituationCallout,
   type ReviewContextPayload,
 } from "@/components/agents/SituationReviewBadge";
+import { ProposalEvidenceBlock } from "@/components/agents/ProposalEvidenceBlock";
 import { filedIdeaDemand } from "@/lib/review-situation-summary";
 import { EntryActivityBadge } from "@/components/pipeline/EntryActivityBadge";
 import { RelatedEntryPopover } from "@/components/agents/RelatedEntryPopover";
@@ -1987,6 +1988,15 @@ export function ProposalDetailPanel({
                             }),
                         }
                       : {})}
+                  />
+                ) : null}
+                {!isTerminal && (p.kind === "edits" || p.kind === "idea") ? (
+                  <ProposalEvidenceBlock
+                    evidence={reviewContext?.evidence}
+                    saving={mut.isPending}
+                    onDismiss={(name, reason) =>
+                      mut.mutate({ action: "evidence-dismissals", body: { name, reason } })
+                    }
                   />
                 ) : null}
                 {isTerminal && !isDrawer && p.decision_debug ? (

@@ -516,7 +516,69 @@ export type ReviewContextForDiscovery = {
   figure_variables?: Array<{ name: string }>;
   fact_variable_names?: string[];
   site_facts?: { outcome: "ok" | "unavailable"; categories: string[] };
+  evidence?: {
+    outcome: "ok" | "unavailable";
+    claims: Array<{
+      name: string;
+      status: string;
+      row?: { domain: string; database: string; index: number; label: string; link: string | null };
+    }>;
+    blocking: string[];
+    databases: Array<{ domain: string; database: string; label: string }>;
+  };
 };
+
+/** Max get_database_item items (one per matched claim). */
+const MAX_EVIDENCE_ROW_ITEMS = 3;
+
+/** One get_database_item per matched claim; one list_database_items per evidence database for unmatched names. */
+export function buildEvidenceDiscoveryItems(
+  evidence: ReviewContextForDiscovery["evidence"] | undefined,
+  allowed: Set<string> | null,
+): DiscoveryPathToolItem[] {
+  if (!evidence) return [];
+  const items: DiscoveryPathToolItem[] = [];
+  const matched = evidence.claims.filter((c) => c.row && c.status !== "dismissed").slice(0, MAX_EVIDENCE_ROW_ITEMS);
+  for (const c of matched) {
+    const row = c.row!;
+    items.push(
+      toToolItem(
+        {
+          id: `evidence_row_${items.length}`,
+          tool: "get_database_item",
+          why: `"${c.name}" matched evidence row "${row.label}" (${c.status}) in ${row.database}.`,
+          look_for: [
+            row.link ? `source link: ${row.link}` : "no source link on this row (unsourced — warning only)",
+            "the proposed claim is not stronger than the row (selected vs contracted, partner vs client)",
+            c.status === "unverified" ? "unverified: an agent last changed this row — add_blocker asking staff to verify" : "row status ok",
+          ],
+        },
+        allowed,
+        { database: row.database, index: row.index, site: row.domain },
+      ),
+    );
+  }
+  if (evidence.blocking.length) {
+    for (const db of evidence.databases.slice(0, 2)) {
+      items.push(
+        toToolItem(
+          {
+            id: `evidence_search_${db.database}`,
+            tool: "list_database_items",
+            why: `No row matched ${evidence.blocking.join(", ")} — confirm in ${db.label} before add_blocker.`,
+            look_for: [
+              "a row under a different spelling → the author can align the name; still no row → add_blocker asking for a sourced row or a staff dismissal",
+              "agents cannot dismiss; a row an agent adds counts as unverified until staff verify it",
+            ],
+          },
+          allowed,
+          { database: db.database, site: db.domain },
+        ),
+      );
+    }
+  }
+  return items;
+}
 
 export type BuildProposalDiscoveryPathOpts = {
   proposal: ProposalDiscoveryInput;
@@ -1165,6 +1227,10 @@ export function buildProposalDiscoveryPath(
           "One or more discovery research tools are not available on this role. See discovery_path items with available:false — ask a human to enable access, then refresh MCP. Skip does not block accept or close.",
       });
     }
+  }
+
+  if (kind !== "notes" && !reviewContext?.block_apply) {
+    tools = [...tools, ...buildEvidenceDiscoveryItems(reviewContext?.evidence, allowed)];
   }
 
   const goal =

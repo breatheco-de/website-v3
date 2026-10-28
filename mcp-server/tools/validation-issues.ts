@@ -5,6 +5,7 @@ import { hasCapAnyScope, type CatalogGrant } from "../lib/tool-catalog.js";
 import { ok, fail } from "../lib/respond.js";
 import { resolveSiteContext, resolveContentType, loadPage, safeLoad, getDirectory } from "../lib/content.js";
 import { getTokenUsername } from "../lib/oauth.js";
+import { missingLocaleDetails } from "../lib/missing-locale.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
 import fs from "fs";
 import path from "path";
@@ -55,20 +56,27 @@ async function requireMetricsView(mcpToken: string | undefined, grants: CatalogG
 /** Resolve public URL for slug/locale when possible. */
 function resolveSlugUrl(
   slug: string,
-  locale: string,
+  requestedLocale: string | undefined,
   contentType: string | undefined,
   contentPath: string,
-): { url?: string; error?: string } {
+): { url?: string; error?: string; localeFallback?: { from: string; to: string } } {
   const resolved = resolveContentType(slug, contentType, contentPath);
   if (!resolved) {
     return { error: `Page not found for slug '${slug}'` };
   }
-  const result = loadPage(resolved.contentType, slug, locale, contentPath);
-  if (!result) {
-    return { error: `Locale '${locale}' not found for page '${slug}'` };
+  let locale = requestedLocale || "en";
+  let localeFallback: { from: string; to: string } | undefined;
+  if (!loadPage(resolved.contentType, slug, locale, contentPath)) {
+    const { available_locales, suggested_locale } = missingLocaleDetails(resolved.contentType, slug, locale, contentPath);
+    if (requestedLocale || !suggested_locale) {
+      const live = available_locales.length ? `Live languages: ${available_locales.join(", ")}.` : "No live language files.";
+      return { error: `Locale '${locale}' not found for page '${slug}'. ${live}` };
+    }
+    localeFallback = { from: locale, to: suggested_locale };
+    locale = suggested_locale;
   }
   const urlPattern = resolved.config.url_pattern;
-  if (!urlPattern) return {};
+  if (!urlPattern) return { localeFallback };
   let localeSlug = slug;
   const pageDir = path.join(contentPath, getDirectory(resolved.contentType, resolved.config), slug);
   for (const ext of ["yml", "yaml"]) {
@@ -84,8 +92,8 @@ function resolveSlugUrl(
     break;
   }
   const pattern = urlPattern[locale] || urlPattern["default"];
-  if (typeof pattern !== "string") return {};
-  return { url: pattern.replace(":slug", localeSlug) };
+  if (typeof pattern !== "string") return { localeFallback };
+  return { url: pattern.replace(":slug", localeSlug), localeFallback };
 }
 
 function mapOpenIssue(
@@ -132,7 +140,7 @@ export function registerValidationIssuesTools(
       "Content agents fixing pages should use run_entry_diagnostics instead. Requires metrics_view.",
     {
       slug: z.string().optional().describe("Entry folder slug — resolves to URL for filtering"),
-      locale: z.string().optional().describe("Locale when using slug (default en)"),
+      locale: z.string().optional().describe("Locale when using slug (default en; when omitted and the page has no en, its own language)"),
       contentType: z.string().optional().describe("Content type hint when resolving slug"),
       url: z.string().optional().describe("Exact or path URL filter"),
       code: z.string().optional(),
@@ -198,10 +206,16 @@ export function registerValidationIssuesTools(
       if (args.slug?.trim()) {
         const resolved = resolveSlugUrl(
           args.slug.trim(),
-          (args.locale || "en").trim(),
+          args.locale?.trim() || undefined,
           args.contentType,
           contentPath,
         );
+        if (resolved.localeFallback) {
+          warnings.push({
+            code: "locale_fallback",
+            message: `Page '${args.slug}' has no live ${resolved.localeFallback.from}.yml; issues are for its ${resolved.localeFallback.to} address. Pass locale to choose another.`,
+          });
+        }
         if (resolved.error) {
           warnings.push({ code: "slug_unresolved", message: resolved.error });
         } else if (resolved.url) {

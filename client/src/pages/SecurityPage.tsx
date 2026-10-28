@@ -573,6 +573,12 @@ function CapabilityFields({
                       <code className="font-mono text-[11px]">delete_database_item</code>). Reads
                       may cover any bank; writes require the bank in scope.
                     </p>
+                    <p>
+                      Read-only browsing without row edits is{" "}
+                      <code className="font-mono text-[11px]">databases_view</code> (View
+                      databases): list and read any bank, no forced refresh from external
+                      sources, and connection settings stay hidden.
+                    </p>
                   </div>
                 </details>
               </div>

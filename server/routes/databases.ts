@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { getDefaultContentRoot } from "../site-config";
+import { getDefaultContentRoot, getSiteConfigs } from "../site-config";
 import { createServer, type Server } from "http";
 import { storage } from "../storage";
 import { geoGet, geoSet } from "../geo-cache";
@@ -35,7 +35,7 @@ import {
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
 import { regenerateSectionIds } from "../utils/regenerateSectionIds";
-import { databaseManager, type DatabaseManager } from "../database";
+import { databaseManager, redactDatabaseSourceConnection, type DatabaseManager } from "../database";
 import {
   jsonFieldFailureHttpBody,
   validateAndCoerceJsonFields,
@@ -190,6 +190,8 @@ import {
   extractToken,
   requireCapability,
   requireDatabasesBrowseAccess,
+  isMcpLoopbackRequest,
+  markContentFileModified,
   safeYamlLoad,
   safeYamlDump,
   resolveVariantAssignment,
@@ -222,6 +224,8 @@ import {
 } from "./_helpers";
 import { child } from "../logger";
 import { api } from "../rate-limit/api";
+import { applyRowStamp, applyRowStampsBulk, stripRowStamp, verifiedStamp, type RowWriter } from "../database-row-stamp";
+import { ROW_STAMP_KEY, readEvidenceConfig, rowTrust, validateEvidenceConfig } from "@shared/evidence-kinds";
 import {
   defaultMigrationDeps,
   listMigrations,
@@ -249,6 +253,19 @@ function getDB(res: Response): DatabaseManager {
 
 function getValidationCache(res: Response) {
   return (res.locals.site as any)?.validationCache ?? getValidationCacheService();
+}
+
+/** Who is writing a database row: MCP loopback (or x-mcp-author) is an agent; everything else is staff. */
+function rowWriterFor(req: Request, author: string | null): RowWriter {
+  const isAgent = isMcpLoopbackRequest(req) || typeof req.headers["x-mcp-author"] === "string";
+  return { type: isAgent ? "agent" : "staff", author };
+}
+
+/** Domains whose fallback_content_folder is this site, so they also use its evidence databases. */
+function sitesFallingBackTo(contentRootName: string): string[] {
+  return getSiteConfigs()
+    .filter((c) => c.fallbackContentFolder?.trim() === contentRootName && c.contentFolder !== contentRootName)
+    .map((c) => c.domain);
 }
 
 export function registerDatabasesRoutes(app: Express): void {
@@ -366,6 +383,11 @@ export function registerDatabasesRoutes(app: Express): void {
           .json({ error: "slug, config.name, and config.source are required" });
         return;
       }
+      const evidenceError = validateEvidenceConfig(config.evidence);
+      if (evidenceError) {
+        res.status(400).json({ error: evidenceError, field: "evidence" });
+        return;
+      }
       getDB(res).create(slug, config, auth.author ?? "api");
       res.json({ success: true, name: slug, config });
     } catch (err: unknown) {
@@ -389,7 +411,9 @@ export function registerDatabasesRoutes(app: Express): void {
       const errorCount = dbCache ? countDatabaseCacheErrors(dbCache.errors) : 0;
       res.json({
         name: req.params.name,
-        config,
+        config: auth.canManage ? config : redactDatabaseSourceConnection(config),
+        connection_hidden: !auth.canManage,
+        evidence_fallback_sites: sitesFallingBackTo(getContentRootName(res)),
         cache_status: cacheInfo,
         error_count: errorCount,
         error_summary: dbCache?.errors[0]?.message,
@@ -480,7 +504,7 @@ export function registerDatabasesRoutes(app: Express): void {
       const start = (page - 1) * limit;
       const pageEntries = entries.slice(start, start + limit);
       res.json({
-        items: pageEntries.map((e) => e.item),
+        items: pageEntries.map((e) => stripRowStamp(e.item as Record<string, unknown>)),
         indices: pageEntries.map((e) => e.index),
         total_count,
         page,
@@ -663,11 +687,16 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
       const total_count = entries.length;
       const start = (page - 1) * limit;
       const pageEntries = entries.slice(start, start + limit);
+      const evidenceCfg = readEvidenceConfig(getDB(res).get(req.params.name).evidence);
+      const rawRows = evidenceCfg ? getDB(res).getRawItems(req.params.name) ?? [] : [];
       res.json({
         ...result,
         items: pageEntries.map((e) => e.item),
         // Stored position of each returned row; PATCH/DELETE /items/:index expect this, not the page row.
         indices: pageEntries.map((e) => e.index),
+        ...(evidenceCfg
+          ? { evidence_trust: pageEntries.map((e) => rowTrust(rawRows[e.index] as Record<string, unknown> | undefined)) }
+          : {}),
         total_count,
         page,
         limit,
@@ -711,14 +740,21 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         return;
       }
 
-      const data: unknown = resultsPath ? { [resultsPath]: items } : items;
+      const { items: prevRows } = readLocalItems(dbm, dbName, getContentRoot(res));
+      const stamped = applyRowStampsBulk({
+        prevRows,
+        nextRows: items as Record<string, unknown>[],
+        evidence: config.evidence,
+        writer: rowWriterFor(req, auth.author),
+      });
+      const data: unknown = resultsPath ? { [resultsPath]: stamped } : stamped;
       const yamlStr = safeYamlDump(data, { lineWidth: 120 });
       fs.writeFileSync(filePath, yamlStr);
 
       dbm.clearCache(dbName);
 
       const relPath = `db/${dbName}/${filename}`;
-      markFileAsModified(relPath, "api", undefined, getContentRoot(res));
+      markContentFileModified(relPath, { author: auth.author ?? "api", req, contentRoot: getContentRoot(res) });
 
       res.json({ success: true, count: items.length });
     } catch (err: unknown) {
@@ -764,6 +800,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
     items: Record<string, unknown>[],
     filename: string,
     contentRoot: string,
+    writer?: { req: Request; author: string | null },
   ) {
     const data: unknown = resultsPath ? { [resultsPath]: items } : items;
     const yamlStr = safeYamlDump(data, { lineWidth: 120 });
@@ -773,7 +810,11 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
     fs.writeFileSync(filePath, yamlStr);
     dbm.clearCache(dbName);
     const relPath = `db/${dbName}/${filename}`;
-    markFileAsModified(relPath, "api", undefined, contentRoot);
+    if (writer) {
+      markContentFileModified(relPath, { author: writer.author ?? "api", req: writer.req, contentRoot });
+    } else {
+      markFileAsModified(relPath, "api", undefined, contentRoot);
+    }
   }
 
   app.post("/api/databases/:name/items", async (req, res) => {
@@ -811,11 +852,18 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
           res.status(400).json(relationFieldFailureHttpBody(relationCoerced.failures));
           return;
         }
-        coercedItems.push(relationCoerced.fields);
+        coercedItems.push(
+          applyRowStamp({
+            prev: null,
+            next: relationCoerced.fields,
+            evidence: config.evidence,
+            writer: rowWriterFor(req, auth.author),
+          }),
+        );
       }
       const localConfig = config.source.local!;
       const { items: existing, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
-      writeLocalItems(dbm, dbName, filePath, resultsPath, [...existing, ...coercedItems], localConfig.filename, getContentRoot(res));
+      writeLocalItems(dbm, dbName, filePath, resultsPath, [...existing, ...coercedItems], localConfig.filename, getContentRoot(res), { req, author: auth.author });
       res.json({ success: true, count: existing.length + coercedItems.length });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -858,9 +906,15 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         res.status(404).json({ error: `Item at index ${idx} not found` });
         return;
       }
-      items[idx] = { ...items[idx], ...relationCoerced.fields };
-      writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res));
-      res.json({ success: true, item: items[idx] });
+      items[idx] = applyRowStamp({
+        prev: items[idx],
+        next: { ...items[idx], ...relationCoerced.fields },
+        evidence: config.evidence,
+        writer: rowWriterFor(req, auth.author),
+      });
+      writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res), { req, author: auth.author });
+      const { [ROW_STAMP_KEY]: _stamp, ...publicItem } = items[idx];
+      res.json({ success: true, item: publicItem });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(msg.includes("not found") ? 404 : 500).json({ error: msg });
@@ -887,11 +941,46 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         return;
       }
       items.splice(idx, 1);
-      writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res));
+      writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res), { req, author: auth.author });
       res.json({ success: true, count: items.length });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(msg.includes("not found") ? 404 : 500).json({ error: msg });
+    }
+  });
+
+  api.post(app, "/api/databases/:name/items/:index/verify", { rate: "staffWrite" }, async (req, res) => {
+    if (isMcpLoopbackRequest(req) || typeof req.headers["x-mcp-author"] === "string") {
+      res.status(403).json({ error: "Verifying evidence rows is staff UI only.", code: "staff_only" });
+      return;
+    }
+    const auth = await requireCapability(req, res, "databases_edit_data", req.params.name);
+    if (!auth.authorized) return;
+    try {
+      const dbName = req.params.name;
+      const idx = parseInt(req.params.index, 10);
+      if (isNaN(idx) || idx < 0) {
+        res.status(400).json({ error: "Invalid index" });
+        return;
+      }
+      const dbm = getDB(res);
+      const config = dbm.get(dbName);
+      if (!readEvidenceConfig(config.evidence)) {
+        res.status(400).json({ error: "This database is not an evidence source.", code: "not_evidence" });
+        return;
+      }
+      const localConfig = config.source.local!;
+      const { items, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
+      if (idx >= items.length) {
+        res.status(404).json({ error: `Item at index ${idx} not found` });
+        return;
+      }
+      items[idx] = { ...items[idx], [ROW_STAMP_KEY]: verifiedStamp(auth.author) };
+      writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res), { req, author: auth.author });
+      res.json({ success: true, index: idx, trust: rowTrust(items[idx]) });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(msg.includes("not found") || msg.includes("Only local") ? 404 : 500).json({ error: msg });
     }
   });
 
@@ -1071,6 +1160,11 @@ Write a fixed version. Return ONLY the function expression itself (e.g. \`(value
           res.status(400).json({ error: relationCheck.error, field: relationCheck.field });
           return;
         }
+      }
+      const evidenceError = validateEvidenceConfig(config.evidence);
+      if (evidenceError) {
+        res.status(400).json({ error: evidenceError, field: "evidence" });
+        return;
       }
       getDB(res).update(req.params.name, config, auth.author ?? "api");
       res.json({ success: true });
