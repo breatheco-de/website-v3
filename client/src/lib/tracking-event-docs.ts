@@ -43,7 +43,7 @@ export const TRACKING_EVENT_DOCS: Record<TrackingEventName, TrackingEventDoc> = 
       "Someone reloads the page they're on.",
     ],
     notFired: [
-      "Clicking to another page inside the site: that sends website-route-change, which Tag Manager can count as a page view.",
+      "Every page view (first load and in-site navigation) sends website-route-change, which Tag Manager counts as the page view.",
     ],
     fields: PAGE_FIELDS,
     source: "Tag Manager GA4 configuration tag; product / persona come from the page tracking context object pushed before it.",
@@ -131,13 +131,13 @@ export const TRACKING_EVENT_DOCS: Record<TrackingEventName, TrackingEventDoc> = 
 /** Rows that are not track() events. */
 export const PUSH_DOCS: Record<string, TrackingEventDoc> = {
   "website-route-change": {
-    summary: "The visitor moved to another page inside the site (no full reload).",
-    trigger: "In-site navigation, once the new page's product and persona are known",
+    summary: "A page view: the first page of a visit, and each move to another page inside the site (no full reload).",
+    trigger: "Every page view (first load and in-site navigation), once the page's product and persona are known",
     fires: [
       "Clicking from the home page to /en/apply.",
       "Using the browser back button inside the site.",
     ],
-    notFired: ["The first page of a visit (Tag Manager's page_view covers it)."],
+    notFired: ["Re-renders of the same page."],
     fields: [
       { name: "pagePath / pageTitle", meaning: "The new page." },
       {
