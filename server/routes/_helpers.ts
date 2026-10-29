@@ -367,31 +367,43 @@ export async function requireAnyCapability(
 }
 
 /**
- * Private Databases browse access: Manage databases, or Edit database data at any scope
- * (`*` or a non-empty slug list). Fail closed if neither.
+ * Private Databases browse access: Manage databases, View databases, or Edit database data
+ * at any scope (`*` or a non-empty slug list). Fail closed if none.
+ * `canManage` is true for dev / MCP loopback (no session) and for session users with
+ * databases_manage; callers use it to decide whether to expose source connection settings.
  */
 export async function requireDatabasesBrowseAccess(
   req: Request,
   res: Response,
-): Promise<CapAuthResult> {
+): Promise<CapAuthResult & { canManage: boolean }> {
   const base = await resolveStaffCapAuth(req, res);
-  if (!base.authorized) return base;
+  if (!base.authorized) return { ...base, canManage: false };
   if (!base.sessionUsername) {
-    return { authorized: true, token: base.token, username: base.username, author: base.author };
+    return {
+      authorized: true,
+      token: base.token,
+      username: base.username,
+      author: base.author,
+      canManage: true,
+    };
   }
 
   const username = base.sessionUsername;
-  const ok =
-    userStore.hasCapability(username, "databases_manage") ||
-    userStore.hasAnyDatabasesEditDataAccess(username);
-  if (!ok) {
+  if (!userStore.hasDatabasesBrowseAccess(username)) {
     res.status(403).json({
-      error: "Insufficient permissions: databases_manage or databases_edit_data required",
+      error:
+        "Insufficient permissions: databases_view, databases_edit_data or databases_manage required",
     });
-    return { authorized: false, token: base.token, username, author: null };
+    return { authorized: false, token: base.token, username, author: null, canManage: false };
   }
 
-  return { authorized: true, token: base.token, username, author: username };
+  return {
+    authorized: true,
+    token: base.token,
+    username,
+    author: username,
+    canManage: userStore.hasCapability(username, "databases_manage"),
+  };
 }
 
 /**

@@ -1517,3 +1517,84 @@ describe("site facts: figure variable tokens and site-facts check", () => {
     expect(down.agent_preview.warnings.map((w) => w.code)).toContain("jev_unavailable");
   });
 });
+
+describe("third-party evidence", () => {
+  const evidenceProposal = (value: string, baseline: Record<string, unknown> = {}) =>
+    baseProposal({
+      kind: "edits",
+      entries: [
+        {
+          id: 1,
+          proposal_id: "p1",
+          entry_key: "landing/ai",
+          locale: "en",
+          variant: null,
+          variant_fingerprint: null,
+          status: "pending",
+          ops: [{ field_path: "content", value }],
+          baseline_context: { values: baseline },
+          last_error: null,
+          applied_at: null,
+          applied_by: null,
+          contentType: "landing",
+          slug: "ai",
+        },
+      ],
+    });
+  const lookups = [{ contentType: "landing", slug: "ai", locale: "en", existence: "exists" as const }];
+  const row = { site: "site_a", domain: "a.com", database: "press_mentions", index: 0, label: "Bahamas", link: "https://x" };
+
+  it("asks for an evidence check when a relationship cue appears", () => {
+    const ctx = classifyProposalReview({
+      proposal: evidenceProposal("Chosen alongside Harvard and Oxford."),
+      lookups,
+    });
+    expect(ctx.needs_evidence_check).toBe(true);
+    expect(ctx.active_checklists).toContain("third_party_evidence");
+    expect(ctx.evidence_block).toBeUndefined();
+  });
+
+  it("no cue → no evidence checklist", () => {
+    const ctx = classifyProposalReview({ proposal: evidenceProposal("Learn Python fast."), lookups });
+    expect(ctx.needs_evidence_check).toBeUndefined();
+    expect(ctx.active_checklists).not.toContain("third_party_evidence");
+  });
+
+  it("blocking names set evidence_block and warn; unsourced / already_live only warn", () => {
+    const ctx = classifyProposalReview({
+      proposal: evidenceProposal("Chosen alongside Harvard, MIT and Oxford."),
+      lookups,
+      evidenceCheck: {
+        outcome: "ok",
+        claims: [
+          { name: "Harvard", status: "sourced", row, row_status: "sourced" },
+          { name: "MIT", status: "no_evidence" },
+          { name: "Oxford", status: "unsourced", row: { ...row, link: null }, row_status: "unsourced" },
+          { name: "Columbia", status: "already_live" },
+        ],
+        blocking: ["MIT"],
+        databases: [{ site: "site_a", domain: "a.com", database: "press_mentions", label: "Press", proves: ["press_coverage"] }],
+      },
+    });
+    expect(ctx.evidence_block).toBe(true);
+    expect(ctx.block_apply).toBe(false);
+    const codes = ctx.agent_preview.warnings.map((w) => w.code);
+    expect(codes).toEqual(expect.arrayContaining(["evidence_missing", "evidence_unsourced", "evidence_already_live"]));
+    expect(ctx.staff_summary.situation_description).toContain("no proof on file");
+  });
+
+  it("no blocking names → no evidence_block", () => {
+    const ctx = classifyProposalReview({
+      proposal: evidenceProposal("Chosen alongside Harvard."),
+      lookups,
+      evidenceCheck: {
+        outcome: "ok",
+        claims: [{ name: "Stanford", status: "dismissed", dismissal: { name: "Stanford", reason: "example only", by: "s", at: 1 } }],
+        blocking: [],
+        databases: [],
+      },
+    });
+    expect(ctx.evidence_block).toBeUndefined();
+    expect(ctx.evidence?.claims[0]?.status).toBe("dismissed");
+  });
+});

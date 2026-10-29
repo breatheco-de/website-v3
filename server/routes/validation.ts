@@ -1696,16 +1696,37 @@ export function registerValidationRoutes(app: Express): void {
       const resolvedPage = ciPage.resolveUrl(url.split("?")[0]);
       const pageType = parsed?.contentType ?? resolvedPage?.contentType ?? null;
       const pageSlug = parsed?.slug ?? resolvedPage?.slug ?? null;
-      const pageLocale =
+      // Same rule as the live page: an address without /en/ or /es/ is served in
+      // the language set on the entry's _common.yml.
+      const commonLocale = (() => {
+        if (!pageType || !pageSlug) return null;
+        if (/^\/(en|es)(\/|$)/.test(url.split("?")[0])) return null;
+        if (parsed?.params?.locale || resolvedPage?.params?.locale) return null;
+        const value = ciPage.loadCommonData(
+          pageType as Parameters<ContentIndex["loadCommonData"]>[0],
+          pageSlug,
+        )?.locale;
+        return typeof value === "string" && value ? value : null;
+      })();
+      let pageLocale =
+        (resolvedPage?.patternLocale === "default" ? commonLocale : null) ||
         parsed?.locale ||
         (resolvedPage?.patternLocale && resolvedPage.patternLocale !== "default"
           ? resolvedPage.patternLocale
           : null) ||
         (url.startsWith("/es/") ? "es" : url.startsWith("/en/") ? "en" : "en");
-      const mergedPage =
+      const loadPageIn = (locale: string) =>
         pageType && pageSlug
-          ? ciPage.loadMergedContent(pageType, pageSlug, pageLocale, variant || undefined)
+          ? ciPage.loadMergedContent(pageType, pageSlug, locale, variant || undefined)
           : null;
+      let mergedPage = loadPageIn(pageLocale);
+      if (!mergedPage?.data && commonLocale && commonLocale !== pageLocale) {
+        const inCommonLocale = loadPageIn(commonLocale);
+        if (inCommonLocale?.data) {
+          mergedPage = inCommonLocale;
+          pageLocale = commonLocale;
+        }
+      }
       const pageFile = mergedPage?.data
         ? {
             slug: pageSlug!,
@@ -1746,7 +1767,7 @@ export function registerValidationRoutes(app: Express): void {
       if (variant && matchingFiles.length === 0) {
         const contentType = parsed?.contentType ?? null;
         const slug = parsed?.slug ?? null;
-        const locale = urlLocale || parsed?.locale || "en";
+        const locale = pageLocale;
         let allocation = 0;
         let draftOnly = false;
         if (contentType && slug) {
@@ -1822,7 +1843,24 @@ export function registerValidationRoutes(app: Express): void {
         null;
 
       if (!file) {
-        res.status(404).json({ error: `No content found for URL: ${url}` });
+        if (mergedPage?.error?.startsWith("Error loading merged content")) {
+          res.status(404).json({
+            error: `Content file for ${url} could not be read: ${mergedPage.error}`,
+            code: "content_file_unreadable",
+          });
+        } else if (resolvedPage && pageType && pageSlug) {
+          res.status(404).json({
+            error: `${pageType}/${pageSlug} has no "${pageLocale}" file (available: ${resolvedPage.entry.locales.join(", ") || "none"})`,
+            code: "missing_language_version",
+            locale: pageLocale,
+            available_locales: resolvedPage.entry.locales,
+          });
+        } else {
+          res.status(404).json({
+            error: `No content found for URL: ${url}`,
+            code: "no_matching_page",
+          });
+        }
         return;
       }
 

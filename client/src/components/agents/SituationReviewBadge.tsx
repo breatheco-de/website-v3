@@ -71,6 +71,8 @@ export type ReviewContextPayload = {
     target_missing?: boolean;
   }>;
   figure_variables?: Array<{ name: string; category: string; default?: string | null; deprecated?: boolean }>;
+  evidence?: import("./ProposalEvidenceBlock").EvidenceCheckPayload;
+  evidence_block?: boolean;
 };
 
 /** Mirrors server DAMAGE_CLASS_META for snapshot-only fallbacks. */

@@ -3,7 +3,7 @@
  *
  * Full Express route denial tests are not practical here (dev bypass + session plumbing).
  * Item mutate routes call requireCapability("databases_edit_data", req.params.name);
- * browse GETs call requireDatabasesBrowseAccess (manage OR grantAllowsAnyDatabasesEditDataAccess).
+ * browse GETs call requireDatabasesBrowseAccess (grantsAllowDatabasesBrowse: view, manage, or scoped edit-data).
  * Scope fail-closed / include / * are covered in user-store-content-view.test.ts (grantAllowsCap).
  */
 import { describe, expect, it } from "vitest";

@@ -2025,6 +2025,41 @@ describe("pipeline-db runner", () => {
     }
   });
 
+  it("adds evidence_dismissals_json and evidence_check_json when upgrading from v42", () => {
+    const site = `${TEST_PREFIX}-v42-evidence-${Date.now()}`;
+    rmSite(site);
+    fs.mkdirSync(siteDir(site), { recursive: true });
+    const raw = new Database(dbPath(site));
+    raw.exec(`
+      CREATE TABLE pipeline_schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO pipeline_schema_version (id, version) VALUES (1, 42);
+      CREATE TABLE content_proposals (
+        id TEXT PRIMARY KEY,
+        site TEXT NOT NULL,
+        status TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        site_facts_check_json TEXT
+      );
+      INSERT INTO content_proposals (id, site, status, updated_at) VALUES ('p-1', 'site_test', 'open', 1);
+    `);
+    raw.close();
+
+    ensurePipelineDb(site, { skipBackup: true });
+    expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    const db = new Database(dbPath(site), { readonly: true });
+    const row = db
+      .prepare(`SELECT status, evidence_dismissals_json, evidence_check_json FROM content_proposals WHERE id = 'p-1'`)
+      .get() as Record<string, unknown>;
+    expect(row.status).toBe("open");
+    expect(row.evidence_dismissals_json).toBe("[]");
+    expect(row.evidence_check_json).toBeNull();
+    db.close();
+    rmSite(site);
+  });
+
   it("fails fast when migration cannot write", () => {
     const site = `${TEST_PREFIX}-readonly-${Date.now()}`;
     rmSite(site);

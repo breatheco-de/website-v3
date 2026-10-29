@@ -576,6 +576,7 @@ export function databaseReadWarnings(opts: {
   refreshed?: boolean;
   refreshFailed?: boolean;
   refreshIgnoredPagination?: boolean;
+  refreshSkipped?: boolean;
 }): DatabaseReadWarning[] {
   const sourceType = opts.sourceType ?? "unknown";
   const local = sourceType === "local";
@@ -586,6 +587,13 @@ export function databaseReadWarnings(opts: {
       code: "refresh_ignored_pagination",
       message:
         "refresh:true is ignored when page > 1 — using cache. Force refresh on page 1 only.",
+    });
+  }
+  if (opts.refreshSkipped) {
+    warnings.push({
+      code: "refresh_requires_edit_or_manage",
+      message:
+        "refresh:true ignored — forced refresh needs databases_edit_data for this database or databases_manage (databases_view reads cache only). Items below are the current cache, refreshed on its normal TTL.",
     });
   }
   if (opts.refreshFailed) {

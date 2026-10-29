@@ -2160,6 +2160,16 @@ export class ContentIndex {
     }
   }
 
+  /**
+   * Language a matched address is served in: the URL pattern's locale, else (one
+   * address for every language, e.g. /landing/:slug) the entry's `_common.yml` `locale`, else en.
+   */
+  servedLocale(contentType: string, slug: string, patternLocale?: string): string {
+    if (patternLocale && patternLocale !== "default") return patternLocale;
+    const common = this.loadCommonData(contentType as ContentType, slug)?.locale;
+    return typeof common === "string" && common ? common : "en";
+  }
+
   loadMergedContent(
     contentType: string,
     slug: string,

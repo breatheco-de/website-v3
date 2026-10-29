@@ -905,3 +905,36 @@ describe("list_variables discovery items (site facts)", () => {
     expect(items[0].available).toBe(false);
   });
 });
+
+describe("evidence discovery items", () => {
+  it("adds get_database_item per matched row and list_database_items for unmatched names", () => {
+    const { discovery_path } = buildProposalDiscoveryPath({
+      proposal: baseEdits,
+      reviewContext: {
+        damage_class: "existing_content",
+        active_checklists: ["third_party_evidence"],
+        evidence: {
+          outcome: "ok",
+          claims: [
+            {
+              name: "Harvard",
+              status: "sourced",
+              row: { domain: "4geeks.com", database: "press_mentions", index: 0, label: "Bahamas", link: "https://x" },
+            },
+            { name: "MIT", status: "no_evidence" },
+          ],
+          blocking: ["MIT"],
+          databases: [{ domain: "4geeks.com", database: "press_mentions", label: "Press Mentions" }],
+        },
+      },
+    });
+    const tools = (discovery_path?.items ?? []).filter((i) => i.kind === "tool") as Array<{
+      tool: string;
+      args_hint?: Record<string, unknown>;
+    }>;
+    const row = tools.find((t) => t.tool === "get_database_item");
+    expect(row?.args_hint).toEqual({ database: "press_mentions", index: 0, site: "4geeks.com" });
+    expect(tools.some((t) => t.tool === "list_database_items")).toBe(true);
+    expect(assertCatalogToolNames(tools.map((t) => t.tool), catalog)).toEqual({ ok: true });
+  });
+});

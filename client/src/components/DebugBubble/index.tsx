@@ -2148,6 +2148,7 @@ export function DebugBubble() {
     if (resolvedPublicPageUrl) return resolvedPublicPageUrl;
     const u = pageDiagnostics?.url;
     if (u && !isPrivatePreviewPath(u)) return u;
+    if (isDebugMode && !pathname.startsWith("/private/")) return pathname;
     return null;
   })();
 
@@ -2177,8 +2178,8 @@ export function DebugBubble() {
         });
       } else if (pageDiagnosticsError) {
         setPageStatsBlocked({
-          title: "Couldn't load page details",
-          body: `Stats need this page's details, but loading them failed: ${pageDiagnosticsError}`,
+          title: "Couldn't find this page's public address",
+          body: pageDiagnosticsError,
         });
       } else {
         setPageStatsBlocked({

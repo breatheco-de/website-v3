@@ -34,6 +34,7 @@ import {
   readAbTestingState,
   recordAbCheckRun,
   setAbTestingDataDirForTests,
+  withoutAbCheckPage,
   writeAbTestingState,
   type AbCheckRun,
 } from "./state";
@@ -195,6 +196,18 @@ describe("state flags", () => {
     expect(abCheckPageLock("landing", "ab-check", contentRoot)?.code).toBe("system_page_locked");
     writeEntry("ab-check-lookalike", { "_common.yml": "slug: ab-check-lookalike\n" });
     expect(abCheckPageLock("landing", "ab-check-lookalike", contentRoot)).toBeNull();
+  });
+
+  it("drops the check page from listing rows, keeping other entries", () => {
+    const rows = [{ slug: "ab-check" }, { slug: "plain" }];
+    expect(withoutAbCheckPage(rows, "landing", contentRoot)).toEqual([{ slug: "plain" }]);
+    expect(withoutAbCheckPage(rows, "landings", contentRoot)).toEqual([{ slug: "plain" }]);
+  });
+
+  it("keeps an unmarked entry that happens to use the ab-check slug", () => {
+    fs.writeFileSync(path.join(contentRoot, "landings", "ab-check", "_common.yml"), "slug: ab-check\n", "utf-8");
+    const rows = [{ slug: "ab-check" }, { slug: "plain" }];
+    expect(withoutAbCheckPage(rows, "landing", contentRoot)).toEqual(rows);
   });
 });
 

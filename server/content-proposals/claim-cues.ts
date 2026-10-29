@@ -31,6 +31,14 @@ export function evaluateClaimCues(text: string | null | undefined): ClaimCueVerd
   return "clear_no";
 }
 
+/** Phrases that present a named third party as choosing, partnering with, covering or awarding us (EN + ES). */
+export const THIRD_PARTY_CUE =
+  /\b((?:chose|selected|picked|contracted|hired|eligi[oó]|seleccion[oó]|contrat[oó])\s+(?:a\s+)?4\s?geeks|chosen\s+by|selected\s+by|picked\s+by|hired\s+by|contracted\s+by|partner(?:ed|s|ship)?\s+with|in\s+partnership\s+with|alongside|together\s+with|featured\s+(?:in|on|by)|as\s+seen\s+(?:in|on)|covered\s+by|recognized\s+by|recognised\s+by|awarded\s+by|endorsed\s+by|accredited\s+by|ranked\s+by|trusted\s+by|backed\s+by|elegid[oa]s?\s+por|seleccionad[oa]s?\s+por|contratad[oa]s?\s+por|junto\s+a|en\s+alianza\s+con|aliad[oa]s?\s+(?:de|con)|en\s+colaboraci[oó]n\s+con|reconocid[oa]s?\s+por|premiad[oa]s?\s+por|destacad[oa]s?\s+(?:en|por)|respaldad[oa]s?\s+por|avalad[oa]s?\s+por)\b/i;
+
+export function hasThirdPartyCue(text: string | null | undefined): boolean {
+  return typeof text === "string" && THIRD_PARTY_CUE.test(text);
+}
+
 /** Flatten op values into searchable text (strings, numbers, nested JSON). */
 export function textFromUnknown(value: unknown, depth = 0): string {
   if (value == null || depth > 6) return "";

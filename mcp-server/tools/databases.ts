@@ -3,6 +3,7 @@
  *
  * Caps: databases_manage = create/patch config + reindex (not row writes).
  *       databases_edit_data = row read (any bank) + write (scoped slug).
+ *       databases_view = row read (any bank) only; refresh:true is ignored.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -33,11 +34,12 @@ import {
   withGlobalIndices,
   type BatchRowResult,
 } from "../lib/database-items.js";
+import { evidenceProofFields, readEvidenceConfig } from "@shared/evidence-kinds";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 
 const REFRESH_ARG_DESC =
-  "Force rebuild the database cache before reading. Expensive for api/remote sources (hits the external API). Use sparingly when stale cache is blocking; prefer the default TTL cache. Ignored when page > 1 on list (refresh on page 1 only).";
+  "Force rebuild the database cache before reading. Expensive for api/remote sources (hits the external API). Use sparingly when stale cache is blocking; prefer the default TTL cache. Ignored when page > 1 on list (refresh on page 1 only) and for callers without databases_edit_data (this bank) or databases_manage.";
 
 function internalHeaders(
   mcpToken?: string,
@@ -55,16 +57,26 @@ function siteQueryJoin(domain: string | null, extra: string): string {
   return extra ? `?${extra}` : "";
 }
 
-/** Reads: databases_edit_data (any scope) OR databases_manage. */
+/** Reads: databases_view OR databases_edit_data OR databases_manage. */
 async function requireReadCap(mcpToken?: string) {
   if (!mcpToken) return null;
   const allowed =
+    (await checkCap(mcpToken, "databases_view")) ||
     (await checkCap(mcpToken, "databases_edit_data")) ||
     (await checkCap(mcpToken, "databases_manage"));
   if (!allowed) {
-    return denyResponse("databases_edit_data|databases_manage");
+    return denyResponse("databases_view|databases_edit_data|databases_manage");
   }
   return null;
+}
+
+/** Forced cache refresh hits external sources: databases_edit_data for this bank OR databases_manage. */
+async function canForceRefresh(mcpToken: string | undefined, database: string): Promise<boolean> {
+  if (!mcpToken) return true;
+  return (
+    (await checkCap(mcpToken, "databases_edit_data", undefined, database)) ||
+    (await checkCap(mcpToken, "databases_manage"))
+  );
 }
 
 /** Writes: databases_edit_data for this database slug (not databases_manage). */
@@ -102,7 +114,9 @@ type DbConfigResponse = {
     source?: { type?: string; local?: { filename?: string; results_path?: string } };
     vector_search?: { enabled?: boolean; fields?: string[] };
     field_mapping?: Record<string, string>;
+    evidence?: unknown;
   };
+  evidence_fallback_sites?: string[];
 };
 
 async function fetchDbConfig(
@@ -200,7 +214,10 @@ async function fetchAllItems(
   return { ok: true, items };
 }
 
-/** Resolve refresh intent: ignore on page>1; soft-fail refresh then still read items. */
+/**
+ * Resolve refresh intent: ignore on page>1; skip for view-only callers (no edit/manage);
+ * soft-fail refresh then still read items.
+ */
 async function prepareDatabaseRead(opts: {
   database: string;
   domain: string | null;
@@ -214,6 +231,7 @@ async function prepareDatabaseRead(opts: {
       refreshed: boolean;
       refreshFailed: boolean;
       refreshIgnoredPagination: boolean;
+      refreshSkipped: boolean;
     }
   | { ok: false; message: string }
 > {
@@ -221,10 +239,13 @@ async function prepareDatabaseRead(opts: {
   let refreshIgnoredPagination = false;
   let refreshed = false;
   let refreshFailed = false;
+  let refreshSkipped = false;
 
   const wantRefresh = opts.refresh === true;
   if (wantRefresh && page > 1) {
     refreshIgnoredPagination = true;
+  } else if (wantRefresh && !(await canForceRefresh(opts.mcpToken, opts.database))) {
+    refreshSkipped = true;
   } else if (wantRefresh) {
     const fr = await forceRefreshDatabase(opts.database, opts.domain, opts.mcpToken);
     if (fr.ok) {
@@ -251,6 +272,7 @@ async function prepareDatabaseRead(opts: {
     refreshed,
     refreshFailed,
     refreshIgnoredPagination,
+    refreshSkipped,
   };
 }
 
@@ -284,6 +306,31 @@ async function failNonLocalMutate(opts: {
     `Database "${opts.database}" is not local (source.type=${opts.config.source?.type ?? "unknown"}). MCP cannot edit upstream api/remote rows — use field overrides when a content type links this database.`,
     details,
   );
+}
+
+/**
+ * Evidence databases: an agent write that adds a row or changes its link / match fields / title / excerpt
+ * leaves the row unverified (does not prove claims) until staff press Mark verified.
+ */
+function evidenceWriteWarnings(
+  config: DbConfigResponse["config"],
+  changedKeys: string[] | "new_row",
+): McpWarning[] {
+  const ev = readEvidenceConfig(config.evidence);
+  if (!ev) return [];
+  if (changedKeys !== "new_row") {
+    const proof = new Set(evidenceProofFields(ev));
+    if (!changedKeys.some((k) => proof.has(k))) return [];
+  }
+  return [
+    {
+      code: "evidence_row_unverified",
+      message:
+        `This database is an evidence source. Rows you add, or whose ${evidenceProofFields(ev).join(" / ")} you change, ` +
+        "count as unverified and do not prove proposal claims until staff press Mark verified on the Databases page. " +
+        "The server sets the row's _changed_by stamp; sending one is ignored. Page rendering does not change.",
+    },
+  ];
 }
 
 function syncWarnings(relPath: string): McpWarning[] {
@@ -356,6 +403,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
   mcp.tool(
     "list_databases",
     "List private databases for a site. Includes source_type and whether item CRUD is allowed (local only). " +
+      "Reads need databases_view, databases_edit_data, or databases_manage. " +
       "Creating or patching bank settings uses create_or_update_database (databases_manage). " +
       "Row CRUD uses item tools (databases_edit_data). Call explain_site topic local_databases first if unsure.",
     {
@@ -398,6 +446,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           if (local_only && !local) continue;
           const vs = cfg.ok ? cfg.data.config.vector_search : undefined;
           const filename = cfg.ok ? cfg.data.config.source?.local?.filename : undefined;
+          const ev = cfg.ok ? readEvidenceConfig(cfg.data.config.evidence) : null;
           enriched.push({
             name,
             label: (row.label as string | undefined) ?? (cfg.ok ? cfg.data.config.name : undefined) ?? name,
@@ -406,6 +455,14 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
             vector_search_enabled: vs?.enabled === true,
             item_file: local && filename ? `db/${name}/${filename}` : null,
             cache_item_count: row.cache_item_count ?? null,
+            evidence: ev
+              ? {
+                  proves: ev.proves,
+                  proof_field: ev.proof_field,
+                  match_fields: ev.match_fields,
+                  also_used_by_sites: (cfg.ok ? cfg.data.evidence_fallback_sites : undefined) ?? [],
+                }
+              : null,
           });
         }
 
@@ -425,6 +482,16 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
                 message:
                   "Bank settings: create_or_update_database (databases_manage). Rows: add/update/delete_database_item (databases_edit_data).",
               },
+              ...(enriched.some((d) => d.evidence)
+                ? [
+                    {
+                      code: "evidence_sources",
+                      message:
+                        "Databases with evidence != null prove named partner / press / award claims in proposal review (only rows with a proof_field link count as sourced). " +
+                        "Rows you add or whose proof fields you change are unverified until staff verify them. Sites in also_used_by_sites use these rows too.",
+                    },
+                  ]
+                : []),
             ],
             next_actions: [],
           },
@@ -502,6 +569,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
               refreshed: prepared.refreshed,
               refreshFailed: prepared.refreshFailed,
               refreshIgnoredPagination: prepared.refreshIgnoredPagination,
+              refreshSkipped: prepared.refreshSkipped,
             }),
             next_actions: [],
           },
@@ -565,6 +633,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
               refreshed: prepared.refreshed,
               refreshFailed: prepared.refreshFailed,
               refreshIgnoredPagination: false,
+              refreshSkipped: prepared.refreshSkipped,
             }),
             next_actions: [],
           },
@@ -609,7 +678,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         }
 
         let toWrite: Record<string, unknown> = { ...item };
-        const warnings: McpWarning[] = [...syncWarnings(`db/${database}/${local.filename}`)];
+        const warnings: McpWarning[] = [
+          ...syncWarnings(`db/${database}/${local.filename}`),
+          ...evidenceWriteWarnings(cfg.data.config, "new_row"),
+        ];
         const vectorEnabled = cfg.data.config.vector_search?.enabled === true;
 
         if (database === FAQ_DB_NAME) {
@@ -742,7 +814,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         if (!all.ok) return fail(all.message);
 
         const { results, toWrite } = prepareBatchAdd(database, items, all.items);
-        const warnings: McpWarning[] = [...syncWarnings(`db/${database}/${local.filename}`)];
+        const warnings: McpWarning[] = [
+          ...syncWarnings(`db/${database}/${local.filename}`),
+          ...evidenceWriteWarnings(cfg.data.config, "new_row"),
+        ];
         const vectorEnabled = cfg.data.config.vector_search?.enabled === true;
 
         if (database === FAQ_DB_NAME) {
@@ -927,7 +1002,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         }
 
         const merged = { ...current, ...item };
-        const warnings: McpWarning[] = [...syncWarnings(`db/${database}/${local.filename}`)];
+        const warnings: McpWarning[] = [
+          ...syncWarnings(`db/${database}/${local.filename}`),
+          ...evidenceWriteWarnings(cfg.data.config, Object.keys(item)),
+        ];
         const vectorEnabled = cfg.data.config.vector_search?.enabled === true;
 
         if (database === FAQ_DB_NAME) {
@@ -1061,7 +1139,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
 
         const { results, toPatch } = prepareBatchUpdate(database, updates, all.items);
         const finalResults: BatchRowResult[] = results.map((r) => ({ ...r }));
-        const warnings: McpWarning[] = [...syncWarnings(`db/${database}/${local.filename}`)];
+        const warnings: McpWarning[] = [
+          ...syncWarnings(`db/${database}/${local.filename}`),
+          ...evidenceWriteWarnings(cfg.data.config, updates.flatMap((u) => Object.keys(u.item ?? {}))),
+        ];
         const vectorEnabled = cfg.data.config.vector_search?.enabled === true;
 
         if (database === FAQ_DB_NAME) {
@@ -1358,7 +1439,8 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
     "create_or_update_database",
     "Create a private database (config.yml + empty local items YAML when source.type=local) or deep-patch an existing config. " +
       "Requires databases_manage. Create runs immediately. Update: omit confirm → preview (action_required: confirm_database_config_patch); confirm:true → PUT. " +
-      "Does not delete banks, push content sync, or wire content types. Row CRUD stays on add/update/delete_database_item (databases_edit_data).",
+      "Does not delete banks, push content sync, or wire content types. Row CRUD stays on add/update/delete_database_item (databases_edit_data). " +
+      "config.evidence { enabled, proves[], proof_field, match_fields[], ignore_values? } makes the bank an evidence source for proposal review (explain_site topic local_databases).",
     {
       database: z
         .string()
@@ -1407,6 +1489,16 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           code: "no_delete_database",
           message: "There is no MCP delete_database tool. Removing a bank is staff-only.",
         },
+        ...("evidence" in config
+          ? [
+              {
+                code: "evidence_settings_changed",
+                message:
+                  "Evidence settings change which proposals are blocked or warned on this site and on sites whose fallback_content_folder is this one. " +
+                  "Existing rows keep their stamps; rows with no stamp count as trusted.",
+              },
+            ]
+          : []),
       ];
 
       try {

@@ -324,6 +324,7 @@ import {
   withTrafficCtr,
   type OrganicEntrySortable,
 } from "../organic-entries";
+import { withoutAbCheckPage } from "../ab-testing/state";
 import { mergeSingleTemplate, attachVariableFieldsToSections } from "../database-single-loader";
 import { loadEntryForDelivery } from "../entry-delivery";
 import { layoutOwnerForEntry, typeUsesSharedTemplate } from "../layout-owner";
@@ -3177,12 +3178,14 @@ export function registerContentRoutes(app: Express): void {
         }
       }
 
+      const listed = withoutAbCheckPage(results, type, root);
+
       if (!pagination.paginate) {
-        res.json({ count: results.length, results });
+        res.json({ count: listed.length, results: listed });
         return;
       }
 
-      let filtered = results as Array<{
+      let filtered = listed as Array<{
         slug: string;
         title: string;
         locales?: string[];
@@ -3367,7 +3370,7 @@ export function registerContentRoutes(app: Express): void {
         entries: Array<Record<string, unknown>>,
         source: "yaml" | "db",
       ) => {
-        const filtered = applySharedFilters(entries, source);
+        const filtered = applySharedFilters(withoutAbCheckPage(entries, type, root), source);
         if (!pagination.paginate) {
           res.json({ ...base, count: filtered.length, entries: filtered });
           return;
@@ -3677,7 +3680,7 @@ export function registerContentRoutes(app: Express): void {
       };
 
       const finish = (entries: FunnelEntryRow[], source: "yaml" | "db") => {
-        let filtered = entries.filter(funnelMatchesQuery);
+        let filtered = withoutAbCheckPage(entries, type, root).filter(funnelMatchesQuery);
         if (localeFilter) {
           filtered = filtered.filter((e) => e.locale === localeFilter);
         }
@@ -4020,7 +4023,7 @@ export function registerContentRoutes(app: Express): void {
       };
 
       const finish = (raw: OrganicEntryRow[], source: "yaml" | "db") => {
-        let filtered = raw.filter(matchesQuery);
+        let filtered = withoutAbCheckPage(raw, type, root).filter(matchesQuery);
         if (publishDateRange) {
           filtered = filtered.filter((e) => {
             const publishedAt = normalizeFlexibleDate(
