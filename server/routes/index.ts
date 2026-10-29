@@ -211,7 +211,8 @@ import {
 //
 //   geo.ts          /api/geo, /api/ip
 //   auth.ts         /api/auth, /api/debug-token
-//   forms.ts        /api/leads, /api/form-options
+//   forms.ts        /api/form-options
+//   webhooks.ts     /api/leads/webhook-delivery, /api/webhooks
 //   settings.ts     /api/settings, /api/content-types, /api/menus, /api/faqs
 //   content.ts      /api/content, /api/landings, /api/locations, /api/pages,
 //                   /api/career-programs, /api/content-pages, /api/preview
@@ -226,7 +227,6 @@ import {
 //   ai.ts           /api/ai, /api/chat, /api/brand-context
 //   validation.ts   /api/validation, /api/diagnostics, /api/debug
 //   ecommerce.ts    /api/ecommerce
-//   webhooks.ts     /api/webhooks
 //
 // Each file exports a single registerXxxRoutes(app: Express): void function.
 // Add your function call to the register block in registerRoutes() below.

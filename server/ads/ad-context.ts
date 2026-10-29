@@ -1,7 +1,7 @@
 /**
  * Server-side ad context cookie (`4g_ads`): HttpOnly, 30 days, parent domain.
  * Holds the latest campaign set, click ids, fbp/fbc, first-touch set and
- * first/last paid landing. Written only after tracking consent; read by /api/leads.
+ * first/last paid landing. Written only after tracking consent; read by /api/leads/webhook-delivery.
  * No name / email / phone ever.
  */
 

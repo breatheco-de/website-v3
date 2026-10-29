@@ -231,13 +231,12 @@ export function resolveLeadFormOverride(
 /** Normalize tags to a comma-separated string for the lead payload. */
 export function normalizeLeadFormTags(
   tags: string | string[] | null | undefined,
-  fallback = "website-lead",
 ): string {
   if (Array.isArray(tags) && tags.length > 0) {
     return tags.map(String).filter(Boolean).join(",");
   }
   if (typeof tags === "string" && tags.trim()) return tags.trim();
-  return fallback;
+  return "";
 }
 
 /**

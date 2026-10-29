@@ -189,7 +189,7 @@ conversion_name: event_order
 
 ## Campaign context + ledger fields (added by code, not YAML)
 
-Every submit (`/api/leads` and `/api/leads/webhook-delivery`) is enriched server-side before `buildLeadPayload`:
+Every submit (`POST /api/leads/webhook-delivery`) is enriched server-side before `buildLeadPayload`:
 
 | Key | When | Meaning |
 |---|---|---|

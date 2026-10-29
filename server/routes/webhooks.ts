@@ -7,6 +7,7 @@ import { databaseManager } from "../database";
 import { clearMarkdownCache } from "../markdown";
 import { invalidateContentCaches } from "./_helpers";
 import { getTrackingSettings } from "../settings";
+import { getDefaultContentRoot } from "../site-config";
 import { buildLeadPayload } from "../utils/buildLeadPayload";
 import { recordLeadSubmission } from "../ads/lead-ledger";
 import { z } from "zod";
@@ -174,7 +175,7 @@ export function registerWebhooksRoutes(app: Express): void {
   });
   /**
    * POST /api/leads/webhook-delivery
-   * Primary lead submission path when any webhook level is configured.
+   * The only lead submission path.
    * Body: { payload, webhook?: { url, method, headers?, fail_silently? } }
    *   - When `webhook` is omitted → reads URL/method/headers from global
    *     settings server-side (credentials never leave the server).
@@ -194,6 +195,10 @@ export function registerWebhooksRoutes(app: Express): void {
     const incoming = body.payload;
     if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) {
       res.status(400).json({ error: "Request body must include a payload object." });
+      return;
+    }
+    if (!(incoming as Record<string, unknown>).email) {
+      res.status(400).json({ error: "Email is required" });
       return;
     }
 
@@ -218,13 +223,21 @@ export function registerWebhooksRoutes(app: Express): void {
       rawHeaders = override.headers;
       failSilently = override.fail_silently === true;
     } else {
-      const globalWebhook = getTrackingSettings().webhook;
+      const contentRoot = (res.locals.site as { contentRoot?: string } | undefined)?.contentRoot ?? getDefaultContentRoot();
+      const tracking = getTrackingSettings(contentRoot);
+      const eventWebhook = tracking.conversion_events?.find((e) => e?.name === payload.conversion_name)?.webhook;
+      const globalWebhook = tracking.webhook;
       const envUrl = process.env.DEFAULT_WEBHOOK_URL;
-      if (!globalWebhook?.url && !envUrl) {
-        res.status(400).json({ error: "No webhook URL configured." });
+      if (!eventWebhook?.url && !globalWebhook?.url && !envUrl) {
+        res.json({ success: true, skipped: "no_webhook" });
         return;
       }
-      if (globalWebhook?.url) {
+      if (eventWebhook?.url) {
+        url = eventWebhook.url;
+        method = eventWebhook.method === "GET" ? "GET" : "POST";
+        rawHeaders = eventWebhook.headers;
+        failSilently = eventWebhook.fail_silently === true;
+      } else if (globalWebhook?.url) {
         url = globalWebhook.url;
         method = globalWebhook.method === "GET" ? "GET" : "POST";
         rawHeaders = globalWebhook.headers;
