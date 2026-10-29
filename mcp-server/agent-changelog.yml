@@ -66,6 +66,16 @@ entries:
       - mcp-server/tools/proposals.ts
       - mcp-server/explain/proposals.md
       - mcp-server/explain/funnel-classification-proposals.md
+  - date: "2026-10-29"
+    summary: "Lead forms submit only through POST /api/leads/webhook-delivery"
+    agent_impact:
+      - "POST /api/leads is removed. The form always posts to /api/leads/webhook-delivery, which still enriches the body (recordLeadSubmission) before buildLeadPayload and delivers to the form webhook, else event, else global, else DEFAULT_WEBHOOK_URL."
+      - "No webhook at any level returns { success: true, skipped: \"no_webhook\" }. Ledger fields and GTM enrichment are unchanged."
+    tools_changed: false
+    paths:
+      - server/routes/forms.ts
+      - server/routes/webhooks.ts
+      - mcp-server/explain/lead-forms.md
   - date: "2026-10-28"
     summary: "New blocker events (added / resolved / reopened) for Event Webhooks, with blocker details in the webhook body"
     agent_impact:

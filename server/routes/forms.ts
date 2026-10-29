@@ -203,11 +203,6 @@ import {
   ValidationFixRunLogEntry,
   FixerItemStatus,
 } from "./_helpers";
-import { getTrackingSettings } from "../settings";
-import { buildLeadPayload } from "../utils/buildLeadPayload";
-import { recordLeadSubmission } from "../ads/lead-ledger";
-import { isPrivateDestination } from "../../shared/ssrf";
-import { sanitizeWebhookHeaders } from "../../shared/webhookHeaders";
 import { DatabaseManager } from "../database";
 import {
   fetchQueryOptions,
@@ -483,70 +478,6 @@ export function registerFormsRoutes(app: Express): void {
     } catch (error) {
       log.error({ err: error }, "Error loading query options:");
       res.status(500).json({ error: "Failed to load query options" });
-    }
-  });
-
-  // Submit lead form
-  app.post("/api/leads", async (req, res) => {
-    try {
-      const leadData = req.body;
-
-      // Validate required fields
-      if (!leadData.email) {
-        res.status(400).json({ error: "Email is required" });
-        return;
-      }
-
-      const enriched = await recordLeadSubmission(req, res, leadData as Record<string, unknown>);
-      const cleanPayload = buildLeadPayload(enriched);
-
-      // Resolve webhook destination: global settings → DEFAULT_WEBHOOK_URL env var
-      const globalWebhook = getTrackingSettings().webhook;
-      const webhookUrl: string | undefined = globalWebhook?.url || process.env.DEFAULT_WEBHOOK_URL;
-      const webhookMethod: string = globalWebhook?.url
-        ? (globalWebhook.method || "POST")
-        : (process.env.DEFAULT_WEBHOOK_METHOD || "POST");
-      const webhookHeaders = globalWebhook?.url
-        ? sanitizeWebhookHeaders(globalWebhook.headers)
-        : {};
-
-      if (!webhookUrl) {
-        res.json({ success: true, skipped: "no_webhook" });
-        return;
-      }
-
-      if (isPrivateDestination(webhookUrl)) {
-        log.warn(`[LeadSubmission] Blocked private/internal destination: ${webhookUrl}`);
-        res.json({ success: true, skipped: "no_webhook" });
-        return;
-      }
-
-      const fetchOptions: RequestInit = {
-        method: webhookMethod,
-        headers: {
-          "Content-Type": "application/json",
-          ...webhookHeaders,
-        },
-        body: JSON.stringify(cleanPayload),
-      };
-
-      const webhookResponse = await fetch(webhookUrl, fetchOptions);
-
-      if (!webhookResponse.ok) {
-        const errorText = await webhookResponse.text();
-        log.error("Lead webhook delivery error:", webhookResponse.status, errorText);
-        res.status(webhookResponse.status).json({
-          error: "Failed to submit lead",
-          details: errorText,
-        });
-        return;
-      }
-
-      const result = await webhookResponse.json().catch(() => ({}));
-      res.json({ success: true, data: result });
-    } catch (error) {
-      log.error({ err: error }, "Lead submission error:");
-      res.status(500).json({ error: "Internal server error" });
     }
   });
 

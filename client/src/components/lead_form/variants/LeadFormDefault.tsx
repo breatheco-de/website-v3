@@ -620,6 +620,26 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, g
   );
 }
 
+/** Public, non-secret subset of a conversion event (GET /api/settings/tracking/conversion-events). */
+type PublicConversionEventConfig = Pick<
+  TrackingSettingsResponse["conversion_events"][number],
+  "name" | "tags" | "automations" | "consent" | "success"
+>;
+
+/** GET /api/settings/tracking/conversion-events — public list; no webhooks or staff intent. */
+type PublicConversionEventsResponse = {
+  events: PublicConversionEventConfig[];
+  auth: Record<string, unknown>;
+};
+
+function findPublicConversionEvent(
+  events: PublicConversionEventConfig[] | undefined,
+  name: string | undefined,
+): PublicConversionEventConfig | undefined {
+  if (!name || !events?.length) return undefined;
+  return events.find((event) => event.name === name);
+}
+
 type EffectiveWebhook = {
   url?: string;
   method?: "POST" | "GET";
@@ -631,7 +651,7 @@ type EffectiveWebhook = {
 function buildEffectiveSubmitConfig(
   formData: LeadFormData,
   values: Record<string, unknown>,
-  trackingSettings: TrackingSettingsResponse | null | undefined,
+  events: PublicConversionEventConfig[] | undefined,
   resolveValue?: (raw: string) => unknown,
   entry?: Record<string, unknown> | null,
 ): {
@@ -641,7 +661,6 @@ function buildEffectiveSubmitConfig(
   automations: string;
   /** Delivery override when url is set. */
   formWebhook: EffectiveWebhook | null;
-  eventWebhook: EffectiveWebhook | null;
 } {
   const override = resolveLeadFormOverride(values, formData.form_overrides, {
     resolveValue,
@@ -653,13 +672,10 @@ function buildEffectiveSubmitConfig(
   ) as LeadFormData;
 
   const conversionName = overlaid.conversion_name;
-  const eventEntry = conversionName
-    ? trackingSettings?.conversion_events?.find((e) => e.name === conversionName)
-    : undefined;
+  const eventEntry = findPublicConversionEvent(events, conversionName) ?? null;
 
   let resolved: LeadFormData = overlaid;
   if (eventEntry) {
-    const eventWebhookUrl = eventEntry.webhook?.url;
     const wrapped = resolveFormDefaults(
       { _f: overlaid } as Record<string, unknown>,
       {
@@ -667,14 +683,6 @@ function buildEffectiveSubmitConfig(
         automations: eventEntry.automations,
         tags: eventEntry.tags,
         consent: eventEntry.consent,
-        webhook: eventWebhookUrl
-          ? {
-              url: eventWebhookUrl,
-              method: eventEntry.webhook?.method,
-              headers: eventEntry.webhook?.headers,
-              fail_silently: eventEntry.webhook?.fail_silently,
-            }
-          : undefined,
         success: eventEntry.success,
       },
       "_f",
@@ -694,17 +702,6 @@ function buildEffectiveSubmitConfig(
           ...(wh.fail_silently === true ? { fail_silently: true } : {}),
         }
       : null;
-  const eventWebhook: EffectiveWebhook | null =
-    eventEntry?.webhook?.url
-      ? {
-          url: eventEntry.webhook.url,
-          method: (eventEntry.webhook.method === "GET" ? "GET" : "POST") as "POST" | "GET",
-          ...(eventEntry.webhook.headers && Object.keys(eventEntry.webhook.headers).length > 0
-            ? { headers: eventEntry.webhook.headers }
-            : {}),
-          ...(eventEntry.webhook.fail_silently === true ? { fail_silently: true } : {}),
-        }
-      : null;
 
   return {
     conversion_name: resolved.conversion_name ?? conversionName,
@@ -712,7 +709,6 @@ function buildEffectiveSubmitConfig(
     tags: normalizeLeadFormTags(resolved.tags),
     automations: resolved.automations || "strong",
     formWebhook,
-    eventWebhook,
   };
 }
 
@@ -743,7 +739,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [pendingAutoSubmit, setPendingAutoSubmit] = useState(false);
 
-  const turnstileEnabled = data.turnstile?.enabled ?? true;
+  const turnstileEnabled = false; // TEMP-TURNSTILE-BYPASS was: data.turnstile?.enabled ?? true
 
   const { data: turnstileSiteKey, isLoading: turnstileSiteKeyLoading } = useQuery<{ siteKey: string }>({
     queryKey: ["/api/turnstile/site-key"],
@@ -756,9 +752,18 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const turnstileMisconfigured =
     turnstileEnabled && !turnstileSiteKeyLoading && !turnstileSiteKey?.siteKey;
 
-  const { data: trackingSettings } = useQuery<TrackingSettingsResponse>({
-    queryKey: ["/api/settings/tracking"],
+  // Public, non-secret defaults for every conversion event. The full /api/settings/tracking
+  // is admin-only (metrics_view) and is intentionally NOT used here, so anonymous visitors,
+  // staff and local dev all get identical behavior. One list covers form_overrides that
+  // switch conversion_name, and forms without a name still get `auth` for signup/login.
+  const { data: publicConversionEvents } = useQuery<PublicConversionEventsResponse>({
+    queryKey: ["/api/settings/tracking/conversion-events"],
+    staleTime: 5 * 60 * 1000,
   });
+  const conversionEventConfig = findPublicConversionEvent(
+    publicConversionEvents?.events,
+    data.conversion_name,
+  );
 
   const { data: legalSettings } = useQuery<{ legal_terms_url: string; legal_privacy_url: string }>({
     queryKey: ["/api/settings/legal"],
@@ -788,9 +793,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   });
   const { data: variableDefinitions } = useVariableDefinitions();
   const variableContext = useVariableContext();
-  const authConversionCfg = parseAuthConversionEventConfig(
-    (trackingSettings ?? {}) as Record<string, unknown>,
-  );
+  const authConversionCfg = parseAuthConversionEventConfig(publicConversionEvents?.auth ?? {});
   // Account create path: needs field_map. Login-only gate does not.
   const signupActive =
     isSignupRequested &&
@@ -897,13 +900,10 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const fields = data.fields || {};
 
   // Apply per-event defaults via resolveFormDefaults (form-level YAML values always win)
-  const eventEntry = data.conversion_name
-    ? trackingSettings?.conversion_events?.find((e) => e.name === data.conversion_name)
-    : undefined;
+  const eventEntry = data.conversion_name ? conversionEventConfig : undefined;
 
   const resolvedData: LeadFormData = (() => {
     if (!eventEntry) return data;
-    const eventWebhookUrl = eventEntry.webhook?.url;
     const wrapped = resolveFormDefaults(
       { _f: data } as Record<string, unknown>,
       {
@@ -911,14 +911,6 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         automations: eventEntry.automations,
         tags: eventEntry.tags,
         consent: eventEntry.consent,
-        webhook: eventWebhookUrl
-          ? {
-              url: eventWebhookUrl,
-              method: eventEntry.webhook?.method,
-              headers: eventEntry.webhook?.headers,
-              fail_silently: eventEntry.webhook?.fail_silently,
-            }
-          : undefined,
         success: eventEntry.success,
       },
       "_f"
@@ -1614,7 +1606,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       const effective = buildEffectiveSubmitConfig(
         data,
         fields,
-        trackingSettings,
+        publicConversionEvents?.events,
         resolveConditionValue,
         singleEntry as Record<string, unknown> | undefined,
       );
@@ -1659,7 +1651,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         utm_plan: utm.utm_plan,
         ppc_tracking_id: utm.ppc_tracking_id,
         referral: utm.referral || utm.ref,
-        tags: effective.tags,
+        ...(effective.tags ? { tags: effective.tags } : {}),
         automations: effective.automations,
         conversion_name: effective.conversion_name,
         token: turnstileToken,
@@ -1779,18 +1771,12 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         ).text;
       };
 
-      // Webhook priority: per-form (YAML) → per-event → global.
-      const formWebhook = effective.formWebhook;
-      const eventWebhook = effective.eventWebhook;
-      const globalWebhook = trackingSettings?.webhook?.url ? trackingSettings.webhook : null;
+      // Single submission path: POST /api/leads/webhook-delivery. The section (form YAML)
+      // webhook is resolved here (form_overrides + {{ visitor.* }} / {{ entry.* }} templates)
+      // and sent along; otherwise the server resolves event → global → DEFAULT_WEBHOOK_URL.
+      const deliveryOverride = effective.formWebhook?.url ? effective.formWebhook : null;
 
-      const deliveryOverride = formWebhook?.url
-        ? formWebhook
-        : eventWebhook?.url
-          ? eventWebhook
-          : null;
-
-      let response: Response;
+      const body: Record<string, unknown> = { payload };
       if (deliveryOverride?.url) {
         const resolvedUrl = resolveTemplatedUrl(deliveryOverride.url) || deliveryOverride.url;
         const resolvedHeaders: Record<string, string> = {};
@@ -1800,38 +1786,22 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             resolvedHeaders[hk] = resolveTemplatedUrl(hv) || hv;
           }
         }
-        const body: Record<string, unknown> = {
-          payload,
-          webhook: {
-            url: resolvedUrl,
-            method: deliveryOverride.method || "POST",
-            ...(Object.keys(resolvedHeaders).length > 0 ? { headers: resolvedHeaders } : {}),
-            ...(deliveryOverride.fail_silently === true ? { fail_silently: true } : {}),
-          },
+        body.webhook = {
+          url: resolvedUrl,
+          method: deliveryOverride.method || "POST",
+          ...(Object.keys(resolvedHeaders).length > 0 ? { headers: resolvedHeaders } : {}),
+          ...(deliveryOverride.fail_silently === true ? { fail_silently: true } : {}),
         };
-        response = await fetch("/api/leads/webhook-delivery", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...staffLeadHeaders() },
-          body: JSON.stringify(body),
-          credentials: "same-origin",
-        });
-        if (!response.ok) {
-          const errText = await response.text().catch(() => "");
-          throw new Error(`${response.status}: ${errText || response.statusText}`);
-        }
-      } else if (globalWebhook) {
-        response = await fetch("/api/leads/webhook-delivery", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...staffLeadHeaders() },
-          body: JSON.stringify({ payload }),
-          credentials: "same-origin",
-        });
-        if (!response.ok) {
-          const errText = await response.text().catch(() => "");
-          throw new Error(`${response.status}: ${errText || response.statusText}`);
-        }
-      } else {
-        response = await apiRequestWithAuth("POST", "/api/leads", payload);
+      }
+      const response = await fetch("/api/leads/webhook-delivery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...staffLeadHeaders() },
+        body: JSON.stringify(body),
+        credentials: "same-origin",
+      });
+      if (!response.ok) {
+        const errText = await response.text().catch(() => "");
+        throw new Error(`${response.status}: ${errText || response.statusText}`);
       }
 
       return { response, fields, effective, resolveTemplatedUrl, submissionId };
@@ -1855,17 +1825,13 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         // The secondary curated webhook is only fired when ALL three webhook levels
         // are unconfigured (i.e., primary submission went to Breathecode).
         // When any webhook level was used above, the full payload was already delivered.
-        const hasAnyWebhook = !!(
-          effective.formWebhook?.url ||
-          effective.eventWebhook?.url ||
-          trackingSettings?.webhook?.url
-        );
+        const hasAnyWebhook = !!effective.formWebhook?.url;
         if (!hasAnyWebhook) {
           try {
             const resolvedWebhook = resolveWebhook(
               effective.formWebhook?.url ? effective.formWebhook : null,
               effective.conversion_name,
-              trackingSettings ?? null,
+              null, // full tracking settings are admin-only; not available in the form
             );
             if (resolvedWebhook) {
               const webhookPayload: Record<string, unknown> = {

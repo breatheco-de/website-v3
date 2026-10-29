@@ -30,7 +30,7 @@ beforeAll(async () => {
   registerInternalContentRoutes(app);
   app.post("/api/content/save", (_req, res) => res.json({ saved: true }));
   app.get("/api/content/read", (_req, res) => res.json({ read: true }));
-  app.post("/api/leads", (_req, res) => res.json({ lead: true }));
+  app.post("/api/leads/webhook-delivery", (_req, res) => res.json({ lead: true }));
   app.post("/api/auth/logout", (_req, res) => res.json({ out: true }));
   app.post("/api/content/slow", (_req, res) => {
     releaseSlowWrite = () => res.json({ saved: true });
@@ -89,7 +89,7 @@ describe("write pause", () => {
     const mcp = await call("/api/content/save", { method: "POST", headers: { Authorization: `Bearer ${MCP}` } });
     expect(mcp.status).toBe(503);
 
-    expect((await call("/api/leads", { method: "POST" })).status).toBe(200);
+    expect((await call("/api/leads/webhook-delivery", { method: "POST" })).status).toBe(200);
     expect((await call("/api/content/read", { headers: { Authorization: "Token staff-1" } })).status).toBe(200);
     expect((await call("/api/auth/logout", { method: "POST", headers: { Authorization: "Token staff-1" } })).status).toBe(200);
 

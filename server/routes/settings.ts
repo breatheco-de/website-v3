@@ -1350,6 +1350,28 @@ export function registerSettingsRoutes(app: Express): void {
     }
   });
 
+  // Intentionally PUBLIC (no auth). Lead forms need every event's non-secret defaults so a
+  // form_override can switch conversion_name without a second request, plus signup/login names.
+  // Every sibling route under /api/settings/tracking (GET/PUT, PATCH/DELETE :name,
+  // :name/merge|usage|reassign) is admin-only.
+  // NEVER add webhook (url/headers), intent copy, or any other secret/internal field.
+  api.get(app, "/api/settings/tracking/conversion-events", { rate: "publicRead" }, (_req, res) => {
+    const contentRoot = getContentRoot(res);
+    const events = (getTrackingSettings(contentRoot).conversion_events || [])
+      .filter((ev) => ev?.name)
+      .map((ev) => ({
+        name: ev.name,
+        tags: ev.tags,
+        automations: ev.automations,
+        consent: ev.consent,
+        success: ev.success,
+      }));
+    res.json({
+      events,
+      auth: getAuthConversionEventConfig(contentRoot),
+    });
+  });
+
   app.patch("/api/settings/tracking/conversion-events/:name", async (req, res) => {
     const auth = await requireMutatingStaff(req, res);
     if (!auth.authorized) return;
