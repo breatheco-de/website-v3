@@ -76,9 +76,13 @@ async function deliverLeadWebhook(opts: {
     }
 
     const response = await fetch(fetchUrl, fetchOptions);
-    log.info(`[LeadWebhookDelivery] Delivered to ${url} — status ${response.status}`);
     if (!response.ok) {
       const upstreamBody = await response.text().catch(() => "");
+      // Response only: field name + validator message. Not the lead payload.
+      log.error(
+        { status: response.status, upstream: upstreamBody.slice(0, 500) },
+        "Lead webhook delivery error",
+      );
       return {
         ok: false,
         status: 502,
@@ -86,6 +90,7 @@ async function deliverLeadWebhook(opts: {
         details: upstreamBody.slice(0, 500),
       };
     }
+    log.info(`[LeadWebhookDelivery] Delivered to ${url} — status ${response.status}`);
     return { ok: true, status: response.status };
   } catch (err) {
     const aborted =
