@@ -77,6 +77,38 @@ describe("single-locale create (all types)", () => {
   });
 });
 
+describe("duplicate never carries a funnel", () => {
+  it("drops funnel from the copied _common.yml and from copied language files", async () => {
+    const src = path.join(contentRoot, "blog", "source-post");
+    fs.mkdirSync(src, { recursive: true });
+    const funnel = { stage: "consideration", products: [{ product: "ai-flex", persona: "the-explorer" }] };
+    fs.writeFileSync(path.join(src, "_common.yml"), yaml.dump({ slug: "source-post", funnel }), "utf-8");
+    fs.writeFileSync(
+      path.join(src, "en.yml"),
+      yaml.dump({ slug: "source-post", title: "Source", funnel, sections: [] }),
+      "utf-8",
+    );
+    resetRegistry(contentRoot);
+
+    const result = await createContentEntry({
+      type: "blog",
+      title: "Copy",
+      slugEn: "copy-post",
+      sourceSlug: "source-post",
+      skipLocales: ["es"],
+      contentRootName: rootName,
+    });
+    expect(result.success).toBe(true);
+    const dir = path.join(contentRoot, "blog", "copy-post");
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".yml"));
+    expect(files.length).toBeGreaterThan(0);
+    for (const f of files) {
+      const doc = yaml.load(fs.readFileSync(path.join(dir, f), "utf-8")) as Record<string, unknown> | null;
+      expect(doc?.funnel, f).toBeUndefined();
+    }
+  });
+});
+
 describe("shared-template create starts as a draft", () => {
   it("writes draft.{locale}.yml + versioning.yml, no live file and no published_at", async () => {
     const result = await createContentEntry({

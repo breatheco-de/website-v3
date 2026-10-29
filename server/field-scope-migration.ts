@@ -41,6 +41,7 @@ import {
   type DraftRef,
 } from "./versioning/draft-base";
 import { scanEntries, type ScannedEntry } from "../scripts/validation/shared/draft-scan";
+import { normalizeFunnelProducts } from "@shared/funnel";
 
 export const MIGRATION_AUTHOR = "migration:006";
 /** A commit touching more files than this is a bulk change (seed / import / mass rewrite). */
@@ -183,40 +184,111 @@ export function gitValueHistory(repoDir: string, opts: { bulkFiles?: number } = 
 
 export type Candidate = { source: string; value: unknown; set: () => SetInfo | null };
 
+export type ResolutionFlag =
+  | "no_history"
+  | "bulk_change"
+  | "persona_preferred"
+  | "invalid_dropped"
+  | "no_valid_copy";
+
 export type Resolution = {
   /** undefined when no copy holds a real value. */
   value: unknown;
   source: string | null;
   sha?: string;
-  flags: Array<"no_history" | "bulk_change">;
+  flags: ResolutionFlag[];
+  /** `product/persona` pairs of the winner that are not in the catalog (`no_valid_copy`). */
+  invalid_pairs?: string[];
 };
+
+/** Higher wins before dates are compared. */
+export type CandidateRank = (value: unknown) => { rank: number; invalid: string[] };
+
+/** True when the product is in the site catalog and the persona (when given) is defined on it. */
+export type FunnelBindingValid = (product: string, persona?: string) => boolean;
+
+export const FUNNEL_RANK = { INVALID: 0, INVALID_COMPLETE: 1, VALID: 2, VALID_COMPLETE: 3 } as const;
+
+/**
+ * Funnel copies: valid beats invalid; within each, "all" or a persona on every product beats
+ * bare products / stage only.
+ */
+export function funnelCopyRank(value: unknown, valid: FunnelBindingValid): { rank: number; invalid: string[] } {
+  const products = normalizeFunnelProducts(isPlainObject(value) ? value.products : undefined);
+  const invalid: string[] = [];
+  let complete = false;
+  if (products === "all") {
+    complete = true;
+  } else if (Array.isArray(products)) {
+    for (const b of products) {
+      if (!valid(b.product, b.persona)) invalid.push(b.persona ? `${b.product}/${b.persona}` : b.product);
+    }
+    complete = products.every((b) => Boolean(b.persona?.trim()));
+  }
+  const rank = invalid.length
+    ? complete
+      ? FUNNEL_RANK.INVALID_COMPLETE
+      : FUNNEL_RANK.INVALID
+    : complete
+      ? FUNNEL_RANK.VALID_COMPLETE
+      : FUNNEL_RANK.VALID;
+  return { rank, invalid };
+}
+
+function rankFlags(ranks: number[], best: number): ResolutionFlag[] {
+  if (best < FUNNEL_RANK.VALID) return ["no_valid_copy"];
+  const flags: ResolutionFlag[] = [];
+  if (ranks.some((r) => r < FUNNEL_RANK.VALID)) flags.push("invalid_dropped");
+  if (best === FUNNEL_RANK.VALID_COMPLETE && ranks.includes(FUNNEL_RANK.VALID)) flags.push("persona_preferred");
+  return flags;
+}
 
 /**
  * Newest real value wins. All copies equal → that value. Missing or tied history →
  * `fallbackSource` (what visitors see today), flagged `no_history`.
+ * With `rank`, only the top-ranked copies compete on dates.
  */
-export function pickNewestValue(candidates: Candidate[], fallbackSource: string | null): Resolution {
+export function pickNewestValue(
+  candidates: Candidate[],
+  fallbackSource: string | null,
+  opts: { rank?: CandidateRank } = {},
+): Resolution {
   const real = candidates.filter((c) => isRealValue(c.value));
   if (real.length === 0) return { value: undefined, source: null, flags: [] };
-  if (real.every((c) => sameValue(c.value, real[0]!.value))) {
-    return { value: real[0]!.value, source: real[0]!.source, flags: [] };
+  let pool = real;
+  let preFlags: ResolutionFlag[] = [];
+  let invalidOf = (_c: Candidate): string[] => [];
+  if (opts.rank) {
+    const ranked = real.map((c) => ({ c, ...opts.rank!(c.value) }));
+    const best = Math.max(...ranked.map((r) => r.rank));
+    pool = ranked.filter((r) => r.rank === best).map((r) => r.c);
+    preFlags = rankFlags(
+      ranked.map((r) => r.rank),
+      best,
+    );
+    const invalidBy = new Map(ranked.map((r) => [r.c, r.invalid]));
+    invalidOf = (c) => invalidBy.get(c) ?? [];
   }
-  const dated = real.map((c) => ({ c, set: c.set() }));
-  const fallback = (): Resolution => {
-    const pick = real.find((c) => c.source === fallbackSource) ?? real[0]!;
-    return { value: pick.value, source: pick.source, flags: ["no_history"] };
+  const done = (c: Candidate, flags: ResolutionFlag[], sha?: string): Resolution => {
+    const all = [...preFlags, ...flags];
+    const invalid = all.includes("no_valid_copy") ? invalidOf(c) : [];
+    return {
+      value: c.value,
+      source: c.source,
+      ...(sha ? { sha } : {}),
+      flags: all,
+      ...(invalid.length ? { invalid_pairs: invalid } : {}),
+    };
   };
+  if (pool.every((c) => sameValue(c.value, pool[0]!.value))) return done(pool[0]!, []);
+  const dated = pool.map((c) => ({ c, set: c.set() }));
+  const fallback = (): Resolution => done(pool.find((c) => c.source === fallbackSource) ?? pool[0]!, ["no_history"]);
   if (dated.some((d) => !d.set)) return fallback();
   const newest = Math.max(...dated.map((d) => d.set!.at));
   const top = dated.filter((d) => d.set!.at === newest);
   if (top.some((d) => !sameValue(d.c.value, top[0]!.c.value))) return fallback();
   const winner = top[0]!;
-  return {
-    value: winner.c.value,
-    source: winner.c.source,
-    sha: winner.set!.sha,
-    flags: winner.set!.bulk ? ["bulk_change"] : [],
-  };
+  return done(winner.c, winner.set!.bulk ? ["bulk_change"] : [], winner.set!.sha);
 }
 
 // ── Entry plan ───────────────────────────────────────────────────────────────
@@ -239,29 +311,74 @@ export type FieldDecision = {
   winner: string | null;
   sha?: string;
   flags: string[];
+  /** Winner's `product/persona` pairs missing from the catalog (`no_valid_copy`). */
+  invalid_pairs?: string[];
   display_changes: Array<{ locale: string; before: unknown; after: unknown }>;
+};
+
+/** A draft that still stages a funnel after the cleanup (replaces the page funnel on publish). */
+export type DraftFunnelKept = {
+  rel: string;
+  locale: string;
+  variant: string;
+  /** Invalid pairs or no personas: publishing blocks or loses personas until fixed. */
+  needs_fix: boolean;
+  invalid_pairs: string[];
 };
 
 export type EntryPlan = {
   decisions: FieldDecision[];
   drafts_changed: Array<{ rel: string; locale: string; variant: string; removed: string[]; added: string[] }>;
+  /** Only with `funnelBindingValid`. */
+  drafts_with_funnel: DraftFunnelKept[];
   /** Content-repo path → full new document. */
   writes: Map<string, Doc>;
   created_common: boolean;
 };
 
-export function planEntry(input: EntryInput, history: ValueHistory): EntryPlan {
+export type PlanOptions = {
+  /** Limit the cleanup to these field paths (e.g. `["funnel"]`). Absent = every field. */
+  onlyPaths?: readonly string[];
+  /** Enables funnel ranking: invalid copies never win, persona copies beat bare products. */
+  funnelBindingValid?: FunnelBindingValid;
+};
+
+export function planEntry(input: EntryInput, history: ValueHistory, planOpts: PlanOptions = {}): EntryPlan {
   const opts = input.scopeOpts;
-  const plan: EntryPlan = { decisions: [], drafts_changed: [], writes: new Map(), created_common: false };
+  const inScope = (p: string) => !planOpts.onlyPaths || planOpts.onlyPaths.includes(p);
+  const funnelValid = planOpts.funnelBindingValid;
+  const plan: EntryPlan = {
+    decisions: [],
+    drafts_changed: [],
+    drafts_with_funnel: [],
+    writes: new Map(),
+    created_common: false,
+  };
 
   // 1. Drafts: drop page-level values that are only a copy of the live locale file.
+  // A valid funnel with a persona on every product stays staged, copy or not.
   const drafts = input.drafts.map((d) => ({ ...d, data: cloneJson(d.data), removed: [] as string[], added: [] as string[] }));
   for (const d of drafts) {
     const base = d.base ?? input.locales.find((l) => l.locale === d.locale)?.data ?? {};
     for (const p of pathsOf(splitByFieldScope(d.data, opts).common)) {
+      if (!inScope(p)) continue;
       const v = getAtPath(d.data, p);
       if (v === null) continue;
-      if (sameValue(v, getAtPath(base, p))) {
+      const copied = sameValue(v, getAtPath(base, p));
+      if (p === "funnel" && funnelValid && isRealValue(v)) {
+        const { rank, invalid } = funnelCopyRank(v, funnelValid);
+        if (rank === FUNNEL_RANK.VALID_COMPLETE || !copied) {
+          plan.drafts_with_funnel.push({
+            rel: d.rel,
+            locale: d.locale,
+            variant: d.variant,
+            needs_fix: rank !== FUNNEL_RANK.VALID_COMPLETE,
+            invalid_pairs: invalid,
+          });
+          continue;
+        }
+      }
+      if (copied) {
         deleteAtPath(d.data, p);
         d.removed.push(p);
       }
@@ -276,7 +393,7 @@ export function planEntry(input: EntryInput, history: ValueHistory): EntryPlan {
   // 2a. Page-level fields in language files → `_common.yml`.
   const pagePaths = new Set<string>();
   for (const l of locales) {
-    for (const p of pathsOf(splitByFieldScope(l.data, opts).common)) pagePaths.add(p);
+    for (const p of pathsOf(splitByFieldScope(l.data, opts).common)) if (inScope(p)) pagePaths.add(p);
   }
   for (const p of pagePaths) {
     const commonVal = common ? getAtPath(common, p) : undefined;
@@ -295,7 +412,11 @@ export function planEntry(input: EntryInput, history: ValueHistory): EntryPlan {
       candidates.push({ source: l.locale, value: visible(own), set: () => history.lastSet(l.rel, p, own) });
     }
     const fallback = withOwn.includes(input.defaultLocale) ? input.defaultLocale : ([...withOwn].sort()[0] ?? null);
-    const res = pickNewestValue(candidates, fallback);
+    const res = pickNewestValue(
+      candidates,
+      fallback,
+      p === "funnel" && funnelValid ? { rank: (v) => funnelCopyRank(v, funnelValid) } : {},
+    );
     const finalVal = res.value === undefined ? commonVal : res.value;
 
     const display: FieldDecision["display_changes"] = [];
@@ -325,6 +446,7 @@ export function planEntry(input: EntryInput, history: ValueHistory): EntryPlan {
       winner: res.source,
       ...(res.sha ? { sha: res.sha } : {}),
       flags: res.flags,
+      ...(res.invalid_pairs?.length ? { invalid_pairs: res.invalid_pairs } : {}),
       display_changes: display,
     });
   }
@@ -334,7 +456,7 @@ export function planEntry(input: EntryInput, history: ValueHistory): EntryPlan {
   // `_common.yml` copy is a one-language fallback, so a language keeps its own copy.
   if (common) {
     const commonDoc = common;
-    for (const p of localeKeysInCommonPaths(commonDoc, opts)) {
+    for (const p of localeKeysInCommonPaths(commonDoc, opts).filter(inScope)) {
       const newestWins = p.startsWith("meta.") && LOCALE_META_KEYS.has(p.slice("meta.".length));
       const commonVal = getAtPath(commonDoc, p);
       let commonSet: SetInfo | null | undefined;
@@ -419,7 +541,25 @@ export type FieldScopeMigrationDeps = {
   openHistory: () => { history: ValueHistory; cleanup: () => void };
   recordDraftRewrite: (site: string, proposalId: string, absPath: string) => void;
   proposalSummary: (site: string, proposalId: string) => ProposalSummary | null;
+  /** Catalog check for funnel ranking (products + personas in the site's `_product.yml` files). */
+  funnelBindingValid: (contentRoot: string) => Promise<FunnelBindingValid>;
 };
+
+/** Products and personas from every `_product.yml` under the content root. */
+export async function funnelBindingValidForRoot(contentRoot: string): Promise<FunnelBindingValid> {
+  const { loadTrackingKeyIndex } = await import("./product/tracking-key-index");
+  const personasBySlug = new Map<string, Set<string>>();
+  for (const p of loadTrackingKeyIndex(contentRoot, { fresh: true }).products) {
+    const set = personasBySlug.get(p.slug) ?? new Set<string>();
+    for (const persona of p.personas) set.add(persona.id);
+    personasBySlug.set(p.slug, set);
+  }
+  return (product, persona) => {
+    const personas = personasBySlug.get(product);
+    if (!personas) return false;
+    return !persona?.trim() || personas.has(persona.trim());
+  };
+}
 
 /** Full-history clone of the content repo (about 40 MB) with the sync token. */
 export function cloneContentRepo(opts: { owner: string; repo: string; branch: string; token: string }): { dir: string; cleanup: () => void } {
@@ -449,7 +589,7 @@ export function cloneContentRepo(opts: { owner: string; repo: string; branch: st
   return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
-async function defaultDeps(): Promise<FieldScopeMigrationDeps> {
+async function defaultDeps(author: string): Promise<FieldScopeMigrationDeps> {
   const { getSiteContextMap } = await import("./site-manager");
   const { detectPendingChanges, markFileAsModified, flushPendingSyncStateWrites } = await import("./sync-state");
   const { commitAndPush, getGitHubConfig } = await import("./github");
@@ -467,10 +607,10 @@ async function defaultDeps(): Promise<FieldScopeMigrationDeps> {
     },
     pendingFromMigration: (site) =>
       detectPendingChanges(site)
-        .filter((c) => c.source === "local" && c.author === MIGRATION_AUTHOR)
+        .filter((c) => c.source === "local" && c.author === author)
         .map((c) => c.file),
     markModified: (absPath, contentRoot) => {
-      markFileAsModified(absPath, MIGRATION_AUTHOR, undefined, contentRoot);
+      markFileAsModified(absPath, author, undefined, contentRoot);
       flushPendingSyncStateWrites(contentRoot);
     },
     push: (site, files, message) => commitAndPush(message, { files, contentRoot: site, onlyBlockOnOverlap: true }),
@@ -484,6 +624,7 @@ async function defaultDeps(): Promise<FieldScopeMigrationDeps> {
       recordSystemDraftRewrite(site, proposalId, absPath);
     },
     proposalSummary: (site, proposalId) => proposalBlockerSummary(site, proposalId),
+    funnelBindingValid: funnelBindingValidForRoot,
   };
 }
 
@@ -555,10 +696,22 @@ export async function runFieldScopeMigration(opts: {
   log?: Log;
   error?: Log;
   deps?: FieldScopeMigrationDeps;
+  /** Limit to these field paths (e.g. `["funnel"]`). Absent = every field (006). */
+  onlyPaths?: readonly string[];
+  /** Funnel ranking against the product catalog (invalid copies never win, persona copies first). */
+  rankFunnel?: boolean;
+  /** Sync-state author for changed files; also how an interrupted run's leftovers are found. */
+  author?: string;
+  /** Commit message for the cleanup push. */
+  commitMessage?: (fileCount: number) => string;
 }): Promise<{ failed: boolean }> {
   const log = opts.log ?? console.log;
   const error = opts.error ?? console.error;
-  const deps = opts.deps ?? (await defaultDeps());
+  const author = opts.author ?? MIGRATION_AUTHOR;
+  const deps = opts.deps ?? (await defaultDeps(author));
+  const commitMessage =
+    opts.commitMessage ??
+    ((n: number) => `Field scope cleanup: keep each field once, in the right file (${n} file(s))`);
   let failed = false;
   let matched = false;
   let opened: { history: ValueHistory; cleanup: () => void } | null = null;
@@ -591,7 +744,10 @@ export async function runFieldScopeMigration(opts: {
       const leftover = deps.pendingFromMigration(s.name);
       if (leftover.length > 0) {
         log("recovery", "pushing files an earlier run changed but did not push", leftover);
-        if (!opts.dryRun && !(await push(leftover, "Field scope cleanup (push files left by an interrupted run)"))) {
+        const leftoverMessage = opts.commitMessage
+          ? `${opts.commitMessage(leftover.length)} (files left by an interrupted run)`
+          : "Field scope cleanup (push files left by an interrupted run)";
+        if (!opts.dryRun && !(await push(leftover, leftoverMessage))) {
           failed = true;
           continue;
         }
@@ -604,6 +760,12 @@ export async function runFieldScopeMigration(opts: {
       let displayChanges = 0;
       let flagged = 0;
       let draftsCleaned = 0;
+      let noValidCopy = 0;
+      const draftFunnels: Array<{ draft: DraftFunnelKept; proposal: { id: string; title: string } | null }> = [];
+      const planOpts: PlanOptions = {
+        ...(opts.onlyPaths ? { onlyPaths: opts.onlyPaths } : {}),
+        ...(opts.rankFunnel ? { funnelBindingValid: await deps.funnelBindingValid(s.contentRoot) } : {}),
+      };
 
       for (const entry of scanEntries(absRoot)) {
         const name = `${entry.contentType}/${entry.slug}`;
@@ -612,17 +774,27 @@ export async function runFieldScopeMigration(opts: {
           error("unreadable_yaml", gathered.unreadable, "left untouched");
           continue;
         }
-        const plan = planEntry(gathered.input, lazyHistory);
+        const plan = planEntry(gathered.input, lazyHistory, planOpts);
+        for (const d of plan.drafts_with_funnel) {
+          const link = readDraftMeta(gathered.refs.get(d.rel)!.abs)?.proposal;
+          const summary = link?.id ? deps.proposalSummary(s.name, link.id) : null;
+          draftFunnels.push({
+            draft: d,
+            proposal: link?.id ? { id: link.id, title: summary?.title ?? "" } : null,
+          });
+        }
         if (plan.writes.size === 0) continue;
 
         for (const d of plan.decisions) {
           fields++;
           displayChanges += d.display_changes.length;
           if (d.flags.length) flagged++;
+          if (d.flags.includes("no_valid_copy")) noValidCopy++;
           log(opts.dryRun ? "would_move" : "move", name, d.field_path, d.direction === "to_common" ? "→ _common.yml" : "→ each language", {
             winner: d.winner,
             ...(d.sha ? { commit: d.sha.slice(0, 7) } : {}),
             ...(d.flags.length ? { flags: d.flags } : {}),
+            ...(d.invalid_pairs?.length ? { invalid_pairs: d.invalid_pairs } : {}),
             ...(d.display_changes.length ? { display_changes: d.display_changes } : {}),
           });
         }
@@ -666,8 +838,8 @@ export async function runFieldScopeMigration(opts: {
           changed.add(r);
         }
         for (const d of restamp) {
-          if (d.base) recordDraftBase(d.ref, { author: MIGRATION_AUTHOR, skipMark: true });
-          if (d.source) recordTranslationSource(d.ref, d.source, { author: MIGRATION_AUTHOR, skipMark: true });
+          if (d.base) recordDraftBase(d.ref, { author, skipMark: true });
+          if (d.source) recordTranslationSource(d.ref, d.source, { author, skipMark: true });
           if (d.base || d.source) {
             deps.markModified(d.abs, s.contentRoot);
             changed.add(d.rel);
@@ -683,6 +855,19 @@ export async function runFieldScopeMigration(opts: {
       for (const p of recheck.values()) {
         log("recheck_proposal", p.id, `"${p.title}"`, `${p.open_blocker_count} open needs-changes`, "re-preview (dry run works while blocked), then resolve");
       }
+      for (const { draft, proposal } of draftFunnels) {
+        log(
+          "draft_keeps_funnel",
+          draft.rel,
+          proposal ? `proposal ${proposal.id}${proposal.title ? ` "${proposal.title}"` : ""}` : "no linked proposal",
+          draft.needs_fix
+            ? {
+                replaces_page_funnel_on_publish: true,
+                needs_fix: draft.invalid_pairs.length ? { invalid_pairs: draft.invalid_pairs } : "no persona on some products",
+              }
+            : { replaces_page_funnel_on_publish: true },
+        );
+      }
       log("summary", {
         files_changed: changed.size,
         fields_moved: fields,
@@ -690,13 +875,20 @@ export async function runFieldScopeMigration(opts: {
         fields_flagged: flagged,
         drafts_cleaned: draftsCleaned,
         proposals_to_recheck: recheck.size,
+        ...(opts.rankFunnel
+          ? {
+              pages_without_a_valid_funnel: noValidCopy,
+              drafts_keeping_a_funnel: draftFunnels.length,
+              drafts_keeping_a_funnel_to_fix: draftFunnels.filter((d) => d.draft.needs_fix).length,
+            }
+          : {}),
       });
       if (changed.size === 0) {
         log("nothing_to_push", "every field already lives in the right file");
         continue;
       }
       if (opts.dryRun) continue;
-      if (!(await push([...changed], `Field scope cleanup: keep each field once, in the right file (${changed.size} file(s))`))) {
+      if (!(await push([...changed], commitMessage(changed.size)))) {
         failed = true;
       }
     }

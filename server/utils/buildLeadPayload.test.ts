@@ -11,6 +11,7 @@ vi.mock("../settings", () => ({
     ],
     webhook: undefined,
   }),
+  getSettingsPathForDiagnostics: () => "settings.yml",
 }));
 
 import { buildLeadPayload } from "./buildLeadPayload";

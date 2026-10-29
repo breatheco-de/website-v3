@@ -936,14 +936,24 @@ export function registerVersioningRoutes(app: Express): void {
 
     try {
       const { stripDraftMetaFromRaw } = await import("../versioning/draft-meta");
-      const { draftSeedFromLiveRaw, recordDraftBase, scopeOptionsOf } = await import("../versioning/draft-base");
+      const { draftSeedFromLive, funnelCarriedWarning, recordDraftBase, scopeOptionsOf } = await import(
+        "../versioning/draft-base"
+      );
       // Never copy another file's `_draft` (base / proposal link / translation source).
       // From live, page-level keys stay in `_common.yml`; another draft's staged ones are kept.
       const sourceRaw = fs.readFileSync(sourceFilePath, "utf-8");
-      const sourceContent =
+      const commonPath = path.join(contentDir, "_common.yml");
+      const seeded =
         sourceFilePath === liveSourcePath
-          ? draftSeedFromLiveRaw(sourceRaw, scopeOptionsOf({ contentType, contentRoot: root }))
-          : stripDraftMetaFromRaw(sourceRaw);
+          ? draftSeedFromLive(sourceRaw, {
+              ...scopeOptionsOf({ contentType, contentRoot: root }),
+              ...(resolved.templateMode
+                ? {}
+                : { commonRaw: fs.existsSync(commonPath) ? fs.readFileSync(commonPath, "utf-8") : null }),
+            })
+          : { content: stripDraftMetaFromRaw(sourceRaw), carried: [] as string[] };
+      const sourceContent = seeded.content;
+      const seedWarnings = seeded.carried.includes("funnel") ? [funnelCarriedWarning(locale)] : [];
       const attachedEntry =
         !resolved.templateMode &&
         isSharedLayoutType(contentType, root) &&
@@ -1017,6 +1027,7 @@ export function registerVersioningRoutes(app: Express): void {
         siblingLocales: createdSiblings,
         filePath: `${getContentRootName(res)}/${relPrimary}`,
         seededFromDraft: !fs.existsSync(liveSourcePath),
+        ...(seedWarnings.length ? { warnings: seedWarnings } : {}),
       });
     } catch (error) {
       res.status(500).json({ error: String(error) });

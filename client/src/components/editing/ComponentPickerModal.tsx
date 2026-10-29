@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import jsYaml from "js-yaml";
 import type { ComponentPairing } from "@shared/schema";
 import { escapeTemplateVars, unescapeObjectVars } from "@shared/templateVars";
+import { slugify } from "@shared/slug";
 import {
   Dialog,
   DialogContent,
@@ -205,13 +206,6 @@ function buildPositionHeuristics(
       count: 0,
       fromHeuristics: true,
     }));
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '');
 }
 
 function parseYamlContent(yamlStr: string): Record<string, unknown> | null {

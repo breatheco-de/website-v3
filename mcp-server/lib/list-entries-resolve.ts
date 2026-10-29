@@ -1,9 +1,10 @@
 /**
- * Unified list_entries resolve: type stats or paginated one-row-per-slug entries.
+ * Unified list_entries resolve: type stats or paginated one-row-per-page entries.
  * Listing matches site cards (cache + overrides + CT mapping); page-only field_overrides stay out.
  */
 
 import { getDefaultLocale } from "../../server/settings.js";
+import { slugKey } from "../../shared/slug.js";
 import { commonYmlPath, readFunnelBlockFromFile } from "../../server/funnel-fields.js";
 import {
   enrichFunnelFields,
@@ -30,9 +31,14 @@ const DETAIL_SCALAR_KEYS = [
 ] as const;
 
 export type ListEntryRow = {
+  /** Page ID (folder name); stable across renames and languages. */
+  entry_id: string;
+  /** Default-language public address. */
   slug: string;
   contentType: string;
   locales: string[];
+  /** Language → that language's public address. */
+  locale_slugs?: Record<string, string>;
   title?: string;
   urls?: Record<string, string>;
   [key: string]: unknown;
@@ -116,7 +122,8 @@ function urlOfItem(item: Record<string, unknown>, locale: string | undefined): s
 }
 
 /**
- * Collapse listing API rows (often one per locale) into one row per slug.
+ * Collapse listing API rows (one per language) into one row per page, keyed by the page ID
+ * (`entry_id`; falls back to the row slug when the listing has none).
  */
 export function normalizeToSlugRows(
   contentType: string,
@@ -126,12 +133,14 @@ export function normalizeToSlugRows(
     defaultLocale: string;
   },
 ): ListEntryRow[] {
-  const bySlug = new Map<
+  const byPage = new Map<
     string,
     {
       locales: Set<string>;
       titlesByLocale: Record<string, string>;
       urls: Record<string, string>;
+      localeSlugs: Record<string, string>;
+      firstSlug: string;
       samples: Record<string, unknown>[];
     }
   >();
@@ -140,15 +149,17 @@ export function normalizeToSlugRows(
     const slugRaw = item.slug;
     if (typeof slugRaw !== "string" || !slugRaw.trim()) continue;
     const slug = slugRaw.trim();
+    const entryId = typeof item.entry_id === "string" && item.entry_id.trim() ? item.entry_id.trim() : slug;
     const locale = localeOfItem(item);
-    let bucket = bySlug.get(slug);
+    let bucket = byPage.get(entryId);
     if (!bucket) {
-      bucket = { locales: new Set(), titlesByLocale: {}, urls: {}, samples: [] };
-      bySlug.set(slug, bucket);
+      bucket = { locales: new Set(), titlesByLocale: {}, urls: {}, localeSlugs: {}, firstSlug: slug, samples: [] };
+      byPage.set(entryId, bucket);
     }
     bucket.samples.push(item);
     if (locale) {
       bucket.locales.add(locale);
+      bucket.localeSlugs[locale] ??= slug;
       const title = item.title;
       if (typeof title === "string" && title.trim()) {
         bucket.titlesByLocale[locale] = title.trim();
@@ -161,23 +172,34 @@ export function normalizeToSlugRows(
   }
 
   const rows: ListEntryRow[] = [];
-  for (const [slug, bucket] of bySlug) {
+  for (const [entryId, bucket] of byPage) {
     const locales = [...bucket.locales].sort();
     const title =
       pickTitle(bucket.titlesByLocale, locales, opts.requestedLocale, opts.defaultLocale) ??
       (typeof bucket.titlesByLocale._ === "string" ? bucket.titlesByLocale._ : undefined);
+    const ls = bucket.localeSlugs;
+    const slug = ls[opts.defaultLocale] ?? ls.en ?? (locales[0] ? ls[locales[0]] : undefined) ?? bucket.firstSlug;
     const row: ListEntryRow = {
+      entry_id: entryId,
       slug,
       contentType,
       locales,
+      ...(Object.keys(ls).length > 0 ? { locale_slugs: ls } : {}),
       ...(title ? { title } : {}),
       ...(Object.keys(bucket.urls).length > 0 ? { urls: bucket.urls } : {}),
       _samples: bucket.samples,
     };
     rows.push(row);
   }
-  rows.sort((a, b) => a.slug.localeCompare(b.slug));
+  rows.sort((a, b) => a.entry_id.localeCompare(b.entry_id));
   return rows;
+}
+
+/** Page ID and every language's address of a row (what `slugs` / `search` match against). */
+function rowAddresses(r: ListEntryRow): string[] {
+  return [r.entry_id, r.slug, ...Object.values(r.locale_slugs ?? {})].filter(
+    (a): a is string => typeof a === "string" && a.length > 0,
+  );
 }
 
 export function filterSlugRows(
@@ -196,15 +218,17 @@ export function filterSlugRows(
     out = out.filter((r) => r.locales.includes(opts.locale!));
   }
   // undefined = no slug filter; [] = match nothing (e.g. refresh_tier with zero index hits).
+  // Any address (page ID or a language's slug) in any spelling matches.
   if (opts.slugs !== undefined) {
-    const set = new Set(opts.slugs);
-    out = out.filter((r) => set.has(r.slug));
+    const keys = new Set(opts.slugs.map((s) => slugKey(s)).filter(Boolean));
+    out = out.filter((r) => rowAddresses(r).some((a) => keys.has(slugKey(a))));
   }
   if (opts.search) {
     const q = opts.search.toLowerCase();
+    const qKey = slugKey(opts.search);
     out = out.filter(
       (r) =>
-        r.slug.toLowerCase().includes(q) ||
+        (qKey !== "" && rowAddresses(r).some((a) => slugKey(a).includes(qKey))) ||
         (r.title ?? "").toLowerCase().includes(q),
     );
   }
@@ -213,10 +237,9 @@ export function filterSlugRows(
   if (useFunnel && funnelFilters) {
     const enriched: ListEntryRow[] = [];
     for (const r of out) {
-      const funnel = readFunnelBlockFromFile(
-        commonYmlPath(r.contentType, r.slug, opts.contentFolder),
-      );
-      const ctx = { contentType: r.contentType, contentSlug: r.slug };
+      const pageId = r.entry_id || r.slug;
+      const funnel = readFunnelBlockFromFile(commonYmlPath(r.contentType, pageId, opts.contentFolder));
+      const ctx = { contentType: r.contentType, contentSlug: pageId };
       if (!pageMatchesFunnelFilters(funnel, funnelFilters, ctx)) continue;
       if (opts.enrichFunnel) {
         enriched.push({ ...r, ...enrichFunnelFields(funnel, ctx) });
@@ -236,9 +259,11 @@ export function projectEntries(
   const detail = !!opts.detail;
   return rows.map((r) => {
     const base: ListEntryRow = {
+      entry_id: r.entry_id,
       slug: r.slug,
       contentType: r.contentType,
       locales: r.locales,
+      ...(r.locale_slugs ? { locale_slugs: r.locale_slugs } : {}),
       ...(r.title ? { title: r.title } : {}),
       ...(r.urls ? { urls: r.urls } : {}),
     };

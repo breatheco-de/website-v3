@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { isMcpMutatingTool } from "../../shared/agent-identity.js";
 import { getActiveMcpToken } from "./auth.js";
 import { assertMutatingAgentIdentity, extractToolArgs } from "./loopback.js";
+import { ENTRY_REF_TOOLS, wrapEntryRefTool } from "./entry-ref-mcp.js";
 import {
   denyMcpWriteDisabledMutate,
   denyUnscopedProductionMutate,
@@ -57,6 +58,9 @@ export function applyToolCatalogFilter(
     }
     if (allowed && !allowed.has(name)) {
       return DISABLED_TOOL;
+    }
+    if (ENTRY_REF_TOOLS.has(name) && rest.length > 0) {
+      rest = wrapEntryRefTool(rest);
     }
     if (isMcpMutatingTool(name) && rest.length > 0) {
       const handlerIdx = rest.length - 1;

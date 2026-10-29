@@ -71,10 +71,15 @@ import {
   ACCEPT_NEXT_STEP_MIN,
   CLOSE_NOTE_MIN,
   IDEA_PARK_CLOSE_REASON_OPTIONS,
+  IDEA_RETIRE_REASON_OPTIONS,
   PROPOSAL_CLOSE_REASON_OPTIONS,
   closeNoteRequired,
+  closeReasonOptionLabel,
+  isIdeaRetireReason,
+  type IdeaRetireReasonValue,
   type ProposalCloseReasonValue,
 } from "@/lib/proposalCloseReason";
+import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import {
   PROPOSAL_REJECT_KIND_OPTIONS,
   REJECT_NOTE_MIN,
@@ -1348,6 +1353,12 @@ type ProposalDetailPayload = {
   content_type_strategies?: IdeaContentTypeStrategyPayload[];
   deleted_refs?: string[];
   referenced_proposals?: Record<string, ImplementsIdeaSummary>;
+  idea_retire?: {
+    retired: boolean;
+    can_retire: boolean;
+    open_edit: { id: string; title: string; status: string } | null;
+    applied_edit_id: string | null;
+  };
 };
 
 export function ProposalDetailPanel({
@@ -1408,6 +1419,10 @@ export function ProposalDetailPanel({
   const [rejectNote, setRejectNote] = useState("");
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawNote, setWithdrawNote] = useState("");
+  const [retireOpen, setRetireOpen] = useState(false);
+  const [retireReason, setRetireReason] = useState<IdeaRetireReasonValue>("already_done");
+  const [retireNote, setRetireNote] = useState("");
+  const [retireAdvanced, setRetireAdvanced] = useState(false);
   const [escalateOpen, setEscalateOpen] = useState(false);
   const [escalateNote, setEscalateNote] = useState("");
   const [deescalateOpen, setDeescalateOpen] = useState(false);
@@ -1569,6 +1584,11 @@ export function ProposalDetailPanel({
         locale_seo_target_required:
           "This new language needs its own keyword and a hub in the same language before it goes live.",
         seo_index_unavailable: "The SEO index could not be read. Nothing changed — try again shortly.",
+        implements_edit_open:
+          "An edit for this idea is still open. Withdraw that edit first, then retire the idea.",
+        idea_already_implemented:
+          "An edit for this idea was already applied, so it is done — there is nothing to retire.",
+        retire_note_required: `Add a note of at least ${CLOSE_NOTE_MIN} characters.`,
       };
       const emptyPage = e.message.includes("EMPTY_PAGE") ? plainByCode.empty_page : undefined;
       toast({
@@ -1749,8 +1769,12 @@ export function ProposalDetailPanel({
   const closeReasonLabel =
     p?.close_reason === "accepted"
       ? "Accepted"
-      : PROPOSAL_CLOSE_REASON_OPTIONS.find((o) => o.value === p?.close_reason)?.label ??
+      : closeReasonOptionLabel(p?.close_reason) ??
         (p?.status === "rejected" ? rejectKindLabel(p.close_reason) : p?.close_reason);
+  const ideaRetire = data?.idea_retire ?? null;
+  const retireNoteOk = retireNote.trim().length >= CLOSE_NOTE_MIN;
+  const retireNoteHint =
+    retireNote.trim().length > 0 ? minLengthHint(retireNote, CLOSE_NOTE_MIN) : null;
 
   const drawerOrder = (n: number) => (isDrawer ? { order: n } : undefined);
   const drawerOutcome = isDrawer && p && isTerminal ? p.status : null;
@@ -2416,10 +2440,76 @@ export function ProposalDetailPanel({
             >
               <IconCircleCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
               <p>
-                {p.close_reason === "accepted" ? "Accepted" : `Closed as ${closeReasonLabel}`}
+                {p.close_reason === "accepted"
+                  ? "Accepted"
+                  : isIdeaRetireReason(p.close_reason)
+                    ? `Retired as ${closeReasonLabel}`
+                    : `Closed as ${closeReasonLabel}`}
                 {p.closed_by ? ` by ${p.closed_by}` : ""}
                 {p.close_note ? `: ${p.close_note}` : ""}
               </p>
+            </div>
+          ) : null}
+
+          {ideaRetire && !ideaRetire.retired && !ideaRetire.applied_edit_id ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-card-border bg-muted/40 px-3 py-2.5 text-sm"
+              data-testid="panel-idea-retire"
+            >
+              <p className="min-w-0 flex-1 text-muted-foreground">
+                {ideaRetire.open_edit ? (
+                  <>
+                    An edit for this idea is still open (
+                    <Link
+                      href={`${AGENTS_PROPOSALS_BASE}/${ideaRetire.open_edit.id}`}
+                      onClick={(e) => {
+                        if (!isDrawer || !onProposalChange || !ideaRetire.open_edit) return;
+                        e.preventDefault();
+                        onProposalChange(ideaRetire.open_edit.id);
+                      }}
+                      className="text-primary underline-offset-2 hover:underline"
+                      data-testid="link-idea-retire-open-edit"
+                    >
+                      {ideaRetire.open_edit.title}
+                    </Link>
+                    ). Withdraw it first if this idea is no longer needed.
+                  </>
+                ) : (
+                  "No longer needed? Retiring takes this idea off the stalled list and frees its page for other ideas."
+                )}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={mut.isPending || !ideaRetire.can_retire}
+                onClick={() => setRetireOpen(true)}
+                data-testid="button-retire-idea"
+              >
+                Retire idea
+              </Button>
+            </div>
+          ) : null}
+
+          {ideaRetire?.retired ? (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-card-border bg-muted/40 px-3 py-2.5 text-sm"
+              data-testid="panel-idea-unretire"
+            >
+              <p className="min-w-0 flex-1 text-muted-foreground">
+                Retired by mistake? Restoring puts this idea back to accepted, as long as no other idea
+                has taken its page.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={mut.isPending}
+                onClick={() => mut.mutate({ action: "unretire" })}
+                data-testid="button-unretire-idea"
+              >
+                Restore to accepted
+              </Button>
             </div>
           ) : null}
 
@@ -3398,6 +3488,107 @@ export function ProposalDetailPanel({
                   data-testid="button-confirm-withdraw-proposal"
                 >
                   Withdraw
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={retireOpen}
+            onOpenChange={(open) => {
+              setRetireOpen(open);
+              if (!open) {
+                setRetireNote("");
+                setRetireAdvanced(false);
+              }
+            }}
+          >
+            <DialogContent data-testid="dialog-retire-idea">
+              <DialogHeader>
+                <DialogTitle>Retire this idea?</DialogTitle>
+                <DialogDescription>
+                  This idea was accepted but no longer needs doing. Retiring it takes it off the stalled
+                  list and frees its page for other ideas. Nothing on the live site changes.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <ToggleButtonBar
+                  value={retireReason}
+                  onValueChange={(v) => v && setRetireReason(v as IdeaRetireReasonValue)}
+                  listTestId="toggle-retire-reason"
+                >
+                  {IDEA_RETIRE_REASON_OPTIONS.map((o) => (
+                    <ToggleButtonBarTrigger key={o.value} value={o.value} data-testid={`toggle-retire-${o.value}`}>
+                      {o.label}
+                    </ToggleButtonBarTrigger>
+                  ))}
+                </ToggleButtonBar>
+                <div className="space-y-1">
+                  <Label htmlFor="proposal-retire-note">Note (min {CLOSE_NOTE_MIN})</Label>
+                  <Textarea
+                    id="proposal-retire-note"
+                    value={retireNote}
+                    onChange={(e) => setRetireNote(e.target.value)}
+                    rows={3}
+                    placeholder={IDEA_RETIRE_REASON_OPTIONS.find((o) => o.value === retireReason)?.hint}
+                    data-testid="input-retire-note"
+                  />
+                  {retireNoteHint ? (
+                    <p className={retireNoteHint.className} data-testid="text-retire-note-length-hint">
+                      {retireNoteHint.text}
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  onClick={() => setRetireAdvanced((v) => !v)}
+                  data-testid="button-retire-advanced"
+                >
+                  {retireAdvanced ? "Hide advanced" : "Read more (advanced)"}
+                </button>
+                {retireAdvanced ? (
+                  <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                    <li>
+                      Stored as <code>close_reason</code> <code>{retireReason}</code>; status stays finished. The
+                      reserved page (<code>accepted_entry</code>) stays on record but no longer blocks other ideas.
+                    </li>
+                    <li>
+                      The original accept note is kept. <strong>Restore to accepted</strong> brings it back, unless
+                      another idea has taken the page since.
+                    </li>
+                    <li>
+                      Refused while an edit for this idea is still open, or once one was applied. Same four-eyes
+                      rule as accept: the agent role that proposed the idea cannot retire it.
+                    </li>
+                    <li>Left out of the outcome review queue. Agents filing a similar idea see this note.</li>
+                  </ul>
+                ) : null}
+              </div>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setRetireOpen(false)}
+                  data-testid="button-cancel-retire-idea"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={mut.isPending || !retireNoteOk}
+                  onClick={() => {
+                    mut.mutate(
+                      {
+                        action: "retire",
+                        body: { retire_reason: retireReason, close_note: retireNote.trim() },
+                      },
+                      { onSuccess: () => setRetireOpen(false) },
+                    );
+                  }}
+                  data-testid="button-confirm-retire-idea"
+                >
+                  Retire idea
                 </Button>
               </DialogFooter>
             </DialogContent>

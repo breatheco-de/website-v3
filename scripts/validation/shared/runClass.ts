@@ -112,5 +112,6 @@ export const ENTRY_LOCAL_VALIDATOR_NAMES = [
   "url-param-locale",
   "nonlocalized-common-locale",
   "locale-slug-uniqueness",
+  "slug-identity",
   "updated-at",
 ] as const;

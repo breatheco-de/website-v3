@@ -26,6 +26,30 @@ function resolveProductContentType(productSlug: string): string {
   return p?.content_type ?? "program";
 }
 
+export type FunnelPersonaChoice = {
+  id: string;
+  label: string;
+  role: string;
+  industry_or_context?: string;
+};
+
+/** Personas on the product a funnel binding names (in-memory product index). Null when unknown or no personas. */
+export function productPersonasForFunnel(productSlug: string): FunnelPersonaChoice[] | null {
+  const product = productManager.findProductByCmsEntry(
+    resolveProductContentType(productSlug),
+    productSlug,
+    { includePaused: true },
+  );
+  const personas = product?.audience?.personas ?? [];
+  if (personas.length === 0) return null;
+  return personas.map((p) => ({
+    id: p.id,
+    label: p.label || p.role,
+    role: p.role,
+    ...(p.industry_or_context ? { industry_or_context: p.industry_or_context } : {}),
+  }));
+}
+
 function hasFunnelStage(funnel: FunnelBlock): boolean {
   return typeof funnel.stage === "string" && funnel.stage.trim().length > 0;
 }

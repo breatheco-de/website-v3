@@ -23,7 +23,7 @@ import {
 } from "../content-proposals/attention";
 import { checkBulkDeleteRequest } from "../content-proposals/bulk-delete-gate";
 import { child } from "../logger";
-import { resolveEventActor } from "./_helpers";
+import { resolveAgentSessionId, resolveEventActor } from "./_helpers";
 import { getProposalSettings } from "../settings";
 
 const log = child({ module: "routes/proposals" });
@@ -83,6 +83,8 @@ const WRITE_ACTIONS = new Set<ProposalUpdateAction>([
   "deescalate",
   "review_outcome",
   "set_outcome_lesson",
+  "retire",
+  "unretire",
 ]);
 
 const OUTCOME_ACTIONS = new Set<ProposalUpdateAction>(["review_outcome", "set_outcome_lesson"]);
@@ -112,6 +114,8 @@ const ALL_ACTIONS = new Set<ProposalUpdateAction>([
   "review_outcome",
   "set_outcome_lesson",
   "revert",
+  "retire",
+  "unretire",
 ]);
 
 export function registerProposalRoutes(app: Express): void {
@@ -407,10 +411,12 @@ export function registerProposalRoutes(app: Express): void {
     const fresh = svc.get(req.params.id) ?? proposal;
     const content_type_strategies = svc.contentTypeStrategiesFor(fresh);
     const refs = svc.referencedProposals(fresh);
+    const idea_retire = svc.ideaRetireState(fresh);
     res.json({
       proposal: fresh,
       review_context,
       ...(content_type_strategies ? { content_type_strategies } : {}),
+      ...(idea_retire ? { idea_retire } : {}),
       deleted_refs: refs.missing,
       referenced_proposals: refs.byId,
     });
@@ -481,6 +487,7 @@ export function registerProposalRoutes(app: Express): void {
         result.code === "idea_already_in_progress" ||
         result.code === "implements_entry_mismatch" ||
         result.code === "implements_not_found" ||
+        result.code === "implements_idea_retired" ||
         result.code === "competing_shared_fields" ||
         result.code === "draft_in_proposal" ||
         result.code === "variant_has_traffic"
@@ -678,7 +685,7 @@ export function registerProposalRoutes(app: Express): void {
           ? req.body.agent_session_id
           : typeof req.headers["x-agent-session-id"] === "string"
             ? req.headers["x-agent-session-id"]
-            : undefined,
+            : resolveAgentSessionId(req),
       body: typeof req.body?.body === "string" ? req.body.body : undefined,
       staff_summary: typeof req.body?.staff_summary === "string" ? req.body.staff_summary : undefined,
       blocker_id:
@@ -712,6 +719,7 @@ export function registerProposalRoutes(app: Express): void {
         typeof req.body?.no_auto_retry === "boolean" ? req.body.no_auto_retry : undefined,
       confirm_reject: req.body?.confirm_reject === true,
       reject_kind: typeof req.body?.reject_kind === "string" ? req.body.reject_kind : undefined,
+      retire_reason: typeof req.body?.retire_reason === "string" ? req.body.retire_reason : undefined,
       entries: Array.isArray(req.body?.entries) ? req.body.entries : undefined,
       review_situations: Array.isArray(req.body?.review_situations)
         ? req.body.review_situations
@@ -782,7 +790,9 @@ export function registerProposalRoutes(app: Express): void {
                 result.code === "confirm_affected_entries" ||
                 result.code === "revert_conflicts" ||
                 result.code === "predecessor_not_applied" ||
-                result.code === "applies_after_cycle"
+                result.code === "applies_after_cycle" ||
+                result.code === "implements_edit_open" ||
+                result.code === "idea_already_implemented"
               ? 409
               : result.code === "text_limits_exceeded"
                 ? 422

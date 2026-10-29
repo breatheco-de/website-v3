@@ -7979,7 +7979,14 @@ export default function ContentTypeManagePage() {
         toast({ title: data.error || "Failed to create version", variant: "destructive" });
         return;
       }
-      toast({ title: `Version "${createVersionSlug}" created`, description: data.filePath });
+      const carriedFunnel = Array.isArray(data.warnings)
+        && data.warnings.some((w: { code?: string }) => w.code === "funnel_carried_from_language_file");
+      toast({
+        title: `Version "${createVersionSlug}" created`,
+        description: carriedFunnel
+          ? "This language had its own funnel, different from the page's. The draft keeps it; publishing makes it the funnel for every language."
+          : data.filePath,
+      });
       setCreateVersionOpen(false);
       setVersionsData(prev => { const next = { ...prev }; delete next[createVersionEntry.slug]; return next; });
       queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "static-entries"] });

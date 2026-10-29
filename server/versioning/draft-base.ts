@@ -14,6 +14,8 @@ import path from "path";
 import { isTemplateVersioningSlug, liveTemplateBasename } from "@shared/sharedLayoutPaths";
 import { fieldScope, splitByFieldScope, type FieldScope, type FieldScopeOptions } from "@shared/field-scope";
 import { cloneJson, deleteAtPath, isPlainObject, setAtPath } from "@shared/object-path";
+import { FUNNEL_YAML_KEY, normalizeFunnelBlock } from "@shared/funnel";
+import { deepMerge } from "../utils/deepMerge";
 import { getFolder } from "../content-types";
 import { getSiteSqlite } from "../db";
 import { urlParamsForContentType } from "../field-scope-config";
@@ -218,12 +220,47 @@ export function scopeOptionsOf(ref: Pick<DraftRef, "contentType" | "contentRoot"
  * Returns the raw text untouched when there is nothing to drop.
  */
 export function draftSeedFromLiveRaw(liveRaw: string, opts?: FieldScopeOptions): string {
+  return draftSeedFromLive(liveRaw, opts).content;
+}
+
+export const FUNNEL_CARRIED_WARNING = "funnel_carried_from_language_file";
+
+/**
+ * {@link draftSeedFromLiveRaw}, except a legacy `funnel:` in the live locale file that differs
+ * from `_common.yml` is kept in the draft (as visitors see it: locale merged over common), so
+ * publishing moves it to `_common.yml` instead of silently dropping it. `carried` lists kept keys.
+ */
+export function draftSeedFromLive(
+  liveRaw: string,
+  opts?: FieldScopeOptions & { commonRaw?: string | null },
+): { content: string; carried: string[] } {
   const raw = stripDraftMetaFromRaw(liveRaw);
   const data = safeLoadYaml(raw);
-  if (!data) return raw;
+  if (!data) return { content: raw, carried: [] };
   const { common, locale } = splitByFieldScope(data, opts);
-  if (Object.keys(common).length === 0) return raw;
-  return Object.keys(locale).length ? safeDumpYaml(locale) : "{}\n";
+  if (Object.keys(common).length === 0) return { content: raw, carried: [] };
+  const carried: string[] = [];
+  if (isPlainObject(common[FUNNEL_YAML_KEY]) && opts?.commonRaw !== undefined) {
+    const commonFunnel = (opts.commonRaw ? safeLoadYaml(opts.commonRaw) : null)?.[FUNNEL_YAML_KEY];
+    const own = common[FUNNEL_YAML_KEY] as Record<string, unknown>;
+    const visible = isPlainObject(commonFunnel) ? deepMerge(commonFunnel, own) : own;
+    if (JSON.stringify(normalizeFunnelBlock(visible)) !== JSON.stringify(normalizeFunnelBlock(commonFunnel))) {
+      locale[FUNNEL_YAML_KEY] = visible;
+      carried.push(FUNNEL_YAML_KEY);
+    }
+  }
+  return { content: Object.keys(locale).length ? safeDumpYaml(locale) : "{}\n", carried };
+}
+
+/** Warning for callers that seed a draft with {@link draftSeedFromLive}. */
+export function funnelCarriedWarning(locale: string): { code: string; message: string } {
+  return {
+    code: FUNNEL_CARRIED_WARNING,
+    message:
+      `This page's ${locale} language file had its own funnel, different from the page's shared settings (_common.yml). ` +
+      "The draft keeps it so it isn't lost; publishing moves it to _common.yml for every language. " +
+      "Change or remove funnel in the draft if it shouldn't become the page funnel.",
+  };
 }
 
 // ── Field-level diff ─────────────────────────────────────────────────────────

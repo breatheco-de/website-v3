@@ -13,10 +13,10 @@ import { formatOpenRushFetchedAge } from "@/components/seo/openrushFetchAge";
 import {
   hijackDestination,
   isLiveUrlRedirectHijack,
-  LiveUrlRedirectHijackBanner,
   resolveSeoLiveProbePath,
   type RedirectTestLike,
 } from "@/components/DebugBubble/components/seoRedirectHijack";
+import { SeoRedirectsTab } from "@/components/DebugBubble/components/SeoRedirectsTab";
 import { OG_IMAGE_ENSURE_TAGS } from "@shared/standardMediaTags";
 import type { SeoModalSavingFlags } from "@/hooks/useSeoModalSaves";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
@@ -177,6 +177,8 @@ export interface SeoModalProps {
   metaOverrides?: string[];
   /** Fired after nested keyword/fields/funnel saves so parents can refresh lists. */
   onSaved?: (detail: SeoModalSavedDetail) => void;
+  /** Redirects tab wrote to disk; update the list and its saved baseline. */
+  onRedirectsSaved?: (redirects: string[]) => void;
 }
 
 function resolveSchemaPreviewDocs(seoData: any): SchemaOrgPreviewDoc[] {
@@ -276,6 +278,7 @@ export function SeoModal({
   seoVariant,
   metaOverrides = [],
   onSaved,
+  onRedirectsSaved,
 }: SeoModalProps) {
   const [activeTab, setActiveTab] = useState<SeoModalTab>(initialTab);
   const [schemaAdvancedOpen, setSchemaAdvancedOpen] = useState(false);
@@ -1866,63 +1869,18 @@ export function SeoModal({
 
             {/* ── Redirects tab ──────────────────────────────────────── */}
             <TabsContent value="redirects" className="min-w-0 space-y-4 pt-4">
-              <div>
-                <h4 className="text-sm font-semibold">Redirects</h4>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Old URL paths that should redirect to this page (301). Each entry is a path relative to the site root, e.g. <code className="font-mono bg-muted px-1 rounded">/old-page-slug</code>.
-                </p>
-              </div>
-
-              {liveUrlHijacked && liveProbePath && (
-                <LiveUrlRedirectHijackBanner
-                  livePath={liveProbePath}
-                  destination={hijackDest || undefined}
-                  sourceLabel={hijackSource || undefined}
-                />
-              )}
-
-              {isVariantContext && (
-                <div
-                  className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground"
-                  data-testid="banner-seo-redirects-variant"
-                >
-                  If you edit redirects on this variant, they apply only to this variant and you lose inherited
-                  LIVE redirects. Edit LIVE if you want redirects for all.
-                </div>
-              )}
-
-              {seoMeta.redirects.length > 0 ? (
-                <div className="min-w-0 space-y-1.5">
-                  {seoMeta.redirects.map((redirect, idx) => (
-                    <div
-                      key={idx}
-                      className="flex min-w-0 items-start gap-2 px-2.5 py-1.5 rounded-md border bg-muted/40 text-sm font-mono"
-                      data-testid={`row-redirect-${idx}`}
-                    >
-                      <span className="min-w-0 flex-1 break-all text-xs" title={redirect}>{redirect}</span>
-                      <button
-                        onClick={() => setSeoMeta({ ...seoMeta, redirects: seoMeta.redirects.filter((_, i) => i !== idx) })}
-                        className="mt-0.5 shrink-0 rounded-sm hover-elevate"
-                        data-testid={`button-remove-redirect-${idx}`}
-                      >
-                        <X className="h-3.5 w-3.5 text-muted-foreground" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              <p className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="text-redirects-note">
-                <Info className="h-3.5 w-3.5 shrink-0" />
-                To add or update redirects, visit the{" "}
-                <a
-                  href="/private/redirects"
-                  className="underline underline-offset-2 hover:text-foreground transition-colors"
-                  data-testid="link-redirects-page"
-                >
-                  Redirects page
-                </a>.
-              </p>
+              <SeoRedirectsTab
+                redirects={seoMeta.redirects}
+                pagePath={liveProbePath}
+                locale={locale}
+                isVariantContext={isVariantContext}
+                onRedirectsChanged={(next) =>
+                  onRedirectsSaved ? onRedirectsSaved(next) : setSeoMeta({ ...seoMeta, redirects: next })
+                }
+                liveUrlHijacked={liveUrlHijacked}
+                hijackDest={hijackDest || undefined}
+                hijackSource={hijackSource || undefined}
+              />
             </TabsContent>
           </Tabs>
         ) : (

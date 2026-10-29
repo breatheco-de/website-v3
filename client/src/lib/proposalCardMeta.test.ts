@@ -204,6 +204,21 @@ describe("proposalCardMeta", () => {
       ).toBe("Accepted by casey");
     });
 
+    it("says Retired with the reason for retired accepted ideas", () => {
+      expect(
+        proposalAttributionLines({
+          ...base,
+          status: "finished",
+          closeReason: "already_done",
+          closedBy: "casey",
+        }).reviewLine?.text,
+      ).toBe("Retired by casey · already done");
+      expect(
+        proposalAttributionLines({ ...base, status: "finished", closeReason: "no_longer_relevant" })
+          .reviewLine?.text,
+      ).toBe("Retired · no longer relevant");
+    });
+
     it("says Closed with the reason for park/close reasons", () => {
       expect(
         proposalAttributionLines({

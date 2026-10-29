@@ -14,6 +14,7 @@ import { applyEditorialStampToDbMappedUpdates } from "./editorial-updated-at";
 import { setJobState } from "./db-job-state";
 import type { MediaGallery } from "./media-gallery";
 import { expandEditorFieldTokens } from "@shared/editor-field-values";
+import { slugify } from "@shared/slug";
 import { resolveCacheTtlMinutes, resolveRefreshRetryMinutes, type DbCacheTtlConfig } from "@shared/db-cache-ttl";
 import type { DatabaseEvidenceConfig } from "@shared/evidence-kinds";
 import { stripRowStamp } from "./database-row-stamp";
@@ -483,15 +484,6 @@ async function fetchFromApi(
   return allItems;
 }
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 200);
-}
-
 function applyContentTypeMapping(
   items: Record<string, unknown>[],
   mapping: Record<string, string>,
@@ -544,7 +536,7 @@ function applyContentTypeMapping(
     }
 
     if (!mapped.slug && mapped.title && typeof mapped.title === "string") {
-      mapped.slug = slugify(mapped.title);
+      mapped.slug = slugify(mapped.title, { maxLength: 200 });
     }
 
     // Category is a plain URL slug string (never `{ slug }`).

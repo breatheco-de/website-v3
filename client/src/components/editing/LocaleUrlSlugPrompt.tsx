@@ -2,13 +2,12 @@ import { IconWorld } from "@tabler/icons-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { assessSlugLocaleMatch, slugLocaleMismatchHint } from "@shared/slug-locale-heuristic";
+import { isSlug } from "@shared/slug";
 
 export const LOCALE_URL_SLUG_REQUIRED_CODE = "locale_url_slug_required";
 
-const SLUG_FORMAT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
 export function isValidLocaleUrlSlug(value: string): boolean {
-  return SLUG_FORMAT.test(value.trim());
+  return isSlug(value.trim());
 }
 
 function languageName(locale: string): string {

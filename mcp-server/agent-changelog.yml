@@ -5,6 +5,67 @@
 window_days: 6
 
 entries:
+  - date: "2026-10-29"
+    summary: "Any slug names a page: entry tools, propose_change and list_entries accept the page ID or any language's address in any spelling; list_entries returns one row per page with entry_id + locale_slugs"
+    agent_impact:
+      - "Page ID (entry_id) = the entry folder name, stable across renames and languages. Slugs are per-language public addresses ({locale}.yml slug, else _common.yml slug, else the ID). Entry tools (get_entry_content/seo/fields, update_fields, section/variant tools, translate_entry, …) and propose_change entries[] accept either, compared by slugKey (lowercase, accents stripped, non-alphanumerics → -), so array-vacio-javascript or HOW_TO_PRINT_IN_JAVASCRIPT finds the page. A language's slug serves that language when locale is omitted; an explicit locale wins with warning slug_locale_mismatch. Resolutions add warning slug_resolved (slug, entry_id, matched_by, locale) — reuse entry_id afterwards. Stored proposals always hold the page ID."
+      - "Refusals: ambiguous_slug (two pages share the key; details/candidates — pick the exact entry_id via list_entries), index_updating (no match while the site index is rebuilding; retry shortly). Creation never resolves: create_entry / new pages refuse a slug that is another page's address in any spelling (slug_already_owned_by_other_entry); implements_proposal_id edits use the reserved address as written; update_proposal accept refuses idea_slug_matches_existing_page when accepted_entry.slug or url_slug is another spelling of an existing page (next_actions → edits proposal on that page). delete_entries still needs exact page IDs."
+      - "list_entries rows: entry_id, slug (default-language address), locale_slugs { locale: address }, one row per page (database types grouped by hreflang). slugs filter and search match the ID or any address in any spelling. Public site: a mixed-case / underscore / accented spelling of a live address 301s to the official address (only after exact URLs and staff redirects miss). New diagnostics validator slug-identity: ENTRY_ID_NOT_SLUG, COMMON_SLUG_DIFFERS_FROM_ID, SLUG_KEY_COLLISION."
+    tools_changed: false
+    paths:
+      - shared/slug.ts
+      - server/entry-ref.ts
+      - server/content-index.ts
+      - server/redirects.ts
+      - server/routes/internal-content.ts
+      - server/content-proposals/service.ts
+      - mcp-server/lib/entry-ref-mcp.ts
+      - mcp-server/lib/list-entries-resolve.ts
+      - mcp-server/tools/proposals.ts
+      - scripts/validation/validators/slug-identity.ts
+      - mcp-server/explain/content_system.md
+      - mcp-server/explain/proposals.md
+  - date: "2026-10-29"
+    summary: "Funnel lives only in _common.yml: drafts keep a differing legacy language funnel (warning), live language-file funnel writes are refused, migration 010 moves legacy copies"
+    agent_impact:
+      - "Propose funnels as funnel.* ops in the draft; that is not a _common.yml write until a person publishes (publish moves it to _common.yml and strips language files). Do not skip funnel ops because 'bots must not write _common.yml'."
+      - "propose_change / revise_entries (draft created or reset) may return warning funnel_carried_from_language_file: the live en.yml/es.yml still had a legacy funnel that differs from _common.yml, so the draft keeps it (locale merged over common) and it becomes the page funnel for every language on publish. Keep it or replace it with funnel.* ops. The draft then carries a page-level field, so another open proposal on that page cannot also change page-level fields (competing_shared_fields)."
+      - "Live language-file saves that add or change top-level funnel fail errorCode funnel_in_language_file (untouched legacy copies do not block other edits). Duplicated pages start with no funnel. Staff data migration 010_funnel_to_common moves legacy copies (invalid product/persona never wins; persona on every product or all beats bare products; then newest)."
+    tools_changed: false
+    paths:
+      - server/versioning/draft-base.ts
+      - server/content-proposals/draft-store.ts
+      - server/content-editor.ts
+      - server/field-scope-migration.ts
+      - scripts/migrations/010_funnel_to_common.ts
+      - mcp-server/explain/funnel-classification-proposals.md
+  - date: "2026-10-29"
+    summary: "Accepted ideas that no longer need doing can be retired (and restored); similar-proposal matches say when a match was retired"
+    agent_impact:
+      - "update_proposal retire (reviewer toolkit, four-eyes like accept; accepted ideas only): retire_reason already_done | no_longer_relevant + close_note min 20. Status stays finished; close_reason becomes the reason, so the idea leaves stalled, frees its accepted_entry page and hub member claims (idea_page_released_waiting_ideas + list_proposals next_actions for waiting ideas), and is excluded from outcome_review none. No YAML/draft change. Refusals: implements_edit_open (withdraw that edit first; details.open_edit_id), idea_already_implemented, not_accepted_idea, retire_reason_required, retire_note_required."
+      - "update_proposal unretire restores accepted with the original accept note/author/date; refused accepted_entry_taken / idea_seo_target_members_claimed when another idea took the page or hub members since. propose_change with implements_proposal_id of a retired idea refuses implements_idea_retired. Before implementing an accepted idea, compare live — if the change is already there, retire instead of filing a no-op edit."
+      - "similar_proposals rows now carry status, close_reason, real title, and retired { reason, note } for retired ideas (error text names them). already_done → do not re-file; no_longer_relevant → re-file with confirm_distinct only when the context is back. New events proposal_retired / proposal_unretired (webhook-eligible)."
+    tools_changed: false
+    paths:
+      - server/content-proposals/service.ts
+      - server/routes/proposals.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/proposals.md
+  - date: "2026-10-29"
+    summary: "Apply / accept refuse self-approval across roles (same session, or same user on the same exact model); funnel proposals warn with every product persona"
+    agent_impact:
+      - "update_proposal apply / accept refuse four_eyes_same_session when your agent_session_id filed the proposal (any role, always on while four-eyes is on) and four_eyes_same_model when the same username on the same exact model (trimmed, lowercased; skipped if either side has no model) filed it under another role — site Rules four_eyes.same_model_blocked, default on, steward can turn off. Hand off to a reviewer on a different model or staff UI. Reject is unchanged (username + role only); different exact model strings (e.g. grokbot/writer_tofu/grok-4 vs grokbot/proposal_reviewer/grok-4) count as different agents."
+      - "propose_change and revise_entries return non-blocking warning funnel_persona_alternatives when a funnel.products op binds { product, persona }: details.products[] lists chosen_personas, entries, and every persona on the product (id, label, role, industry_or_context). Pick the persona this page talks to; sibling-page usage is not evidence. Silent for products: all, product-only bindings, and single-persona products."
+      - "funnel_persona_product_stage checklist gains a look_for line (compare every persona; sibling usage is not evidence). explain funnel-classification-proposals adds a developer-landing example (the-frustrated-graduate). No change to tool arguments or the tool list."
+    tools_changed: false
+    paths:
+      - server/content-proposals/service.ts
+      - server/content-proposals/funnel-persona-alternatives.ts
+      - server/content-proposals/proposal-review-rules.ts
+      - server/settings.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/proposals.md
+      - mcp-server/explain/funnel-classification-proposals.md
   - date: "2026-10-28"
     summary: "New blocker events (added / resolved / reopened) for Event Webhooks, with blocker details in the webhook body"
     agent_impact:

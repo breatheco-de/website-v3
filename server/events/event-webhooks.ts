@@ -37,6 +37,8 @@ export const EVENT_WEBHOOK_ALLOWLIST = [
   "proposal_closed",
   "proposal_rejected",
   "proposal_withdrawn",
+  "proposal_retired",
+  "proposal_unretired",
   "proposal_escalated",
   "proposal_deescalated",
   "proposal_idea_funnel_set",

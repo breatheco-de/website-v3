@@ -34,6 +34,35 @@ export const IDEA_PARK_CLOSE_REASON_OPTIONS = PROPOSAL_CLOSE_REASON_OPTIONS.filt
 
 export type IdeaParkCloseReasonValue = (typeof IDEA_PARK_CLOSE_REASON_OPTIONS)[number]["value"];
 
+/** Why an accepted idea was retired (matches server IDEA_RETIRE_REASONS). */
+export const IDEA_RETIRE_REASON_OPTIONS = [
+  {
+    value: "already_done" as const,
+    label: "Already done",
+    hint: "The change is already live. Say where (min 20 characters).",
+  },
+  {
+    value: "no_longer_relevant" as const,
+    label: "No longer relevant",
+    hint: "What made this idea worth doing is gone. Say what changed (min 20 characters).",
+  },
+];
+
+export type IdeaRetireReasonValue = (typeof IDEA_RETIRE_REASON_OPTIONS)[number]["value"];
+
+export function isIdeaRetireReason(reason: string | null | undefined): reason is IdeaRetireReasonValue {
+  return IDEA_RETIRE_REASON_OPTIONS.some((o) => o.value === reason);
+}
+
+/** Staff label for any close / retire reason; unknown values fall back to the raw key. */
+export function closeReasonOptionLabel(reason: string | null | undefined): string | undefined {
+  if (!reason) return undefined;
+  return (
+    PROPOSAL_CLOSE_REASON_OPTIONS.find((o) => o.value === reason)?.label ??
+    IDEA_RETIRE_REASON_OPTIONS.find((o) => o.value === reason)?.label
+  );
+}
+
 export function closeNoteRequired(reason: ProposalCloseReasonValue): boolean {
   return reason !== "wont_fix";
 }

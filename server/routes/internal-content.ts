@@ -16,6 +16,8 @@ import {
   waitForContentWritesInFlight,
 } from "../content-write-pause";
 import { child } from "../logger";
+import { contentIndex, type ContentIndex } from "../content-index";
+import { resolveEntryRefAcrossTypes } from "../entry-ref";
 
 const log = child({ module: "routes/internal-content" });
 const MAX_PAUSE_SECONDS = 600;
@@ -112,6 +114,25 @@ export function registerInternalContentRoutes(app: Express): void {
       }
       resumeContentWrites();
       res.json({ ok: true, paused: false });
+    },
+  );
+
+  api.get(
+    app,
+    "/api/internal/content/resolve-entry",
+    { rate: "exempt", reason: "loopback slug lookup for MCP tools (live content index)" },
+    async (req: Request, res: Response) => {
+      if (!isPauseReadRequest(req)) {
+        res.status(403).json({ ok: false, error: "loopback only" });
+        return;
+      }
+      const ci = ((res.locals.site as { contentIndex?: typeof contentIndex } | undefined)?.contentIndex ??
+        contentIndex) as ContentIndex;
+      const ref = typeof req.query.ref === "string" ? req.query.ref : "";
+      const contentType = typeof req.query.contentType === "string" ? req.query.contentType.trim() : "";
+      const locale = typeof req.query.locale === "string" ? req.query.locale : undefined;
+      const localeExplicit = req.query.locale_explicit === "1" || req.query.locale_explicit === "true";
+      res.json(resolveEntryRefAcrossTypes(ci, { contentType: contentType || null, ref, locale, localeExplicit }));
     },
   );
 

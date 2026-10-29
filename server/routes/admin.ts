@@ -271,6 +271,7 @@ import { child } from "../logger";
 import { sqlite } from "../db";
 import { errorLogFingerprint } from "../utils/error-log-fingerprint";
 import { writeRedirectOnDestinationPage } from "../redirect-destination";
+import { checkSimpleRedirectFrom, redirectsPageUrl } from "../redirect-simple-check";
 import { listInboundRedirects, parseRemovedEntry, removeInboundRedirects } from "../removed-item-redirect";
 import { findEntryPresence } from "../entry-layer";
 import { api } from "../rate-limit/api.js";
@@ -1758,6 +1759,40 @@ export function registerAdminRoutes(app: Express): void {
 
       const destUrl = to as string;
 
+      if (req.body.simple === true) {
+        if (isCustomDestination || req.body.before_from || req.body.removed_entry) {
+          res.status(400).json({
+            code: "simple_redirect_options",
+            error: "Simple redirects only take from, to and allLanguages.",
+          });
+          return;
+        }
+        const ciSimple = getCI(res);
+        const allowedHosts = [req.get("host") ?? ""];
+        try {
+          if (process.env.SITE_URL) allowedHosts.push(new URL(process.env.SITE_URL).host);
+        } catch {}
+        const check = checkSimpleRedirectFrom({
+          from: from as string,
+          destUrl,
+          locale: ciSimple.parseContentUrl(destUrl)?.locale ?? getDefaultLocale(),
+          ci: ciSimple,
+          allowedHosts,
+        });
+        if (!check.ok) {
+          res.status(409).json({
+            error: check.message,
+            code: check.code,
+            ...(check.conflict_source ? { conflict_source: check.conflict_source } : {}),
+            ...(check.conflict_from ? { conflict_from: check.conflict_from } : {}),
+            ...(check.conflict_to ? { conflict_to: check.conflict_to } : {}),
+            redirects_page_url: redirectsPageUrl(check.normalizedFrom ?? String(from)),
+          });
+          return;
+        }
+        normalizedFrom = check.normalizedFrom;
+      }
+
       const beforeFrom =
         typeof req.body.before_from === "string" && req.body.before_from.trim()
           ? (req.body.before_from as string).trim()
@@ -1878,6 +1913,7 @@ export function registerAdminRoutes(app: Express): void {
       res.json({
         success: true,
         message: `Redirect added: ${normalizedFrom} -> ${destUrl}`,
+        from: normalizedFrom,
         file: main.file,
         ...(created.length > 0 ? { created } : {}),
         ...(removed ? { moved_inbound: moved, ...(notMoved.length > 0 ? { not_moved: notMoved } : {}) } : {}),

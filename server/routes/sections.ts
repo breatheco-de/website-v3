@@ -113,6 +113,7 @@ import { mediaGallery } from "../media-gallery";
 import { media } from "../media";
 import multer from "multer";
 import { contentIndex, type ContentType } from "../content-index";
+import { resolveEntryRef } from "../entry-ref";
 import { runScan as runComponentInsightsScan, readInsightsFile, suggestNext as suggestNextComponent } from "../component-insights";
 import { validateFieldSource, validateFieldMapping, extractByDotPath } from "../../scripts/validation/shared/fieldMappingValidator";
 import { validateSectionOperations } from "../section-save-validation";
@@ -263,6 +264,11 @@ const log = child({ module: "routes/sections" });
 function getCI(res: Response): typeof contentIndex {
   return (res.locals.site as any)?.contentIndex ?? contentIndex;
 }
+/** Page ID (folder) for any slug the editor sends; unknown refs pass through unchanged. */
+function entryIdFor(res: Response, contentType: string, slug: string): string {
+  const r = resolveEntryRef(getCI(res), { contentType, ref: slug });
+  return r.ok ? r.entryId : slug;
+}
 function getContentRoot(res: Response): string {
   return (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot();
 }
@@ -311,7 +317,7 @@ export function registerSectionsRoutes(app: Express): void {
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
       const templateDir = path.join(getContentRoot(res), folder);
-      const entryDir = path.join(templateDir, slug);
+      const entryDir = path.join(templateDir, entryIdFor(res, contentType, slug));
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
       // Load the current merged page to get the section (DB or static single_template)
@@ -473,7 +479,7 @@ export function registerSectionsRoutes(app: Express): void {
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
       const templateDir = path.join(getContentRoot(res), folder);
-      const entryDir = path.join(templateDir, slug);
+      const entryDir = path.join(templateDir, entryIdFor(res, contentType, slug));
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
       if (!fs.existsSync(entryFilePath)) {
@@ -535,7 +541,7 @@ export function registerSectionsRoutes(app: Express): void {
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
       const templateDir = path.join(getContentRoot(res), folder);
-      const entryDir = path.join(templateDir, slug);
+      const entryDir = path.join(templateDir, entryIdFor(res, contentType, slug));
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
       if (!fs.existsSync(entryFilePath)) {
@@ -600,7 +606,7 @@ export function registerSectionsRoutes(app: Express): void {
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
       const templateDir = path.join(getContentRoot(res), folder);
-      const entryDir = path.join(templateDir, slug);
+      const entryDir = path.join(templateDir, entryIdFor(res, contentType, slug));
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
       // Ensure directory exists
@@ -903,7 +909,7 @@ export function registerSectionsRoutes(app: Express): void {
       const locale = normalizeLocale(rawLocale);
       const folder = getFolder(contentType);
       const templateDir = path.join(getContentRoot(res), folder);
-      const entryDir = path.join(templateDir, slug);
+      const entryDir = path.join(templateDir, entryIdFor(res, contentType, slug));
       const entryFilePath = path.join(entryDir, `${locale}.yml`);
 
       // Load the current merged page to get the section and its id (DB or static single_template)

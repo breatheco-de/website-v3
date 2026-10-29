@@ -11,8 +11,7 @@ import {
 } from "./content-types.js";
 import { RESERVED_PUBLISHED_AT_FIELD } from "./published-at.js";
 import { assessSlugLocaleMatch, SLUG_LOCALE_MISMATCH_CODE } from "@shared/slug-locale-heuristic";
-
-export const LOCALE_URL_SLUG_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+import { isSlug, SLUG_FORMAT_HINT } from "@shared/slug";
 
 export const LOCALE_URL_SLUG_REQUIRED = "locale_url_slug_required";
 export const URL_SLUG_REQUIRED = "url_slug_required";
@@ -168,8 +167,8 @@ export function checkAcceptedUrlSlug(opts: {
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
 export function validateLocaleUrlSlugFormat(slug: string): string | null {
-  if (!LOCALE_URL_SLUG_REGEX.test(slug)) {
-    return "Invalid slug format. Use lowercase letters, numbers, and hyphens only.";
+  if (!isSlug(slug)) {
+    return `Invalid slug format. ${SLUG_FORMAT_HINT}`;
   }
   return null;
 }

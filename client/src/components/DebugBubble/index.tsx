@@ -410,6 +410,15 @@ export function DebugBubble() {
     setSeoMeta(next);
     setSeoDirtyKeys(computeDirtyMetaKeys(next, seoBaselineMetaRef.current));
   }, []);
+  const applySavedRedirects = useCallback((redirects: string[]) => {
+    seoBaselineMetaRef.current = { ...seoBaselineMetaRef.current, redirects };
+    setSeoMeta((prev) => ({ ...prev, redirects }));
+    setSeoDirtyKeys((prev) => {
+      const next = new Set(prev);
+      next.delete("redirects");
+      return next;
+    });
+  }, []);
   const seoBaselineLocationsRef = useRef<string[]>([]);
   const [locationsBaseline, setLocationsBaseline] = useState<string[]>([]);
   const [seoLocations, setSeoLocations] = useState<string[]>([]);
@@ -2865,6 +2874,7 @@ export function DebugBubble() {
         seoContext={seoData?.context ?? (getUrlVariant() ? "variant" : "live")}
         seoVariant={seoData?.variant ?? getUrlVariant()}
         metaOverrides={seoData?.metaOverrides ?? []}
+        onRedirectsSaved={applySavedRedirects}
       />
       <ManagedSeoModal
         open={managedSeoModalOpen}

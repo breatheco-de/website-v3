@@ -44,6 +44,13 @@ All marketing content lives under the site folder from `sites.yml` (`content_fol
 
 **Layout rule:** entries are always `{type-dir}/{slug}/{locale}.yml` (folder per slug). Flat files like `pages/about.en.yml` are **not** indexed. Site Manager scaffold and `create_entry` write folders only.
 
+**Page ID vs slug:**
+- **Page ID (`entry_id`)** = the folder name, verbatim. Stable across slug renames and languages; versioning, bindings, proposals, events and products key on it. It is not guaranteed to be slug-shaped (older folders like `How-to-Install-Javascript`).
+- **Slug** = one language's public address: `{locale}.yml` `slug:`, else `_common.yml` `slug:`, else the page ID. Lowercase is the standard.
+- **Lookup:** every entry tool and `propose_change` accept the page ID or any language's slug, compared by `slugKey` (`shared/slug.ts`: lowercase, accents stripped, non-alphanumerics → `-`). A language's slug serves that language when `locale` is omitted (explicit `locale` wins → `slug_locale_mismatch`). Resolutions return `slug_resolved` with `entry_id`; refusals `ambiguous_slug` / `index_updating`. Creation never resolves.
+- **Public site:** another spelling of a live address (capitals, `_`, accents) 301s to the official address, only after exact URLs and staff redirects miss.
+- **Non-effects:** resolution never renames folders or rewrites links; `list_entries` rows carry `entry_id` + `locale_slugs` so later calls can use the ID directly.
+
 **sites.yml `inherit_components_from`:** optional parent `content_folder` for that site's component-registry (schema / field-editors / examples). One hop; parent must own a registry. Non-effect: does not copy registry files into the child; `create_entry` still writes YAML under the **current** site's content folder. The same setting covers the theme: a child without its own `theme.json` uses the parent's (whole file); theme writes on that child are refused (`theme_inherited`) until staff create a separate theme.
 
 ## Draft vs live vs variant

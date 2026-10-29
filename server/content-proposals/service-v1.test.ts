@@ -717,6 +717,32 @@ describe("proposals v1.0 (draft-first)", () => {
       }
     });
 
+    it("hub mode: retiring frees claimed members; unretire is refused once another split claims them", async () => {
+      const fake = fakeDraftStore();
+      currentStore = fake.store;
+      const { svc } = makeService({ store: fake.store, extraDeps: deps() });
+      const hubTarget = (kw: string) => ({
+        main_keyword: kw,
+        cluster: { mode: "hub", members: [{ contentType: "blog", slug: "member-one" }] },
+      });
+      const first = await fileIdea(svc, { idea_seo_target: hubTarget("ai engineering") });
+      expect((await accept(svc, first)).ok).toBe(true);
+      const retired = await svc.update(first, "retire", {
+        username: "bob",
+        retire_reason: "no_longer_relevant",
+        close_note: "The AI engineering hub plan was dropped after the Q4 content review.",
+      });
+      expect(retired.ok ? "ok" : `${retired.code}: ${retired.error}`).toBe("ok");
+
+      const second = await fileIdea(svc, { idea_seo_target: hubTarget("ai engineering jobs") }, "second-hub");
+      expect((await accept(svc, second, "second-hub")).ok).toBe(true);
+
+      const restore = await svc.update(first, "unretire", { username: "bob" });
+      expect(restore.ok).toBe(false);
+      if (!restore.ok) expect(restore.code).toBe("idea_seo_target_members_claimed");
+      expect(svc.get(first)!.close_reason).toBe("no_longer_relevant");
+    });
+
     it("join mode: the page's proposal reminds the author to link it from the hub (chained)", async () => {
       const fake = fakeDraftStore({ "blog/hub-ai-engineering/en": { title: "Hub" } });
       fake.entries.add("blog/hub-ai-engineering");

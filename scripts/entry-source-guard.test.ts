@@ -63,6 +63,7 @@ const ENTRY_SOURCE_ALLOWLIST: Record<string, Allowed> = {
   "server/initial-data-middleware.ts": { count: 2, reason: "content types payload: has_database flag and database slug" },
   "server/routes/seo.ts": { count: 2, reason: "SEO preview: database pages show merged live meta (no entry file holds it), live-only contexts" },
   "server/content-proposals/evidence-sources.ts": { count: 1, reason: "proposal review reads evidence database rows as proof (not entry resolution)" },
+  "server/entry-ref.ts": { count: 2, reason: "slug resolver: database pages resolve through their language group (findEntryPresence)" },
 };
 
 describe("entry source guard", () => {

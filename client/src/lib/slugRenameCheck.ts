@@ -1,4 +1,5 @@
 import type { SlugRenameCheckStatus } from "@/components/DebugBubble/types";
+import { isSlug } from "@shared/slug";
 
 export interface SlugRenameCheckParams {
   contentType: string | null | undefined;
@@ -13,7 +14,6 @@ export interface SlugRenameCheckResult {
   reason: string | null;
 }
 
-export const SLUG_FORMAT_REGEX = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const SLUG_CHECK_DEBOUNCE_MS = 300;
 
 const IDLE: SlugRenameCheckResult = { status: "idle", reason: null };
@@ -22,7 +22,7 @@ const IDLE: SlugRenameCheckResult = { status: "idle", reason: null };
 export function localSlugCheck(params: SlugRenameCheckParams): SlugRenameCheckResult | null {
   const { contentType, folderSlug, newSlug, currentSlug } = params;
   if (!newSlug || !contentType || !folderSlug || newSlug === currentSlug) return IDLE;
-  if (!SLUG_FORMAT_REGEX.test(newSlug)) {
+  if (!isSlug(newSlug)) {
     return { status: "taken", reason: "Use only lowercase letters, numbers, and hyphens" };
   }
   return null;

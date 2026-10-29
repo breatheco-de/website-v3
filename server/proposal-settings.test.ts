@@ -34,6 +34,18 @@ describe("parseProposalSettings", () => {
     expect(parsed.withdraw.mcp).toBe("proposer_only");
     expect(parsed.withdraw.staff).toBe("any_editor");
   });
+
+  it("defaults four_eyes.same_model_blocked to true when missing, keeps an explicit false", () => {
+    expect(
+      parseProposalSettings({ four_eyes: { enabled: true, staff_ui_exempt: false } }).four_eyes
+        .same_model_blocked,
+    ).toBe(true);
+    expect(
+      parseProposalSettings({
+        four_eyes: { enabled: true, staff_ui_exempt: false, same_model_blocked: false },
+      }).four_eyes.same_model_blocked,
+    ).toBe(false);
+  });
 });
 
 describe("parseProposalSettingsStrict", () => {
@@ -56,5 +68,25 @@ describe("parseProposalSettingsStrict", () => {
       claim: { staff_ui_takeover: true },
     });
     expect(parsed.withdraw.mcp).toBe("any_create_author");
+    expect(parsed.four_eyes.same_model_blocked).toBe(true);
+  });
+
+  it("accepts same_model_blocked false and rejects a non-boolean", () => {
+    const base = {
+      withdraw: { mcp: "proposer_only", staff: "any_editor" },
+      hold: { stewards_only: true },
+      claim: { staff_ui_takeover: true },
+    };
+    const off = parseProposalSettingsStrict({
+      ...base,
+      four_eyes: { enabled: true, staff_ui_exempt: false, same_model_blocked: false },
+    });
+    expect(off.four_eyes.same_model_blocked).toBe(false);
+    expect(() =>
+      parseProposalSettingsStrict({
+        ...base,
+        four_eyes: { enabled: true, staff_ui_exempt: false, same_model_blocked: "yes" },
+      }),
+    ).toThrow(/same_model_blocked/);
   });
 });

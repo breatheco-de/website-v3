@@ -122,6 +122,16 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
     setDirtyKeys(computeDirtyMetaKeys(next, baselineMetaRef.current));
   }, []);
 
+  const applySavedRedirects = useCallback((redirects: string[]) => {
+    baselineMetaRef.current = { ...baselineMetaRef.current, redirects };
+    setSeoMeta((prev) => ({ ...prev, redirects }));
+    setDirtyKeys((prev) => {
+      const next = new Set(prev);
+      next.delete("redirects");
+      return next;
+    });
+  }, []);
+
   const fetchSeoPreview = useCallback(async () => {
     if (!target?.contentType || !target?.slug) return;
     setSeoLoading(true);
@@ -359,6 +369,7 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
       seoVariant={seoVariant}
       metaOverrides={metaOverrides}
       onSaved={onSaved}
+      onRedirectsSaved={applySavedRedirects}
     />
   );
 }

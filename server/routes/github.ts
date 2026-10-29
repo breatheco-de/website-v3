@@ -1816,6 +1816,8 @@ export function registerGithubRoutes(app: Express): void {
       });
 
       if (result.success) {
+        const { clearConflict } = await import("../auto-commit");
+        clearConflict(String(filePath));
         res.json({ success: true, commitSha: result.commitSha });
       } else {
         res.status(400).json({ success: false, error: result.error });

@@ -119,6 +119,8 @@ export function SyncModal({
   const [githubIdentityExpanded, setGithubIdentityExpanded] = useState(false);
   const [queueFilter, setQueueFilter] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  /** A conflicted file can appear in both lists; only the list that opened the form shows it. */
+  const [commitFormOrigin, setCommitFormOrigin] = useState<"conflict" | "queue">("queue");
   const formatSitePath = useFormatSitePath();
   const {
     connection,
@@ -368,6 +370,100 @@ export function SyncModal({
     fetchPendingChanges();
     setIsBulkPulling(false);
   };
+
+  const downloadFileBackup = async (filePath: string) => {
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Token ${token}`;
+      const response = await fetch(`/api/content/file?path=${encodeURIComponent(filePath)}`, { headers });
+      if (!response.ok) throw new Error('Failed to fetch file');
+      const content = await response.text();
+      const blob = new Blob([content], { type: 'application/x-yaml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const pathParts = formatSitePath(filePath).split('/');
+      const fileName = pathParts.length >= 2
+        ? `${pathParts[pathParts.length - 2]}.${pathParts[pathParts.length - 1]}`
+        : pathParts.pop() || 'backup.yml';
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Backup downloaded",
+        description: `Downloaded ${filePath.split('/').pop()}`,
+      });
+    } catch (error) {
+      console.error('Failed to download backup:', error);
+      toast({
+        title: "Download failed",
+        description: "Could not download the backup file",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const openFileCommitForm = (filePath: string, origin: "conflict" | "queue") => {
+    setCommitFormOrigin(origin);
+    setSelectedFileForCommit(filePath);
+    setFileCommitMessage("");
+  };
+
+  const renderFileCommitForm = (filePath: string, testIdSuffix: string | number) => (
+    <div className="space-y-2">
+      <input
+        type="text"
+        value={fileCommitMessage}
+        onChange={(e) => setFileCommitMessage(e.target.value)}
+        placeholder="Commit message..."
+        className="w-full px-2 py-1.5 text-xs rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+        data-testid={`input-file-commit-message-${testIdSuffix}`}
+        autoFocus
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && fileCommitMessage.trim()) {
+            handleFileCommit(filePath);
+          } else if (e.key === 'Escape') {
+            setSelectedFileForCommit(null);
+            setFileCommitMessage("");
+          }
+        }}
+      />
+      <div className="flex items-center gap-1">
+        <Button
+          size="sm"
+          className="h-7 text-xs flex-1"
+          onClick={() => handleFileCommit(filePath)}
+          disabled={
+            !fileCommitMessage.trim() ||
+            fileCommitting === filePath ||
+            githubConnectRequired
+          }
+          data-testid={`button-confirm-file-commit-${testIdSuffix}`}
+        >
+          {fileCommitting === filePath ? (
+            <RefreshCw className="h-3 w-3 animate-spin" />
+          ) : (
+            <><ArrowUp className="h-3 w-3 mr-1" />Commit</>
+          )}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 text-xs"
+          onClick={() => {
+            setSelectedFileForCommit(null);
+            setFileCommitMessage("");
+          }}
+          data-testid={`button-cancel-file-commit-${testIdSuffix}`}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -746,6 +842,9 @@ export function SyncModal({
                       <div className="font-mono text-xs text-foreground truncate" title={filePath}>
                         {formatSitePath(filePath)}
                       </div>
+                      {selectedFileForCommit === filePath && commitFormOrigin === "conflict" ? (
+                        renderFileCommitForm(filePath, `conflict-${idx}`)
+                      ) : (
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300">
                           Conflict
@@ -756,12 +855,37 @@ export function SyncModal({
                             <TooltipTrigger asChild>
                               <Button
                                 size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={() => onViewDiff(filePath)}
+                                data-testid={`button-conflict-view-diff-${idx}`}
+                              >
+                                <FileDiff className="h-3 w-3" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top"><p>View diff</p></TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6"
+                                onClick={() => void downloadFileBackup(filePath)}
+                                data-testid={`button-conflict-backup-file-${idx}`}
+                              >
+                                <Save className="h-3 w-3" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top"><p>Download backup</p></TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="icon"
                                 variant="outline"
                                 className="h-6 w-6"
-                                onClick={() => {
-                                  setSelectedFileForCommit(filePath);
-                                  setFileCommitMessage("");
-                                }}
+                                onClick={() => openFileCommitForm(filePath, "conflict")}
                                 data-testid={`button-resolve-upload-${idx}`}
                               >
                                 <ArrowUp className="h-3 w-3" />
@@ -801,6 +925,7 @@ export function SyncModal({
                           </Tooltip>
                         </div>
                       </div>
+                      )}
                     </Card>
                   ))}
                   {autoCommitStatus.pendingFilesDetails.map((file, idx) => (
@@ -1065,57 +1190,8 @@ export function SyncModal({
                               )}
                             </div>
                             
-                            {selectedFileForCommit === change.file ? (
-                              <div className="space-y-2">
-                                <input
-                                  type="text"
-                                  value={fileCommitMessage}
-                                  onChange={(e) => setFileCommitMessage(e.target.value)}
-                                  placeholder="Commit message..."
-                                  className="w-full px-2 py-1.5 text-xs rounded border bg-background focus:outline-none focus:ring-1 focus:ring-ring"
-                                  data-testid={`input-file-commit-message-${index}`}
-                                  autoFocus
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && fileCommitMessage.trim()) {
-                                      handleFileCommit(change.file);
-                                    } else if (e.key === 'Escape') {
-                                      setSelectedFileForCommit(null);
-                                      setFileCommitMessage("");
-                                    }
-                                  }}
-                                />
-                                <div className="flex items-center gap-1">
-                                  <Button
-                                    size="sm"
-                                    className="h-7 text-xs flex-1"
-                                    onClick={() => handleFileCommit(change.file)}
-                                    disabled={
-                                      !fileCommitMessage.trim() ||
-                                      fileCommitting === change.file ||
-                                      githubConnectRequired
-                                    }
-                                    data-testid={`button-confirm-file-commit-${index}`}
-                                  >
-                                    {fileCommitting === change.file ? (
-                                      <RefreshCw className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      <><ArrowUp className="h-3 w-3 mr-1" />Commit</>
-                                    )}
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 text-xs"
-                                    onClick={() => {
-                                      setSelectedFileForCommit(null);
-                                      setFileCommitMessage("");
-                                    }}
-                                    data-testid={`button-cancel-file-commit-${index}`}
-                                  >
-                                    Cancel
-                                  </Button>
-                                </div>
-                              </div>
+                            {selectedFileForCommit === change.file && commitFormOrigin === "queue" ? (
+                              renderFileCommitForm(change.file, index)
                             ) : (
                               <div className="flex flex-wrap items-center gap-2">
                                 <span className={`shrink-0 text-xs font-medium px-1.5 py-0.5 rounded ${
@@ -1168,40 +1244,7 @@ export function SyncModal({
                                         size="icon"
                                         variant="ghost"
                                         className="h-6 w-6"
-                                        onClick={async () => {
-                                          try {
-                                            const token = getDebugToken();
-                                            const headers: Record<string, string> = {};
-                                            if (token) headers["Authorization"] = `Token ${token}`;
-                                            const response = await fetch(`/api/content/file?path=${encodeURIComponent(change.file)}`, { headers });
-                                            if (!response.ok) throw new Error('Failed to fetch file');
-                                            const content = await response.text();
-                                            const blob = new Blob([content], { type: 'application/x-yaml' });
-                                            const url = URL.createObjectURL(blob);
-                                            const a = document.createElement('a');
-                                            a.href = url;
-                                            const pathParts = formatSitePath(change.file).split('/');
-                                            const fileName = pathParts.length >= 2
-                                              ? `${pathParts[pathParts.length - 2]}.${pathParts[pathParts.length - 1]}`
-                                              : pathParts.pop() || 'backup.yml';
-                                            a.download = fileName;
-                                            document.body.appendChild(a);
-                                            a.click();
-                                            document.body.removeChild(a);
-                                            URL.revokeObjectURL(url);
-                                            toast({
-                                              title: "Backup downloaded",
-                                              description: `Downloaded ${change.file.split('/').pop()}`,
-                                            });
-                                          } catch (error) {
-                                            console.error('Failed to download backup:', error);
-                                            toast({
-                                              title: "Download failed",
-                                              description: "Could not download the backup file",
-                                              variant: "destructive",
-                                            });
-                                          }
-                                        }}
+                                        onClick={() => void downloadFileBackup(change.file)}
                                         data-testid={`button-backup-file-${index}`}
                                       >
                                         <Save className="h-3 w-3" />
@@ -1216,10 +1259,7 @@ export function SyncModal({
                                           size="icon"
                                           variant="outline"
                                           className="h-6 w-6"
-                                          onClick={() => {
-                                            setSelectedFileForCommit(change.file);
-                                            setFileCommitMessage("");
-                                          }}
+                                          onClick={() => openFileCommitForm(change.file, "queue")}
                                           data-testid={`button-commit-file-${index}`}
                                         >
                                           <ArrowUp className="h-3 w-3" />

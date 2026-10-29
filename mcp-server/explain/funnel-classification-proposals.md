@@ -51,6 +51,7 @@ Score **each entry row** in the proposal. Soft prefer ≤10 related posts per pa
 | `funnel.stage` and/or `funnel.products` only | Mix `content` or `meta.page_title` / `meta.description` in the same proposal |
 | `{ product, persona? }` when a persona fits | Invent a persona id that is not on `_product.yml` |
 | Multiple product rows when two real personas fit | Default to `all` because the title says “report” or “outcomes” |
+| Pick the persona from who **this page** talks to (title, hero, CTAs) | Copy the persona most sibling pages use — how common a persona is says nothing about this page |
 | Soft batch ≤10 related posts | Megabatch without per-row rationale |
 | Summary names intent + cascade rationale | “Improve funnel” with no buyer story |
 | Product-only bind when audience is empty (state the warn) | Force `all` because personas are missing |
@@ -78,6 +79,33 @@ funnel:
   products: all   # or ai-flex — “feels brand-wide”
 ```
 
+### Developer-facing landing (apply)
+
+Intent: the title and hero speak to people who already code (“From Developer to Certified AI Engineer…”).  
+Product audience: AI Engineering’s `the-frustrated-graduate` covers graduates with coding skills (its routing note points developers to AI Engineering for Developers); `the-career-changer` is someone with **no** technical background.
+
+Good (matches `landing/ai-engineering-for-developers`):
+
+```yaml
+funnel:
+  stage: consideration
+  products:
+    - product: ai-engineering
+      persona: the-frustrated-graduate
+```
+
+Bad (copied from sibling ad landings):
+
+```yaml
+funnel:
+  stage: consideration
+  products:
+    - product: ai-engineering
+      persona: the-career-changer   # most AI landings use it — not evidence for this page
+```
+
+The career changer is still the right persona for most AI Engineering pages written for people moving in from non-tech jobs. Choose by the page, not by the count.
+
 ---
 
 ## Author playbook
@@ -102,6 +130,17 @@ If live cascade is already correct, do not file.
 - `entries[]`: prefer ≤10 related posts; score each mentally before submit
 - `updates[]`: only `funnel.stage` and/or `funnel.products`
 - Body or SERP changes → **second** proposal
+
+### 2b. Persona warning on file / revise
+
+When an op binds `{ product, persona }`, `propose_change` and `revise_entries` return warning **`funnel_persona_alternatives`** (never blocks). `details.products[]`: `product`, `chosen_personas`, `entries`, and `personas[]` (`id`, `label`, `role`, `industry_or_context`) — every persona on that product. Re-read the page’s title/hero/CTAs against each `role` / routing note; if another persona fits better, `revise_entries`. Silent for `products: all`, product-only bindings, and products with fewer than two personas.
+
+### 2c. Where the funnel lives (drafts, `_common.yml`, language files)
+
+- The page funnel lives only in `_common.yml`. Language files (`en.yml`, `es.yml`) never carry `funnel:`; live saves that add or change it fail with `funnel_in_language_file`.
+- Proposals stage `funnel.*` in the **draft** (`draft.{locale}.yml`). That is not a `_common.yml` write: nothing changes for visitors until a person publishes, and publishing moves the draft funnel to `_common.yml` and strips `funnel:` from every language file. A rule like "bots must not write `_common.yml`" does not forbid proposing a funnel in a draft — send the `funnel.*` ops.
+- Warning **`funnel_carried_from_language_file`** (on `propose_change` / `revise_entries` when the draft is created or reset, and on create-variant): the live language file still had a legacy `funnel:` that differs from `_common.yml`, so the draft keeps it (as visitors see it) instead of dropping it. Publishing makes it the page funnel for **every** language. Keep it if it is right; otherwise send `funnel.*` ops with the correct cascade. Do not ask staff to hand-edit `_common.yml` for this.
+- Legacy copies are moved by data migration `010_funnel_to_common` (staff run it): invalid product/persona copies never win, a persona on every product (or `all`) beats bare products, then the newest copy wins; drafts keep a valid persona funnel until published.
 
 ### 3. After a blocker
 
@@ -138,7 +177,7 @@ If body or SERP is also pending: mixed packet. Score each pack; do not apply the
 
 1. `list_proposals(proposal_id)` — ops, situations, `discovery_path`.
 2. `list_products` + `get_product` for proposed product slug(s).
-3. `get_entry_content` — intent vs personas.
+3. `get_entry_content` — intent vs **every** persona on the product (sibling usage is not evidence).
 4. `get_entry_activity` if warned (`recent_entry_writes` / funnel churn).
 5. Score each row Persona → Product → Stage.
 6. Claim → resolve blocker only after ops match the fix → apply.

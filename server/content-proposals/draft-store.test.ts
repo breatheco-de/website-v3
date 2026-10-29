@@ -93,35 +93,55 @@ describe("draftSeedFromLiveRaw", () => {
   });
 });
 
+const LIVE_FUNNEL = { stage: "consideration", products: [{ product: "ai-engineering", persona: "the-career-changer" }] };
+const fieldPaths = (changes: Array<{ field_path: string }> | undefined) => (changes ?? []).map((c) => c.field_path);
+
 describe("proposal drafts never copy page-level fields from live (#58)", () => {
-  it("create: a draft from a locale file with legacy funnel/authors/published_at stages no page-level op", () => {
+  it("create: legacy authors/published_at stay out; a language funnel that differs from _common.yml is kept", () => {
     const store = storeFor();
-    expect(store.create(ref, { author: "writer" })).toEqual({ ok: true });
+    const created = store.create(ref, { author: "writer" });
+    expect(created).toEqual({
+      ok: true,
+      warnings: [expect.objectContaining({ code: "funnel_carried_from_language_file" })],
+    });
     const draft = draftData();
-    expect(draft.funnel).toBeUndefined();
+    expect(draft.funnel).toEqual(LIVE_FUNNEL);
     expect(draft.authors).toBeUndefined();
     expect(draft.published_at).toBeUndefined();
     expect(draft.meta.robots).toBe("index, follow");
+    expect(store.carriesCommon(ref)).toBe(true);
+    expect(fieldPaths(store.authorDiff(ref)?.changes)).toEqual(["funnel"]);
+  });
+
+  it("create: a language funnel equal to _common.yml is dropped without a warning", () => {
+    fs.writeFileSync(
+      path.join(entryDir, "en.yml"),
+      LIVE_EN.replace(/funnel:[\s\S]*?meta:/, "funnel:\n  stage: awareness\n  products:\n    - product: ai-engineering\nmeta:"),
+      "utf-8",
+    );
+    const store = storeFor();
+    expect(store.create(ref, { author: "writer" })).toEqual({ ok: true, warnings: [] });
+    expect(draftData().funnel).toBeUndefined();
     expect(store.carriesCommon(ref)).toBe(false);
     expect(store.authorDiff(ref)?.changes).toEqual([]);
   });
 
-  it("revise (reset + locale ops only): zero page-level ops and _common.yml untouched", async () => {
+  it("revise (reset + locale ops only): only the carried funnel is page-level and _common.yml is untouched", async () => {
     const store = storeFor();
     const commonBefore = fs.readFileSync(path.join(entryDir, "_common.yml"), "utf-8");
     store.create(ref, { author: "writer" });
     expect((await store.write(ref, [{ field_path: "title", value: "First try" }], "writer")).ok).toBe(true);
-    store.reset(ref, "writer");
-    expect(store.authorDiff(ref)?.changes).toEqual([]);
+    expect(store.reset(ref, "writer")).toEqual([expect.objectContaining({ code: "funnel_carried_from_language_file" })]);
+    expect(fieldPaths(store.authorDiff(ref)?.changes)).toEqual(["funnel"]);
     const wrote = await store.write(ref, [{ field_path: "title", value: "Revised" }], "writer");
     expect(wrote.ok).toBe(true);
     const changes = store.authorDiff(ref)?.changes ?? [];
-    expect(pageLevel(changes)).toEqual([]);
-    expect(changes.map((c) => c.field_path)).toEqual(["title", "updated_at"]);
+    expect(fieldPaths(pageLevel(changes) as Array<{ field_path: string }>)).toEqual(["funnel"]);
+    expect(fieldPaths(changes)).toEqual(["funnel", "title", "updated_at"]);
     expect(fs.readFileSync(path.join(entryDir, "_common.yml"), "utf-8")).toBe(commonBefore);
   });
 
-  it("rebuild on top of newer live keeps page-level keys out of the draft", async () => {
+  it("rebuild on top of newer live keeps the carried funnel and no other page-level key", async () => {
     const store = storeFor();
     store.create(ref, { author: "writer" });
     expect((await store.write(ref, [{ field_path: "description", value: "Draft description" }], "writer")).ok).toBe(true);
@@ -129,10 +149,10 @@ describe("proposal drafts never copy page-level fields from live (#58)", () => {
     const rebuilt = rebuildDraftFromBase({ ...ref, contentRoot }, { author: "writer" });
     expect(rebuilt.ok).toBe(true);
     if (!rebuilt.ok) return;
-    expect(rebuilt.result.funnel).toBeUndefined();
+    expect(rebuilt.result.funnel).toEqual(LIVE_FUNNEL);
     expect(rebuilt.result.published_at).toBeUndefined();
     expect(rebuilt.result.title).toBe("Live title v2");
-    expect(pageLevel(rebuilt.author_changes)).toEqual([]);
+    expect(fieldPaths(pageLevel(rebuilt.author_changes) as Array<{ field_path: string }>)).toEqual(["funnel"]);
   });
 
   it("a page-level op the author does send is still staged", async () => {

@@ -2060,6 +2060,44 @@ describe("pipeline-db runner", () => {
     rmSite(site);
   });
 
+  it("adds accept_snapshot_json when upgrading from v43", () => {
+    const site = `${TEST_PREFIX}-v43-accept-snapshot-${Date.now()}`;
+    rmSite(site);
+    fs.mkdirSync(siteDir(site), { recursive: true });
+    const raw = new Database(dbPath(site));
+    raw.exec(`
+      CREATE TABLE pipeline_schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO pipeline_schema_version (id, version) VALUES (1, 43);
+      CREATE TABLE content_proposals (
+        id TEXT PRIMARY KEY,
+        site TEXT NOT NULL,
+        status TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        close_reason TEXT,
+        evidence_dismissals_json TEXT NOT NULL DEFAULT '[]',
+        evidence_check_json TEXT
+      );
+      INSERT INTO content_proposals (id, site, status, updated_at, close_reason)
+        VALUES ('p-1', 'site_test', 'finished', 1, 'accepted');
+    `);
+    raw.close();
+
+    ensurePipelineDb(site, { skipBackup: true });
+    expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    const db = new Database(dbPath(site), { readonly: true });
+    const row = db
+      .prepare(`SELECT status, close_reason, accept_snapshot_json FROM content_proposals WHERE id = 'p-1'`)
+      .get() as Record<string, unknown>;
+    expect(row.status).toBe("finished");
+    expect(row.close_reason).toBe("accepted");
+    expect(row.accept_snapshot_json).toBeNull();
+    db.close();
+    rmSite(site);
+  });
+
   it("fails fast when migration cannot write", () => {
     const site = `${TEST_PREFIX}-readonly-${Date.now()}`;
     rmSite(site);

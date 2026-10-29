@@ -51,6 +51,7 @@ import { updatedAtValidator } from "./updated-at";
 import { urlParamLocaleValidator } from "./url-param-locale";
 import { nonlocalizedCommonLocaleValidator } from "./nonlocalized-common-locale";
 import { localeSlugUniquenessValidator } from "./locale-slug-uniqueness";
+import { slugIdentityValidator } from "./slug-identity";
 import { siteLinkIndexValidator } from "./site-link-index";
 import { siteRelationIndexValidator } from "./site-relation-index";
 import { unassignedVariablesValidator } from "./unassigned-variables";
@@ -99,6 +100,7 @@ export const validators: Validator[] = [
   urlParamLocaleValidator,
   nonlocalizedCommonLocaleValidator,
   localeSlugUniquenessValidator,
+  slugIdentityValidator,
   orphanedFilesValidator,
   formsValidator,
   consentLegacyKeysValidator,

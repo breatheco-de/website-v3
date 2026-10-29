@@ -1552,7 +1552,8 @@ export function registerPageTools(
     "list_entries",
     "Unified entry inventory for every content type (static YAML and catalog/DB-sourced alike — cache + overrides resolve the same way site cards do). " +
     "Without contentType: returns per-type counts (type_stats) plus next_actions to narrow — does not dump a combined entry feed. " +
-    "With contentType: paginated one-row-per-slug entries (locales/urls merged). " +
+    "With contentType: paginated one row per page: entry_id (page ID = folder; stable), slug (default-language address), locale_slugs { locale: address }, locales, urls. " +
+    "Every entry tool accepts entry_id or any locale_slugs value (any spelling); a language's slug serves that language. " +
     "Optional detail:true adds safe non-body scalars (never full content/readme). " +
     "Optional filters (AND, entry mode): locale (strict — slug must have that locale), slugs, search, " +
     "funnel_stage / funnel_product / is_money_page (overlay _common.yml funnel; missing file = untagged). " +
@@ -1563,8 +1564,8 @@ export function registerPageTools(
     {
       contentType: z.string().optional().describe("Restrict to one content type for entry rows, e.g. 'program', 'blog', or 'interactive-exercise'. Omit for type_stats."),
       locale: z.string().optional().describe("Only return entries that have this locale available, e.g. 'en' or 'es'"),
-      slugs: z.array(z.string()).optional().describe("Restrict to a specific list of slugs"),
-      search: z.string().optional().describe("Case-insensitive substring match against slug and title"),
+      slugs: z.array(z.string()).optional().describe("Restrict to these pages: page IDs or any language's address, any spelling"),
+      search: z.string().optional().describe("Substring match against the page ID, every language's address (any spelling) and title"),
       page: z.number().int().positive().optional().describe("Entry-mode page (default 1)"),
       limit: z.number().int().positive().max(200).optional().describe("Entry-mode page size (default 50, max 200)"),
       detail: z
@@ -1952,7 +1953,7 @@ export function registerPageTools(
     "Use get_entry_seo to fetch only the SEO/meta fields. Requires content_view. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
     {
-      slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
+      slug: z.string().describe("Page ID (entry_id) or any of its slugs, e.g. 'home' or 'array-vacio-javascript'. A language's slug serves that language unless locale is passed."),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to read (e.g. 'draft-v2'). When provided, reads {variantSlug}.{locale}.yml instead of the live locale file."),
@@ -2044,7 +2045,7 @@ export function registerPageTools(
     "Cluster SEO writes are allowed only on live or draft when the entry has no live locales yet — A/B variants are read-only for seo:. " +
     "Variants skip search_engines (live URLs only); re-call without variant to read engine status.",
     {
-      slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
+      slug: z.string().describe("Page ID (entry_id) or any of its slugs, e.g. 'home' or 'array-vacio-javascript'. A language's slug serves that language unless locale is passed."),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to read (e.g. 'draft-v2'). When provided, reads {variantSlug}.{locale}.yml instead of the live locale file."),

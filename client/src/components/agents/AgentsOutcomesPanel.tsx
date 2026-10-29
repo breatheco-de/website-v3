@@ -19,7 +19,7 @@ import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { apiFetch } from "@/lib/queryClient";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { proposalStatusUi } from "@/lib/proposalStatusUi";
-import { PROPOSAL_CLOSE_REASON_OPTIONS } from "@/lib/proposalCloseReason";
+import { closeReasonOptionLabel } from "@/lib/proposalCloseReason";
 import { cn } from "@/lib/utils";
 import {
   OUTCOMES_PAGE_SIZE,
@@ -70,8 +70,8 @@ const EMPTY_COPY: Record<OutcomeFilter, string> = {
 
 function closeReasonLabel(reason: string | null | undefined): string | null {
   if (!reason) return null;
-  const known = PROPOSAL_CLOSE_REASON_OPTIONS.find((o) => o.value === reason);
-  if (known) return known.label;
+  const known = closeReasonOptionLabel(reason);
+  if (known) return known;
   const words = reason.replace(/_/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }

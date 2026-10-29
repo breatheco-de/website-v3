@@ -387,6 +387,7 @@ export const THINK_TEMPLATES: Record<ChecklistId, ThinkTemplate> = {
     look_for: [
       "score Persona / Product / Stage then Ship: pass|fail|warn / pass|fail / pass|fail / yes|no — in that order",
       "Persona: content intent matches a real persona id on a product (list_products → get_product); missing audience → product-only OK with warn (do not invent persona ids); wrong/invented persona → block",
+      "Persona: read who this page talks to (title, hero, CTAs) and compare every persona on the product — sibling pages using a persona is not evidence either way",
       "Product: proposed bindings follow from that fit; multiple { product, persona? } OK when two+ personas truly fit; products:all only when no single product's personas fit better; breadth/company-report alone ≠ all; all never carries personas",
       "Stage: awareness|consideration|decision|post-enrollment matches readiness — re-check full cascade even if only stage or only products moved",
       "ops vs live funnel + product audience — ignore staff summary / Titulo/Meta blurb; never block because blurb ≠ ops",

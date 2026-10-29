@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AlertTriangle, ArrowRight, Menu, RefreshCw, X } from "lucide-react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { isSlug } from "@shared/slug";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -60,8 +61,7 @@ export function CreateMenuModal({ open, onOpenChange }: CreateMenuModalProps) {
     enabled: open,
   });
 
-  const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-  const slugValid = name === "" || slugPattern.test(name);
+  const slugValid = name === "" || isSlug(name);
 
   const createMutation = useMutation({
     mutationFn: async () => {

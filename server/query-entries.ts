@@ -13,6 +13,7 @@ import {
   getLocaleSource,
   resolveContentTypeUrl,
   resolveEntryUpdatedAt,
+  resolveHreflangsFromRecord,
   RESERVED_UPDATED_AT_FIELD,
   applyUpdatedAtAliasToEntry,
 } from "./content-types";
@@ -361,12 +362,9 @@ function loadStaticContentTypeItems(
           isDb: false,
         }),
       );
-      // Locale YAML may overwrite slug (URL). Ecommerce identity is _common.yml.
-      const commonSlug =
-        typeof common.slug === "string" && common.slug.trim()
-          ? common.slug.trim()
-          : slug;
-      applyPurchasableToRecord(item, contentType, commonSlug);
+      // `slug` is this language's public address; the page ID (folder) is the product identity.
+      item.entry_id = slug;
+      applyPurchasableToRecord(item, contentType, slug);
       items.push(item);
     }
   }
@@ -467,6 +465,19 @@ export function localeForUrlFromItem(
   return raw;
 }
 
+/**
+ * One ID for every language row of the same database page (its hreflang group):
+ * the `en` row slug, else the first language's, else the row's own slug.
+ */
+function databaseGroupId(item: Record<string, unknown>, contentType: string, contentRoot: string): string {
+  const own = String(item.slug ?? "");
+  const group = resolveHreflangsFromRecord(item, contentType, contentRoot);
+  if (!group || Object.keys(group).length < 2) return own;
+  if (group.en) return group.en;
+  const first = Object.keys(group).sort()[0];
+  return (first && group[first]) || own;
+}
+
 async function loadFromContentType(
   contentType: string,
   locale: string | undefined,
@@ -490,6 +501,7 @@ async function loadFromContentType(
     const updatedAtSource = fullMapping?.[RESERVED_UPDATED_AT_FIELD];
     items = items.map((item) => {
       const mapped = { ...item };
+      mapped.entry_id = databaseGroupId(item, contentType, contentRoot);
       if (updatedAtSource) {
         const raw = resolveFieldValue(updatedAtSource, item, RESERVED_UPDATED_AT_FIELD);
         applyUpdatedAtAliasToEntry(mapped, raw);
