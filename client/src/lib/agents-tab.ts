@@ -1,6 +1,8 @@
-export type AgentsTab = "orgchart" | "proposals" | "outcomes" | "rules";
+export type AgentsTab = "orgchart" | "proposals" | "outcomes" | "rules" | "webhooks" | "webhook-logs";
 
 export const AGENTS_OUTCOMES_BASE = "/private/agents/outcomes";
+export const AGENTS_WEBHOOKS_HREF = "/private/agents/webhooks";
+export const AGENTS_WEBHOOK_LOGS_HREF = "/private/agents/webhook-logs";
 const AGENTS_PROPOSALS_PATH = "/private/agents/proposals";
 
 export type OutcomeFilter = "any" | "good" | "bad" | "none";
@@ -18,6 +20,8 @@ export function resolveAgentsTab(pathname: string, search = ""): AgentsTab | nul
   if (pathname === "/private/agents/orgchart") return "orgchart";
   if (pathname === "/private/agents/rules") return "rules";
   if (pathname === AGENTS_OUTCOMES_BASE) return "outcomes";
+  if (pathname === AGENTS_WEBHOOKS_HREF) return "webhooks";
+  if (pathname === AGENTS_WEBHOOK_LOGS_HREF) return "webhook-logs";
   if (pathname.startsWith(`${AGENTS_PROPOSALS_PATH}/`) && toParams(search).get("from") === "outcomes") {
     return "outcomes";
   }

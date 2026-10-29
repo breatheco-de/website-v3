@@ -10,6 +10,7 @@ import {
   IconSortAscending,
   IconSortDescending,
 } from "@tabler/icons-react";
+import { AGENTS_WEBHOOK_LOGS_HREF } from "@/lib/agents-tab";
 import { apiFetch, apiRequestWithAuth } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -227,7 +228,7 @@ export function EventWebhookLogsPanel({
 
   const writeFilters = (next: WebhookLogFilters) => {
     const qs = serializeLogSearch(next);
-    setLocation(`/private/webhooks/logs${qs}`);
+    setLocation(`${AGENTS_WEBHOOK_LOGS_HREF}${qs}`);
   };
 
   const deliveriesQuery = useQuery({

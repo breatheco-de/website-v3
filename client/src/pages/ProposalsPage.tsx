@@ -8,6 +8,7 @@ import {
   IconBan,
   IconBug,
   IconCheck,
+  IconChevronDown,
   IconChevronLeft,
   IconCircleCheck,
   IconCircleX,
@@ -1067,7 +1068,7 @@ export function ProposalListPanel() {
           });
         }}
         trailing={
-          <EventWebhooksKpiButton onClick={() => setLocation("/private/webhooks/hooks")} />
+          <EventWebhooksKpiButton onClick={() => setLocation("/private/agents/webhooks")} />
         }
       />
       {selectionActive ? (
@@ -1086,12 +1087,26 @@ export function ProposalListPanel() {
             aria-hidden
           />
           <Input
-            className="pl-9"
+            className={qInput ? "pl-9 pr-9" : "pl-9"}
             placeholder="Search by title, author, or ID"
             value={qInput}
             onChange={(e) => setQInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && qInput) setQInput("");
+            }}
             data-testid="input-proposal-search"
           />
+          {qInput ? (
+            <button
+              type="button"
+              className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => setQInput("")}
+              aria-label="Clear search"
+              data-testid="button-proposal-search-clear"
+            >
+              <IconX className="h-4 w-4" aria-hidden />
+            </button>
+          ) : null}
         </div>
         <Button
           type="button"
@@ -3000,9 +3015,13 @@ export function ProposalDetailPanel({
                         {b.body.trim() !== b.staff_summary.trim() ? (
                           <Collapsible>
                             <CollapsibleTrigger
-                              className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                              className="group inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-2 hover:underline"
                               data-testid={`button-blocker-technical-${b.id}`}
                             >
+                              <IconChevronDown
+                                aria-hidden
+                                className="h-3 w-3 -rotate-90 transition-transform group-data-[state=open]:rotate-0"
+                              />
                               Technical details (for the agent)
                             </CollapsibleTrigger>
                             <CollapsibleContent className="mt-2 rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">

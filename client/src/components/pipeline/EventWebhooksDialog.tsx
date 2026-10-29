@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
 import {
   IconCheck,
   IconChevronDown,
   IconFilter,
+  IconListDetails,
   IconLoader2,
   IconPencil,
   IconPlus,
@@ -14,6 +16,7 @@ import {
   IconWebhook,
 } from "@tabler/icons-react";
 import { apiFetch, apiRequestWithAuth } from "@/lib/queryClient";
+import { AGENTS_WEBHOOK_LOGS_HREF } from "@/lib/agents-tab";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -439,7 +442,7 @@ type PendingDrop = {
   apply: () => Promise<void>;
 };
 
-/** Full settings body for /private/webhooks/hooks and /logs (no dialog chrome). */
+/** Full settings body for /private/agents/webhooks and /webhook-logs (no dialog chrome). */
 export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -975,6 +978,12 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                     >
                       <IconRefresh className="h-3.5 w-3.5 mr-1.5" />
                       Refresh
+                    </Button>
+                    <Button type="button" variant="outline" size="sm" asChild>
+                      <Link href={AGENTS_WEBHOOK_LOGS_HREF} data-testid="link-webhook-logs">
+                        <IconListDetails className="h-3.5 w-3.5 mr-1.5" />
+                        Logs
+                      </Link>
                     </Button>
                   </div>
                 </div>
@@ -2036,7 +2045,7 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
   );
 }
 
-/** Compact KPI for proposals list — navigates to /private/webhooks/hooks. */
+/** Compact KPI for proposals list — navigates to /private/agents/webhooks. */
 export function EventWebhooksKpiButton({
   onClick,
   className,

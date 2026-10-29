@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-10-29"
+    summary: "Ideas pitch one site change: if/then briefs and tasks for staff are notes, and reviewers close them"
+    agent_impact:
+      - "Authors: an idea is one change the reviewer can accept or close as written. Decide with data you can read (e.g. get_entry_seo include_search_engines for Google status); if the decision needs a check only a person can run (Search Console inspect, request indexing, analytics UI) or staff work (find a link source), file notes instead of a \"do X only if Y\" idea."
+      - "Reviewers: checklist idea_opportunity_harm adds \"One change\" — a procedure brief (branches, person-only preconditions, staff tasks) → close other and tell the author to refile as notes; do not add_blocker asking someone to run the precondition."
+      - "broken_url authors: read the target's Google status before filing; Soft 404 / excluded / foreign canonical is not a redirect target."
+    tools_changed: false
+    paths:
+      - server/content-proposals/proposal-review-rules.ts
+      - server/content-proposals/review-situations.ts
+      - mcp-server/explain/idea-opportunity-harm-proposals.md
+      - mcp-server/explain/broken-url-proposals.md
+      - mcp-server/explain/proposals.md
+  - date: "2026-10-29"
     summary: "Promoting a draft that changes a language's effective meta.robots now asks: robots_change_on_publish (keep_live | use_draft) on promote_variant and proposal apply"
     agent_impact:
       - "promote_variant: effective meta.robots (locale over _common.yml) differs live vs after publish → action_required confirm_robots_on_publish, code robots_change_on_publish, details.live_robots / draft_robots / locale / paths.locale. Ask the user, retry with robots_on_publish: keep_live (draft published, live robots kept) | use_draft. Drafts missing robots while live is noindex count. New languages (publish_draft, no live file) and priority / change_frequency are not gated."

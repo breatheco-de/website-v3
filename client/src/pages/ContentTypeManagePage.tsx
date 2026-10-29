@@ -6266,7 +6266,7 @@ function ContentTypeWebhooksCard({ contentType }: { contentType: string }) {
             </Badge>
           )}
           <Link
-            href="/private/webhooks/hooks"
+            href="/private/agents/webhooks"
             className="text-xs text-primary hover:underline"
             data-testid="link-content-type-webhooks"
           >

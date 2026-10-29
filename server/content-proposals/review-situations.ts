@@ -278,9 +278,11 @@ export const REVIEW_SITUATION_CATALOG: Record<ReviewSituationId, ReviewSituation
       "named siblings / cannibal risk",
       "kill criterion; hub link plan (which hub links the page at go-live, what happens to that link if killed); locale doubling",
       "wrong vehicle (funnel/SERP/links-only) → close and refile as edits",
+      "one change, no if/then branches or tasks for staff — procedures and checks only a person can run → close and refile as notes",
     ],
     author_summary_hints: [
       "Pitch a new URL or structural brief with goal, evidence, cannibal check, kill line, and hub link plan. Accept is greenlight only — no YAML.",
+      "One site change per idea. Decide with the data you can read; if the decision needs a check only a person can run (Search Console, analytics UI), file notes asking for it instead of an if/then idea.",
     ],
   },
   anticipated_demand: {
