@@ -47,6 +47,9 @@ export const EVENT_WEBHOOK_ALLOWLIST = [
   "proposal_needs_author",
   "proposal_dependent_overdue",
   "proposal_reverted",
+  "proposal_blocker_added",
+  "proposal_blocker_resolved",
+  "proposal_blocker_reopened",
   "entry_common_saved",
   "entry_locale_saved",
 ] as const;
@@ -1421,6 +1424,58 @@ export function getDeliveryById(site: string, id: number): EventWebhookDeliveryR
   return row ? rowToDelivery(row) : null;
 }
 
+const BLOCKER_EVENT_TYPES = new Set<string>([
+  "proposal_blocker_added",
+  "proposal_blocker_resolved",
+  "proposal_blocker_reopened",
+]);
+
+/** Payload keys that reach the receiver, per event type. Everything else stays in the event store. */
+const WEBHOOK_PAYLOAD_PASSTHROUGH: Partial<Record<EventWebhookAllowlistedType, readonly string[]>> = {
+  proposal_blocker_added: ["blocker_id", "staff_summary", "body"],
+  proposal_blocker_resolved: [
+    "blocker_id",
+    "staff_summary",
+    "resolve_note",
+    "open_blocker_count",
+    "blocker_author",
+    "blocker_author_actor_type",
+  ],
+  proposal_blocker_reopened: [
+    "blocker_id",
+    "staff_summary",
+    "open_blocker_count",
+    "blocker_author",
+    "blocker_author_actor_type",
+  ],
+};
+
+export const WEBHOOK_PAYLOAD_TEXT_MAX = 2000;
+const WEBHOOK_TRUNCATED_TEXT_KEYS = new Set(["body", "resolve_note"]);
+
+function passthroughPayload(event: ContentEvent): Record<string, unknown> {
+  const keys = isEventWebhookAllowlisted(event.type)
+    ? WEBHOOK_PAYLOAD_PASSTHROUGH[event.type]
+    : undefined;
+  if (!keys) return {};
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    const value = event.payload?.[key];
+    if (value === undefined) continue;
+    if (
+      WEBHOOK_TRUNCATED_TEXT_KEYS.has(key) &&
+      typeof value === "string" &&
+      value.length > WEBHOOK_PAYLOAD_TEXT_MAX
+    ) {
+      out[key] = value.slice(0, WEBHOOK_PAYLOAD_TEXT_MAX);
+      out[`${key}_truncated`] = true;
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
 export function slimEventForWebhook(
   event: ContentEvent,
   proposal?: EventWebhookProposalSummary | null,
@@ -1432,7 +1487,10 @@ export function slimEventForWebhook(
     type: event.type,
     created_at: event.created_at,
     resource: event.resource,
-    payload: proposalId ? { proposal_id: proposalId } : {},
+    payload: {
+      ...(proposalId ? { proposal_id: proposalId } : {}),
+      ...passthroughPayload(event),
+    },
     attribution: event.attribution,
   };
   if (proposal) {
@@ -1789,6 +1847,8 @@ export function maybeEnqueueEventWebhook(
   try {
     if (!contentRoot) return;
     if (!isEventWebhookAllowlisted(event.type)) return;
+    // Paused (escalated) proposals: kept in history, never sent, not re-sent on release.
+    if (BLOCKER_EVENT_TYPES.has(event.type) && event.payload?.paused === true) return;
     const config = loadEventWebhookConfigSafe(contentRoot);
     const hooks = listEnabledHooksForType(config, event.type);
     if (hooks.length === 0) return;

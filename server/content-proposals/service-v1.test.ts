@@ -7,6 +7,7 @@ import { splitByFieldScope } from "@shared/field-scope";
 import { setAtPath, deleteAtPath, cloneJson } from "@shared/object-path";
 import { clearSiteSqliteCacheForTests, getSiteSqlite } from "../db";
 import { ensurePipelineDb, resetPipelineDbCache } from "../pipeline-db/runner";
+import { listEvents } from "../events/event-store";
 import { setLiveServerForTests } from "../live-server";
 import { hashVariantFileContents, type DraftProposalLink } from "../versioning/draft-meta";
 import type { FieldChange } from "../versioning/draft-base";
@@ -2141,6 +2142,19 @@ describe("proposals v1.0 (draft-first)", () => {
       const dep = svc.get(depId)!;
       expect(dep.open_blocker_count).toBe(1);
       expect(dep.blockers[0]!.body).toContain("predecessor_closed");
+      const blockerEv = listEvents({ site: SITE, limit: 200 }).find(
+        (e) =>
+          e.type === "proposal_blocker_added" &&
+          (e.payload as { proposal_id?: string }).proposal_id === depId,
+      );
+      expect(blockerEv?.payload).toMatchObject({
+        blocker_id: dep.blockers[0]!.id,
+        staff_summary: dep.blockers[0]!.staff_summary,
+      });
+      expect(blockerEv?.attribution[0]).toEqual({
+        author: "system:applies-after",
+        actor: { type: "system", source: "applies-after" },
+      });
 
       const relink = await svc.update(depId, "set_applies_after", { username: "alice", applies_after_proposal_id: predId });
       expect(relink.ok).toBe(false);
