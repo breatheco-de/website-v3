@@ -65,7 +65,7 @@ export function buildLeadPayload(
       events: loadedEvents.map((e) => ({ name: e.name, tags: e.tags ?? [] })),
     });
   } else {
-    log.info("[LeadTags] resolved", leadTagsLog);
+    log.warn("[LeadTags] resolved", leadTagsLog);
   }
   const effectiveAutomations: string =
     (typeof leadData.automations === "string" && leadData.automations) ||
