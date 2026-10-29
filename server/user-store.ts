@@ -210,7 +210,7 @@ const BUILT_IN_USER_ADMIN_ROLE: RoleDefinition = {
 const BUILT_IN_PLATFORM_STEWARD_ROLE: RoleDefinition = {
   label: "Platform Steward",
   description:
-    "Site health: diagnostics, runtime issues, redirects, SEO and Ads settings, cookie consent window, A/B testing setup and checks (staff UI), content-type schema, private database definitions, and full proposal create/review (bulk proposal delete and live-ad edits are staff UI only, never via MCP). Use /mcp/role/platform_steward for update_content_type, create_or_update_database, and reindex_database as well as SEO and redirect writes — not for row CRUD (needs Edit database data), user admin, or infrastructure. For paid-ads-only work prefer /mcp/role/ads_manager.",
+    "Site health: diagnostics, runtime issues, redirects, SEO and Ads settings, cookie consent window, A/B testing setup and checks (staff UI), content-type schema, private database definitions, row edits in the press_mentions database (company news and announcements), and full proposal create/review (bulk proposal delete and live-ad edits are staff UI only, never via MCP). Use /mcp/role/platform_steward for update_content_type, create_or_update_database, reindex_database, and add/update/delete_database_item on press_mentions as well as SEO and redirect writes — not for row CRUD in any other database (needs Edit database data for that bank), user admin, or infrastructure. For paid-ads-only work prefer /mcp/role/ads_manager.",
   capabilities: [
     { name: "metrics_view" },
     { name: "content_view", contentTypes: "*" },
@@ -226,6 +226,8 @@ const BUILT_IN_PLATFORM_STEWARD_ROLE: RoleDefinition = {
     { name: "components_manage" },
     { name: "content_types_manage" },
     { name: "databases_manage" },
+    { name: "databases_view" },
+    { name: "databases_edit_data", databases: ["press_mentions"] },
     { name: "proposals_create" },
     { name: "proposals_review" },
     { name: "proposals_delete" },

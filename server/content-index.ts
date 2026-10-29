@@ -260,6 +260,14 @@ export class ContentIndex {
     }
   }
 
+  /**
+   * Re-read `content-types.yml`. The web process only scans at boot; worker
+   * snapshots and single-folder upserts reuse these configs to build URLs.
+   */
+  reloadContentTypeConfigs(): void {
+    this.contentTypeConfigs = this.loadContentTypes();
+  }
+
   buildUrl(contentType: string, locale: string, slug: string, params?: Record<string, string>): string {
     if (slug == null || isReservedContentSlug(String(slug))) {
       return "";
@@ -2105,6 +2113,7 @@ export class ContentIndex {
    * Does not rebuild public HTML.
    */
   refresh(_opts?: { syncSlow?: boolean }): void {
+    this.reloadContentTypeConfigs();
     this.getDatabase().clearMappedMemo();
     this.enqueueIndexRefresh();
     invalidateStaticListingCache(undefined, this.contentRoot);
@@ -2961,6 +2970,7 @@ export class ContentIndex {
     latestWriteGeneration: number,
   ): boolean {
     if (latestWriteGeneration > snapshot.generation) return false;
+    this.reloadContentTypeConfigs();
     this.slugKeyIndex = null;
     this.refreshPending = false;
     this.entries = structuredClone(snapshot.entries);

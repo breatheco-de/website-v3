@@ -6,6 +6,14 @@ window_days: 6
 
 entries:
   - date: "2026-10-29"
+    summary: "Platform Steward can edit press_mentions rows: add/update/delete_database_item(s) now appear on /mcp/role/platform_steward"
+    agent_impact:
+      - "platform_steward gains databases_view and databases_edit_data scoped to press_mentions (same grants as the News Editor role). Row writes to any other database still return forbidden; bank settings and reindex stay on databases_manage."
+      - "Reconnect the platform_steward MCP connector to see the item tools."
+    tools_changed: false
+    paths:
+      - server/user-store.ts
+  - date: "2026-10-29"
     summary: "Ideas pitch one site change: if/then briefs and tasks for staff are notes, and reviewers close them"
     agent_impact:
       - "Authors: an idea is one change the reviewer can accept or close as written. Decide with data you can read (e.g. get_entry_seo include_search_engines for Google status); if the decision needs a check only a person can run (Search Console inspect, request indexing, analytics UI) or staff work (find a link source), file notes instead of a \"do X only if Y\" idea."

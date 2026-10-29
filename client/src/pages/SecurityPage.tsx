@@ -1464,7 +1464,8 @@ function RolesTab() {
                       <>
                         <p className="text-xs text-muted-foreground mb-2">
                           Site health: diagnostics, runtime issues, redirects, SEO settings, A/B testing setup, content
-                          type schema, and private database definitions (not row edits — those need Edit database data).
+                          type schema, and private database definitions. Can edit rows only in the press mentions
+                          database; other databases need Edit database data.
                         </p>
                         <details className="mb-2 group">
                           <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground list-none flex items-center gap-1">
@@ -1479,7 +1480,9 @@ function RolesTab() {
                               <code className="font-mono">/mcp/role/platform_steward</code> (
                               <code className="font-mono">update_content_type</code>,{" "}
                               <code className="font-mono">create_or_update_database</code>,{" "}
-                              <code className="font-mono">reindex_database</code> — not item CRUD tools).
+                              <code className="font-mono">reindex_database</code>, and item CRUD tools scoped to{" "}
+                              <code className="font-mono">press_mentions</code> via{" "}
+                              <code className="font-mono">databases_edit_data</code>).
                             </p>
                           </div>
                         </details>
