@@ -60,12 +60,12 @@ export function buildLeadPayload(
     page_url: typeof leadData.utm_url === "string" ? leadData.utm_url.split("?")[0] : null,
   };
   if (tagsSource === "fallback") {
-    log.warn("[LeadTags] fallback to website-lead", {
+    log.warn({
       ...leadTagsLog,
       events: loadedEvents.map((e) => ({ name: e.name, tags: e.tags ?? [] })),
-    });
+    }, "[LeadTags] fallback to website-lead");
   } else {
-    log.warn("[LeadTags] resolved", leadTagsLog);
+    log.warn(leadTagsLog, "[LeadTags] resolved");
   }
   const effectiveAutomations: string =
     (typeof leadData.automations === "string" && leadData.automations) ||

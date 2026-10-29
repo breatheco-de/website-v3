@@ -1031,13 +1031,13 @@ function loadSettings(contentRoot?: string): SiteSettings {
   failedSettingsStamp.set(key, stamp);
   const fallbackSettings = cached?.settings ?? read.settings;
   const fallbackEvents = fallbackSettings.tracking?.conversion_events ?? [];
-  log.warn("[SettingsLoad] failed to parse settings.yml, using fallback", {
+  log.warn({
     settingsPath,
     stamp,
     using: cached ? "last_good_cache" : "defaults",
     eventsLoaded: fallbackEvents.length,
     events: fallbackEvents.map((e) => ({ name: e.name, tags: e.tags ?? [] })),
-  });
+  }, "[SettingsLoad] failed to parse settings.yml, using fallback");
   return fallbackSettings;
 }
 
