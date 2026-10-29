@@ -136,6 +136,11 @@ import { buildEntryKey } from "@/lib/entryKeyToPageUrl";
 import { ENTRY_ACTIVITY_WINDOW_DAYS } from "@shared/event-log-filters";
 import { TEXT_LIMITS_EXCEEDED_CODE, type TextLimitViolation } from "@shared/component-text-limits";
 import { TextLimitsIssue } from "@/components/TextLimitsIssue";
+import {
+  ROBOTS_CHANGE_ON_PUBLISH_CODE,
+  RobotsOnPublishChoiceField,
+  type RobotsOnPublishChoice,
+} from "@/components/editing/RobotsOnPublishChoice";
 import { IdeaSeoTargetPanel, type IdeaSeoTarget } from "@/components/agents/IdeaSeoTargetPanel";
 import { apiFetch, apiRequestWithAuth } from "@/lib/queryClient";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -219,6 +224,15 @@ const ACCEPTED_ENTRY_NOT_CREATABLE_COPY =
 
 const ACCEPTED_ENTRY_NEEDS_LAYOUT_COPY =
   "This page builds its own layout, so the follow-up proposal must include the whole page layout (every section), not only text fields.";
+
+type ApplyRobotsEntry = {
+  entry_id: number;
+  entry_key: string;
+  locale: string;
+  live_robots?: string;
+  draft_robots?: string;
+  agent_choice?: RobotsOnPublishChoice | null;
+};
 
 type ProposalWarning = {
   code?: string;
@@ -1397,6 +1411,8 @@ export function ProposalDetailPanel({
   const [confirmExperiment, setConfirmExperiment] = useState(false);
   const [confirmBaseUnknown, setConfirmBaseUnknown] = useState(false);
   const [textLimitViolations, setTextLimitViolations] = useState<TextLimitViolation[] | null>(null);
+  const [robotsEntries, setRobotsEntries] = useState<ApplyRobotsEntry[] | null>(null);
+  const [robotsChoices, setRobotsChoices] = useState<Record<string, RobotsOnPublishChoice>>({});
   const [, setDetailLocation] = useLocation();
   const [advanced, setAdvanced] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
@@ -1589,6 +1605,8 @@ export function ProposalDetailPanel({
         idea_already_implemented:
           "An edit for this idea was already applied, so it is done — there is nothing to retire.",
         retire_note_required: `Add a note of at least ${CLOSE_NOTE_MIN} characters.`,
+        [ROBOTS_CHANGE_ON_PUBLISH_CODE]:
+          "This draft changes whether search engines can see the page. Choose what to keep for each page, then approve again.",
       };
       const emptyPage = e.message.includes("EMPTY_PAGE") ? plainByCode.empty_page : undefined;
       toast({
@@ -1617,6 +1635,23 @@ export function ProposalDetailPanel({
             ),
           ),
         );
+        setApplyOpen(true);
+      }
+      if (e.data?.code === ROBOTS_CHANGE_ON_PUBLISH_CODE) {
+        const entries =
+          (e.data.details as { entries?: ApplyRobotsEntry[] } | undefined)?.entries?.filter(
+            (entry) => entry.entry_id != null,
+          ) ?? [];
+        setRobotsEntries(entries);
+        setRobotsChoices((prev) => {
+          const next: Record<string, RobotsOnPublishChoice> = {};
+          for (const entry of entries) {
+            const key = String(entry.entry_id);
+            const preset = prev[key] ?? entry.agent_choice ?? null;
+            if (preset) next[key] = preset;
+          }
+          return next;
+        });
         setApplyOpen(true);
       }
     },
@@ -3169,6 +3204,34 @@ export function ProposalDetailPanel({
                             footer="Ask the author to shorten it, or publish anyway."
                           />
                         ) : null}
+                        {robotsEntries?.length ? (
+                          <div className="space-y-2" data-testid="apply-robots-on-publish">
+                            {robotsEntries.map((entry) => {
+                              const key = String(entry.entry_id);
+                              return (
+                                <div key={key} className="space-y-1">
+                                  {robotsEntries.length > 1 ? (
+                                    <p className="font-mono text-xs text-foreground">{entry.entry_key}</p>
+                                  ) : null}
+                                  <RobotsOnPublishChoiceField
+                                    rows={[
+                                      {
+                                        locale: entry.locale,
+                                        live_robots: entry.live_robots ?? "index, follow",
+                                        draft_robots: entry.draft_robots ?? "index, follow",
+                                      },
+                                    ]}
+                                    value={robotsChoices[key] ?? null}
+                                    agentChoice={entry.agent_choice ?? null}
+                                    onChange={(v) => setRobotsChoices((c) => ({ ...c, [key]: v }))}
+                                    name={`apply-robots-${key}`}
+                                    testIdPrefix={`apply-robots-${key}`}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
                         {confirmExperiment ? (
                           <p className="text-destructive">
                             Other versions still have traffic. Confirming will remove those
@@ -3252,7 +3315,8 @@ export function ProposalDetailPanel({
                     blockersOpen ||
                     Boolean(p.recent_activity_error) ||
                     (needsActivityAck && !activityAck) ||
-                    (Boolean(p.affected_entries) && !affectedAck)
+                    (Boolean(p.affected_entries) && !affectedAck) ||
+                    Boolean(robotsEntries?.some((entry) => !robotsChoices[String(entry.entry_id)]))
                   }
                   onClick={() => {
                     const body: Record<string, unknown> = {};
@@ -3261,6 +3325,7 @@ export function ProposalDetailPanel({
                     if (confirmBaseUnknown) body.confirm_base_unknown = true;
                     if (textLimitViolations) body.confirm_text_limits = true;
                     if (p.affected_entries) body.confirm_affected_entries = p.affected_entries.count;
+                    if (Object.keys(robotsChoices).length) body.robots_on_publish_by_entry = robotsChoices;
                     mut.mutate(
                       {
                         action: "apply",
@@ -3272,6 +3337,8 @@ export function ProposalDetailPanel({
                           setActivityAck(false);
                           setConfirmBaseUnknown(false);
                           setTextLimitViolations(null);
+                          setRobotsEntries(null);
+                          setRobotsChoices({});
                         },
                       },
                     );

@@ -47,7 +47,7 @@ Locale-agnostic offer + personas (avatar = buyer depth) live on each product’s
 | `shared-layout` | `single_template` / DB shared shell; create_entry playbook; blog as example |
 | `relation-fields` | Relation editor, authors hubs, listing vs hydrate, delete reassign |
 | `lead-forms` | Catalog `source` (`content_type` / `database` / `related_field`), required `value_path`/`label_path`, required `query` on ecommerce catalogs, `purchasable` vs `actively_selling` |
-| `redirects` | CMS 301/302: two stores, first-match, `test_redirect` (`read_redirects`) + `update_redirect` (`edit_redirects`) |
+| `redirects` | CMS 301/302: two stores, first-match, `test_redirect` (`read_redirects`) + `update_redirect` (`edit_redirects` live; `variant` + `seo_edit` for a draft's own old addresses) |
 | `proposals` | **Hub** — omit `subtopic` for index; playbooks: `overview`, `reading`, `situations`, `internal-links`, `serp-title-description`, `funnel-classification`, `idea-opportunity-harm`, `existing-demand`, `broken-url`, `translations` |
 | `analytics` | GA4 BigQuery `get_analytics_report`; vs GSC (`get_organic_traffic`) and journey (`get_product_funnel_analytics`) |
 | `ads` | Paid traffic `get_paid_traffic`: Meta spend, paid landing pages, lead credit, consent limits, ad tracking diagnostics |

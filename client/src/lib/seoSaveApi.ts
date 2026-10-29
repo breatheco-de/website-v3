@@ -3,6 +3,7 @@ import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import {
   buildMetaSaveOperations,
   liveSnippetClearBlocked,
+  withExplicitIndexRobots,
   type MetaSaveOperation,
 } from "@/lib/buildMetaSaveOperations";
 
@@ -11,6 +12,41 @@ export const VISIBILITY_META_KEYS = [
   "priority",
   "change_frequency",
 ] as const;
+
+export type VisibilityKey = (typeof VISIBILITY_META_KEYS)[number];
+
+export type LocaleVisibilityRow = {
+  locale: string;
+  robots: string;
+  priority: string;
+  change_frequency: string;
+  inherited_robots: string;
+};
+
+export type LocaleVisibilityResponse = {
+  supported: boolean;
+  locales: LocaleVisibilityRow[];
+  current_inherited_robots: string;
+};
+
+/** Other live languages of an entry with their current crawl settings. */
+export async function fetchLocaleVisibility(opts: {
+  contentType: string;
+  slug: string;
+  locale: string;
+}): Promise<LocaleVisibilityResponse> {
+  const headers = await authHeaders();
+  const params = new URLSearchParams({ locale: opts.locale });
+  const res = await fetch(
+    `/api/seo-preview/${encodeURIComponent(opts.contentType)}/${encodeURIComponent(opts.slug)}/locale-visibility?${params}`,
+    { headers },
+  );
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    throw new Error((errData as { error?: string }).error || "Failed to load other languages");
+  }
+  return (await res.json()) as LocaleVisibilityResponse;
+}
 
 export const OPTIONAL_META_KEYS = ["canonical_url", "og_image"] as const;
 
@@ -127,9 +163,13 @@ export async function saveVisibilitySettings(
     slug: string;
     locale: string;
     variant?: string;
+    /** Page-wide robots under this locale (live only); see withExplicitIndexRobots. */
+    inheritedRobots?: string;
   },
 ): Promise<void> {
-  const operations = buildVisibilityOperations(ctx);
+  const built = buildVisibilityOperations(ctx);
+  const operations =
+    ctx.context === "live" ? withExplicitIndexRobots(built, ctx.inheritedRobots) : built;
   if (operations.length === 0) return;
   await postMetaPatch({
     contentType: ctx.contentType,
@@ -138,6 +178,43 @@ export async function saveVisibilitySettings(
     variant: ctx.variant,
     operations,
   });
+}
+
+export type VisibilityLocaleTarget = { locale: string; inherited_robots?: string };
+
+/** Copy chosen visibility fields to other live languages (one patch each, keeps going on failure). */
+export async function saveVisibilityToLocales(opts: {
+  contentType: string;
+  slug: string;
+  seoMeta: SeoMeta;
+  copyKeys: readonly VisibilityKey[];
+  targets: readonly VisibilityLocaleTarget[];
+}): Promise<{ saved: string[]; failed: string[] }> {
+  const saved: string[] = [];
+  const failed: string[] = [];
+  if (opts.copyKeys.length === 0) return { saved, failed };
+  for (const target of opts.targets) {
+    const operations = withExplicitIndexRobots(
+      buildMetaSaveOperations({
+        context: "live",
+        seoMeta: opts.seoMeta,
+        dirtyKeys: new Set(opts.copyKeys),
+      }),
+      target.inherited_robots,
+    );
+    try {
+      await postMetaPatch({
+        contentType: opts.contentType,
+        slug: opts.slug,
+        locale: target.locale,
+        operations,
+      });
+      saved.push(target.locale);
+    } catch {
+      failed.push(target.locale);
+    }
+  }
+  return { saved, failed };
 }
 
 export async function saveOptionalMetaFields(

@@ -1,13 +1,33 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ClipboardList, ExternalLink, PanelRightClose } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PortalContainerProvider } from "@/components/ui/portal-container";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { AGENTS_PROPOSALS_BASE, ProposalDetailPanel } from "@/pages/ProposalsPage";
 import type { VariantProposalLink } from "@/components/DebugBubble/types";
 
 const EXPANDED_STORAGE_KEY = "proposal-review-drawer-expanded";
+const WIDTH_STORAGE_KEY = "proposal-review-drawer-width";
+const DEFAULT_WIDTH = 420;
+const MIN_WIDTH = 320;
+const MAX_WIDTH_RATIO = 0.8;
+
+function clampWidth(width: number): number {
+  const maxW = typeof window !== "undefined" ? window.innerWidth * MAX_WIDTH_RATIO : width;
+  return Math.max(MIN_WIDTH, Math.min(maxW, width));
+}
+
+function readStoredWidth(): number {
+  try {
+    const parsed = parseInt(window.localStorage.getItem(WIDTH_STORAGE_KEY) ?? "", 10);
+    if (!isNaN(parsed)) return clampWidth(parsed);
+  } catch {
+    /* private mode */
+  }
+  return DEFAULT_WIDTH;
+}
 
 function readStoredExpanded(): boolean {
   try {
@@ -25,7 +45,9 @@ function isOpenLink(link: VariantProposalLink | undefined): link is VariantPropo
 
 /**
  * Right-side drawer on a draft preview when that draft belongs to an open proposal: the proposal
- * page in its phone-width layout, collapsible to a rail. Section/YAML editors (z-[9999]) cover it.
+ * page in its phone-width layout, collapsible to a rail. Sits above the site header and staff chrome;
+ * only section/YAML editors (z-[9999]) and dialogs (z-[10000]+) cover it. Its popovers and menus
+ * portal into the drawer, since their default z-50 on document.body would land behind it.
  */
 export function ProposalReviewDrawer({
   contentType,
@@ -86,6 +108,34 @@ export function ProposalReviewDrawer({
   const blockers = detail?.proposal?.open_blocker_count ?? 0;
 
   const [footerEl, setFooterEl] = useState<HTMLDivElement | null>(null);
+  const [drawerEl, setDrawerEl] = useState<HTMLElement | null>(null);
+
+  const [width, setWidth] = useState(readStoredWidth);
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = widthRef.current;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    const handleMouseMove = (ev: MouseEvent) => {
+      setWidth(clampWidth(startWidth + startX - ev.clientX));
+    };
+    const handleMouseUp = () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      try {
+        window.localStorage.setItem(WIDTH_STORAGE_KEY, String(Math.round(widthRef.current)));
+      } catch {
+        /* private mode */
+      }
+    };
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
 
   if (!proposalId || dismissed) return null;
 
@@ -97,7 +147,7 @@ export function ProposalReviewDrawer({
         <button
           type="button"
           onClick={() => setExpandedPersisted(true)}
-          className="fixed right-0 top-1/3 z-40 flex flex-col items-center gap-1.5 rounded-l-md border border-r-0 bg-card px-2 py-3 text-foreground shadow-lg hover-elevate"
+          className="fixed right-0 top-1/3 z-[9998] flex flex-col items-center gap-1.5 rounded-l-md border border-r-0 bg-card px-2 py-3 text-foreground shadow-lg hover-elevate"
           aria-label={`Open proposal review${blockers ? ` (${blockers} open blocker${blockers === 1 ? "" : "s"})` : ""}`}
           title="Proposal review"
           data-testid="button-proposal-drawer-rail"
@@ -115,13 +165,23 @@ export function ProposalReviewDrawer({
       ) : null}
 
       <aside
+        ref={setDrawerEl}
         className={cn(
-          "fixed right-0 top-0 bottom-0 z-40 flex w-full flex-col border-l bg-background shadow-xl md:w-[420px]",
+          "fixed right-0 top-0 bottom-0 z-[9998] flex w-full flex-col border-l bg-background shadow-xl md:w-[420px]",
           !expanded && "hidden",
         )}
+        style={isNarrow ? undefined : { width: `${width}px` }}
         aria-label="Proposal review"
         data-testid="proposal-review-drawer"
       >
+        {!isNarrow ? (
+          <div
+            className="absolute left-0 top-0 bottom-0 z-10 w-1.5 cursor-col-resize transition-colors hover:bg-primary/20 active:bg-primary/30"
+            onMouseDown={handleResizeStart}
+            aria-hidden
+            data-testid="proposal-drawer-resize-handle"
+          />
+        ) : null}
         <div className="flex items-center gap-2 border-b px-3 py-2">
           {isNarrow ? (
             <Button
@@ -162,22 +222,24 @@ export function ProposalReviewDrawer({
             ) : null}
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto overflow-x-hidden p-3">
-          <ProposalDetailPanel
-            key={proposalId}
-            id={proposalId}
-            layout="drawer"
-            previewEntry={{ contentType, slug, locale, variant }}
-            actionBarTarget={footerEl}
-            onProposalChange={setProposalId}
-            onReloadPreview={onReloadPreview}
-            onViewLive={() =>
-              navigate(`/private/preview/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}?locale=${encodeURIComponent(locale)}`)
-            }
-            onClose={() => setDismissed(true)}
-          />
-        </div>
-        <div ref={setFooterEl} className="border-t bg-card empty:hidden" data-testid="proposal-drawer-footer" />
+        <PortalContainerProvider value={drawerEl}>
+          <div className="flex-1 overflow-y-auto overflow-x-hidden p-3">
+            <ProposalDetailPanel
+              key={proposalId}
+              id={proposalId}
+              layout="drawer"
+              previewEntry={{ contentType, slug, locale, variant }}
+              actionBarTarget={footerEl}
+              onProposalChange={setProposalId}
+              onReloadPreview={onReloadPreview}
+              onViewLive={() =>
+                navigate(`/private/preview/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}?locale=${encodeURIComponent(locale)}`)
+              }
+              onClose={() => setDismissed(true)}
+            />
+          </div>
+          <div ref={setFooterEl} className="border-t bg-card empty:hidden" data-testid="proposal-drawer-footer" />
+        </PortalContainerProvider>
       </aside>
     </>
   );

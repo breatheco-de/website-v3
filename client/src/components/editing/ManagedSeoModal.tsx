@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useSlugRenameCheck } from "@/hooks/useSlugRenameCheck";
 import { useSeoModalSaves } from "@/hooks/useSeoModalSaves";
+import { VISIBILITY_META_KEYS } from "@/lib/seoSaveApi";
 import { useContentTypes } from "@/hooks/useContentTypes";
 import { normalizeLocale } from "@/lib/locale";
 import { buildSlugRenamePreviewUrls } from "@/components/DebugBubble/components/seoRedirectHijack";
@@ -307,9 +308,9 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
         await saves.saveLocations(locs);
         setLocationsBaseline([...locs]);
       }}
-      onSaveVisibility={async () => {
+      onSaveVisibility={async (saveOpts) => {
         if (!canEditSeo) return denySeoEdit();
-        return saves.saveVisibility();
+        return saves.saveVisibility(saveOpts);
       }}
       onRevertVisibility={() => {
         applySeoMetaFromForm({
@@ -339,6 +340,7 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
         return saves.saveOgImage(url);
       }}
       visibilityDirty={["robots", "priority", "change_frequency"].some((k) => dirtyKeys.has(k))}
+      visibilityDirtyKeys={VISIBILITY_META_KEYS.filter((k) => dirtyKeys.has(k))}
       snippetDirty={["page_title", "description"].some((k) => dirtyKeys.has(k))}
       snippetSaveBlocked={
         saves.isLiveLocale &&

@@ -98,6 +98,11 @@ export function checkSimpleRedirectFrom(opts: {
   locale: string;
   ci: ContentIndex;
   allowedHosts?: string[];
+  /**
+   * The page's own current address, allowed because a draft renames the page in
+   * this language (it stops being live when the draft is published).
+   */
+  allowOwnAddress?: string | null;
 }): SimpleRedirectCheck {
   const { ci, locale } = opts;
   const parsed = parseSimpleRedirectPath(opts.from, opts.allowedHosts);
@@ -111,6 +116,10 @@ export function checkSimpleRedirectFrom(opts: {
       normalizedFrom: from,
       message: `${from} is a homepage address and cannot redirect to a page.`,
     };
+  }
+
+  if (opts.allowOwnAddress && normalizeFrom(opts.allowOwnAddress) === from) {
+    return { ok: true, normalizedFrom: from };
   }
 
   const dest = ci.parseContentUrl(opts.destUrl);

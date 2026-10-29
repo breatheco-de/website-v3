@@ -13,6 +13,7 @@ import { consensusSitemapContentType, contentTypeForSitemapFolder } from "@/lib/
 import { isSharedLayoutType } from "@/lib/sharedLayoutEntry";
 import { computeDirtyMetaKeys, liveSnippetClearBlocked } from "@/lib/buildMetaSaveOperations";
 import { useSeoModalSaves } from "@/hooks/useSeoModalSaves";
+import { VISIBILITY_META_KEYS } from "@/lib/seoSaveApi";
 import type { SeoMeta } from "@/components/DebugBubble/types";
 import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
@@ -2850,6 +2851,7 @@ export function DebugBubble() {
         visibilityDirty={["robots", "priority", "change_frequency"].some((k) =>
           seoDirtyKeys.has(k),
         )}
+        visibilityDirtyKeys={VISIBILITY_META_KEYS.filter((k) => seoDirtyKeys.has(k))}
         snippetDirty={["page_title", "description"].some((k) => seoDirtyKeys.has(k))}
         snippetSaveBlocked={
           seoSaves.isLiveLocale &&

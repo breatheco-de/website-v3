@@ -180,6 +180,64 @@ export function promoteWarnings(sharedLayout: boolean): McpWarning[] {
   return warnings;
 }
 
+export const ROBOTS_CHANGE_ON_PUBLISH_CODE = "robots_change_on_publish";
+
+/** Facts every robots_change_on_publish response carries (promote and proposal apply). */
+export const ROBOTS_ON_PUBLISH_WARNINGS: McpWarning[] = [
+  {
+    code: "robots_per_language",
+    message:
+      "meta.robots is per language (locale file over _common.yml). Only the listed language(s) are affected; other languages keep their own robots. noindex also removes the URL from the sitemap.",
+  },
+  {
+    code: "robots_only_gated",
+    message:
+      "Only robots is checked. meta.priority / meta.change_frequency publish from the draft without asking. Nothing was published.",
+  },
+];
+
+/** Publishing would change a language's effective robots: the user must choose keep_live or use_draft. */
+export function robotsChangeOnPublishResult(
+  errMsg: string,
+  data: Record<string, unknown>,
+  ctx: {
+    retryTool: "publish_draft" | "promote_variant";
+    contentType: string;
+    slug: string;
+    locale?: string;
+    variantSlug: string;
+    site?: string;
+  },
+): McpTextResult {
+  const details = (data.details as Record<string, unknown> | undefined) ?? {};
+  const base = {
+    contentType: ctx.contentType,
+    slug: ctx.slug,
+    ...(ctx.locale ? { locale: ctx.locale } : {}),
+    variantSlug: ctx.variantSlug,
+    ...(ctx.site ? { site: ctx.site } : {}),
+  };
+  return actionRequired(
+    {
+      success: false,
+      action_required: "confirm_robots_on_publish",
+      code: ROBOTS_CHANGE_ON_PUBLISH_CODE,
+      message: errMsg,
+      details,
+      warnings: ROBOTS_ON_PUBLISH_WARNINGS,
+    },
+    [
+      {
+        tool: ctx.retryTool,
+        priority: "required",
+        reason:
+          "Show the user details.live_robots vs details.draft_robots (or details.locales[]) and ask: keep the live value (keep_live) or publish the draft's (use_draft). Retry with their answer; never pick for them.",
+        args_hint: { ...base, robots_on_publish: "keep_live | use_draft" },
+      },
+    ],
+  );
+}
+
 /**
  * next_actions for draft-first promote rejections (publish_draft / promote_variant).
  * `retryTool` is the tool that failed; confirm flags are only suggested after asking the user.

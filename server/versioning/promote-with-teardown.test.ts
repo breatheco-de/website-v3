@@ -33,6 +33,26 @@ vi.mock("../text-limits", () => ({
   },
 }));
 
+const redirectScreenMock = vi.hoisted(() => ({
+  result: null as null | { content: string; changed: boolean; skipped: Array<{ from: string; code: string; message: string }> },
+}));
+vi.mock("../redirect-draft", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../redirect-draft")>();
+  return {
+    ...actual,
+    screenPublishedRedirects: (opts: Parameters<typeof actual.screenPublishedRedirects>[0]) =>
+      redirectScreenMock.result ?? actual.screenPublishedRedirects(opts),
+  };
+});
+const redirectCacheMock = vi.hoisted(() => ({ cleared: 0, validations: 0 }));
+vi.mock("../redirects", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../redirects")>()),
+  clearRedirectCache: () => void redirectCacheMock.cleared++,
+}));
+vi.mock("../services/onSaveValidation", () => ({
+  scheduleRedirectsValidation: () => void redirectCacheMock.validations++,
+}));
+
 import { resetRegistry } from "../content-types";
 import { markFileAsModified } from "../sync-state";
 import {
@@ -85,6 +105,7 @@ const ciStub = {
   },
   invalidateCommonFields: () => {},
   refresh: () => {},
+  refreshAfterRedirectWrite: vi.fn(),
 };
 const cacheStub = { clearEntryKey: () => {}, flush: async () => {} };
 
@@ -127,6 +148,10 @@ beforeEach(() => {
   write("en.yml", "slug: post-a\ntitle: Live title\nseo:\n  main_keyword: live-kw\nsections: []\n");
   write("versioning.yml", "en:\n  variants:\n    - slug: draft\n      allocation: 0\n");
   vi.mocked(markFileAsModified).mockClear();
+  redirectScreenMock.result = null;
+  redirectCacheMock.cleared = 0;
+  redirectCacheMock.validations = 0;
+  ciStub.refreshAfterRedirectWrite.mockClear();
 });
 
 afterEach(() => {
@@ -183,6 +208,37 @@ describe("displayValueChanges", () => {
       }),
     ).toEqual([]);
     expect(displayValueChanges({ liveRaw: "title: T\n", commonBeforeRaw: null, commonAfterRaw: null })).toEqual([]);
+  });
+});
+
+describe("promote: old addresses (meta.redirects)", () => {
+  it("publishes without conflicting added addresses, warns, and refreshes redirects", async () => {
+    write("draft.en.yml", "slug: post-a\ntitle: Live title\nmeta:\n  redirects:\n    - /en/fresh\n    - /en/taken\nsections: []\n");
+    recordDraftBase({ contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot });
+    redirectScreenMock.result = {
+      content: "slug: post-a\ntitle: Live title\nmeta:\n  redirects:\n    - /en/fresh\nsections: []\n",
+      changed: true,
+      skipped: [{ from: "/en/taken", code: "live_content", message: "/en/taken is already a live page. A redirect would hide it." }],
+    };
+    const res = await promote();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(load("en.yml").meta.redirects).toEqual(["/en/fresh"]);
+    const warning = res.warnings.find((w) => w.code === "draft_redirects_skipped");
+    expect(warning?.fields).toEqual(["meta.redirects[/en/taken]"]);
+    expect(warning?.details).toEqual({ skipped: redirectScreenMock.result.skipped });
+    expect(ciStub.refreshAfterRedirectWrite).toHaveBeenCalledWith(path.join(entryDir, "en.yml"));
+    expect(redirectCacheMock.cleared).toBe(1);
+    expect(redirectCacheMock.validations).toBe(1);
+  });
+
+  it("does not touch redirects when the publish leaves old addresses unchanged", async () => {
+    write("draft.en.yml", "slug: post-a\ntitle: New title\nsections: []\n");
+    recordDraftBase({ contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot });
+    const res = await promote();
+    expect(res.ok).toBe(true);
+    expect(ciStub.refreshAfterRedirectWrite).not.toHaveBeenCalled();
+    expect(redirectCacheMock.cleared).toBe(0);
   });
 });
 
@@ -441,6 +497,90 @@ describe("promoteVariantWithOptionalTeardown", () => {
     it("passes when nothing is over the limit", async () => {
       textLimitsMock.violations = [];
       expect((await promote({ callerIsMcp: true })).ok).toBe(true);
+    });
+  });
+
+  describe("robots change on publish", () => {
+    it("asks when a draft without robots would make a noindex page indexable", async () => {
+      write("_common.yml", "funnel:\n  stage: awareness\n");
+      write("en.yml", "slug: post-a\ntitle: Live title\nmeta:\n  robots: noindex\nsections: []\n");
+      write("draft.en.yml", "slug: post-a\ntitle: Draft\nsections: []\n");
+      recordDraftBase({ contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot });
+      const res = await promote();
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.code).toBe("robots_change_on_publish");
+        expect(res.status).toBe(409);
+        expect(res.details).toMatchObject({
+          locale: "en",
+          live_robots: "noindex",
+          draft_robots: "index, follow",
+          paths: { locale: "blog/post-a/en.yml" },
+        });
+      }
+      expect(load("en.yml").title).toBe("Live title");
+      expect(fs.existsSync(path.join(entryDir, "draft.en.yml"))).toBe(true);
+    });
+
+    it("also asks on dry run", async () => {
+      write("draft.en.yml", "slug: post-a\ntitle: Draft\nmeta:\n  robots: index, follow\nsections: []\n");
+      recordDraftBase({ contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot });
+      const res = await promote({ dryRun: true });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.code).toBe("robots_change_on_publish");
+    });
+
+    it("keep_live publishes the draft but keeps the live robots", async () => {
+      write("_common.yml", "funnel:\n  stage: awareness\n");
+      write("en.yml", "slug: post-a\ntitle: Live title\nmeta:\n  robots: noindex\n  page_title: Live\nsections: []\n");
+      write("draft.en.yml", "slug: post-a\ntitle: Draft\nmeta:\n  robots: index, follow\n  page_title: Draft P\nsections: []\n");
+      recordDraftBase({ contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot });
+      const res = await promote({ robotsOnPublish: "keep_live" });
+      expect(res.ok).toBe(true);
+      if (!res.ok) return;
+      const live = load("en.yml");
+      expect(live.title).toBe("Draft");
+      expect(live.meta).toEqual({ robots: "noindex", page_title: "Draft P" });
+      expect(res.warnings.find((w) => w.code === "robots_on_publish")?.details).toMatchObject({
+        choice: "keep_live",
+        live_robots: "noindex",
+        draft_robots: "index, follow",
+      });
+    });
+
+    it("keep_live drops the draft's robots when live inherited it from _common.yml", async () => {
+      write("draft.en.yml", "slug: post-a\ntitle: Draft\nmeta:\n  robots: index, follow\nsections: []\n");
+      recordDraftBase({ contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot });
+      const res = await promote({ robotsOnPublish: "keep_live" });
+      expect(res.ok).toBe(true);
+      expect(load("en.yml").meta).toBeUndefined();
+    });
+
+    it("use_draft publishes the draft's robots", async () => {
+      write("draft.en.yml", "slug: post-a\ntitle: Draft\nmeta:\n  robots: index, follow\nsections: []\n");
+      recordDraftBase({ contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot });
+      const res = await promote({ robotsOnPublish: "use_draft" });
+      expect(res.ok).toBe(true);
+      expect(load("en.yml").meta.robots).toBe("index, follow");
+    });
+
+    it("does not ask when robots stay the same (spelling of the default included)", async () => {
+      write("_common.yml", "funnel:\n  stage: awareness\n");
+      write("en.yml", "slug: post-a\ntitle: Live title\nsections: []\n");
+      write("draft.en.yml", "slug: post-a\ntitle: Draft\nmeta:\n  robots: Index,Follow\nsections: []\n");
+      recordDraftBase({ contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot });
+      const res = await promote();
+      expect(res.ok).toBe(true);
+      if (res.ok) expect(res.warnings.some((w) => w.code === "robots_on_publish")).toBe(false);
+    });
+
+    it("does not ask for a new language with no live file", async () => {
+      fs.unlinkSync(path.join(entryDir, "en.yml"));
+      write("es.yml", "slug: post-a-es\ntitle: Vivo\nsections: []\n");
+      write("draft.en.yml", "slug: post-a-en\ntitle: Draft\nmeta:\n  robots: index, follow\nsections: []\n");
+      recordDraftBase({ contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot });
+      const res = await promote();
+      if (!res.ok) expect(res.code).not.toBe("robots_change_on_publish");
     });
   });
 

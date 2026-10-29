@@ -2,7 +2,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { checkCap, denyResponse } from "../lib/auth.js";
 import { allowedToolNames, hasCapAnyScope, type CatalogGrant } from "../lib/tool-catalog.js";
-import { ok, fail, actionRequired } from "../lib/respond.js";
+import {
+  ok,
+  fail,
+  actionRequired,
+  ROBOTS_CHANGE_ON_PUBLISH_CODE,
+  ROBOTS_ON_PUBLISH_WARNINGS,
+} from "../lib/respond.js";
 import { loadContentTypes, resolveSiteContext } from "../lib/content.js";
 import { buildLoopbackHeaders } from "../lib/loopback.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
@@ -68,6 +74,12 @@ const ENTRY_INPUT_SCHEMA = z.object({
     .optional()
     .describe(
       "The draft is a translation of this published locale. Apply goes context_stale if that source changes before approval.",
+    ),
+  robots_on_publish: z
+    .enum(["keep_live", "use_draft"])
+    .optional()
+    .describe(
+      "Your intent if publishing would change this locale's effective meta.robots: keep_live or use_draft. Preselected for the reviewer, who still confirms at apply (robots_change_on_publish).",
     ),
 });
 
@@ -519,6 +531,37 @@ function draftFirstFailure(
           },
         ],
       );
+    case ROBOTS_CHANGE_ON_PUBLISH_CODE: {
+      const entries = Array.isArray(details.entries) ? (details.entries as Array<Record<string, unknown>>) : [];
+      const hint: Record<string, string> = {};
+      for (const e of entries) {
+        if (e.entry_id != null) hint[String(e.entry_id)] = typeof e.agent_choice === "string" ? e.agent_choice : "keep_live | use_draft";
+      }
+      return actionRequired(
+        {
+          success: false,
+          action_required: "confirm_robots_on_publish",
+          ...data,
+          warnings: [
+            ...ROBOTS_ON_PUBLISH_WARNINGS,
+            {
+              code: "robots_reviewer_confirms",
+              message:
+                "The author's robots_on_publish is only a preselection (details.entries[].agent_choice); the applier must still send a choice for every listed entry.",
+            },
+          ],
+        },
+        [
+          {
+            tool: "update_proposal",
+            reason:
+              "Show the user each entry's live_robots vs draft_robots and ask keep_live or use_draft; retry apply with robots_on_publish_by_entry keyed by entry_id.",
+            priority: "required",
+            args_hint: { proposal_id: ctx.proposal_id, action: "apply", robots_on_publish_by_entry: hint, ...siteArg },
+          },
+        ],
+      );
+    }
     case "confirm_affected_entries":
       return actionRequired(
         { success: false, action_required: "confirm_affected_entries", ...data },
@@ -2227,6 +2270,12 @@ export function registerProposalTools(
         .int()
         .optional()
         .describe("For apply of a shared-template proposal: must equal affected_entries.count from list_proposals(proposal_id)."),
+      robots_on_publish_by_entry: z
+        .record(z.enum(["keep_live", "use_draft"]))
+        .optional()
+        .describe(
+          "For apply (1.0), after robots_change_on_publish: { [entry_id]: keep_live | use_draft } for every listed entry. Ask the user; the author's declared intent is details.entries[].agent_choice.",
+        ),
       close_reason: z
         .enum(["wont_fix", "fixed_elsewhere", "tracked_elsewhere", "other"])
         .optional()
@@ -2402,6 +2451,7 @@ export function registerProposalTools(
             all_or_nothing: args.all_or_nothing,
             confirm_base_unknown: args.confirm_base_unknown,
             confirm_affected_entries: args.confirm_affected_entries,
+            robots_on_publish_by_entry: args.robots_on_publish_by_entry,
             close_reason: args.close_reason,
             close_note: args.close_note,
             next_step: args.next_step,

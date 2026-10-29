@@ -49,6 +49,7 @@ export const ENTRY_REF_TOOLS: ReadonlySet<string> = new Set([
   "run_entry_diagnostics",
   "regenerate_entry_previews",
   "ensure_content_type_schema_org",
+  "update_redirect",
 ]);
 
 const SHARED_SHELL_SLUGS = new Set(["template", "single"]);

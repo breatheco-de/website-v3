@@ -18,7 +18,7 @@ import {
 } from "@/components/DebugBubble/components/seoRedirectHijack";
 import { SeoRedirectsTab } from "@/components/DebugBubble/components/SeoRedirectsTab";
 import { OG_IMAGE_ENSURE_TAGS } from "@shared/standardMediaTags";
-import type { SeoModalSavingFlags } from "@/hooks/useSeoModalSaves";
+import type { SaveVisibilityOpts, SeoModalSavingFlags } from "@/hooks/useSeoModalSaves";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { useToast } from "@/hooks/use-toast";
 import { resolveAuthorName } from "@/hooks/useDebugAuth";
@@ -44,6 +44,14 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import type { ContentInfo, SeoMeta, SeoLocation, SlugRenameCheckStatus } from "../types";
 import { useResolveString } from "@/hooks/useVariables";
 import { cn } from "@/lib/utils";
+import { normalizeRobotsForForm } from "@/lib/robotsMeta";
+import {
+  fetchLocaleVisibility,
+  type LocaleVisibilityResponse,
+  type LocaleVisibilityRow,
+  type VisibilityKey,
+} from "@/lib/seoSaveApi";
+import { ApplyVisibilityLocalesDialog } from "@/components/DebugBubble/components/ApplyVisibilityLocalesDialog";
 import {
   assessSlugLocaleMatch,
   slugLocaleAckKey,
@@ -138,7 +146,7 @@ export interface SeoModalProps {
   baselineLocations: string[];
   saving: SeoModalSavingFlags;
   onSaveLocations: (locations: string[]) => Promise<void>;
-  onSaveVisibility: () => Promise<void>;
+  onSaveVisibility: (opts?: SaveVisibilityOpts) => Promise<void>;
   /** Reset robots / priority / change_frequency to last saved baseline (cancel edit). */
   onRevertVisibility?: () => void;
   onSaveSnippet: () => Promise<void>;
@@ -147,6 +155,8 @@ export interface SeoModalProps {
   onSaveCanonical: () => Promise<void>;
   onSaveOgImage: (src: string) => Promise<void>;
   visibilityDirty?: boolean;
+  /** Which of robots / priority / change_frequency changed (prefills "What to copy"). */
+  visibilityDirtyKeys?: VisibilityKey[];
   snippetDirty?: boolean;
   snippetSaveBlocked?: boolean;
   canonicalDirty?: boolean;
@@ -212,14 +222,28 @@ function resolveSchemaPreviewDocs(seoData: any): SchemaOrgPreviewDoc[] {
   return out;
 }
 
-const ROBOTS_OPTIONS = [
+const NOINDEX_SITEMAP_NOTE =
+  "This page will also be removed from the sitemap. Search engines drop it the next time they crawl it, which can take days. Priority and change frequency have no effect while noindex is on.";
+
+const ROBOTS_OPTIONS: ReadonlyArray<{ value: string; label: string; description: string; note?: string }> = [
   { value: "", label: "index, follow", description: "Show in search results and follow all links on this page. Recommended for most pages." },
-  { value: "noindex", label: "noindex", description: "Hide from search results but still follow links. Useful for private or duplicate pages." },
-  { value: "noindex, nofollow", label: "noindex, nofollow", description: "Hide from search results and don't follow any links. Use for pages you never want crawled." },
-] as const;
+  {
+    value: "noindex",
+    label: "noindex",
+    description: "Hide from search results but still follow links. Useful for private or duplicate pages.",
+    note: NOINDEX_SITEMAP_NOTE,
+  },
+  {
+    value: "noindex, nofollow",
+    label: "noindex, nofollow",
+    description: "Hide from search results and don't follow any links. Use for pages you never want crawled.",
+    note: `${NOINDEX_SITEMAP_NOTE} Links on this page are not followed either.`,
+  },
+];
 
 function formatRobotsDisplay(robots: string): string {
-  const match = ROBOTS_OPTIONS.find((o) => o.value === robots);
+  const normalized = normalizeRobotsForForm(robots);
+  const match = ROBOTS_OPTIONS.find((o) => o.value === normalized);
   if (match) return match.value === "" ? `${match.label} (default)` : match.label;
   return robots.trim() || "index, follow (default)";
 }
@@ -255,6 +279,7 @@ export function SeoModal({
   onSaveCanonical,
   onSaveOgImage,
   visibilityDirty = false,
+  visibilityDirtyKeys = [],
   snippetDirty = false,
   snippetSaveBlocked = false,
   canonicalDirty = false,
@@ -460,6 +485,78 @@ export function SeoModal({
       setCanonicalAdvancedOpen(false);
     }
   }, [open]);
+
+  const [localeVisibility, setLocaleVisibility] = useState<LocaleVisibilityResponse | null>(null);
+  const [applyLocalesOpen, setApplyLocalesOpen] = useState(false);
+  const [applyLocalesRows, setApplyLocalesRows] = useState<LocaleVisibilityRow[] | null>(null);
+  const [applyLocalesError, setApplyLocalesError] = useState<string | null>(null);
+  const isLiveContext = seoContext === "live";
+
+  const loadLocaleVisibility = async (): Promise<LocaleVisibilityResponse | null> => {
+    if (!contentInfo.type || !contentInfo.slug) return null;
+    const fresh = await fetchLocaleVisibility({
+      contentType: contentInfo.type,
+      slug: contentInfo.slug,
+      locale,
+    });
+    setLocaleVisibility(fresh);
+    return fresh;
+  };
+
+  useEffect(() => {
+    setLocaleVisibility(null);
+    if (!open || !visibilityEditing || !isLiveContext) return;
+    loadLocaleVisibility().catch(() => setLocaleVisibility(null));
+  }, [open, visibilityEditing, isLiveContext, contentInfo.type, contentInfo.slug, locale]);
+
+  const visibilityPromptNever = !isLiveContext || localeVisibility?.supported === false;
+
+  const saveVisibilityAndClose = async (saveOpts: SaveVisibilityOpts): Promise<boolean> => {
+    try {
+      await onSaveVisibility(saveOpts);
+      setVisibilityEditing(false);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleSaveVisibilityClick = async () => {
+    if (!isLiveContext || !contentInfo.type || !contentInfo.slug) {
+      await saveVisibilityAndClose({});
+      return;
+    }
+    if (localeVisibility && (!localeVisibility.supported || localeVisibility.locales.length === 0)) {
+      await saveVisibilityAndClose({ inheritedRobots: localeVisibility.current_inherited_robots });
+      return;
+    }
+    setApplyLocalesRows(null);
+    setApplyLocalesError(null);
+    setApplyLocalesOpen(true);
+    try {
+      const fresh = await loadLocaleVisibility();
+      if (!fresh || !fresh.supported || fresh.locales.length === 0) {
+        setApplyLocalesOpen(false);
+        await saveVisibilityAndClose({ inheritedRobots: fresh?.current_inherited_robots });
+        return;
+      }
+      setApplyLocalesRows(fresh.locales);
+    } catch (err) {
+      setApplyLocalesError(err instanceof Error ? err.message : "unknown error");
+    }
+  };
+
+  const handleApplyLocalesConfirm = async (choice: { locales: string[]; copyKeys: VisibilityKey[] }) => {
+    const rows = applyLocalesRows ?? [];
+    const ok = await saveVisibilityAndClose({
+      inheritedRobots: localeVisibility?.current_inherited_robots,
+      otherLocales: rows
+        .filter((r) => choice.locales.includes(r.locale))
+        .map((r) => ({ locale: r.locale, inherited_robots: r.inherited_robots })),
+      copyKeys: choice.copyKeys,
+    });
+    if (ok) setApplyLocalesOpen(false);
+  };
 
   const resolveString = useResolveString();
   const resolvedPageTitle = useMemo(() => {
@@ -1649,31 +1746,43 @@ export function SeoModal({
                         Control how search engines crawl and index this page.
                       </p>
                       <div className="space-y-1.5" data-testid="select-seo-robots">
-                        {ROBOTS_OPTIONS.map(({ value, label, description }) => (
-                          <label
-                            key={value}
-                            className={`flex items-start gap-2.5 rounded-md border px-3 py-2 cursor-pointer hover-elevate ${seoMeta.robots === value ? "border-ring bg-muted/50" : ""}`}
-                            data-testid={`option-seo-robots-${value || "default"}`}
-                          >
-                            <input
-                              type="radio"
-                              name="seo-robots"
-                              value={value}
-                              checked={seoMeta.robots === value}
-                              onChange={() => setSeoMeta({ ...seoMeta, robots: value })}
-                              className="mt-0.5 shrink-0"
-                            />
-                            <div className="space-y-0.5">
-                              <p className="text-xs font-mono font-medium text-foreground leading-none">
-                                {label}
-                                {value === "" && (
-                                  <span className="ml-1.5 text-muted-foreground font-sans font-normal">(default)</span>
-                                )}
-                              </p>
-                              <p className="text-xs text-muted-foreground">{description}</p>
-                            </div>
-                          </label>
-                        ))}
+                        {ROBOTS_OPTIONS.map(({ value, label, description, note }) => {
+                          const selected = normalizeRobotsForForm(seoMeta.robots) === value;
+                          return (
+                            <label
+                              key={value}
+                              className={`flex items-start gap-2.5 rounded-md border px-3 py-2 cursor-pointer hover-elevate ${selected ? "border-ring bg-muted/50" : ""}`}
+                              data-testid={`option-seo-robots-${value || "default"}`}
+                            >
+                              <input
+                                type="radio"
+                                name="seo-robots"
+                                value={value}
+                                checked={selected}
+                                onChange={() => setSeoMeta({ ...seoMeta, robots: value })}
+                                className="mt-0.5 shrink-0"
+                              />
+                              <div className="space-y-0.5">
+                                <p className="text-xs font-mono font-medium text-foreground leading-none">
+                                  {label}
+                                  {value === "" && (
+                                    <span className="ml-1.5 text-muted-foreground font-sans font-normal">(default)</span>
+                                  )}
+                                </p>
+                                <p className="text-xs text-muted-foreground">{description}</p>
+                                {selected && note ? (
+                                  <p
+                                    className="mt-1.5 flex items-start gap-1.5 rounded border bg-background px-2 py-1.5 text-xs text-foreground"
+                                    data-testid={`note-seo-robots-${value}`}
+                                  >
+                                    <Info className="h-3.5 w-3.5 mt-px shrink-0 text-muted-foreground" aria-hidden />
+                                    <span>{note}</span>
+                                  </p>
+                                ) : null}
+                              </div>
+                            </label>
+                          );
+                        })}
                       </div>
                     </div>
 
@@ -1723,19 +1832,17 @@ export function SeoModal({
                       </p>
                     </div>
 
+                    {visibilityPromptNever ? (
+                      <p className="text-xs text-muted-foreground" data-testid="text-visibility-this-language-only">
+                        Saves this language only. Other languages keep their own settings.
+                      </p>
+                    ) : null}
                     <div className="flex flex-wrap gap-2 pt-1">
                       <Button
                         size="sm"
                         disabled={!visibilityDirty || !!saving.visibility}
                         onClick={() => {
-                          void (async () => {
-                            try {
-                              await onSaveVisibility();
-                              setVisibilityEditing(false);
-                            } catch {
-                              /* stay in edit mode */
-                            }
-                          })();
+                          void handleSaveVisibilityClick();
                         }}
                         data-testid="button-save-visibility"
                       >
@@ -1905,6 +2012,24 @@ export function SeoModal({
         setOgImageError(false);
         setOgImageTooSmall(false);
         void onSaveOgImage(src);
+      }}
+    />
+
+    <ApplyVisibilityLocalesDialog
+      open={applyLocalesOpen}
+      onOpenChange={setApplyLocalesOpen}
+      currentLocale={locale}
+      locales={applyLocalesRows}
+      loadError={applyLocalesError}
+      dirtyKeys={visibilityDirtyKeys}
+      newValues={{
+        robots: seoMeta.robots,
+        priority: seoMeta.priority,
+        change_frequency: seoMeta.change_frequency,
+      }}
+      saving={!!saving.visibility}
+      onConfirm={(choice) => {
+        void handleApplyLocalesConfirm(choice);
       }}
     />
     </>

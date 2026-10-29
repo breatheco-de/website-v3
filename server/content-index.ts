@@ -495,33 +495,8 @@ export class ContentIndex {
               (Boolean(variantLocaleMatch) ||
                 /^(?:template|single)\.[a-z0-9-]+\./i.test(baseName) ||
                 /^[a-z0-9-]+\.[a-z]{2}/i.test(baseName));
-            if (isVariantLayer && variantLocaleMatch) {
-              const liveLocale = variantLocaleMatch[1]!;
-              const hasLive =
-                entry.files.some(
-                  (f) =>
-                    f === `${liveLocale}.yml` ||
-                    f === `${liveLocale}.yaml` ||
-                    f === `template.${liveLocale}.yml` ||
-                    f === `template.${liveLocale}.yaml` ||
-                    f === `single.${liveLocale}.yml` ||
-                    f === `single.${liveLocale}.yaml`,
-                ) || entry.locales.includes(liveLocale);
-              if (hasLive) {
-                // Redirects on variant overlays are ignored when a live locale exists.
-              } else {
-                const localeSlugForRedirect =
-                  parsed.slug && typeof parsed.slug === "string" ? parsed.slug : entry.slug;
-                this.extractRedirects(
-                  parsed,
-                  entry.slug,
-                  liveLocale,
-                  entry.contentType,
-                  relFilePath,
-                  localeSlugForRedirect,
-                  nextRedirects,
-                );
-              }
+            if (isVariantLayer) {
+              // Draft / variant redirects take effect only when the variant is published.
             } else if (isLiveLocale || baseName === "_common") {
               const localeSlugForRedirect =
                 parsed.slug && typeof parsed.slug === "string" ? parsed.slug : entry.slug;
@@ -1853,31 +1828,8 @@ export class ContentIndex {
           /^(?:template|single)\.[a-z0-9-]+\./i.test(baseName) ||
           /^[a-z0-9-]+\.[a-z]{2}/i.test(baseName));
 
-      if (isVariantLayer && variantLocaleMatch) {
-        const liveLocale = variantLocaleMatch[1]!;
-        const hasLive =
-          entry.files.some(
-            (f) =>
-              f === `${liveLocale}.yml` ||
-              f === `${liveLocale}.yaml` ||
-              f === `template.${liveLocale}.yml` ||
-              f === `template.${liveLocale}.yaml` ||
-              f === `single.${liveLocale}.yml` ||
-              f === `single.${liveLocale}.yaml`,
-          ) || entry.locales.includes(liveLocale);
-        if (!hasLive) {
-          const localeSlugForRedirect =
-            parsed.slug && typeof parsed.slug === "string" ? parsed.slug : entry.slug;
-          this.extractRedirects(
-            parsed,
-            entry.slug,
-            liveLocale,
-            entry.contentType,
-            sourceRel,
-            localeSlugForRedirect,
-            next,
-          );
-        }
+      if (isVariantLayer) {
+        // Draft / variant redirects take effect only when the variant is published.
       } else if (isLiveLocale || baseName === "_common") {
         const localeSlugForRedirect =
           parsed.slug && typeof parsed.slug === "string" ? parsed.slug : entry.slug;

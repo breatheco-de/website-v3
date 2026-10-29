@@ -41,6 +41,9 @@ import {
   clearRedirectCache,
   testRedirect,
 } from "../redirects";
+import { hasRedirectChanges } from "../redirect-items";
+import { variantRedirectChanges } from "../versioning/draft-base";
+import { parseRobotsOnPublish, ROBOTS_CHANGE_ON_PUBLISH_CODE } from "../versioning/robots-on-publish";
 import {
   getSchema,
   getMergedSchemas,
@@ -602,6 +605,39 @@ export function registerVersioningRoutes(app: Express): void {
               });
               return;
             }
+          }
+        }
+
+        // Old addresses cannot be split between visitors: a variant that changes them only goes live by publishing.
+        if (!resolved.templateMode) {
+          const blocked: Array<{ variant: string; added: string[]; removed: string[]; changed: string[] }> = [];
+          for (const v of parseResult.data.variants) {
+            if (v.allocation <= 0 || v.slug === "default") continue;
+            const changes = variantRedirectChanges({
+              contentType,
+              slug: resolved.slug,
+              locale,
+              variant: v.slug,
+              contentRoot: root,
+            });
+            if (hasRedirectChanges(changes)) {
+              blocked.push({
+                variant: v.slug,
+                added: changes.added.map((i) => i.path),
+                removed: changes.removed.map((i) => i.path),
+                changed: changes.changed.map((i) => i.path),
+              });
+            }
+          }
+          if (blocked.length > 0) {
+            res.status(400).json({
+              code: "variant_has_redirect_changes",
+              error:
+                `${blocked.map((b) => `"${b.variant}"`).join(", ")} changes the page's old addresses. ` +
+                "Redirects can't be split between visitors, so publish it instead of giving it traffic, or remove the redirect changes first. You can still lower traffic to 0%.",
+              variants: blocked,
+            });
+            return;
           }
         }
 
@@ -1225,12 +1261,19 @@ export function registerVersioningRoutes(app: Express): void {
         seoStandaloneReason:
           typeof req.body?.seo_standalone_reason === "string" ? req.body.seo_standalone_reason : null,
         localeUrlSlugs: localeUrlSlugsFromBody(req.body),
+        robotsOnPublish: parseRobotsOnPublish(req.body?.robots_on_publish),
       });
 
     try {
       // All-or-nothing: every locale must pass every check before any file is written.
+      // Robots changes are collected across locales so one choice can answer them all.
+      const robotsChanges: Array<Record<string, unknown>> = [];
       for (const locale of draftLocales) {
         const check = await promoteLocale(locale, true);
+        if (!check.ok && check.code === ROBOTS_CHANGE_ON_PUBLISH_CODE) {
+          robotsChanges.push(check.details ?? { locale });
+          continue;
+        }
         if (!check.ok) {
           res.status(check.status ?? 400).json({
             error: `Cannot publish: ${check.error} (locale ${locale})`,
@@ -1240,6 +1283,15 @@ export function registerVersioningRoutes(app: Express): void {
           });
           return;
         }
+      }
+      if (robotsChanges.length > 0) {
+        const langs = robotsChanges.map((c) => String(c.locale)).join(", ");
+        res.status(409).json({
+          error: `Publishing changes whether search engines can see this page in ${langs}. Choose to keep the live values or use the draft's (one choice applies to every listed language).`,
+          code: ROBOTS_CHANGE_ON_PUBLISH_CODE,
+          details: { locales: robotsChanges },
+        });
+        return;
       }
 
       const publishedLocales: string[] = [];
@@ -1342,6 +1394,7 @@ export function registerVersioningRoutes(app: Express): void {
       seoStandaloneReason:
         typeof req.body?.seo_standalone_reason === "string" ? req.body.seo_standalone_reason : null,
       localeUrlSlugs: localeUrlSlugsFromBody(req.body),
+      robotsOnPublish: parseRobotsOnPublish(req.body?.robots_on_publish),
     });
     if (!result.ok) {
       res.status(result.status ?? 400).json({

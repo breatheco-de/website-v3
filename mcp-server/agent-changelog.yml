@@ -6,6 +6,41 @@ window_days: 6
 
 entries:
   - date: "2026-10-29"
+    summary: "Promoting a draft that changes a language's effective meta.robots now asks: robots_change_on_publish (keep_live | use_draft) on promote_variant and proposal apply"
+    agent_impact:
+      - "promote_variant: effective meta.robots (locale over _common.yml) differs live vs after publish → action_required confirm_robots_on_publish, code robots_change_on_publish, details.live_robots / draft_robots / locale / paths.locale. Ask the user, retry with robots_on_publish: keep_live (draft published, live robots kept) | use_draft. Drafts missing robots while live is noindex count. New languages (publish_draft, no live file) and priority / change_frequency are not gated."
+      - "update_proposal apply: same check per entry → robots_change_on_publish with details.entries[] { entry_id, live_robots, draft_robots, agent_choice }; retry with robots_on_publish_by_entry { [entry_id]: choice } for every listed entry. propose_change / revise entries[].robots_on_publish only preselects agent_choice for the reviewer."
+      - "Conventions §3: robots_on_publish joins the ask-the-human confirms (CONVENTIONS_VERSION 42)."
+    tools_changed: false
+    paths:
+      - server/versioning/promote-with-teardown.ts
+      - server/versioning/robots-on-publish.ts
+      - server/content-proposals/service.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/lib/respond.ts
+      - mcp-server/explain/content_system.md
+      - mcp-server/explain/proposals.md
+      - mcp-server/agent-conventions.md
+  - date: "2026-10-29"
+    summary: "Draft redirects: update_redirect with variant stages a page's own old addresses on its 0%-traffic draft (seo_edit); they take effect only on publish. update_fields rejects meta.redirects"
+    agent_impact:
+      - "update_redirect draft mode: variant + content_type + slug + locale + from (add|delete; no to/before_from/removed_entry/priority/confirms; no regex; move refused). Cap seo_edit for content_type (live mode still edit_redirects). update_redirect is now visible to seo_edit roles; SEO Specialist and Publisher also gain read_redirects (test_redirect). Refusals: draft_missing (next_actions create_variant), draft_has_traffic, already_in_draft, live_content / already_redirected / pattern_match (except this page's own current address when the draft renames it in that locale). Warning draft_redirect_dormant."
+      - "Draft/variant meta.redirects are never indexed (also on never-published pages); test_redirect shows live only. Traffic save refuses variant_has_redirect_changes for a variant whose old addresses differ from today's live file. Publish merges meta.redirects per address with live changes (conflict only on the same address: meta.redirects[/path]), re-checks added addresses and drops conflicting ones with warning draft_redirects_skipped (details.skipped[]), then flushes redirect cache + queues redirects validation."
+      - "update_fields / update_entry_attributes fail meta_redirects_use_update_redirect for meta.redirects (or a whole meta value containing redirects); next_actions update_redirect. Reconnect the MCP connector so SEO roles see update_redirect."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/redirects.ts
+      - mcp-server/lib/redirect-update.ts
+      - server/redirect-draft.ts
+      - server/redirect-items.ts
+      - server/versioning/draft-base.ts
+      - server/versioning/promote-with-teardown.ts
+      - server/routes/versioning.ts
+      - shared/mcp-tool-catalog.ts
+      - shared/agentic-swarm-roles.ts
+      - mcp-server/explain/redirects.md
+  - date: "2026-10-29"
     summary: "Any slug names a page: entry tools, propose_change and list_entries accept the page ID or any language's address in any spelling; list_entries returns one row per page with entry_id + locale_slugs"
     agent_impact:
       - "Page ID (entry_id) = the entry folder name, stable across renames and languages. Slugs are per-language public addresses ({locale}.yml slug, else _common.yml slug, else the ID). Entry tools (get_entry_content/seo/fields, update_fields, section/variant tools, translate_entry, …) and propose_change entries[] accept either, compared by slugKey (lowercase, accents stripped, non-alphanumerics → -), so array-vacio-javascript or HOW_TO_PRINT_IN_JAVASCRIPT finds the page. A language's slug serves that language when locale is omitted; an explicit locale wins with warning slug_locale_mismatch. Resolutions add warning slug_resolved (slug, entry_id, matched_by, locale) — reuse entry_id afterwards. Stored proposals always hold the page ID."

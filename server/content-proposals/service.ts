@@ -20,6 +20,11 @@ import {
   type ResolveRecentActivityResult,
 } from "./entry-activity";
 import { hashVariantFileContents } from "../versioning/promote-with-teardown";
+import {
+  parseRobotsOnPublish,
+  ROBOTS_CHANGE_ON_PUBLISH_CODE,
+  type RobotsOnPublish,
+} from "../versioning/robots-on-publish";
 import path from "path";
 import { sameValue, type FieldChange } from "../versioning/draft-base";
 import { fieldScope } from "@shared/field-scope";
@@ -377,7 +382,14 @@ export type ProposalEntryInput = {
   updates?: FieldUpdate[];
   /** v1.0: the draft is a translation of this published locale (records `_draft.translated_from`). */
   translated_from_locale?: string;
+  /** Agent's intent when the publish would change robots; the reviewer still confirms at apply. */
+  robots_on_publish?: RobotsOnPublish;
 };
+
+function robotsIntentOf(input: { robots_on_publish?: unknown } | undefined): { robots_on_publish?: RobotsOnPublish } {
+  const choice = parseRobotsOnPublish(input?.robots_on_publish);
+  return choice ? { robots_on_publish: choice } : {};
+}
 
 export type ProposalEntryRow = {
   id: number;
@@ -394,6 +406,8 @@ export type ProposalEntryRow = {
     creates_entry?: boolean;
     /** v1.0: who owned the layout when the entry was filed / revised (layout-switch check). */
     layout_owner?: LayoutOwner;
+    /** Author's declared robots choice (preselected for the reviewer, never applied without confirm). */
+    robots_on_publish?: RobotsOnPublish;
   };
   last_error: string | null;
   applied_at: number | null;
@@ -1065,6 +1079,8 @@ export type ProposalUpdateCaller = {
   caller_is_mcp?: boolean;
   /** apply (v1.0) of a template proposal: must equal `affected_entries.count`. */
   confirm_affected_entries?: number;
+  /** apply (v1.0): reviewer's answer per entry id when the publish would change robots. */
+  robots_on_publish_by_entry?: Record<string, RobotsOnPublish>;
   /** set_applies_after: predecessor id, or null / "" to unlink. */
   applies_after_proposal_id?: string | null;
 };
@@ -1306,12 +1322,16 @@ function withCachedView(entry: ProposalEntryRow): ProposalEntryRow {
   return next;
 }
 
-/** The derived view replaces `baseline_context`; keep the owner stored at filing. */
+/** The derived view replaces `baseline_context`; keep the owner and robots intent stored at filing. */
 function withFilingOwner(
   derived: ProposalEntryRow["baseline_context"],
   stored: ProposalEntryRow["baseline_context"] | undefined,
 ): ProposalEntryRow["baseline_context"] {
-  return stored?.layout_owner ? { ...derived, layout_owner: stored.layout_owner } : derived;
+  return {
+    ...derived,
+    ...(stored?.layout_owner ? { layout_owner: stored.layout_owner } : {}),
+    ...(stored?.robots_on_publish ? { robots_on_publish: stored.robots_on_publish } : {}),
+  };
 }
 
 /** v1.0: `ops` / `baseline_context` are a read-only view of the draft (author diff). */
@@ -1742,6 +1762,8 @@ export type PromoteEntryOpts = {
   caller_is_mcp?: boolean;
   /** New locale published standalone (seo.pillar_path: null): the proposal's seo_target_override reason. */
   seo_standalone_reason?: string | null;
+  /** Reviewer's answer to `robots_change_on_publish` for this entry. */
+  robots_on_publish?: RobotsOnPublish;
 };
 
 export type PromoteEntryResult = {
@@ -4969,6 +4991,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
     return out;
   }
 
+  function reviewerRobotsChoice(entry: ProposalEntryRow, caller: ProposalUpdateCaller): RobotsOnPublish | undefined {
+    return parseRobotsOnPublish(caller.robots_on_publish_by_entry?.[String(entry.id)]);
+  }
+
   /** Map promote failures to proposal terms (apply never overwrites newer live). */
   function applyFailureFor(code: string | undefined, details: Record<string, unknown> | undefined) {
     const staleDetails = (reason: string) => {
@@ -5051,14 +5077,23 @@ export function createProposalService(deps: ProposalServiceDeps) {
       confirm_text_limits: caller.confirm_text_limits,
       caller_is_mcp: caller.caller_is_mcp,
       seo_standalone_reason: seoReason,
+      robots_on_publish: reviewerRobotsChoice(entry, caller),
     });
     if (!dry.ok) {
       const mapped = applyFailureFor(dry.code, dry.details);
+      const details =
+        dry.code === ROBOTS_CHANGE_ON_PUBLISH_CODE
+          ? {
+              ...(mapped.details ?? {}),
+              entry_id: entry.id,
+              agent_choice: entry.baseline_context?.robots_on_publish ?? null,
+            }
+          : mapped.details;
       return {
         ...out,
         code: mapped.code,
         error: dry.error ?? "promote check failed",
-        ...(mapped.details ? { details: mapped.details } : {}),
+        ...(details ? { details } : {}),
       };
     }
     const displayWarnings = (dry.warnings ?? []).filter((w) => w.code === "display_values_change");
@@ -5183,6 +5218,24 @@ export function createProposalService(deps: ProposalServiceDeps) {
         },
       };
     }
+    const robotsChanges = failed.filter((c) => c.code === ROBOTS_CHANGE_ON_PUBLISH_CODE);
+    if (robotsChanges.length && !caller.dry_run) {
+      return {
+        ok: false as const,
+        code: ROBOTS_CHANGE_ON_PUBLISH_CODE,
+        error:
+          "Publishing changes whether search engines can see some pages. For each entry, choose keep_live or use_draft and re-send with robots_on_publish_by_entry ({ [entry_id]: choice }).",
+        proposal,
+        details: {
+          entries: robotsChanges.map((c) => ({
+            entry_key: c.entry_key,
+            locale: c.locale,
+            variant: c.variant,
+            ...(c.details ?? {}),
+          })),
+        },
+      };
+    }
     const placeholderGaps = affected ? templatePlaceholderWarnings(work) : [];
     if (caller.dry_run) {
       const chainGate = predecessorGate(db, proposal);
@@ -5257,6 +5310,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         confirm_text_limits: caller.confirm_text_limits,
         caller_is_mcp: caller.caller_is_mcp,
         seo_standalone_reason: proposal.seo_target_override?.reason ?? null,
+        robots_on_publish: reviewerRobotsChoice(entry, caller),
       });
       if (!promoted.ok) {
         const mapped = applyFailureFor(promoted.code, promoted.details);
@@ -6422,6 +6476,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           values: {},
           ...(input.situation_note ? { note: input.situation_note } : {}),
           ...layoutOwnerAtFiling(plan.ref),
+          ...robotsIntentOf(plan.input),
         }),
         plan.fingerprint,
         plan.created ? 1 : 0,
@@ -8222,7 +8277,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           plan.ref.variant,
           "pending",
           JSON.stringify(plan.input.updates),
-          JSON.stringify({ values: {}, ...layoutOwnerAtFiling(plan.ref) }),
+          JSON.stringify({ values: {}, ...layoutOwnerAtFiling(plan.ref), ...robotsIntentOf(plan.input) }),
           plan.fingerprint,
           plan.created ? 1 : 0,
         );
@@ -10059,6 +10114,7 @@ export async function promoteEntryOnSite(
     confirmTextLimits: opts.confirm_text_limits === true,
     dryRun: opts.dry_run === true,
     seoStandaloneReason: opts.seo_standalone_reason ?? null,
+    robotsOnPublish: opts.robots_on_publish ?? null,
   });
   if (!result.ok) {
     return {

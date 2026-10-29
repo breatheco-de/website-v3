@@ -8,8 +8,23 @@ import {
   saveOptionalMetaFields,
   saveSnippetMeta,
   saveVisibilitySettings,
+  saveVisibilityToLocales,
   VISIBILITY_META_KEYS,
+  type VisibilityKey,
+  type VisibilityLocaleTarget,
 } from "@/lib/seoSaveApi";
+
+export type SaveVisibilityOpts = {
+  /** Page-wide robots under the current locale (explicit "index, follow" rule). */
+  inheritedRobots?: string;
+  /** Other live languages to copy `copyKeys` to after the current one saves. */
+  otherLocales?: VisibilityLocaleTarget[];
+  copyKeys?: VisibilityKey[];
+};
+
+function localeLabel(locale: string): string {
+  return locale.toUpperCase();
+}
 
 export type SeoModalSavingFlags = {
   locations?: boolean;
@@ -102,26 +117,59 @@ export function useSeoModalSaves(opts: UseSeoModalSavesOpts) {
     [opts, toast],
   );
 
-  const saveVisibility = useCallback(async () => {
-    const target = patchTarget();
-    if (!target) return;
-    setSaving((s) => ({ ...s, visibility: true }));
-    try {
-      await saveVisibilitySettings({ ...metaSaveContext(), ...target });
-      afterMetaSave([...VISIBILITY_META_KEYS]);
-      toast({ title: "Visibility settings saved" });
-      opts.onSaved?.(["meta"]);
-    } catch (error) {
-      toast({
-        title: "Failed to save visibility",
-        description: error instanceof Error ? error.message : "Could not save visibility settings.",
-        variant: "destructive",
-      });
-      throw error;
-    } finally {
-      setSaving((s) => ({ ...s, visibility: false }));
-    }
-  }, [afterMetaSave, metaSaveContext, opts, patchTarget, toast]);
+  const saveVisibility = useCallback(
+    async (saveOpts?: SaveVisibilityOpts) => {
+      const target = patchTarget();
+      if (!target) return;
+      setSaving((s) => ({ ...s, visibility: true }));
+      try {
+        try {
+          await saveVisibilitySettings({
+            ...metaSaveContext(),
+            ...target,
+            inheritedRobots: saveOpts?.inheritedRobots,
+          });
+        } catch (error) {
+          toast({
+            title: "Failed to save visibility",
+            description: error instanceof Error ? error.message : "Could not save visibility settings.",
+            variant: "destructive",
+          });
+          throw error;
+        }
+        const seoMetaAtSave = opts.seoMeta;
+        afterMetaSave([...VISIBILITY_META_KEYS]);
+        opts.onSaved?.(["meta"]);
+
+        const others = saveOpts?.otherLocales ?? [];
+        const copyKeys = saveOpts?.copyKeys ?? [];
+        if (others.length === 0 || copyKeys.length === 0) {
+          toast({ title: "Visibility settings saved" });
+          return;
+        }
+        const { saved, failed } = await saveVisibilityToLocales({
+          contentType: target.contentType,
+          slug: target.slug,
+          seoMeta: seoMetaAtSave,
+          copyKeys,
+          targets: others,
+        });
+        const savedLabel = [target.locale, ...saved].map(localeLabel).join(", ");
+        if (failed.length > 0) {
+          toast({
+            title: `Saved for ${savedLabel}. Failed for ${failed.map(localeLabel).join(", ")}`,
+            description: "Those languages keep their previous settings. Open them to retry.",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: `Visibility settings saved for ${savedLabel}` });
+        }
+      } finally {
+        setSaving((s) => ({ ...s, visibility: false }));
+      }
+    },
+    [afterMetaSave, metaSaveContext, opts, patchTarget, toast],
+  );
 
   const saveSnippet = useCallback(async () => {
     const target = patchTarget();

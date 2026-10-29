@@ -58,11 +58,12 @@ export const AGENTIC_SWARM_ROLES_BY_ID: Record<AgenticSwarmRoleId, AgenticSwarmR
   seo_specialist: {
     label: "SEO Specialist",
     description:
-      "Per-entry SEO and clusters; may read private databases and file and withdraw proposals — not page structure, database row edits, apply/reject, or publish.",
+      "Per-entry SEO and clusters, including a page's old addresses (redirects) on its drafts; may read private databases and file and withdraw proposals — not live redirects, page structure, database row edits, apply/reject, or publish.",
     capabilities: [
       { name: "content_view", contentTypes: "*" },
       { name: "databases_view" },
       { name: "seo_edit", contentTypes: "*" },
+      { name: "read_redirects" },
       { name: "proposals_create" },
     ],
   },
@@ -113,11 +114,12 @@ export const AGENTIC_SWARM_ROLES_BY_ID: Record<AgenticSwarmRoleId, AgenticSwarmR
   publisher: {
     label: "Publisher",
     description:
-      "Promote drafts, go-live with SEO diagnostics, and full proposal lifecycle — not layout or body rewrites.",
+      "Promote drafts, go-live with SEO diagnostics (including a page's old addresses on its drafts), and full proposal lifecycle — not live redirects, layout, or body rewrites.",
     capabilities: [
       { name: "content_view", contentTypes: "*" },
       { name: "content_promote_variant", contentTypes: "*" },
       { name: "seo_edit", contentTypes: "*" },
+      { name: "read_redirects" },
       { name: "proposals_create" },
       { name: "proposals_review" },
     ],

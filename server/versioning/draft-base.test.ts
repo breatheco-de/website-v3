@@ -1,6 +1,23 @@
-import { describe, expect, it } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import yaml from "js-yaml";
-import { diffDraftAgainst, draftSeedFromLive, draftSeedFromLiveRaw } from "./draft-base";
+
+vi.mock("../sync-state", () => ({ markFileAsModified: vi.fn() }));
+
+import { resetRegistry } from "../content-types";
+import {
+  createMemoryDraftBaseStore,
+  diffDraftAgainst,
+  draftSeedFromLive,
+  draftSeedFromLiveRaw,
+  rebuildDraftFromBase,
+  recordDraftBase,
+  setDraftBaseStore,
+  variantRedirectChanges,
+  type DraftRef,
+} from "./draft-base";
 
 describe("draftSeedFromLive: legacy language funnel", () => {
   const personaFunnel = {
@@ -71,5 +88,83 @@ describe("diffDraftAgainst", () => {
   it("keeps meta.* nulls as removals, since publish deletes them", () => {
     const changes = diffDraftAgainst({ meta: { robots: null } }, { live: { meta: { robots: null } }, common: null });
     expect(changes.map((c) => c.field_path)).toEqual(["meta.robots"]);
+  });
+});
+
+describe("old addresses (meta.redirects) on drafts", () => {
+  const ORIGINAL_CWD = process.cwd();
+  let tempDir: string;
+  let contentRoot: string;
+  let entryDir: string;
+  let ref: DraftRef;
+
+  const page = (redirects: unknown[], extra: Record<string, unknown> = {}) =>
+    yaml.dump({ slug: "post-a", title: "T", ...extra, meta: { page_title: "P", redirects } });
+  const writeLive = (redirects: unknown[], extra?: Record<string, unknown>) =>
+    fs.writeFileSync(path.join(entryDir, "en.yml"), page(redirects, extra), "utf-8");
+  const writeDraft = (redirects: unknown[], extra?: Record<string, unknown>) =>
+    fs.writeFileSync(path.join(entryDir, "draft.en.yml"), page(redirects, extra), "utf-8");
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "draft-base-redirects-"));
+    contentRoot = path.join(tempDir, "site_test");
+    entryDir = path.join(contentRoot, "blog", "post-a");
+    fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(contentRoot, "content-types.yml"),
+      "blog:\n  directory: blog\n  url_pattern:\n    en: /en/blog/:slug\n",
+      "utf-8",
+    );
+    process.chdir(tempDir);
+    resetRegistry(contentRoot);
+    setDraftBaseStore(createMemoryDraftBaseStore());
+    ref = { contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot };
+    writeLive(["/old-a"]);
+    writeDraft(["/old-a"]);
+    recordDraftBase(ref, { skipMark: true });
+  });
+
+  afterEach(() => {
+    process.chdir(ORIGINAL_CWD);
+    resetRegistry(contentRoot);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("rebuild merges per address: draft adds/removes plus live adds/removes", () => {
+    writeDraft(["/draft-add"]);
+    writeLive(["/old-a", "/live-add"], { title: "T2" });
+    const rebuilt = rebuildDraftFromBase(ref, { preview: true });
+    expect(rebuilt.ok).toBe(true);
+    if (!rebuilt.ok) return;
+    expect((rebuilt.result.meta as Record<string, unknown>).redirects).toEqual(["/live-add", "/draft-add"]);
+    expect(rebuilt.result.title).toBe("T2");
+    expect(rebuilt.redirects_kept_from_live).toEqual(["/live-add"]);
+  });
+
+  it("a live removal stays removed even though the draft keeps the old copy", () => {
+    writeDraft(["/old-a", "/draft-add"]);
+    writeLive([]);
+    const rebuilt = rebuildDraftFromBase(ref, { preview: true });
+    expect(rebuilt.ok).toBe(true);
+    if (rebuilt.ok) expect((rebuilt.result.meta as Record<string, unknown>).redirects).toEqual(["/draft-add"]);
+  });
+
+  it("the same address changed differently on both sides conflicts on that address only", () => {
+    writeDraft([{ path: "/old-a", status: 302 }]);
+    writeLive([]);
+    const rebuilt = rebuildDraftFromBase(ref, { preview: true });
+    expect(rebuilt.ok).toBe(false);
+    if (!rebuilt.ok) expect(rebuilt.conflicting_fields?.map((c) => c.field_path)).toEqual(["meta.redirects[/old-a]"]);
+  });
+
+  it("variantRedirectChanges compares with today's live: copied addresses are not changes", () => {
+    expect(variantRedirectChanges(ref)).toEqual({ added: [], removed: [], changed: [] });
+    writeDraft(["/old-a", "/draft-add"]);
+    expect(variantRedirectChanges(ref).added.map((i) => i.path)).toEqual(["/draft-add"]);
+  });
+
+  it("variantRedirectChanges counts an address live gained after the draft was made as a change", () => {
+    writeLive(["/old-a", "/live-add"]);
+    expect(variantRedirectChanges(ref).removed.map((i) => i.path)).toEqual(["/live-add"]);
   });
 });

@@ -702,6 +702,10 @@ export function registerProposalRoutes(app: Express): void {
       caller_is_mcp: typeof req.headers["x-mcp-author"] === "string",
       confirm_affected_entries:
         typeof req.body?.confirm_affected_entries === "number" ? req.body.confirm_affected_entries : undefined,
+      robots_on_publish_by_entry:
+        req.body?.robots_on_publish_by_entry && typeof req.body.robots_on_publish_by_entry === "object"
+          ? (req.body.robots_on_publish_by_entry as Record<string, "keep_live" | "use_draft">)
+          : undefined,
       dry_run: req.body?.dry_run === true,
       all_or_nothing:
         typeof req.body?.all_or_nothing === "boolean" ? req.body.all_or_nothing : undefined,
@@ -792,7 +796,8 @@ export function registerProposalRoutes(app: Express): void {
                 result.code === "predecessor_not_applied" ||
                 result.code === "applies_after_cycle" ||
                 result.code === "implements_edit_open" ||
-                result.code === "idea_already_implemented"
+                result.code === "idea_already_implemented" ||
+                result.code === "robots_change_on_publish"
               ? 409
               : result.code === "text_limits_exceeded"
                 ? 422

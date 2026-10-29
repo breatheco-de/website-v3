@@ -61,7 +61,7 @@ const ENTRY_SOURCE_ALLOWLIST: Record<string, Allowed> = {
 
   "server/routes/content.ts": { count: 28, reason: "content type manage API: database config, listings, field override writes" },
   "server/initial-data-middleware.ts": { count: 2, reason: "content types payload: has_database flag and database slug" },
-  "server/routes/seo.ts": { count: 2, reason: "SEO preview: database pages show merged live meta (no entry file holds it), live-only contexts" },
+  "server/routes/seo.ts": { count: 3, reason: "SEO preview: database pages show merged live meta (no entry file holds it), live-only contexts, no per-language visibility copy" },
   "server/content-proposals/evidence-sources.ts": { count: 1, reason: "proposal review reads evidence database rows as proof (not entry resolution)" },
   "server/entry-ref.ts": { count: 2, reason: "slug resolver: database pages resolve through their language group (findEntryPresence)" },
 };
