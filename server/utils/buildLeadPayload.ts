@@ -1,4 +1,7 @@
-import { getTrackingSettings } from "../settings";
+import { getTrackingSettings, getSettingsPathForDiagnostics } from "../settings";
+import { child } from "../logger";
+
+const log = child({ module: "buildLeadPayload" });
 
 /** Form / lookup aliases — remapped or omitted; never copied as-is onto the wire. */
 const LEAD_BODY_ALIASES = new Set([
@@ -29,6 +32,7 @@ export function buildLeadPayload(
   const matchingEvent = conversionName
     ? getTrackingSettings().conversion_events.find((e) => e.name === conversionName)
     : undefined;
+  const loadedEvents = getTrackingSettings().conversion_events ?? [];
 
   const tagsFromInput =
     typeof leadData.tags === "string"
@@ -42,6 +46,27 @@ export function buildLeadPayload(
     (matchingEvent?.tags?.length ? matchingEvent.tags.join(",") : null) ||
     "website-lead";
 
+  const tagsSource = tagsFromInput ? "input" : matchingEvent?.tags?.length ? "event" : "fallback";
+  const leadTagsLog = {
+    conversion_name: conversionName,
+    source: tagsSource,
+    effectiveTags,
+    inputTags: tagsFromInput,
+    eventFound: !!matchingEvent,
+    eventTags: matchingEvent?.tags ?? null,
+    settingsPath: getSettingsPathForDiagnostics(),
+    eventsLoaded: loadedEvents.length,
+    email_domain: typeof leadData.email === "string" ? leadData.email.split("@")[1] ?? null : null,
+    page_url: typeof leadData.utm_url === "string" ? leadData.utm_url.split("?")[0] : null,
+  };
+  if (tagsSource === "fallback") {
+    log.warn("[LeadTags] fallback to website-lead", {
+      ...leadTagsLog,
+      events: loadedEvents.map((e) => ({ name: e.name, tags: e.tags ?? [] })),
+    });
+  } else {
+    log.info("[LeadTags] resolved", leadTagsLog);
+  }
   const effectiveAutomations: string =
     (typeof leadData.automations === "string" && leadData.automations) ||
     matchingEvent?.automations ||
