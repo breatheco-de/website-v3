@@ -85,4 +85,40 @@ describe("event-webhooks emit fan-out", () => {
       ]);
     });
   });
+
+  it("buffers blocker events but skips ones from a paused proposal", async () => {
+    saveEventWebhookConfig(contentRoot, {
+      version: 1,
+      subscriptions: {
+        proposal_blocker_added: [
+          {
+            id: "writer",
+            enabled: true,
+            method: "POST",
+            url: "https://example.com/hook",
+            debounce_ms: 30_000,
+            max_wait_ms: 60_000,
+            max_events_per_call: 50,
+          },
+        ],
+      },
+    });
+
+    emitEvent({
+      site: TEST_SITE,
+      type: "proposal_blocker_added",
+      payload: { proposal_id: "p-paused", blocker_id: 1, staff_summary: "Fix it", paused: true },
+    });
+    const live = emitEvent({
+      site: TEST_SITE,
+      type: "proposal_blocker_added",
+      payload: { proposal_id: "p-live", blocker_id: 2, staff_summary: "Fix it" },
+    });
+
+    await vi.waitFor(() => {
+      expect(getHookBuffer(TEST_SITE, "proposal_blocker_added", "writer").pendingEventIds).toEqual([
+        live.id,
+      ]);
+    });
+  });
 });

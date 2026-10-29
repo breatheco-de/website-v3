@@ -2560,6 +2560,114 @@ describe("content proposals", () => {
     expect(uiBlocker?.author_actor).toEqual({ type: "ui" });
   });
 
+  it("emits blocker added, resolved and reopened events with blocker details", async () => {
+    const svc = makeService();
+    const body =
+      "On live es blog hello, CTA should mention Coding Bootcamp because the form currently misroutes leads to the wrong product funnel.";
+    const created = await svc.create(
+      {
+        title: "Blocker events",
+        summary: "Patch the CTA title on the Spanish blog so the product name is explicit. ".repeat(2),
+        entries: [sampleEntry()],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const id = created.proposal.id;
+    const reviewer = { type: "mcp" as const, role: "proposal_reviewer", model: "xai/grok-4" };
+    const added = await svc.update(id, "add_blocker", {
+      username: "blake",
+      actor: reviewer,
+      body,
+      staff_summary: STAFF_SUMMARY,
+    });
+    expect(added.ok).toBe(true);
+    if (!added.ok) return;
+    const bid = added.proposal.blockers[0]!.id;
+
+    const writer = { type: "mcp" as const, role: "copy_editor" };
+    await svc.update(id, "claim", { username: "alice", actor: writer });
+    const resolveNote = "Updated CTA title to name Coding Bootcamp on the Spanish blog.";
+    const resolved = await svc.update(id, "resolve_blocker", {
+      username: "alice",
+      actor: writer,
+      blocker_id: bid,
+      resolve_note: resolveNote,
+    });
+    expect(resolved.ok).toBe(true);
+    const reopened = await svc.update(id, "reopen_blocker", {
+      username: "blake",
+      actor: reviewer,
+      blocker_id: bid,
+    });
+    expect(reopened.ok).toBe(true);
+
+    const events = listEvents({ site: SITE, limit: 200 })
+      .filter((e) => (e.payload as { proposal_id?: string }).proposal_id === id)
+      .filter((e) => e.type.startsWith("proposal_blocker_"));
+    const byType = (t: string) => events.find((e) => e.type === t)!;
+
+    const addedEv = byType("proposal_blocker_added");
+    expect(addedEv.payload).toMatchObject({ blocker_id: bid, staff_summary: STAFF_SUMMARY, body });
+    expect(addedEv.payload.paused).toBeUndefined();
+    expect(addedEv.attribution[0]).toMatchObject({ author: "blake", actor: reviewer });
+
+    const resolvedEv = byType("proposal_blocker_resolved");
+    expect(resolvedEv.payload).toMatchObject({
+      blocker_id: bid,
+      resolve_note: resolveNote,
+      open_blocker_count: 0,
+      blocker_author: "blake",
+      blocker_author_actor_type: "mcp",
+    });
+    expect(resolvedEv.attribution[0]?.author).toBe("alice");
+
+    const reopenedEv = byType("proposal_blocker_reopened");
+    expect(reopenedEv.payload).toMatchObject({
+      blocker_id: bid,
+      open_blocker_count: 1,
+      blocker_author: "blake",
+      blocker_author_actor_type: "mcp",
+    });
+  });
+
+  it("marks blocker events on a paused proposal so webhooks skip them", async () => {
+    const svc = makeService();
+    const created = await svc.create(
+      {
+        title: "Paused blocker",
+        summary: "Patch the CTA title on the Spanish blog so the product name is explicit. ".repeat(2),
+        entries: [sampleEntry()],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const id = created.proposal.id;
+    const escalated = await svc.update(id, "escalate", {
+      username: "steward",
+      actor: { type: "ui" },
+      escalated_note:
+        "Pausing agents on this proposal while staff review the product claim in the CTA copy.",
+    });
+    expect(escalated.ok).toBe(true);
+
+    const staff = await svc.update(id, "add_blocker", {
+      username: "casey",
+      actor: { type: "ui" },
+      body: "On live es blog hello, CTA should mention Coding Bootcamp because the form misroutes leads.",
+    });
+    expect(staff.ok).toBe(true);
+
+    const ev = listEvents({ site: SITE, limit: 200 }).find(
+      (e) =>
+        e.type === "proposal_blocker_added" &&
+        (e.payload as { proposal_id?: string }).proposal_id === id,
+    );
+    expect(ev?.payload.paused).toBe(true);
+  });
+
   it("requires a plain-English staff_summary from agents and reuses the body for staff notes", async () => {
     const svc = makeService();
     const created = await svc.create(

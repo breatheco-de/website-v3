@@ -8,6 +8,7 @@ import {
   IconPencil,
   IconPlus,
   IconRefresh,
+  IconSearch,
   IconSend,
   IconTrash,
   IconWebhook,
@@ -443,6 +444,15 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [advanced, setAdvanced] = useState(false);
+  const [typeSearch, setTypeSearch] = useState("");
+  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(() => new Set());
+  const setTypeExpanded = (eventType: string, open: boolean) =>
+    setExpandedTypes((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(eventType);
+      else next.delete(eventType);
+      return next;
+    });
   const [editing, setEditing] = useState<{
     mode: "settings" | "filters";
     eventType: string;
@@ -484,6 +494,16 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
   const pending = summaryQuery.data?.pending ?? {};
   const siteKey = summaryQuery.data?.site ?? "";
   const eventTypes = useMemo(() => [...allowlist], [allowlist]);
+  const visibleEventTypes = useMemo(() => {
+    const q = typeSearch.trim().toLowerCase();
+    if (!q) return eventTypes;
+    return eventTypes.filter((eventType) => {
+      if (eventType.toLowerCase().includes(q)) return true;
+      return (config.subscriptions[eventType] ?? []).some(
+        (h) => h.id.toLowerCase().includes(q) || (h.url ? hostOf(h.url).toLowerCase().includes(q) : false),
+      );
+    });
+  }, [eventTypes, typeSearch, config]);
   const filtersDialogOpen = editing?.mode === "filters";
 
   const proposersQuery = useQuery({
@@ -727,6 +747,7 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
     filterKeysForEdit === null || filterKeysForEdit.has(key);
   const pageContentType = showFilter("content_types") && !showFilter("kinds");
   const showExcludeLists =
+    showFilter("exclude_event_authors") ||
     showFilter("exclude_proposal_authors") ||
     showFilter("exclude_kinds") ||
     showFilter("exclude_content_types") ||
@@ -930,27 +951,76 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                     {summaryQuery.data?.enabled_hook_count ?? 0} enabled hook
                     {(summaryQuery.data?.enabled_hook_count ?? 0) === 1 ? "" : "s"}
                   </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      void summaryQuery.refetch();
-                      void deliveriesQuery.refetch();
-                    }}
-                  >
-                    <IconRefresh className="h-3.5 w-3.5 mr-1.5" />
-                    Refresh
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        type="search"
+                        value={typeSearch}
+                        onChange={(e) => setTypeSearch(e.target.value)}
+                        placeholder="Search events or hooks…"
+                        aria-label="Search events or hooks"
+                        className="h-8 w-56 pl-8 text-xs"
+                        data-testid="input-search-event-webhooks"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        void summaryQuery.refetch();
+                        void deliveriesQuery.refetch();
+                      }}
+                    >
+                      <IconRefresh className="h-3.5 w-3.5 mr-1.5" />
+                      Refresh
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
-                  {eventTypes.map((eventType) => {
+                  {visibleEventTypes.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-6 text-center">
+                      No events or hooks match “{typeSearch.trim()}”.
+                    </p>
+                  ) : null}
+                  {visibleEventTypes.map((eventType) => {
                     const hooks = config.subscriptions[eventType] ?? [];
+                    const expanded = expandedTypes.has(eventType);
                     return (
-                      <div key={eventType} className="rounded-md border border-border p-3 space-y-2">
+                      <Collapsible
+                        key={eventType}
+                        open={expanded}
+                        onOpenChange={(open) => setTypeExpanded(eventType, open)}
+                        className="rounded-md border border-border p-3"
+                        data-testid={`event-type-${eventType}`}
+                      >
                         <div className="flex items-center justify-between gap-2">
-                          <code className="text-xs font-mono">{eventType}</code>
+                          <CollapsibleTrigger asChild>
+                            <button
+                              type="button"
+                              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                              aria-label={`${expanded ? "Collapse" : "Expand"} ${eventType}`}
+                              data-testid={`button-toggle-event-type-${eventType}`}
+                            >
+                              <IconChevronDown
+                                className={cn(
+                                  "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                                  !expanded && "-rotate-90",
+                                )}
+                              />
+                              <code className="truncate text-xs font-mono">{eventType}</code>
+                              <Badge
+                                variant="secondary"
+                                className="h-5 min-w-5 shrink-0 px-1.5 text-[10px]"
+                                title={`${hooks.length} hook${hooks.length === 1 ? "" : "s"}`}
+                              >
+                                {hooks.length}
+                              </Badge>
+                            </button>
+                          </CollapsibleTrigger>
+                          {expanded ? (
                           <Button
                             type="button"
                             variant="outline"
@@ -969,7 +1039,9 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                             <IconPlus className="h-3.5 w-3.5 mr-1" />
                             Add hook
                           </Button>
+                          ) : null}
                         </div>
+                        <CollapsibleContent className="space-y-2 pt-2">
                         {hooks.length === 0 ? (
                           <p className="text-xs text-muted-foreground">No hooks</p>
                         ) : (
@@ -1106,7 +1178,8 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                             })}
                           </ul>
                         )}
-                      </div>
+                        </CollapsibleContent>
+                      </Collapsible>
                     );
                   })}
                 </div>
@@ -1654,6 +1727,28 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                     </Button>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="space-y-3 pt-2">
+                    {showFilter("exclude_event_authors") ? (
+                    <div className="space-y-1.5">
+                      <Label>Exclude who triggered this event</Label>
+                      <SearchableMultiCombobox
+                        values={editing.hook.filter?.exclude_event_authors ?? []}
+                        onChange={(exclude_event_authors) =>
+                          setEditing({
+                            ...editing,
+                            hook: patchFilter(editing.hook, { exclude_event_authors }),
+                          })
+                        }
+                        options={eventAuthorOptions}
+                        isLoading={staffQuery.isLoading || eventAuthorsQuery.isLoading}
+                        placeholder="None excluded"
+                        searchPlaceholder="Search authors…"
+                        emptyMessage="No authors found"
+                        onOpenChange={setNestedComboboxOpen}
+                        testId="filter-exclude-event-authors"
+                        mono
+                      />
+                    </div>
+                    ) : null}
                     {showFilter("exclude_proposal_authors") ? (
                     <div className="space-y-1.5">
                       <Label>Exclude proposal writers</Label>

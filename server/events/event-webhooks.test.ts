@@ -8,6 +8,7 @@ import {
   clearHookBuffer,
   clampMaxEventsPerCall,
   computeDroppedBuffersOnSave,
+  EVENT_WEBHOOK_ALLOWLIST,
   EVENT_WEBHOOK_DEBOUNCE_DEFAULT_MS,
   EVENT_WEBHOOK_MAX_WAIT_DEFAULT_MS,
   eventWebhookFilters,
@@ -31,6 +32,7 @@ import {
   setHookBuffer,
   slimEventForWebhook,
   stopEventWebhookDueScanForTests,
+  WEBHOOK_PAYLOAD_TEXT_MAX,
   type EventWebhookConfig,
   type EventWebhookHook,
   type EventWebhookProposalSummary,
@@ -641,6 +643,70 @@ describe("event-webhooks", () => {
     } as ContentEvent;
     const slim = slimEventForWebhook(event);
     expect(slim.payload).toEqual({ proposal_id: "abc" });
+
+    const rejected = slimEventForWebhook(
+      baseEvent({ type: "proposal_rejected", payload: { proposal_id: "abc", reject_kind: "harmful" } }),
+    );
+    expect(rejected.payload).toEqual({ proposal_id: "abc" });
+  });
+
+  it("allowlists blocker events with the full proposal filter set", () => {
+    for (const type of ["proposal_blocker_added", "proposal_blocker_resolved", "proposal_blocker_reopened"]) {
+      expect(EVENT_WEBHOOK_ALLOWLIST).toContain(type);
+      expect(filterKeysForEventType(type)).toEqual(filterKeysForEventType("proposal_created"));
+    }
+  });
+
+  it("slimEventForWebhook passes blocker fields through and cuts off long text", () => {
+    const long = "x".repeat(WEBHOOK_PAYLOAD_TEXT_MAX + 50);
+    const added = slimEventForWebhook(
+      baseEvent({
+        type: "proposal_blocker_added",
+        payload: { proposal_id: "p1", blocker_id: 7, staff_summary: "Plain words", body: long, extra: "no" },
+      }),
+    );
+    expect(added.payload).toEqual({
+      proposal_id: "p1",
+      blocker_id: 7,
+      staff_summary: "Plain words",
+      body: "x".repeat(WEBHOOK_PAYLOAD_TEXT_MAX),
+      body_truncated: true,
+    });
+
+    const resolved = slimEventForWebhook(
+      baseEvent({
+        type: "proposal_blocker_resolved",
+        payload: {
+          proposal_id: "p1",
+          blocker_id: 7,
+          staff_summary: "Plain words",
+          resolve_note: "Fixed the CTA.",
+          open_blocker_count: 0,
+          blocker_author: "blake",
+          blocker_author_actor_type: "mcp",
+          body: "not sent on resolve",
+        },
+      }),
+    );
+    expect(resolved.payload).toEqual({
+      proposal_id: "p1",
+      blocker_id: 7,
+      staff_summary: "Plain words",
+      resolve_note: "Fixed the CTA.",
+      open_blocker_count: 0,
+      blocker_author: "blake",
+      blocker_author_actor_type: "mcp",
+    });
+  });
+
+  it("exclude_event_authors drops a blocker event from that author", () => {
+    const event = baseEvent({
+      type: "proposal_blocker_added",
+      attribution: [{ author: "reviewer-bot", actor: { type: "mcp" } }],
+    });
+    const h = (filter: EventWebhookHook["filter"]) => hook({ id: "b", url: "https://example.com/b", filter });
+    expect(matchProposalFilter(event, h({ exclude_event_authors: ["reviewer-bot"] }), null, true).ok).toBe(false);
+    expect(matchProposalFilter(event, h({ exclude_event_authors: ["someone-else"] }), null, true).ok).toBe(true);
   });
 
   it("parses filter and rejects unknown keys / invalid kinds", () => {

@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-10-28"
+    summary: "New blocker events (added / resolved / reopened) for Event Webhooks, with blocker details in the webhook body"
+    agent_impact:
+      - "add_blocker, resolve_blocker and reopen_blocker now emit proposal_blocker_added / proposal_blocker_resolved / proposal_blocker_reopened (payload blocker_id, staff_summary; added + body; resolved + resolve_note; resolved/reopened + open_blocker_count, blocker_author, blocker_author_actor_type). System predecessor_closed blockers also fire proposal_blocker_added (author system:applies-after). Webhook body cuts body / resolve_note at 2000 chars with *_truncated flags."
+      - "Escalated proposals: blocker events are recorded with paused: true but no webhook is sent and nothing is re-sent on release (hook proposal_deescalated). A proposal closed with blockers still open fires no resolved event; watch proposal_rejected / proposal_withdrawn / proposal_closed_abandoned_blocked."
+      - "No change to update_proposal arguments or responses, blocker validation, claim rules, or the blocked-sweep clock. Staff hooks dialog gains an 'Exclude who triggered this event' filter (exclude_event_authors) for proposal events."
+    tools_changed: false
+    paths:
+      - server/content-proposals/service.ts
+      - server/events/event-webhooks.ts
+      - server/events/types.ts
+      - client/src/components/pipeline/EventWebhooksDialog.tsx
+      - mcp-server/explain/proposals.md
+  - date: "2026-10-28"
     summary: "Evidence databases prove named partner / press / award claims in proposal review; unproven new names refuse apply"
     agent_impact:
       - "list_proposals review_context.evidence lists each name the text presents as choosing, partnering with, covering or awarding us, with the matched evidence row (own site + fallback_content_folder site) and status sourced | unsourced | unverified | no_evidence | already_live | dismissed. New checklist third_party_evidence; discovery_path adds get_database_item per matched row. Numbers still go to list_variables."

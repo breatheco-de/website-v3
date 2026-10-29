@@ -1627,6 +1627,9 @@ function emitProposalEvent(
     | "proposal_applies_after_set"
     | "proposal_predecessor_closed"
     | "proposal_dependent_overdue"
+    | "proposal_blocker_added"
+    | "proposal_blocker_resolved"
+    | "proposal_blocker_reopened"
     | "proposal_migrated_v1"
     | "draft_rebuilt"
     | "draft_orphan_cleaned"
@@ -1656,6 +1659,28 @@ function emitProposalEvent(
     attribution: singleAttribution(author, actor),
     payload: { proposal_id: proposalId, ...payload },
   });
+}
+
+/** `paused` is set only on escalated proposals; webhooks skip blocker events that carry it. */
+function blockerEventPayload(
+  blocker: { id: number; staff_summary: string | null },
+  escalated: boolean,
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    blocker_id: blocker.id,
+    staff_summary: blocker.staff_summary,
+    ...extra,
+    ...(escalated ? { paused: true } : {}),
+  };
+}
+
+function blockerAuthorFields(blocker: ProposalBlocker): Record<string, unknown> {
+  const actorType = blocker.author_actor?.type;
+  return {
+    blocker_author: blocker.author,
+    blocker_author_actor_type: typeof actorType === "string" ? actorType : null,
+  };
 }
 
 export type AffectedEntries = {
@@ -3245,19 +3270,24 @@ export function createProposalService(deps: ProposalServiceDeps) {
   /** Predecessor was rejected/withdrawn: one system blocker on each open dependent. */
   function blockDependentsOnClose(db: Database.Database, pred: ProposalRecord, now: number): string[] {
     const waiting = openDependents(db, pred.id);
+    const escalatedOf = db.prepare(`SELECT escalated FROM content_proposals WHERE id = ?`);
     for (const d of waiting) {
-      db.prepare(
+      const body =
+        `predecessor_closed: the proposal this waits on ("${pred.title}", ${pred.id}) was ${pred.status}, so it will never be applied. ` +
+        "Fixed looks like: unlink it (set_applies_after with an empty id, or link a replacement) or close this proposal. " +
+        "Why: this proposal can only be applied after that one.";
+      const staffSummary =
+        `The proposal this one waits on ("${pred.title}") was ${pred.status === "rejected" ? "rejected" : "withdrawn"}, ` +
+        "so this one can't go live as planned. Unlink it or close this proposal.";
+      const inserted = db.prepare(
         `INSERT INTO content_proposal_blockers (
           proposal_id, kind, body, staff_summary, status, author, created_at, agent_session_id, author_actor_json
         ) VALUES (?,?,?,?,?,?,?,?,?)`,
       ).run(
         d.id,
         "blocker",
-        `predecessor_closed: the proposal this waits on ("${pred.title}", ${pred.id}) was ${pred.status}, so it will never be applied. ` +
-          "Fixed looks like: unlink it (set_applies_after with an empty id, or link a replacement) or close this proposal. " +
-          "Why: this proposal can only be applied after that one.",
-        `The proposal this one waits on ("${pred.title}") was ${pred.status === "rejected" ? "rejected" : "withdrawn"}, ` +
-          "so this one can't go live as planned. Unlink it or close this proposal.",
+        body,
+        staffSummary,
         "open",
         "system:applies-after",
         now,
@@ -3269,6 +3299,19 @@ export function createProposalService(deps: ProposalServiceDeps) {
         predecessor_id: pred.id,
         predecessor_status: pred.status,
       });
+      const escalatedRow = escalatedOf.get(d.id) as { escalated: number | null } | undefined;
+      emitProposalEvent(
+        site,
+        "proposal_blocker_added",
+        d.id,
+        "system:applies-after",
+        blockerEventPayload(
+          { id: Number(inserted.lastInsertRowid), staff_summary: staffSummary },
+          Boolean(escalatedRow?.escalated),
+          { body },
+        ),
+        { type: "system", source: "applies-after" },
+      );
     }
     return waiting.map((d) => d.id);
   }
@@ -7858,7 +7901,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       } else if (!staffSummary) {
         staffSummary = body;
       }
-      db.prepare(
+      const inserted = db.prepare(
         `INSERT INTO content_proposal_blockers (
           proposal_id, kind, body, staff_summary, status, author, created_at, agent_session_id, author_actor_json
         ) VALUES (?,?,?,?,?,?,?,?,?)`,
@@ -7878,6 +7921,18 @@ export function createProposalService(deps: ProposalServiceDeps) {
       } else {
         stampReviewerAction(db, id, now, caller);
       }
+      emitProposalEvent(
+        site,
+        "proposal_blocker_added",
+        id,
+        caller.username,
+        blockerEventPayload(
+          { id: Number(inserted.lastInsertRowid), staff_summary: staffSummary },
+          proposal.escalated,
+          { body },
+        ),
+        caller.actor,
+      );
       return { ok: true, proposal: get(id)! };
     }
 
@@ -7931,6 +7986,18 @@ export function createProposalService(deps: ProposalServiceDeps) {
         stampReviewerAction(db, id, now, caller);
       }
       const fresh = get(id)!;
+      emitProposalEvent(
+        site,
+        "proposal_blocker_resolved",
+        id,
+        caller.username,
+        blockerEventPayload(blocker, proposal.escalated, {
+          resolve_note: resolveNote,
+          open_blocker_count: fresh.open_blocker_count,
+          ...blockerAuthorFields(blocker),
+        }),
+        caller.actor,
+      );
       const warnings =
         fresh.open_blocker_count === 0
           ? [
@@ -7963,7 +8030,19 @@ export function createProposalService(deps: ProposalServiceDeps) {
       } else {
         stampReviewerAction(db, id, now, caller);
       }
-      return { ok: true, proposal: get(id)! };
+      const reopened = get(id)!;
+      emitProposalEvent(
+        site,
+        "proposal_blocker_reopened",
+        id,
+        caller.username,
+        blockerEventPayload(blocker, proposal.escalated, {
+          open_blocker_count: reopened.open_blocker_count,
+          ...blockerAuthorFields(blocker),
+        }),
+        caller.actor,
+      );
+      return { ok: true, proposal: reopened };
     }
 
     if (action === "attach_variant") {
