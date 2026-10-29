@@ -1029,7 +1029,21 @@ function loadSettings(contentRoot?: string): SiteSettings {
   }
   // Unparseable (e.g. read mid-write): keep the last good settings; the next stamp change retries.
   failedSettingsStamp.set(key, stamp);
-  return cached?.settings ?? read.settings;
+  const fallbackSettings = cached?.settings ?? read.settings;
+  const fallbackEvents = fallbackSettings.tracking?.conversion_events ?? [];
+  log.warn("[SettingsLoad] failed to parse settings.yml, using fallback", {
+    settingsPath,
+    stamp,
+    using: cached ? "last_good_cache" : "defaults",
+    eventsLoaded: fallbackEvents.length,
+    events: fallbackEvents.map((e) => ({ name: e.name, tags: e.tags ?? [] })),
+  });
+  return fallbackSettings;
+}
+
+/** Path of the settings.yml that getTrackingSettings(contentRoot) reads (diagnostics only). */
+export function getSettingsPathForDiagnostics(contentRoot?: string): string {
+  return getSettingsPath(contentRoot);
 }
 
 function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; settings: SiteSettings } {
