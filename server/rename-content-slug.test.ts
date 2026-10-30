@@ -170,6 +170,22 @@ describe("checkSlugRename (live availability + Apply gate)", () => {
     expect(result.ownRedirectHit).toBe(false);
   });
 
+  it("refuses a new slug that is another spelling of another page's address", async () => {
+    const { root, folderSlug } = makeEntryRoot();
+    stubIndex(folderSlug, root);
+    vi.spyOn(contentIndex, "findSlugAliases").mockImplementation((_ct, ref) =>
+      ref === "tutoriales-interactivos"
+        ? [{ entryId: "someone-else", kind: "locale_slug", value: "Tutoriales_Interactivos", locale: "es" }]
+        : [],
+    );
+    const result = await checkSlugRename(input(folderSlug));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.statusCode).toBe(409);
+    expect(result.code).toBe("slug_already_owned_by_other_entry");
+    expect(result.error).toContain("someone-else");
+  });
+
   it("reports the conflicting URL when another entry owns it", async () => {
     const { root, folderSlug } = makeEntryRoot();
     stubIndex(folderSlug, root);

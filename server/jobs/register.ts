@@ -19,6 +19,8 @@ import { HtmlContentTypeListingRebuildJob } from "./definitions/html-content-typ
 import { HtmlContentTypeRebuildJob } from "./definitions/html-content-type-rebuild";
 import { LocalDatabaseRefreshJob } from "./definitions/local-database-refresh";
 import { VectorIndexSyncJob } from "./definitions/vector-index-sync";
+import { EvidenceArchiveJob } from "./definitions/evidence-archive";
+import { EvidenceArchiveSweepJob } from "./definitions/evidence-archive-sweep";
 
 export function registerAllJobs(): void {
   registerJobClass("index_refresh", IndexRefreshJob);
@@ -42,4 +44,6 @@ export function registerAllJobs(): void {
   registerJobClass("html_content_type_rebuild", HtmlContentTypeRebuildJob);
   registerJobClass("local_database_refresh", LocalDatabaseRefreshJob);
   registerJobClass("vector_index_sync", VectorIndexSyncJob);
+  registerJobClass("evidence_archive", EvidenceArchiveJob);
+  registerJobClass("evidence_archive_sweep", EvidenceArchiveSweepJob);
 }

@@ -13,6 +13,7 @@ Accept greenlights only. The site does not change until a later **edits** propos
 1. Call `get_runtime_issues` with `kind: "404"` (and path / window filters as needed).
 2. Paste into the summary: **path**, windowed **count**, **firstSeen** / **lastSeen**, **sources**, **sampleReferrer**, **queryAttribution** (`utm_source` / `utm_medium` / `utm_campaign` and other params). If attribution is empty on the row, write **none**. Do not invent secrets or staff-preview params the log already dropped.
 3. State whether any live page answers that address **and** matches funnel **product + persona**. Topical mention alone is not a match. A page with no product/persona is not a match.
+4. Pick the outcome now. Read the target's Google status with `get_entry_seo` `include_search_engines: true`; a Soft 404, excluded, or foreign canonical target is not a redirect target. If the cache is stale and that changes the answer, file **notes** asking staff to re-inspect — do not file a redirect idea that waits on the check.
 
 Create still succeeds when the proof is thin. The reviewer blocks incomplete briefs.
 

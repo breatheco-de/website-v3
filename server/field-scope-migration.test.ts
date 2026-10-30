@@ -1,12 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  funnelCopyRank,
   isRealValue,
   pickNewestValue,
   planEntry,
+  runFieldScopeMigration,
   type EntryInput,
+  type FieldScopeMigrationDeps,
+  type FunnelBindingValid,
   type SetInfo,
   type ValueHistory,
 } from "./field-scope-migration";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import yaml from "js-yaml";
 
 /** `${rel}|${field}` → when it was set; missing key = no usable history. */
 function fakeHistory(sets: Record<string, SetInfo>): ValueHistory {
@@ -266,5 +274,257 @@ describe("planEntry: drafts", () => {
     );
     expect(plan.writes.size).toBe(0);
     expect(plan.decisions).toEqual([]);
+  });
+});
+
+/** ai-engineering: the-career-changer, the-frustrated-graduate; ai-flex: the-explorer, the-recent-graduate. */
+const catalog: FunnelBindingValid = (product, persona) => {
+  const personas: Record<string, string[]> = {
+    "ai-engineering": ["the-career-changer", "the-frustrated-graduate"],
+    "ai-flex": ["the-explorer", "the-recent-graduate"],
+  };
+  const list = personas[product];
+  if (!list) return false;
+  return !persona || list.includes(persona);
+};
+
+const PERSONA_FUNNEL = {
+  stage: "consideration",
+  products: [
+    { product: "ai-flex", persona: "the-explorer" },
+    { product: "ai-engineering", persona: "the-career-changer" },
+  ],
+};
+const BARE_FUNNEL = { stage: "awareness", products: ["ai-flex"] };
+
+describe("funnelCopyRank", () => {
+  it("orders invalid < invalid complete < valid < valid with personas or all", () => {
+    expect(funnelCopyRank({ products: [{ product: "nope" }] }, catalog).rank).toBe(0);
+    expect(funnelCopyRank({ products: [{ product: "ai-flex", persona: "ghost" }] }, catalog)).toEqual({
+      rank: 1,
+      invalid: ["ai-flex/ghost"],
+    });
+    expect(funnelCopyRank(BARE_FUNNEL, catalog).rank).toBe(2);
+    expect(funnelCopyRank({ stage: "awareness" }, catalog).rank).toBe(2);
+    expect(funnelCopyRank(PERSONA_FUNNEL, catalog).rank).toBe(3);
+    expect(funnelCopyRank({ stage: "awareness", products: "all" }, catalog).rank).toBe(3);
+  });
+});
+
+describe("planEntry: funnel ranking", () => {
+  const funnelOnly = { onlyPaths: ["funnel"], funnelBindingValid: catalog } as const;
+
+  it("an older persona copy beats a newer bare copy (how-to-become-a-full-stack-developer case)", () => {
+    const plan = planEntry(
+      input({
+        common: { slug: "post", funnel: BARE_FUNNEL },
+        locales: [{ locale: "en", rel: EN, data: { title: "T", funnel: PERSONA_FUNNEL } }],
+      }),
+      fakeHistory({ [`${COMMON}|funnel`]: at("2026-10-01"), [`${EN}|funnel`]: at("2026-09-16") }),
+      funnelOnly,
+    );
+    expect(plan.writes.get(COMMON)).toEqual({ slug: "post", funnel: PERSONA_FUNNEL });
+    expect(plan.writes.get(EN)).toEqual({ title: "T" });
+    expect(plan.decisions[0]).toMatchObject({ winner: "en", flags: ["persona_preferred"] });
+  });
+
+  it("between two persona copies the newest wins, stage included", () => {
+    const older = { stage: "awareness", products: [{ product: "ai-flex", persona: "the-recent-graduate" }] };
+    const plan = planEntry(
+      input({
+        common: { slug: "post", funnel: older },
+        locales: [{ locale: "en", rel: EN, data: { title: "T", funnel: PERSONA_FUNNEL } }],
+      }),
+      fakeHistory({ [`${COMMON}|funnel`]: at("2026-08-01"), [`${EN}|funnel`]: at("2026-09-16") }),
+      funnelOnly,
+    );
+    expect(plan.writes.get(COMMON)).toEqual({ slug: "post", funnel: PERSONA_FUNNEL });
+    expect(plan.decisions[0]).toMatchObject({ winner: "en", flags: [] });
+  });
+
+  it('"all products" competes with a persona copy by date', () => {
+    const all = { stage: "awareness", products: "all" };
+    const plan = planEntry(
+      input({
+        common: { slug: "post", funnel: all },
+        locales: [{ locale: "es", rel: ES, data: { title: "T", funnel: PERSONA_FUNNEL } }],
+        defaultLocale: "en",
+      }),
+      fakeHistory({ [`${COMMON}|funnel`]: at("2026-10-01"), [`${ES}|funnel`]: at("2026-09-16") }),
+      funnelOnly,
+    );
+    expect(plan.writes.get(COMMON)).toBeUndefined();
+    expect(plan.writes.get(ES)).toEqual({ title: "T" });
+    expect(plan.decisions[0]).toMatchObject({ winner: "_common", flags: [] });
+  });
+
+  it("English and Spanish disagree: the newest valid persona copy wins for both", () => {
+    const esFunnel = { stage: "consideration", products: [{ product: "ai-engineering", persona: "the-career-changer" }] };
+    const plan = planEntry(
+      input({
+        common: { slug: "post", funnel: BARE_FUNNEL },
+        locales: [
+          { locale: "en", rel: EN, data: { title: "T", funnel: PERSONA_FUNNEL } },
+          { locale: "es", rel: ES, data: { title: "T", funnel: esFunnel } },
+        ],
+      }),
+      fakeHistory({
+        [`${COMMON}|funnel`]: at("2026-10-20"),
+        [`${EN}|funnel`]: at("2026-09-16"),
+        [`${ES}|funnel`]: at("2026-10-01"),
+      }),
+      funnelOnly,
+    );
+    expect(plan.writes.get(COMMON)).toEqual({ slug: "post", funnel: esFunnel });
+    expect(plan.writes.get(EN)).toEqual({ title: "T" });
+    expect(plan.writes.get(ES)).toEqual({ title: "T" });
+    expect(plan.decisions[0]!.display_changes.map((c) => c.locale)).toEqual(["en"]);
+  });
+
+  it("a newer copy with an unknown persona loses to an older valid one (sindrome-del-impostor case)", () => {
+    const valid = { stage: "awareness", products: [{ product: "ai-flex", persona: "the-explorer" }] };
+    const invalid = { stage: "awareness", products: [{ product: "ai-engineering", persona: "the-recent-graduate" }] };
+    const plan = planEntry(
+      input({
+        common: { slug: "post", funnel: valid },
+        locales: [{ locale: "es", rel: ES, data: { title: "T", funnel: invalid } }],
+      }),
+      fakeHistory({ [`${COMMON}|funnel`]: at("2026-08-01"), [`${ES}|funnel`]: at("2026-10-01") }),
+      funnelOnly,
+    );
+    expect(plan.writes.get(COMMON)).toBeUndefined();
+    expect(plan.writes.get(ES)).toEqual({ title: "T" });
+    expect(plan.decisions[0]).toMatchObject({ winner: "_common", flags: ["invalid_dropped"] });
+  });
+
+  it("no valid copy: the most complete one still moves, flagged with its invalid pairs", () => {
+    const invalid = { stage: "awareness", products: [{ product: "ai-engineering", persona: "the-recent-graduate" }] };
+    const plan = planEntry(
+      input({ common: { slug: "post" }, locales: [{ locale: "es", rel: ES, data: { title: "T", funnel: invalid } }] }),
+      fakeHistory({}),
+      funnelOnly,
+    );
+    expect(plan.writes.get(COMMON)).toEqual({ slug: "post", funnel: invalid });
+    expect(plan.decisions[0]).toMatchObject({
+      flags: ["no_valid_copy"],
+      invalid_pairs: ["ai-engineering/the-recent-graduate"],
+    });
+  });
+
+  it("onlyPaths leaves every other misplaced field alone", () => {
+    const plan = planEntry(
+      input({
+        common: { slug: "post", meta: { robots: "noindex" } },
+        locales: [{ locale: "en", rel: EN, data: { title: "T", authors: ["ana"], funnel: PERSONA_FUNNEL } }],
+      }),
+      fakeHistory({}),
+      funnelOnly,
+    );
+    expect(plan.writes.get(COMMON)).toEqual({ slug: "post", meta: { robots: "noindex" }, funnel: PERSONA_FUNNEL });
+    expect(plan.writes.get(EN)).toEqual({ title: "T", authors: ["ana"] });
+    expect(plan.decisions.map((d) => d.field_path)).toEqual(["funnel"]);
+  });
+
+  it("without options a funnel copy is still picked by date only (006 unchanged)", () => {
+    const plan = planEntry(
+      input({
+        common: { slug: "post", funnel: BARE_FUNNEL },
+        locales: [{ locale: "en", rel: EN, data: { title: "T", funnel: PERSONA_FUNNEL } }],
+      }),
+      fakeHistory({ [`${COMMON}|funnel`]: at("2026-10-01"), [`${EN}|funnel`]: at("2026-09-16") }),
+    );
+    expect(plan.writes.get(COMMON)).toBeUndefined();
+    expect(plan.decisions[0]).toMatchObject({ winner: "_common", flags: [] });
+    expect(plan.drafts_with_funnel).toEqual([]);
+  });
+});
+
+describe("planEntry: draft funnels with ranking", () => {
+  const DRAFT = "site_x/blog/post/draft.en.yml";
+  const funnelOnly = { onlyPaths: ["funnel"], funnelBindingValid: catalog } as const;
+  const draftInput = (draftFunnel: unknown, baseFunnel: unknown) =>
+    input({
+      common: { slug: "post", funnel: BARE_FUNNEL },
+      locales: [{ locale: "en", rel: EN, data: { title: "T", funnel: baseFunnel } }],
+      drafts: [
+        {
+          locale: "en",
+          variant: "draft",
+          rel: DRAFT,
+          data: { title: "New", funnel: draftFunnel },
+          base: { title: "T", funnel: baseFunnel },
+        },
+      ],
+    });
+
+  it("a valid persona funnel copied from live stays staged and is reported", () => {
+    const plan = planEntry(draftInput(PERSONA_FUNNEL, PERSONA_FUNNEL), fakeHistory({}), funnelOnly);
+    expect(plan.writes.has(DRAFT)).toBe(false);
+    expect(plan.drafts_with_funnel).toEqual([
+      { rel: DRAFT, locale: "en", variant: "draft", needs_fix: false, invalid_pairs: [] },
+    ]);
+  });
+
+  it("a copied funnel without personas or with invalid pairs is removed from the draft", () => {
+    const bare = { stage: "awareness", products: ["ai-engineering"] };
+    const invalid = { stage: "awareness", products: [{ product: "ai-flex", persona: "ghost" }] };
+    for (const f of [bare, invalid]) {
+      const plan = planEntry(draftInput(f, f), fakeHistory({}), funnelOnly);
+      expect(plan.writes.get(DRAFT)).toEqual({ title: "New" });
+      expect(plan.drafts_changed[0]!.removed).toEqual(["funnel"]);
+      expect(plan.drafts_with_funnel).toEqual([]);
+    }
+  });
+
+  it("an invalid funnel the author changed stays staged and is listed to fix", () => {
+    const authored = { stage: "decision", products: [{ product: "ai-flex", persona: "ghost" }] };
+    const plan = planEntry(draftInput(authored, PERSONA_FUNNEL), fakeHistory({}), funnelOnly);
+    expect(plan.writes.has(DRAFT)).toBe(false);
+    expect(plan.drafts_with_funnel).toEqual([
+      { rel: DRAFT, locale: "en", variant: "draft", needs_fix: true, invalid_pairs: ["ai-flex/ghost"] },
+    ]);
+  });
+});
+
+describe("runFieldScopeMigration: funnel only", () => {
+  it("dry run reports moves and drafts keeping a funnel without writing", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "funnel-010-"));
+    try {
+      fs.writeFileSync(path.join(root, "content-types.yml"), yaml.dump({ blog: { directory: "blog" } }));
+      const dir = path.join(root, "blog", "post");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "_common.yml"), yaml.dump({ slug: "post", funnel: BARE_FUNNEL }));
+      const enBefore = yaml.dump({ title: "T", funnel: PERSONA_FUNNEL });
+      fs.writeFileSync(path.join(dir, "en.yml"), enBefore);
+
+      const lines: unknown[][] = [];
+      const deps: FieldScopeMigrationDeps = {
+        sites: () => [{ name: "site_x", contentRoot: root }],
+        defaultLocale: () => "en",
+        pendingFromMigration: () => [],
+        markModified: () => {},
+        push: async () => ({ success: true, commitHash: "abc" }),
+        openHistory: () => ({ history: fakeHistory({}), cleanup: () => {} }),
+        recordDraftRewrite: () => {},
+        proposalSummary: () => null,
+        funnelBindingValid: async () => catalog,
+      };
+      const { failed } = await runFieldScopeMigration({
+        dryRun: true,
+        deps,
+        onlyPaths: ["funnel"],
+        rankFunnel: true,
+        author: "migration:010",
+        log: (...args) => lines.push(args),
+        error: (...args) => lines.push(["ERR", ...args]),
+      });
+      expect(failed).toBe(false);
+      const move = lines.find((l) => l[0] === "would_move")!;
+      expect(move.slice(1, 3)).toEqual(["blog/post", "funnel"]);
+      expect(move[4]).toMatchObject({ winner: "en", flags: ["persona_preferred"] });
+      expect(fs.readFileSync(path.join(dir, "en.yml"), "utf-8")).toBe(enBefore);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

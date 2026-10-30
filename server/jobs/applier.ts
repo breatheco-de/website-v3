@@ -17,6 +17,7 @@ import {
 import { markFileAsModified } from "../sync-state";
 import { runInSaveBatch } from "../events/save-batch-context";
 import { invalidateSeoIndexCache } from "../seo-index";
+import { applyEvidenceArchiveDone } from "../evidence-archive/apply";
 import { enqueueJob } from "./queue";
 import { wakeEventDispatcher } from "../events/dispatcher";
 import { child } from "../logger";
@@ -44,6 +45,8 @@ const refreshEnqueuePending = new Set<string>();
 const lastAppliedBindingDoneId = new Map<string, number>();
 /** Max cluster_hub_path_rewrite_done id already applied for markFileAsModified. */
 const lastAppliedClusterHubRewriteDoneId = new Map<string, number>();
+/** Max evidence_archive_done id already written to evidence rows (re-applying after a restart is a no-op). */
+const lastAppliedEvidenceArchiveId = new Map<string, number>();
 
 function recordLastApplied(site: string, generation: number): void {
   const prev = lastAppliedSnapshot.get(site);
@@ -160,6 +163,7 @@ export function startJobApplier(): void {
           ctx.contentIndex,
           ctx.validationCache,
           ctx.contentRoot,
+          ctx.database,
         );
       } catch (err) {
         log.error({ err, site: ctx.contentRootName }, "[Applier] tick failed");
@@ -176,6 +180,7 @@ async function applyPendingSnapshots(
   ci: import("../content-index").ContentIndex,
   cache: import("../services/validationCacheService").ValidationCacheService,
   contentRoot: string,
+  dbm?: { clearCache(name: string): void },
 ): Promise<void> {
   const latestWriteGen = getLatestWriteGeneration(site);
   const lastApplied = getLastAppliedSnapshot(site)?.generation ?? null;
@@ -370,6 +375,22 @@ async function applyPendingSnapshots(
       { site, eventId: event.id, files: updatedPaths.length },
       "[Applier] cluster_hub_path_rewrite_done side-effects applied",
     );
+  }
+
+  const archiveEvents = listEvents({ site, type: "evidence_archive_done", limit: 50 });
+  const pendingArchive = archiveEvents
+    .filter((e) => e.id > (lastAppliedEvidenceArchiveId.get(site) ?? 0))
+    .sort((a, b) => a.id - b.id);
+  for (const event of pendingArchive) {
+    try {
+      const changed = applyEvidenceArchiveDone(contentRoot, event.payload, dbm);
+      if (changed > 0) {
+        log.info({ site, eventId: event.id, rows: changed }, "[Applier] evidence_archive_done written");
+      }
+    } catch (err) {
+      log.warn({ err, site, eventId: event.id }, "[Applier] evidence_archive_done apply failed");
+    }
+    lastAppliedEvidenceArchiveId.set(site, event.id);
   }
 
   void flushLinkIndexPending(contentRoot);

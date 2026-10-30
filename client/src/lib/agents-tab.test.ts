@@ -13,6 +13,8 @@ describe("agents-tab", () => {
     expect(resolveAgentsTab("/private/agents/orgchart")).toBe("orgchart");
     expect(resolveAgentsTab("/private/agents/rules")).toBe("rules");
     expect(resolveAgentsTab("/private/agents/outcomes")).toBe("outcomes");
+    expect(resolveAgentsTab("/private/agents/webhooks")).toBe("webhooks");
+    expect(resolveAgentsTab("/private/agents/webhook-logs")).toBe("webhook-logs");
     expect(resolveAgentsTab("/private/agents/proposals")).toBe("proposals");
     expect(resolveAgentsTab("/private/agents/proposals/abc")).toBe("proposals");
     expect(resolveAgentsTab("/private/agents/proposals/abc", "?from=outcomes&outcome=bad")).toBe("outcomes");

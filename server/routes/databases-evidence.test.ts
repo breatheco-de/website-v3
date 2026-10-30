@@ -7,6 +7,24 @@ import type { AddressInfo } from "net";
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+const archiveMocks = vi.hoisted(() => ({ live: false, enqueued: [] as Array<Record<string, unknown>> }));
+
+vi.mock("../live-server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../live-server")>();
+  return { ...actual, isLiveServer: () => archiveMocks.live };
+});
+
+vi.mock("../jobs/definitions/evidence-archive", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../jobs/definitions/evidence-archive")>();
+  return {
+    ...actual,
+    enqueueEvidenceArchive: async (payload: Record<string, unknown>) => {
+      archiveMocks.enqueued.push(payload);
+      return true;
+    },
+  };
+});
+
 vi.mock("../sync-state", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../sync-state")>();
   return { ...actual, markFileAsModified: () => undefined };
@@ -27,6 +45,7 @@ vi.mock("./_helpers", async (importOriginal) => {
 import { DatabaseManager } from "../database";
 import { registerDatabasesRoutes } from "./databases";
 import { ROW_STAMP_KEY, rowTrust } from "@shared/evidence-kinds";
+import { ARCHIVE_KEY } from "@shared/evidence-archive";
 
 let tempDir: string;
 let contentRoot: string;
@@ -149,6 +168,76 @@ describe("evidence row stamps", () => {
     );
     expect(res.status).toBe(200);
     expect(rowTrust(rowsOnDisk()[1])).toBe("unverified");
+  });
+
+  describe("archive copies", () => {
+    type ItemsBody = { items: Record<string, unknown>[]; evidence_archive: Array<{ status: string; url: string | null; manual: boolean }> };
+
+    it("lists archive status per row; off the live server nothing is queued", async () => {
+      archiveMocks.live = false;
+      const body = (await (await json("GET", `/api/databases/${dbName}/items`)).json()) as ItemsBody;
+      expect(body.evidence_archive.map((a) => a.status)).toEqual(["not_archived", "not_archived"]);
+      expect(archiveMocks.enqueued).toEqual([]);
+      expect(ARCHIVE_KEY in rowsOnDisk()[1]!).toBe(false);
+    });
+
+    it("archive routes refuse agents", async () => {
+      expect((await json("POST", `/api/databases/${dbName}/items/1/archive`, {}, AGENT)).status).toBe(403);
+      expect((await json("PUT", `/api/databases/${dbName}/items/1/archive-link`, { url: "https://archive.ph/x" }, AGENT)).status).toBe(403);
+    });
+
+    it("Archive now needs the live server", async () => {
+      archiveMocks.live = false;
+      const res = await json("POST", `/api/databases/${dbName}/items/1/archive`, {});
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { code: string }).code).toBe("not_live_server");
+    });
+
+    it("Archive now on the live server marks the row pending and queues the link", async () => {
+      archiveMocks.live = true;
+      archiveMocks.enqueued.length = 0;
+      const res = await json("POST", `/api/databases/${dbName}/items/1/archive`, {});
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { archive: { status: string } }).archive.status).toBe("pending");
+      expect(archiveMocks.enqueued).toEqual([expect.objectContaining({ database: dbName, source_url: "https://c", site: "site_ev" })]);
+      const body = (await (await json("GET", `/api/databases/${dbName}/items`)).json()) as ItemsBody;
+      expect(body.evidence_archive[1]!.status).toBe("pending");
+      expect(ARCHIVE_KEY in body.items[1]!).toBe(false);
+    });
+
+    it("a backup link must be http(s) and is stored as a manual copy", async () => {
+      expect((await json("PUT", `/api/databases/${dbName}/items/1/archive-link`, { url: "javascript:x" })).status).toBe(400);
+      const res = await json("PUT", `/api/databases/${dbName}/items/1/archive-link`, { url: "https://archive.ph/abc" });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { archive: { status: string; manual: boolean } }).archive).toMatchObject({ status: "archived", manual: true });
+      expect(rowsOnDisk()[1]![ARCHIVE_KEY]).toMatchObject({ status: "manual", url: "https://archive.ph/abc", set_by: "alice", source_url: "https://c" });
+    });
+
+    it("an agent edit keeps the copy and cannot overwrite it", async () => {
+      const res = await json(
+        "PATCH",
+        `/api/databases/${dbName}/items/1`,
+        { image: "z.png", [ARCHIVE_KEY]: { source_url: "https://c", status: "manual", url: "https://evil" } },
+        AGENT,
+      );
+      expect(res.status).toBe(200);
+      expect(rowsOnDisk()[1]![ARCHIVE_KEY]).toMatchObject({ url: "https://archive.ph/abc" });
+    });
+
+    it("saving a new link on the live server queues an archive for it", async () => {
+      archiveMocks.live = true;
+      archiveMocks.enqueued.length = 0;
+      const res = await json("PATCH", `/api/databases/${dbName}/items/1`, { link_url: "https://d" });
+      expect(res.status).toBe(200);
+      expect(rowsOnDisk()[1]![ARCHIVE_KEY]).toMatchObject({ status: "pending", source_url: "https://d" });
+      expect(archiveMocks.enqueued).toEqual([expect.objectContaining({ source_url: "https://d" })]);
+      archiveMocks.live = false;
+    });
+
+    it("raw reads never expose the record", async () => {
+      const body = (await (await json("GET", `/api/databases/${dbName}/raw-items`)).json()) as { items: Record<string, unknown>[] };
+      expect(body.items.some((i) => ARCHIVE_KEY in i)).toBe(false);
+    });
   });
 
   it("rejects an invalid evidence config", async () => {

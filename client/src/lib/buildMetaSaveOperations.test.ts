@@ -3,8 +3,10 @@ import {
   areSlugListsEqual,
   buildMetaSaveOperations,
   computeDirtyMetaKeys,
+  withExplicitIndexRobots,
   type EditableMetaKey,
 } from "./buildMetaSaveOperations";
+import { normalizeRobotsForForm } from "./robotsMeta";
 import type { SeoMeta } from "@/components/DebugBubble/types";
 
 const baseline: SeoMeta = {
@@ -150,5 +152,44 @@ describe("computeDirtyMetaKeys", () => {
     expect(dirty.has("robots")).toBe(true);
     expect(dirty.has("redirects")).toBe(true);
     expect(dirty.has("page_title" as EditableMetaKey)).toBe(false);
+  });
+});
+
+describe("withExplicitIndexRobots", () => {
+  const clearRobots = () =>
+    buildMetaSaveOperations({
+      context: "live",
+      seoMeta: { ...baseline, robots: "" },
+      dirtyKeys: dirty("robots"),
+    });
+
+  it("writes index, follow instead of deleting when the page-wide value says noindex", () => {
+    expect(clearRobots()).toEqual([{ action: "update_field", path: "meta.robots", value: null }]);
+    expect(withExplicitIndexRobots(clearRobots(), "noindex, nofollow")).toEqual([
+      { action: "update_field", path: "meta.robots", value: "index, follow" },
+    ]);
+  });
+
+  it("keeps the delete when nothing underneath says noindex", () => {
+    expect(withExplicitIndexRobots(clearRobots(), "")).toEqual(clearRobots());
+    expect(withExplicitIndexRobots(clearRobots(), undefined)).toEqual(clearRobots());
+  });
+
+  it("leaves explicit values alone", () => {
+    const ops = buildMetaSaveOperations({
+      context: "live",
+      seoMeta: { ...baseline, robots: "noindex" },
+      dirtyKeys: dirty("robots"),
+    });
+    expect(withExplicitIndexRobots(ops, "noindex")).toEqual(ops);
+  });
+});
+
+describe("normalizeRobotsForForm", () => {
+  it("collapses spellings of the default to the default radio", () => {
+    expect(normalizeRobotsForForm("index, follow")).toBe("");
+    expect(normalizeRobotsForForm("Index,Follow")).toBe("");
+    expect(normalizeRobotsForForm(undefined)).toBe("");
+    expect(normalizeRobotsForForm("noindex")).toBe("noindex");
   });
 });

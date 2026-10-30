@@ -13,6 +13,7 @@ import { consensusSitemapContentType, contentTypeForSitemapFolder } from "@/lib/
 import { isSharedLayoutType } from "@/lib/sharedLayoutEntry";
 import { computeDirtyMetaKeys, liveSnippetClearBlocked } from "@/lib/buildMetaSaveOperations";
 import { useSeoModalSaves } from "@/hooks/useSeoModalSaves";
+import { VISIBILITY_META_KEYS } from "@/lib/seoSaveApi";
 import type { SeoMeta } from "@/components/DebugBubble/types";
 import { ManagedSeoModal, type ManagedSeoModalTarget } from "@/components/editing/ManagedSeoModal";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
@@ -409,6 +410,15 @@ export function DebugBubble() {
   const applySeoMetaFromForm = useCallback((next: SeoMeta) => {
     setSeoMeta(next);
     setSeoDirtyKeys(computeDirtyMetaKeys(next, seoBaselineMetaRef.current));
+  }, []);
+  const applySavedRedirects = useCallback((redirects: string[]) => {
+    seoBaselineMetaRef.current = { ...seoBaselineMetaRef.current, redirects };
+    setSeoMeta((prev) => ({ ...prev, redirects }));
+    setSeoDirtyKeys((prev) => {
+      const next = new Set(prev);
+      next.delete("redirects");
+      return next;
+    });
   }, []);
   const seoBaselineLocationsRef = useRef<string[]>([]);
   const [locationsBaseline, setLocationsBaseline] = useState<string[]>([]);
@@ -2841,6 +2851,7 @@ export function DebugBubble() {
         visibilityDirty={["robots", "priority", "change_frequency"].some((k) =>
           seoDirtyKeys.has(k),
         )}
+        visibilityDirtyKeys={VISIBILITY_META_KEYS.filter((k) => seoDirtyKeys.has(k))}
         snippetDirty={["page_title", "description"].some((k) => seoDirtyKeys.has(k))}
         snippetSaveBlocked={
           seoSaves.isLiveLocale &&
@@ -2865,6 +2876,7 @@ export function DebugBubble() {
         seoContext={seoData?.context ?? (getUrlVariant() ? "variant" : "live")}
         seoVariant={seoData?.variant ?? getUrlVariant()}
         metaOverrides={seoData?.metaOverrides ?? []}
+        onRedirectsSaved={applySavedRedirects}
       />
       <ManagedSeoModal
         open={managedSeoModalOpen}

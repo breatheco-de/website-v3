@@ -20,13 +20,17 @@ describe("built-in MCP role descriptions", () => {
 });
 
 describe("platform_steward architecture caps", () => {
-  it("platform_steward includes content_types_manage and databases_manage without row mutators", () => {
+  it("platform_steward includes content_types_manage, databases_manage, and press_mentions row edits", () => {
     const role = getBuiltInRoleCodeDefinition("platform_steward");
     expect(role).toBeTruthy();
     const names = new Set(role!.capabilities.map((g) => g.name));
     expect(names.has("content_types_manage")).toBe(true);
     expect(names.has("databases_manage")).toBe(true);
-    expect(names.has("databases_edit_data")).toBe(false);
+    expect(names.has("databases_view")).toBe(true);
+    expect(role!.capabilities.find((g) => g.name === "databases_edit_data")).toEqual({
+      name: "databases_edit_data",
+      databases: ["press_mentions"],
+    });
     const tools = new Set(allowedToolNames(role!.capabilities));
     expect(tools.has("update_content_type")).toBe(true);
     expect(tools.has("reindex_database")).toBe(true);
@@ -34,10 +38,19 @@ describe("platform_steward architecture caps", () => {
     expect(tools.has("list_databases")).toBe(true);
     expect(tools.has("list_database_items")).toBe(true);
     expect(tools.has("get_database_item")).toBe(true);
-    // databases_manage does not authorize row mutators
-    expect(tools.has("add_database_item")).toBe(false);
-    expect(tools.has("update_database_item")).toBe(false);
-    expect(tools.has("delete_database_item")).toBe(false);
+    expect(tools.has("add_database_item")).toBe(true);
+    expect(tools.has("update_database_item")).toBe(true);
+    expect(tools.has("delete_database_item")).toBe(true);
+  });
+
+  it("platform_steward covers every News Editor capability", () => {
+    const steward = getBuiltInRoleCodeDefinition("platform_steward")!.capabilities;
+    const newsEditor = [
+      { name: "databases_edit_data", databases: ["press_mentions"] },
+      { name: "databases_view" },
+      { name: "content_view", contentTypes: "*" },
+    ];
+    for (const grant of newsEditor) expect(steward).toContainEqual(grant);
   });
 
   it("databases_edit_data role catalog includes item mutators not create_or_update", () => {

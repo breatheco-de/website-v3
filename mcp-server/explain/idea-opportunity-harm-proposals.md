@@ -41,6 +41,7 @@ Then: if the page can be mediocre and still tax the site, do not accept. Dilutio
 | Idea itself is the harm (spam, dupe, official-catalog clone we will lose) | `reject` or `close` park. Reject is rare and terminal. |
 | Better as a refresh of an existing slug | `close` `tracked_elsewhere` naming that slug. |
 | Wrong vehicle (funnel / SERP / hub-links-only on live pages) | `close` and tell author to refile as **edits** with the right situation. |
+| Brief is a procedure: if/then branches, a precondition only a person can check, or tasks for staff | `close` `other` and tell author to refile as **notes**. Do not `add_blocker` asking someone to run the precondition. |
 
 Open blockers block accept. Reviewer cannot `revise_entries` on an idea (no ops). Incomplete briefs still **create** — fix via blocker, not create refuse.
 
@@ -57,6 +58,9 @@ Use `kind: idea` for a new URL, net-new public page, or structural brief (includ
 | Add hub links only | edits + `internal_links` |
 | Refresh facts on an existing slug | idea or edits **on that slug**, not a third URL |
 | “We noticed dupes” | notes naming the slugs |
+| A check or task only a person can do (Search Console inspect, request indexing, find where a bad link comes from) | notes with the check and what each result means |
+
+**One change per idea.** An idea pitches one site change the reviewer can accept or close as written. Decide with the data you can read. If the decision depends on something you cannot check (stale Search Console cache, analytics UI), file **notes** asking a person for it — never an idea with “do X only if Y” branches.
 
 ---
 
@@ -101,11 +105,16 @@ Dilution may improve, but short visit loss needs evidence the **hub** is low-val
 
 Cannibal + retrieval split. Notes to merge, not a fourth idea.
 
+### Fail — broken-URL redirect “only after Search Console confirms”
+
+Brief: inspect the target in Search Console; if indexed, redirect; if not, open another idea; meanwhile find the bad link. That is four steps with a branch and two staff tasks, not one change. Reviewer: `close` `other`, refile as notes. Author should have decided from the cached `get_entry_seo` `search_engines` read (Soft 404 → no redirect) or filed notes asking for a fresh inspect.
+
 ---
 
 ## Author checklist (rationale)
 
 - [ ] Target page type named in `related_entries` (content type key, not a tag); its `get_content_type_info` strategy read and the brief fits it
+- [ ] One site change, no if/then branches or tasks for staff (those are notes)
 - [ ] One-sentence 90-day goal (cite / rank / assist)
 - [ ] Page built around an existing file (PDF lead magnet, video, image): its gallery `media_id` and public `src` URL, so staff and the reviewer can open it
 - [ ] Evidence for the job (search proof, or demand label + its proof, or non-search reason in the summary)

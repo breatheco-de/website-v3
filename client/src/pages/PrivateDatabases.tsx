@@ -57,6 +57,8 @@ import {
 } from "@shared/database-items-sort";
 import type { DatabaseEvidenceConfig, EvidenceRowTrust } from "@shared/evidence-kinds";
 import { EvidenceSourceKpiCard } from "@/components/databases/EvidenceSourceKpiCard";
+import { ARCHIVE_COLUMN_HELP, EvidenceArchiveCell } from "@/components/databases/EvidenceArchiveCell";
+import type { RowArchiveView } from "@shared/evidence-archive";
 
 const RELATIVE_FETCHED_AT_MAX_MS = 2 * 24 * 60 * 60 * 1000;
 
@@ -281,6 +283,8 @@ interface DatabaseItems {
   facets?: Record<string, string[]>;
   /** Evidence databases only: who last changed each returned row's link or claim. */
   evidence_trust?: EvidenceRowTrust[];
+  /** Evidence databases only: Internet Archive copy of each returned row's link. */
+  evidence_archive?: RowArchiveView[];
 }
 
 interface KeyValuePair {
@@ -4358,6 +4362,11 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     const idx = (itemsData?.items ?? []).indexOf(item);
     return idx >= 0 ? itemsData?.evidence_trust?.[idx] ?? null : null;
   };
+  const archiveOf = (item: Record<string, unknown>): RowArchiveView | null => {
+    if (!showEvidenceTrust) return null;
+    const idx = (itemsData?.items ?? []).indexOf(item);
+    return idx >= 0 ? itemsData?.evidence_archive?.[idx] ?? null : null;
+  };
   const [verifyingIndex, setVerifyingIndex] = useState<number | null>(null);
   const verifyEvidenceRow = async (storedIndex: number) => {
     setVerifyingIndex(storedIndex);
@@ -5533,6 +5542,15 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                             Proof
                           </th>
                         )}
+                        {showEvidenceTrust && (
+                          <th
+                            className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap"
+                            title={ARCHIVE_COLUMN_HELP}
+                            data-testid="th-evidence-archive"
+                          >
+                            <span className="underline decoration-dotted underline-offset-2 cursor-help">Archive</span>
+                          </th>
+                        )}
                         {columns.map((col) => (
                           <th
                             key={col}
@@ -5642,6 +5660,18 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                               ) : (
                                 <span className="text-[10px] text-muted-foreground">—</span>
                               )}
+                            </td>
+                          )}
+                          {showEvidenceTrust && (
+                            <td className="px-3 py-1.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                              <EvidenceArchiveCell
+                                view={archiveOf(item)}
+                                dbName={dbName}
+                                storedIndex={storedIndexOf(item, i)}
+                                canEdit={canEditRows}
+                                onChanged={refetchItems}
+                                testId={String(i)}
+                              />
                             </td>
                           )}
                           {columns.map((col) => {

@@ -45,8 +45,9 @@ import {
   checkTranslationSource,
   commonPathOf,
   draftPathOf,
-  draftSeedFromLiveRaw,
+  draftSeedFromLive,
   forgetDraftBase,
+  funnelCarriedWarning,
   livePathOf,
   rebuildDraftFromBase,
   recordDraftBase,
@@ -102,14 +103,14 @@ export type ProposalDraftStore = {
       newEntry?: { funnel?: Record<string, unknown> | null };
       seo?: Record<string, unknown> | null;
     },
-  ): { ok: true } | { ok: false; code: string; error: string };
+  ): { ok: true; warnings?: Array<{ code: string; message: string }> } | { ok: false; code: string; error: string };
   /** Allocation in versioning.yml; null when not registered (a draft). */
   allocation(ref: ProposalDraftRef): number | null;
   /** Post that uses the shared template (drafts may only change fields). */
   isAttached(contentType: string, slug: string): boolean;
   structureError(ref: ProposalDraftRef): string | null;
   /** Replace the draft body with today's live (`{}` when unpublished), keep `_draft`, and record a new base. */
-  reset(ref: ProposalDraftRef, author: string): void;
+  reset(ref: ProposalDraftRef, author: string): Array<{ code: string; message: string }> | void;
   snapshotRaw(ref: ProposalDraftRef): string | null;
   restoreRaw(ref: ProposalDraftRef, raw: string, author: string): void;
   write(ref: ProposalDraftRef, updates: DraftFieldUpdate[], author: string): Promise<DraftWriteResult>;
@@ -171,6 +172,23 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
       author,
       contentRoot,
     });
+  }
+
+  function seedFromLive(
+    ref: ProposalDraftRef,
+    livePath: string,
+  ): { content: string; warnings: Array<{ code: string; message: string }> } {
+    const commonPath = commonPathOf(withRoot(ref));
+    const seeded = draftSeedFromLive(fs.readFileSync(livePath, "utf-8"), {
+      ...scopeOptionsOf(withRoot(ref)),
+      commonRaw: fs.existsSync(commonPath) ? fs.readFileSync(commonPath, "utf-8") : null,
+    });
+    if (!seeded.carried.includes("funnel")) return { content: seeded.content, warnings: [] };
+    const warning = funnelCarriedWarning(ref.locale);
+    return {
+      content: seeded.content,
+      warnings: [{ ...warning, message: `${ref.contentType}/${ref.slug} (${ref.locale}): ${warning.message}` }],
+    };
   }
 
   const store: ProposalDraftStore = {
@@ -295,8 +313,9 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
         return { ok: false, code: "entry_not_found", error: resolved.error };
       }
       const livePath = livePathOf(withRoot(ref));
-      const content = fs.existsSync(livePath)
-        ? draftSeedFromLiveRaw(fs.readFileSync(livePath, "utf-8"), scopeOptionsOf(withRoot(ref)))
+      const seeded = fs.existsSync(livePath) ? seedFromLive(ref, livePath) : null;
+      const content = seeded
+        ? seeded.content
         : opts.seo && Object.keys(opts.seo).length > 0
           ? safeDumpYaml({ seo: opts.seo })
           : "{}\n";
@@ -310,7 +329,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
       registerVariant(ref, versioningSlug, opts.author);
       recordDraftBase(withRoot(ref), { author: opts.author });
       if (opts.newEntry) ctx.contentIndex.refresh();
-      return { ok: true };
+      return { ok: true, warnings: seeded?.warnings ?? [] };
     },
 
     allocation(ref) {
@@ -335,11 +354,10 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
     reset(ref, author) {
       const draftPath = draftPathOf(withRoot(ref));
       const livePath = livePathOf(withRoot(ref));
-      const content = fs.existsSync(livePath)
-        ? draftSeedFromLiveRaw(fs.readFileSync(livePath, "utf-8"), scopeOptionsOf(withRoot(ref)))
-        : "{}\n";
-      writeVariantFile(draftPath, content, { author, contentRoot, relPath: relFromCwd(draftPath) });
+      const seeded = fs.existsSync(livePath) ? seedFromLive(ref, livePath) : null;
+      writeVariantFile(draftPath, seeded?.content ?? "{}\n", { author, contentRoot, relPath: relFromCwd(draftPath) });
       recordDraftBase(withRoot(ref), { author });
+      return seeded?.warnings ?? [];
     },
 
     snapshotRaw(ref) {

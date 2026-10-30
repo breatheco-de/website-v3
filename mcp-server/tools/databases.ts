@@ -328,7 +328,9 @@ function evidenceWriteWarnings(
       message:
         `This database is an evidence source. Rows you add, or whose ${evidenceProofFields(ev).join(" / ")} you change, ` +
         "count as unverified and do not prove proposal claims until staff press Mark verified on the Databases page. " +
-        "The server sets the row's _changed_by stamp; sending one is ignored. Page rendering does not change.",
+        "The server sets the row's _changed_by stamp and _archive record; sending them is ignored. " +
+        "After save the live server archives the link on archive.org (staff-only Archive now / backup link on the Databases page). " +
+        "Page rendering does not change.",
     },
   ];
 }

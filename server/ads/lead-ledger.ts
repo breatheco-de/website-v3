@@ -35,6 +35,7 @@ import type { PaidLandingRef } from "@shared/session";
 import { isTrafficChannel, type TrafficChannel } from "@shared/traffic-channel";
 import { resolveVisitorCountry } from "./visitor-country";
 import { findCatalogProduct } from "./lead-product";
+import { expireLeadCopies, pruneLeadOutbox } from "./lead-outbox";
 import { child } from "../logger";
 
 const log = child({ module: "ads/lead-ledger" });
@@ -443,6 +444,12 @@ export function pruneLedger(site: string, now: number = Date.now()): number {
   const cutoff = new Date(now);
   cutoff.setUTCMonth(cutoff.getUTCMonth() - LEDGER_RETENTION_MONTHS);
   const info = getSiteSqlite(site).prepare("DELETE FROM lead_submissions WHERE created_at < ?").run(cutoff.getTime());
+  try {
+    expireLeadCopies(site, now);
+    pruneLeadOutbox(site, cutoff.getTime());
+  } catch (err) {
+    log.warn({ err }, "[lead-ledger] outbox prune failed");
+  }
   return Number(info.changes ?? 0);
 }
 
@@ -459,15 +466,23 @@ function maybePruneLedger(site: string): void {
   }
 }
 
+/** Ledger facts the lead outbox copies onto its row (no personal data). */
+export type RecordedLeadMeta = {
+  submission_id: string;
+  browser_hash: string | null;
+  form: string | null;
+  is_test: boolean;
+};
+
 /**
  * Enrich a lead body and record the ledger row before webhook delivery.
- * Ledger failures never block the lead.
+ * Ledger failures never block the lead. `lead` is null when enrichment failed.
  */
-export async function recordLeadSubmission(
+export async function recordLeadSubmissionWithMeta(
   req: Request,
   res: Response,
   body: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
+): Promise<{ body: Record<string, unknown>; lead: RecordedLeadMeta | null }> {
   try {
     const prepared = await prepareLead(req, res, body);
     const site = (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName;
@@ -478,11 +493,27 @@ export async function recordLeadSubmission(
         log.warn({ err }, "[lead-ledger] insert failed");
       }
     }
-    return enrichLeadBody(body, prepared.wire);
+    return {
+      body: enrichLeadBody(body, prepared.wire),
+      lead: {
+        submission_id: prepared.row.submission_id,
+        browser_hash: prepared.row.browser_hash,
+        form: prepared.row.form,
+        is_test: prepared.row.is_test === 1,
+      },
+    };
   } catch (err) {
     log.warn({ err }, "[lead-ledger] enrichment failed; delivering raw lead");
-    return enrichLeadBody(body, {});
+    return { body: enrichLeadBody(body, {}), lead: null };
   }
+}
+
+export async function recordLeadSubmission(
+  req: Request,
+  res: Response,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return (await recordLeadSubmissionWithMeta(req, res, body)).body;
 }
 
 export type LedgerQueryRow = LedgerRow;

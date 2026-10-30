@@ -44,6 +44,13 @@ All marketing content lives under the site folder from `sites.yml` (`content_fol
 
 **Layout rule:** entries are always `{type-dir}/{slug}/{locale}.yml` (folder per slug). Flat files like `pages/about.en.yml` are **not** indexed. Site Manager scaffold and `create_entry` write folders only.
 
+**Page ID vs slug:**
+- **Page ID (`entry_id`)** = the folder name, verbatim. Stable across slug renames and languages; versioning, bindings, proposals, events and products key on it. It is not guaranteed to be slug-shaped (older folders like `How-to-Install-Javascript`).
+- **Slug** = one language's public address: `{locale}.yml` `slug:`, else `_common.yml` `slug:`, else the page ID. Lowercase is the standard.
+- **Lookup:** every entry tool and `propose_change` accept the page ID or any language's slug, compared by `slugKey` (`shared/slug.ts`: lowercase, accents stripped, non-alphanumerics → `-`). A language's slug serves that language when `locale` is omitted (explicit `locale` wins → `slug_locale_mismatch`). Resolutions return `slug_resolved` with `entry_id`; refusals `ambiguous_slug` / `index_updating`. Creation never resolves.
+- **Public site:** another spelling of a live address (capitals, `_`, accents) 301s to the official address, only after exact URLs and staff redirects miss.
+- **Non-effects:** resolution never renames folders or rewrites links; `list_entries` rows carry `entry_id` + `locale_slugs` so later calls can use the ID directly.
+
 **sites.yml `inherit_components_from`:** optional parent `content_folder` for that site's component-registry (schema / field-editors / examples). One hop; parent must own a registry. Non-effect: does not copy registry files into the child; `create_entry` still writes YAML under the **current** site's content folder. The same setting covers the theme: a child without its own `theme.json` uses the parent's (whole file); theme writes on that child are refused (`theme_inherited`) until staff create a separate theme.
 
 ## Draft vs live vs variant
@@ -81,6 +88,7 @@ Every draft carries a `_draft` block that never reaches a published file and is 
 
 - **`based_on { locale, common, at }`** — hashes of the live locale file and `_common.yml` when the draft was created (null = not published). Set by create_entry / translate_entry (new draft) / proposals; also refreshed when a proposal resets its draft. **Editing the draft never changes it.** A base copy of the live content is kept in the pipeline DB for rebuilds.
 - On promote/publish: live unchanged since `based_on` → normal promote. Live moved + non-overlapping fields → draft rebuilt on today's live (warning `draft_rebuilt`). Overlap / `sections` / no base copy → `draft_base_stale` (details `conflicting_fields` or `reason`). No `based_on` (older draft) → `draft_base_unknown`. Both need `confirm_overwrite_newer_live: true` to publish as-is (discards the newer live changes).
+- **Robots on publish:** promote compares the locale's effective `meta.robots` (locale file over `_common.yml`; `""`, `index, follow` and `all` are the same) before vs after. Different → `robots_change_on_publish` (409, `details.live_robots` / `draft_robots` / `locale` / `paths.locale`). Ask the user, retry with `robots_on_publish: keep_live` (publish the draft, keep the live locale file's own robots) or `use_draft`. A draft that never set robots still counts when live is noindex. New languages (no live file) and priority / change_frequency are not checked. Warning `robots_on_publish` records the choice.
 - **`translated_from { locale, hash, at }`** — recorded by translate_entry (and proposals with `translated_from_locale`). Source live changed since → promote/publish `translation_source_changed` (`confirm_source_changed`); proposals go `context_stale`.
 - **`proposal { id, env, … }`** — the open proposal that owns the draft. Direct promote/publish/delete refuses (`draft_in_proposal`); approve the proposal instead.
 

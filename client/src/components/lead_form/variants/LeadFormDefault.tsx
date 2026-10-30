@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Turnstile } from "@marsidev/react-turnstile";
 import { normalizeLocale } from "@/lib/locale";
+import { leadSubmitErrorMessage } from "@/lib/leadSubmitError";
 import { localeFromPath } from "@shared/runtime-issues";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1884,73 +1885,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     },
     onError: (error: Error) => {
       console.error("Lead submission error:", error);
-
-      const defaultErrorMessage = locale === "es"
-        ? "Hubo un problema al enviar tu información. Por favor intenta de nuevo."
-        : "There was a problem submitting your information. Please try again.";
-
-      const isTechnicalErrorMessage = (msg: string) =>
-        /upstream webhook returned a non-2xx/i.test(msg) ||
-        /failed to deliver webhook/i.test(msg) ||
-        /failed to deliver/i.test(msg);
-
-      const preferUserFacing = (msg: string | undefined | null): string | null => {
-        if (typeof msg !== "string") return null;
-        const trimmed = msg.trim();
-        if (!trimmed || isTechnicalErrorMessage(trimmed)) return null;
-        return trimmed;
-      };
-
-      let errorMessage = defaultErrorMessage;
-      try {
-        const jsonMatch = error.message.match(/^\d+:\s*(.+)$/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[1]) as {
-            error?: unknown;
-            details?: unknown;
-          };
-          if (typeof parsed.details === "string") {
-            if (parsed.details.includes("<!DOCTYPE") || parsed.details.includes("<html")) {
-              errorMessage = defaultErrorMessage;
-            } else {
-              try {
-                const details = JSON.parse(parsed.details) as { detail?: unknown; message?: unknown };
-                const fromDetails = preferUserFacing(
-                  typeof details.detail === "string"
-                    ? details.detail
-                    : typeof details.message === "string"
-                      ? details.message
-                      : null,
-                );
-                if (fromDetails) {
-                  errorMessage = fromDetails;
-                }
-              } catch {
-                const fromRawDetails = preferUserFacing(parsed.details);
-                if (fromRawDetails) errorMessage = fromRawDetails;
-              }
-            }
-          } else if (
-            parsed.details &&
-            typeof parsed.details === "object" &&
-            "detail" in parsed.details &&
-            typeof (parsed.details as { detail: unknown }).detail === "string"
-          ) {
-            const fromObj = preferUserFacing((parsed.details as { detail: string }).detail);
-            if (fromObj) errorMessage = fromObj;
-          }
-          // Never surface internal webhook labels (e.g. "Upstream webhook returned a non-2xx…")
-          // — keep default unless details already provided a user-facing message.
-        }
-      } catch {
-        // keep default
-      }
-
-      if (errorMessage.length > 200 || /<[^>]+>/.test(errorMessage)) {
-        errorMessage = defaultErrorMessage;
-      }
-
-      setSubmitError(errorMessage);
+      setSubmitError(leadSubmitErrorMessage(error.message, locale));
     },
   });
 

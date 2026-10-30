@@ -220,6 +220,7 @@ export const THINK_TEMPLATES: Record<ChecklistId, ThinkTemplate> = {
       "Goal: one 90-day outcome — cite, rank, or assist a real program (not fill a cluster hole)",
       "Evidence: follow declared demand label when present (anticipated_demand / existing_demand / fast_decay_news / broken_url); with no label, score the summary — demand keyword volume only for a search claim; search/cite + volume/KD without existing_demand → add_blocker naming the label; launch or 404 cues without a label → add_blocker naming the label",
       "Fit: not a dupe of a sibling; locale justified; wrong vehicle (funnel/SERP/hub-links-only) → close and refile as edits",
+      "One change: the brief pitches one site change you can accept or close as written. If/then branches (do X only if Y), preconditions only a person can check (Search Console, analytics UI, request indexing) or tasks for staff (find the source, investigate) → close other and tell the author to refile as notes; do not add_blocker asking for the precondition",
       "Brand: educational angle, checkable facts, real program CTA — invented endorsement → reject or close; a named partner/press/award counts as sourced when review_context.evidence shows a sourced row",
       "number or stat → check it against list_variables (site facts); a literal for a fact that varies by region → add_blocker asking for the token, unless it equals literal_ok for this page",
       "fact disagrees with the catalog → the catalog wins; if the author says it is stale, ask for a notes handoff to update the variable (not a literal)",
@@ -387,6 +388,7 @@ export const THINK_TEMPLATES: Record<ChecklistId, ThinkTemplate> = {
     look_for: [
       "score Persona / Product / Stage then Ship: pass|fail|warn / pass|fail / pass|fail / yes|no — in that order",
       "Persona: content intent matches a real persona id on a product (list_products → get_product); missing audience → product-only OK with warn (do not invent persona ids); wrong/invented persona → block",
+      "Persona: read who this page talks to (title, hero, CTAs) and compare every persona on the product — sibling pages using a persona is not evidence either way",
       "Product: proposed bindings follow from that fit; multiple { product, persona? } OK when two+ personas truly fit; products:all only when no single product's personas fit better; breadth/company-report alone ≠ all; all never carries personas",
       "Stage: awareness|consideration|decision|post-enrollment matches readiness — re-check full cascade even if only stage or only products moved",
       "ops vs live funnel + product audience — ignore staff summary / Titulo/Meta blurb; never block because blurb ≠ ops",
@@ -515,6 +517,7 @@ export const THINK_TEMPLATES: Record<ChecklistId, ThinkTemplate> = {
     look_for: [
       "sourced → pass; open the row (discovery get_database_item) and confirm the claim is not stronger than the row (e.g. \"contracted\" vs \"selected\") — stronger → add_blocker",
       "unsourced (row has no link) → warning only; you may still apply",
+      "sourced but row.archive_status is not archived (evidence_not_archived) → warning only; the live server keeps an Internet Archive copy of the link",
       "unverified (an agent last changed the row's link or claim) → add_blocker asking staff to verify the row",
       "no_evidence → apply is refused (evidence_missing); add_blocker asking for a sourced row, or for staff to dismiss the name",
       "already_live → the claim is already published; warning only, never a blocker",

@@ -1022,6 +1022,15 @@ export function classifyProposalReview(opts: ClassifyProposalReviewOpts): Review
         message: `Evidence row has no source link: ${unsourced.join(", ")}. Warning only.`,
       });
     }
+    const notArchived = evidenceCheck.claims
+      .filter((c) => c.status === "sourced" && c.row?.archive_status && c.row.archive_status !== "archived" && c.row.archive_status !== "none")
+      .map((c) => c.name);
+    if (notArchived.length) {
+      warnings.push({
+        code: "evidence_not_archived",
+        message: `Evidence row's source link has no Internet Archive copy yet: ${notArchived.join(", ")}. Warning only; the server archives it on the live server.`,
+      });
+    }
     if (alreadyLive.length) {
       warnings.push({
         code: "evidence_already_live",

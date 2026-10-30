@@ -8,6 +8,7 @@ import {
   type DatabaseEvidenceConfig,
   type EvidenceKind,
 } from "@shared/evidence-kinds";
+import { archiveView, type ArchiveStatus } from "@shared/evidence-archive";
 
 export type EvidenceSource = {
   /** Content folder the database belongs to (own site or fallback site). */
@@ -27,6 +28,9 @@ export type EvidenceRowRef = {
   index: number;
   label: string;
   link: string | null;
+  /** Internet Archive copy of `link` (`none` when the row has no link). */
+  archive_status: ArchiveStatus;
+  archive_url: string | null;
 };
 
 export type EvidenceClaimStatus =
@@ -122,6 +126,7 @@ export function buildEvidenceIndex(sources: EvidenceSource[], brand: string[]): 
     const ignore = new Set((src.config.ignore_values ?? []).map(normalizeName));
     src.rows.forEach((row, index) => {
       const linkRaw = row[src.config.proof_field];
+      const archive = archiveView(row, src.config.proof_field);
       const ref: EvidenceRowRef = {
         site: src.site,
         domain: src.domain,
@@ -129,6 +134,8 @@ export function buildEvidenceIndex(sources: EvidenceSource[], brand: string[]): 
         index,
         label: String(row.title ?? row.name ?? row.organization ?? `row ${index}`),
         link: typeof linkRaw === "string" && linkRaw.trim() ? linkRaw.trim() : null,
+        archive_status: archive.status,
+        archive_url: archive.url,
       };
       const rowStatus = rowStatusOf(row, src.config);
       for (const field of src.config.match_fields) {

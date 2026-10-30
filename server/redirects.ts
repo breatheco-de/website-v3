@@ -21,6 +21,8 @@ import type { RedirectTraceMatchType } from "@shared/redirect-trace";
 import { localePrefixFromPath } from "@shared/runtime-issues";
 import { isLocaleHomeAlias } from "@shared/public-app-routes";
 import { resolveLocaleHomeAliasTarget } from "./locale-home-alias";
+import { slugKey } from "@shared/slug";
+import { resolveEntryRef } from "./entry-ref";
 const log = child({ module: "redirects" });
 
 // ============================================================================
@@ -565,7 +567,74 @@ export function fallbackRedirectMiddleware(req: Request, res: Response, next: Ne
     }
   }
 
+  // Last resort before a 404: another spelling of a real address (capitals, underscores, accents).
+  try {
+    const normalized = findNormalizedSlugMatch(cleanUrlNoSlash, activeCi);
+    if (normalized) {
+      sendRedirect(req, res, next, {
+        from: cleanUrl,
+        to: withInboundQuery(normalized.canonicalUrl, req),
+        status: 301,
+        matchType: "canonical",
+        priority: "fallback",
+        source: `slug-key:${normalized.typeName}`,
+        logLabel: `(slug key ${normalized.typeName})`,
+      });
+      return;
+    }
+  } catch {}
+
   next();
+}
+
+/**
+ * When an unknown URL differs from a live page's official address only in spelling
+ * (capitals, underscores, accents, repeated hyphens), return that official address.
+ * Same URL pattern and params are required; the last segment is resolved by `slugKey`.
+ */
+export function findNormalizedSlugMatch(
+  cleanUrl: string,
+  ci: ContentIndex = contentIndex,
+): { typeName: string; canonicalUrl: string } | null {
+  const normalizedUrl = stripTrailingSlash(cleanUrl);
+  if (ci.isKnownUrl(normalizedUrl)) return null;
+  const segments = normalizedUrl.split("/").filter(Boolean);
+  const lastSegment = segments[segments.length - 1];
+  if (!lastSegment || !slugKey(lastSegment)) return null;
+  const requestShape = segments.slice(0, -1).map((s) => slugKey(s));
+
+  const found = new Map<string, string>();
+  for (const typeName of ci.getContentTypes()) {
+    const pattern = ci.getContentTypeConfig(typeName)?.url_pattern;
+    if (!pattern) continue;
+    for (const [patternLocale, urlPattern] of Object.entries(pattern)) {
+      const patternSegments = urlPattern.split("/").filter(Boolean);
+      if (patternSegments.length !== segments.length) continue;
+      if (patternSegments[patternSegments.length - 1] !== ":slug") continue;
+      const staticOk = patternSegments
+        .slice(0, -1)
+        .every((p, i) => p.startsWith(":") || slugKey(p) === requestShape[i]);
+      if (!staticOk) continue;
+      const locale = patternLocale === "default" ? (localePrefixFromPath(normalizedUrl) ?? "en") : patternLocale;
+      const resolved = resolveEntryRef(ci, {
+        contentType: typeName,
+        ref: lastSegment,
+        locale,
+        localeExplicit: true,
+        indexOnly: true,
+      });
+      if (!resolved.ok) continue;
+      const canonicalUrl = ci.getAlternateUrls(resolved.entryId, typeName)[locale];
+      if (!canonicalUrl || canonicalUrl === normalizedUrl || !ci.isKnownUrl(canonicalUrl)) continue;
+      const canonicalShape = canonicalUrl.split("/").filter(Boolean).map((s) => slugKey(s));
+      if (canonicalShape.length !== segments.length) continue;
+      if (!canonicalShape.every((s, i) => s === slugKey(segments[i]!))) continue;
+      found.set(canonicalUrl, typeName);
+    }
+  }
+  if (found.size !== 1) return null;
+  const [[canonicalUrl, typeName]] = [...found.entries()];
+  return { typeName: typeName!, canonicalUrl: canonicalUrl! };
 }
 
 export function getRedirects(): Array<{ from: string; to: string | Record<string, string>; type: string; status: number; source: string; priority?: string }> {

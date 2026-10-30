@@ -98,7 +98,8 @@ import {
   isNonEmptyFieldValue,
 } from "../../shared/deprecatedField.js";
 import type { ContentTypeEditorHint } from "../../server/content-types.js";
-import { promoteWarnings, promoteFailureNextActions, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, diagnosticsJobNextActions, overrideMasksSourceWarning, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
+import { promoteWarnings, promoteFailureNextActions, ROBOTS_CHANGE_ON_PUBLISH_CODE, robotsChangeOnPublishResult, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, diagnosticsJobNextActions, overrideMasksSourceWarning, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
+import { touchesMetaRedirects } from "../lib/redirect-update.js";
 import {
   isSignupFieldMapError,
   signupFieldMapActionRequired,
@@ -1552,7 +1553,8 @@ export function registerPageTools(
     "list_entries",
     "Unified entry inventory for every content type (static YAML and catalog/DB-sourced alike — cache + overrides resolve the same way site cards do). " +
     "Without contentType: returns per-type counts (type_stats) plus next_actions to narrow — does not dump a combined entry feed. " +
-    "With contentType: paginated one-row-per-slug entries (locales/urls merged). " +
+    "With contentType: paginated one row per page: entry_id (page ID = folder; stable), slug (default-language address), locale_slugs { locale: address }, locales, urls. " +
+    "Every entry tool accepts entry_id or any locale_slugs value (any spelling); a language's slug serves that language. " +
     "Optional detail:true adds safe non-body scalars (never full content/readme). " +
     "Optional filters (AND, entry mode): locale (strict — slug must have that locale), slugs, search, " +
     "funnel_stage / funnel_product / is_money_page (overlay _common.yml funnel; missing file = untagged). " +
@@ -1563,8 +1565,8 @@ export function registerPageTools(
     {
       contentType: z.string().optional().describe("Restrict to one content type for entry rows, e.g. 'program', 'blog', or 'interactive-exercise'. Omit for type_stats."),
       locale: z.string().optional().describe("Only return entries that have this locale available, e.g. 'en' or 'es'"),
-      slugs: z.array(z.string()).optional().describe("Restrict to a specific list of slugs"),
-      search: z.string().optional().describe("Case-insensitive substring match against slug and title"),
+      slugs: z.array(z.string()).optional().describe("Restrict to these pages: page IDs or any language's address, any spelling"),
+      search: z.string().optional().describe("Substring match against the page ID, every language's address (any spelling) and title"),
       page: z.number().int().positive().optional().describe("Entry-mode page (default 1)"),
       limit: z.number().int().positive().max(200).optional().describe("Entry-mode page size (default 50, max 200)"),
       detail: z
@@ -1952,7 +1954,7 @@ export function registerPageTools(
     "Use get_entry_seo to fetch only the SEO/meta fields. Requires content_view. " +
     "Supply 'variant' to read a draft variant file ({variantSlug}.{locale}.yml) instead of the live locale file.",
     {
-      slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
+      slug: z.string().describe("Page ID (entry_id) or any of its slugs, e.g. 'home' or 'array-vacio-javascript'. A language's slug serves that language unless locale is passed."),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to read (e.g. 'draft-v2'). When provided, reads {variantSlug}.{locale}.yml instead of the live locale file."),
@@ -2044,7 +2046,7 @@ export function registerPageTools(
     "Cluster SEO writes are allowed only on live or draft when the entry has no live locales yet — A/B variants are read-only for seo:. " +
     "Variants skip search_engines (live URLs only); re-call without variant to read engine status.",
     {
-      slug: z.string().describe("Page slug (folder name), e.g. 'home' or 'full-stack-developer'"),
+      slug: z.string().describe("Page ID (entry_id) or any of its slugs, e.g. 'home' or 'array-vacio-javascript'. A language's slug serves that language unless locale is passed."),
       locale: z.string().default("en").describe("Locale code, e.g. 'en' or 'es'"),
       contentType: z.string().optional().describe("Content type hint (e.g. 'page', 'program'). Omit to auto-detect from slug."),
       variant: z.string().optional().describe("Variant slug to read (e.g. 'draft-v2'). When provided, reads {variantSlug}.{locale}.yml instead of the live locale file."),
@@ -3376,6 +3378,30 @@ export function registerPageTools(
         return fail((e as Error).message);
       }
 
+      if (inputUpdates.some(touchesMetaRedirects)) {
+        return fail(
+          "meta.redirects (the page's old addresses) cannot be written with update_fields. Use update_redirect: live (edit_redirects) or variant for a draft (seo_edit).",
+          {
+            code: "meta_redirects_use_update_redirect",
+            field_paths: inputUpdates.filter(touchesMetaRedirects).map((u) => u.field_path),
+            next_actions: [
+              {
+                tool: "update_redirect",
+                priority: "required",
+                reason: "One old address per call; pass variant + content_type + slug + locale to stage it on a draft.",
+                args_hint: {
+                  action: "add",
+                  ...(variant
+                    ? { variant, content_type: contentType, slug, locale }
+                    : {}),
+                  ...(site ? { site } : {}),
+                },
+              },
+            ],
+          },
+        );
+      }
+
       let updates = inputUpdates;
       const clusterToggleWarnings: McpWarning[] = [];
 
@@ -4487,6 +4513,23 @@ export function registerPageTools(
         const p = u.field_path.startsWith("meta.") ? u.field_path : u.field_path;
         return p.startsWith("meta.") || (!isFunnelFieldPath(p) && !p.startsWith("sections."));
       });
+      if (updates.some(touchesMetaRedirects)) {
+        return fail(
+          "meta.redirects (old addresses) cannot be bulk-written. Use update_redirect, one address per call.",
+          {
+            code: "meta_redirects_use_update_redirect",
+            field_paths: updates.filter(touchesMetaRedirects).map((u) => u.field_path),
+            next_actions: [
+              {
+                tool: "update_redirect",
+                priority: "required",
+                reason: "Live: edit_redirects. Draft: pass variant + content_type + slug + locale (seo_edit).",
+                args_hint: { action: "add", ...(site ? { site } : {}) },
+              },
+            ],
+          },
+        );
+      }
       for (const u of updates) {
         const p = u.field_path;
         if (p.startsWith("sections.") || (!p.startsWith("meta.") && !isFunnelFieldPath(p) && !ALL_KNOWN_META_FIELDS.has(p))) {
@@ -5955,7 +5998,8 @@ export function registerPageTools(
     "retry with confirm_overwrite_newer_live only after the user agrees to discard those live changes. draft_base_unknown = draft has no recorded base (same confirm). " +
     "Other rejections: proposal_required (swarm roles), draft_in_proposal (apply that proposal instead), translation_source_changed (confirm_source_changed), attached_draft_structure, " +
     "display_values_change (live locale file holds a legacy page-level copy that publish drops; details.fields before → after; confirm_display_change after the user agrees), " +
-    "render_review_required (entry-owned layout changed vs live with no matching review_page_render). " +
+    "render_review_required (entry-owned layout changed vs live with no matching review_page_render), " +
+    "robots_change_on_publish (effective meta.robots would change for this locale; details.live_robots vs draft_robots; ask the user, retry with robots_on_publish keep_live | use_draft). " +
     "dry_run: true runs every check and returns published_diff without writing. " +
     "For attached shared-layout entries, pass the entry slug (not \"single\") to promote entry drafts from translate_entry " +
     "({variantSlug}.{locale}.yml under the entry folder). Pass slug \"single\" only to promote a type-root template variant. " +
@@ -5988,6 +6032,12 @@ export function registerPageTools(
         .describe(
           "New language on an SEO-monitored page whose draft sets seo.pillar_path: null: why it stays out of every cluster (min 40 chars). Idea-born pages also need a fast_decay_news/broken_url origin idea.",
         ),
+      robots_on_publish: z
+        .enum(["keep_live", "use_draft"])
+        .optional()
+        .describe(
+          "After robots_change_on_publish: keep_live publishes the draft but keeps this language's live meta.robots; use_draft publishes the draft's. Ask the user first.",
+        ),
       report: z
         .string()
         .describe(AGENT_REPORT_MUTATE_DESC),
@@ -6006,6 +6056,7 @@ export function registerPageTools(
       confirm_display_change,
       dry_run,
       seo_standalone_reason,
+      robots_on_publish,
       report,
       agent_session_id,
       site,
@@ -6073,6 +6124,7 @@ export function registerPageTools(
             ...(confirm_display_change ? { confirm_display_change: true } : {}),
             ...(dry_run ? { dry_run: true } : {}),
             ...(seo_standalone_reason ? { seo_standalone_reason } : {}),
+            ...(robots_on_publish ? { robots_on_publish } : {}),
           }),
         });
         const data = await res.json() as Record<string, unknown>;
@@ -6183,6 +6235,16 @@ export function registerPageTools(
           }
           if (serverCode === RENDER_REVIEW_REQUIRED_CODE) {
             return renderReviewRequiredResult(errMsg, data, {
+              retryTool: "promote_variant",
+              contentType,
+              slug,
+              locale,
+              variantSlug,
+              site,
+            });
+          }
+          if (serverCode === ROBOTS_CHANGE_ON_PUBLISH_CODE) {
+            return robotsChangeOnPublishResult(errMsg, data, {
               retryTool: "promote_variant",
               contentType,
               slug,

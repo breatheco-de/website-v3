@@ -592,6 +592,8 @@ export interface ProposalSettings {
   four_eyes: {
     enabled: boolean;
     staff_ui_exempt: boolean;
+    /** MCP: same username + same exact model as the proposer cannot apply/accept, whatever the role. */
+    same_model_blocked: boolean;
   };
   hold: {
     stewards_only: boolean;
@@ -609,6 +611,7 @@ export const DEFAULT_PROPOSAL_SETTINGS: ProposalSettings = {
   four_eyes: {
     enabled: true,
     staff_ui_exempt: false,
+    same_model_blocked: true,
   },
   hold: {
     stewards_only: true,
@@ -677,6 +680,10 @@ export function parseProposalSettings(
         typeof fourRaw.staff_ui_exempt === "boolean"
           ? fourRaw.staff_ui_exempt
           : defaults.four_eyes.staff_ui_exempt,
+      same_model_blocked:
+        typeof fourRaw.same_model_blocked === "boolean"
+          ? fourRaw.same_model_blocked
+          : defaults.four_eyes.same_model_blocked,
     },
     hold: {
       stewards_only:
@@ -727,6 +734,9 @@ export function parseProposalSettingsStrict(raw: unknown): ProposalSettings {
   if (typeof fourRaw.staff_ui_exempt !== "boolean") {
     throw new Error("four_eyes.staff_ui_exempt must be a boolean");
   }
+  if (fourRaw.same_model_blocked != null && typeof fourRaw.same_model_blocked !== "boolean") {
+    throw new Error("four_eyes.same_model_blocked must be a boolean");
+  }
   const holdRaw =
     o.hold && typeof o.hold === "object" && !Array.isArray(o.hold)
       ? (o.hold as Record<string, unknown>)
@@ -749,6 +759,10 @@ export function parseProposalSettingsStrict(raw: unknown): ProposalSettings {
     four_eyes: {
       enabled: fourRaw.enabled,
       staff_ui_exempt: fourRaw.staff_ui_exempt,
+      same_model_blocked:
+        typeof fourRaw.same_model_blocked === "boolean"
+          ? fourRaw.same_model_blocked
+          : DEFAULT_PROPOSAL_SETTINGS.four_eyes.same_model_blocked,
     },
     hold: { stewards_only: holdRaw.stewards_only },
     claim: { staff_ui_takeover: claimRaw.staff_ui_takeover },
@@ -2347,6 +2361,7 @@ export function updateProposalSettings(
     four_eyes: {
       enabled: merged.four_eyes.enabled,
       staff_ui_exempt: merged.four_eyes.staff_ui_exempt,
+      same_model_blocked: merged.four_eyes.same_model_blocked,
     },
     hold: {
       stewards_only: merged.hold.stewards_only,

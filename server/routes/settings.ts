@@ -6,6 +6,7 @@ import { geoGet, geoSet } from "../geo-cache";
 import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedEntries, retryFailedImages, resetOptimizeSession, getOptimizeSession, enqueueExternalImage } from "../image-registry";
 import { getAllQueueState } from "../image-queue-state";
 import { getPackageRoot } from "@shared/paths";
+import { isSlug } from "@shared/slug";
 
 
 import * as fs from "fs";
@@ -2431,9 +2432,7 @@ export function registerSettingsRoutes(app: Express): void {
       return;
     }
 
-    // Validate slug: lowercase letters, numbers, hyphens only
-    const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-    if (!slugPattern.test(name)) {
+    if (!isSlug(name)) {
       res.status(400).json({ error: "name must be a valid slug (lowercase letters, numbers, and hyphens only)" });
       return;
     }
@@ -2507,8 +2506,7 @@ export function registerSettingsRoutes(app: Express): void {
       const { name } = req.params;
 
       // Validate name is a safe slug — same rule as POST /api/menus
-      const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-      if (!slugPattern.test(name)) {
+      if (!isSlug(name)) {
         res.status(400).json({ error: "Invalid menu name" });
         return;
       }

@@ -9,6 +9,7 @@ import { singleAttribution, type EventActor } from "../events/types";
 import { getContentForEdit } from "../content-editor";
 import { applyFieldUpdates, readFieldValueAtPath } from "../field-write-router";
 import type { SiteContext } from "../site-manager";
+import { entryRefFailureMessage, resolveEntryRef, type EntryRefResult } from "../entry-ref";
 import { canonicalizePillarPath, entryCanonicalPath } from "../seo-fields";
 import { assertMainKeywordAvailable, readSeoIndexFile, seoEntryId } from "../seo-index";
 import { isSeoMonitoringEnabled } from "../seo-monitoring";
@@ -19,6 +20,11 @@ import {
   type ResolveRecentActivityResult,
 } from "./entry-activity";
 import { hashVariantFileContents } from "../versioning/promote-with-teardown";
+import {
+  parseRobotsOnPublish,
+  ROBOTS_CHANGE_ON_PUBLISH_CODE,
+  type RobotsOnPublish,
+} from "../versioning/robots-on-publish";
 import path from "path";
 import { sameValue, type FieldChange } from "../versioning/draft-base";
 import { fieldScope } from "@shared/field-scope";
@@ -74,6 +80,11 @@ import {
   type UrlSlugOverride,
 } from "../locale-url-slug";
 import { discardSeededAttachedEntry, seedAttachedLocaleFiles } from "./seed-attached-entry";
+import { funnelPersonaAlternativesWarning } from "./funnel-persona-alternatives";
+import {
+  productPersonasForFunnel,
+  type FunnelPersonaChoice,
+} from "../product/funnel-audience-gates";
 import {
   sameAgentIdentity,
   formatAgentActorLine,
@@ -204,6 +215,7 @@ export const MIN_ACCEPT_NEXT_STEP = 20;
 export const MIN_REJECT_NOTE = 80;
 export const ACCEPTED_ENTRY_NOT_CREATABLE = "accepted_entry_not_creatable";
 export const ACCEPTED_ENTRY_NEEDS_LAYOUT = "accepted_entry_needs_layout";
+export const IDEA_SLUG_MATCHES_EXISTING_PAGE = "idea_slug_matches_existing_page";
 export const IDEA_PAGE_RELEASED_WAITING_IDEAS = "idea_page_released_waiting_ideas";
 
 export type ProposalStatus = "open" | "partial" | "finished" | "rejected" | "withdrawn";
@@ -231,10 +243,30 @@ export type ProposalRejectKind =
 export type ProposalStoredCloseReason =
   | ProposalCloseReason
   | ProposalRejectKind
+  | IdeaRetireReason
   | "withdrawn"
   | "legacy_version"
   | "abandoned_stale"
   | "abandoned_blocked";
+
+/** Why an accepted idea was retired before any implementing edit was applied. */
+export type IdeaRetireReason = "already_done" | "no_longer_relevant";
+
+export const IDEA_RETIRE_REASONS: IdeaRetireReason[] = ["already_done", "no_longer_relevant"];
+
+/** Retired accepted ideas: not stalled, not holding a page, never "needs a verdict". */
+export const RETIRED_CLOSE_REASONS: readonly IdeaRetireReason[] = IDEA_RETIRE_REASONS;
+
+export type IdeaRetireState = {
+  retired: boolean;
+  can_retire: boolean;
+  open_edit: { id: string; title: string; status: ProposalStatus } | null;
+  applied_edit_id: string | null;
+};
+
+export function isIdeaRetireReason(raw: unknown): raw is IdeaRetireReason {
+  return typeof raw === "string" && (IDEA_RETIRE_REASONS as string[]).includes(raw);
+}
 
 export const PROPOSAL_CLOSE_REASONS: ProposalCloseReason[] = [
   "wont_fix",
@@ -350,7 +382,14 @@ export type ProposalEntryInput = {
   updates?: FieldUpdate[];
   /** v1.0: the draft is a translation of this published locale (records `_draft.translated_from`). */
   translated_from_locale?: string;
+  /** Agent's intent when the publish would change robots; the reviewer still confirms at apply. */
+  robots_on_publish?: RobotsOnPublish;
 };
+
+function robotsIntentOf(input: { robots_on_publish?: unknown } | undefined): { robots_on_publish?: RobotsOnPublish } {
+  const choice = parseRobotsOnPublish(input?.robots_on_publish);
+  return choice ? { robots_on_publish: choice } : {};
+}
 
 export type ProposalEntryRow = {
   id: number;
@@ -367,6 +406,8 @@ export type ProposalEntryRow = {
     creates_entry?: boolean;
     /** v1.0: who owned the layout when the entry was filed / revised (layout-switch check). */
     layout_owner?: LayoutOwner;
+    /** Author's declared robots choice (preselected for the reviewer, never applied without confirm). */
+    robots_on_publish?: RobotsOnPublish;
   };
   last_error: string | null;
   applied_at: number | null;
@@ -929,7 +970,15 @@ export type CreateProposalInput = {
   applies_after_proposal_id?: string;
 };
 
-export type SimilarProposal = { id: string; title: string; score: number };
+export type SimilarProposal = {
+  id: string;
+  title: string;
+  score: number;
+  status?: ProposalStatus;
+  close_reason?: string | null;
+  /** Set when the match is an accepted idea that was later retired. */
+  retired?: { reason: IdeaRetireReason; note: string | null };
+};
 
 export type ProposalUpdateAction =
   | "claim"
@@ -955,7 +1004,9 @@ export type ProposalUpdateAction =
   | "deescalate"
   | "review_outcome"
   | "set_outcome_lesson"
-  | "revert";
+  | "revert"
+  | "retire"
+  | "unretire";
 
 export type ProposalUpdateCaller = {
   username: string;
@@ -989,6 +1040,8 @@ export type ProposalUpdateCaller = {
   /** Reject: must be true for MCP; staff UI sends true after dialog. */
   confirm_reject?: boolean;
   reject_kind?: string;
+  /** retire: already_done | no_longer_relevant (note goes in close_note). */
+  retire_reason?: string;
   /** revise_entries: replacement pending entry set. */
   entries?: ProposalEntryInput[];
   /** set_review_situations: author-declared situation ids (edits). */
@@ -1026,6 +1079,8 @@ export type ProposalUpdateCaller = {
   caller_is_mcp?: boolean;
   /** apply (v1.0) of a template proposal: must equal `affected_entries.count`. */
   confirm_affected_entries?: number;
+  /** apply (v1.0): reviewer's answer per entry id when the publish would change robots. */
+  robots_on_publish_by_entry?: Record<string, RobotsOnPublish>;
   /** set_applies_after: predecessor id, or null / "" to unlink. */
   applies_after_proposal_id?: string | null;
 };
@@ -1267,12 +1322,16 @@ function withCachedView(entry: ProposalEntryRow): ProposalEntryRow {
   return next;
 }
 
-/** The derived view replaces `baseline_context`; keep the owner stored at filing. */
+/** The derived view replaces `baseline_context`; keep the owner and robots intent stored at filing. */
 function withFilingOwner(
   derived: ProposalEntryRow["baseline_context"],
   stored: ProposalEntryRow["baseline_context"] | undefined,
 ): ProposalEntryRow["baseline_context"] {
-  return stored?.layout_owner ? { ...derived, layout_owner: stored.layout_owner } : derived;
+  return {
+    ...derived,
+    ...(stored?.layout_owner ? { layout_owner: stored.layout_owner } : {}),
+    ...(stored?.robots_on_publish ? { robots_on_publish: stored.robots_on_publish } : {}),
+  };
 }
 
 /** v1.0: `ops` / `baseline_context` are a read-only view of the draft (author diff). */
@@ -1610,6 +1669,8 @@ function emitProposalEvent(
     | "proposal_closed"
     | "proposal_rejected"
     | "proposal_withdrawn"
+    | "proposal_retired"
+    | "proposal_unretired"
     | "proposal_revised"
     | "proposal_escalated"
     | "proposal_deescalated"
@@ -1646,6 +1707,8 @@ function emitProposalEvent(
     type === "proposal_closed" ||
     type === "proposal_rejected" ||
     type === "proposal_withdrawn" ||
+    type === "proposal_retired" ||
+    type === "proposal_unretired" ||
     type === "proposal_closed_abandoned_stale" ||
     type === "proposal_closed_abandoned_blocked" ||
     type === "proposal_applied_progress" ||
@@ -1699,6 +1762,8 @@ export type PromoteEntryOpts = {
   caller_is_mcp?: boolean;
   /** New locale published standalone (seo.pillar_path: null): the proposal's seo_target_override reason. */
   seo_standalone_reason?: string | null;
+  /** Reviewer's answer to `robots_change_on_publish` for this entry. */
+  robots_on_publish?: RobotsOnPublish;
 };
 
 export type PromoteEntryResult = {
@@ -1839,6 +1904,18 @@ export type ProposalServiceDeps = {
   evidenceSources?: () => Promise<EvidenceSourcesSnapshot>;
   /** Per-language URL facts. Absent (tests) → no address checks at accept or filing. */
   localeUrlSlug?: LocaleUrlSlugDeps;
+  /** Personas on a funnel-bound product. Absent (tests) → no funnel_persona_alternatives warning. */
+  productPersonas?: (productSlug: string) => FunnelPersonaChoice[] | null;
+  /**
+   * Any slug (page ID, `_common.yml` slug, a language's slug, any spelling) → page ID + language.
+   * Absent (tests) → refs are stored exactly as filed.
+   */
+  resolveEntryRef?: (ref: {
+    contentType: string;
+    slug: string;
+    locale?: string | null;
+    localeExplicit?: boolean;
+  }) => EntryRefResult;
 };
 
 export type LocaleUrlSlugDeps = {
@@ -1952,6 +2029,48 @@ function fourEyesBlockedForCaller(
   return fourEyesBlocked(proposerUsername, proposerActor, callerUsername, callerActor);
 }
 
+function actorModel(actor: Record<string, unknown> | EventActor | undefined | null): string {
+  const model = (actor as { model?: unknown } | null | undefined)?.model;
+  return typeof model === "string" ? model.trim().toLowerCase() : "";
+}
+
+/**
+ * Apply / accept only (reject keeps role-only four-eyes): an MCP caller cannot decide from the
+ * session that filed the proposal, nor — when `same_model_blocked` — as the same user on the same
+ * exact model under another role.
+ */
+function selfApprovalBlocked(
+  policy: ProposalSettings,
+  proposal: Pick<ProposalRecord, "proposer_username" | "proposer_actor" | "created_agent_session_id">,
+  caller: Pick<ProposalUpdateCaller, "username" | "actor" | "agent_session_id">,
+  verb: "apply" | "accept",
+): { code: "four_eyes_same_session" | "four_eyes_same_model"; error: string } | null {
+  if (!policy.four_eyes.enabled) return null;
+  if (caller.actor?.type !== "mcp") return null;
+  const session = caller.agent_session_id?.trim();
+  if (
+    isServerAgentSessionId(session) &&
+    proposal.created_agent_session_id &&
+    session === proposal.created_agent_session_id.trim()
+  ) {
+    return {
+      code: "four_eyes_same_session",
+      error: `Four-eyes: this agent session filed the proposal, so it cannot ${verb} it under any role. A reviewer agent on a different model, or staff in the Proposals UI, must ${verb}.`,
+    };
+  }
+  if (!policy.four_eyes.same_model_blocked) return null;
+  const proposerActor = asAgentActor(proposal.proposer_actor);
+  if (proposerActor?.type !== "mcp") return null;
+  const callerModel = actorModel(caller.actor);
+  const proposerModel = actorModel(proposal.proposer_actor);
+  if (!callerModel || !proposerModel || callerModel !== proposerModel) return null;
+  if (!sameUsername(proposal.proposer_username, caller.username)) return null;
+  return {
+    code: "four_eyes_same_model",
+    error: `Four-eyes: the same user on the same model (${callerModel}) filed this proposal under another role, so it cannot ${verb} it. A reviewer agent on a different model, or staff in the Proposals UI, must ${verb}. A steward can turn this rule off in Agents → Rules ("Same AI model can't approve its own work").`,
+  };
+}
+
 /** `outcome_recent` = verdict time, else close time, else updated (Agents → Outcomes). */
 export const PROPOSAL_SORT_FIELDS = ["created_at", "updated_at", "attention", "outcome_recent"] as const;
 export type ProposalSortField = (typeof PROPOSAL_SORT_FIELDS)[number];
@@ -2032,7 +2151,7 @@ export const SYSTEM_CLOSE_REASONS = ["abandoned_stale", "abandoned_blocked", "le
 
 /** SQL predicate: closed by a person or agent (not a system closure). */
 export function reviewableClosedSql(col: (name: string) => string = (name) => name): string {
-  const reasons = SYSTEM_CLOSE_REASONS.map((r) => `'${r}'`).join(", ");
+  const reasons = [...SYSTEM_CLOSE_REASONS, ...RETIRED_CLOSE_REASONS].map((r) => `'${r}'`).join(", ");
   return `${col("status")} IN ('finished', 'rejected', 'withdrawn') AND (${col("close_reason")} IS NULL OR ${col("close_reason")} NOT IN (${reasons}))`;
 }
 
@@ -2114,6 +2233,8 @@ const LEGACY_ALLOWED_ACTIONS = new Set<ProposalUpdateAction>([
   "set_outcome_lesson",
   "escalate",
   "deescalate",
+  "retire",
+  "unretire",
 ]);
 
 /** Proposals live only in production; written on draft links so older readers keep parsing. */
@@ -2410,6 +2531,24 @@ function waitingIdeasPayload(
   return { released_entry: released.details.released_entry, waiting_idea_ids: waiting.map((w) => w.id) };
 }
 
+function enrichSimilarMatch(db: Database.Database, match: SimilarProposal): SimilarProposal {
+  const row = db
+    .prepare(`SELECT title, status, close_reason, close_note FROM content_proposals WHERE id = ?`)
+    .get(match.id) as
+    | { title: string; status: ProposalStatus; close_reason: string | null; close_note: string | null }
+    | undefined;
+  if (!row) return match;
+  return {
+    ...match,
+    title: row.title,
+    status: row.status,
+    close_reason: row.close_reason,
+    ...(isIdeaRetireReason(row.close_reason)
+      ? { retired: { reason: row.close_reason, note: row.close_note } }
+      : {}),
+  };
+}
+
 /** Open ideas whose related_entries name this page (an entry without locale matches any locale). */
 function findIdeasWaitingOnEntry(
   db: Database.Database,
@@ -2662,6 +2801,36 @@ export function createProposalService(deps: ProposalServiceDeps) {
     return urlPatternUsesSlug(facts.urlPattern(ref.contentType), ref.locale);
   }
 
+  /**
+   * Idea accept: a reserved address that is another spelling of an existing page (its ID or any
+   * of its slugs) would make follow-through edits create a duplicate. The exact page ID is fine.
+   */
+  function acceptedAddressMatchesExistingPage(
+    ae: AcceptedEntry,
+  ): { ok: false; code: string; error: string; details: Record<string, unknown> } | null {
+    if (!deps.resolveEntryRef || isTemplateVersioningSlug(ae.slug)) return null;
+    const refused = (address: string, entryId: string) => ({
+      ok: false as const,
+      code: IDEA_SLUG_MATCHES_EXISTING_PAGE,
+      error:
+        `"${address}" already names existing ${ae.contentType} page "${entryId}". ` +
+        `To improve that page, accept with slug "${entryId}" (or file an edits proposal on it); otherwise pick a different address.`,
+      details: { address, existing_entry_id: entryId, contentType: ae.contentType },
+    });
+    const bySlug = deps.resolveEntryRef({ contentType: ae.contentType, slug: ae.slug });
+    if (bySlug.ok && bySlug.matchedBy !== "database" && !(bySlug.matchedBy === "id" && bySlug.exact)) {
+      return refused(ae.slug, bySlug.entryId);
+    }
+    const urlSlug = ae.url_slug?.trim();
+    if (urlSlug) {
+      const byUrl = deps.resolveEntryRef({ contentType: ae.contentType, slug: urlSlug });
+      if (byUrl.ok && byUrl.matchedBy !== "database" && byUrl.entryId !== ae.slug) {
+        return refused(urlSlug, byUrl.entryId);
+      }
+    }
+    return null;
+  }
+
   /** Idea accept: lock this language's address (own url_slug for a new language). */
   function gateAcceptedUrlSlug(
     ae: AcceptedEntry,
@@ -2861,6 +3030,16 @@ export function createProposalService(deps: ProposalServiceDeps) {
     let idea: ProposalRecord | null = null;
     if (id) {
       idea = loadProposal(db, id);
+      if (idea && idea.site === site && idea.kind === "idea" && isIdeaRetireReason(idea.close_reason)) {
+        return {
+          ok: false,
+          code: "implements_idea_retired",
+          error:
+            `That idea was retired as ${idea.close_reason}${idea.close_note ? `: ${idea.close_note}` : ""}. ` +
+            "Do not implement it; ask a reviewer to unretire it if the work is needed again.",
+          existing_proposal: idea,
+        };
+      }
       if (
         !idea ||
         idea.site !== site ||
@@ -3126,7 +3305,14 @@ export function createProposalService(deps: ProposalServiceDeps) {
     edit: ProposalRecord,
   ): { code: string; message: string; details: Record<string, unknown> } | null {
     if (!edit.implements_proposal_id) return null;
-    const idea = loadProposal(db, edit.implements_proposal_id);
+    return ideaPageReleasedFollowUp(db, loadProposal(db, edit.implements_proposal_id));
+  }
+
+  /** The idea no longer holds its page (edit applied or idea retired): list open ideas waiting on it. */
+  function ideaPageReleasedFollowUp(
+    db: Database.Database,
+    idea: ProposalRecord | null,
+  ): { code: string; message: string; details: Record<string, unknown> } | null {
     const entry = idea?.accepted_entry;
     if (!entry) return null;
     if (findAcceptedIdeaOwningEntry(db, site, entry.contentType, entry.slug, entry.locale)) return null;
@@ -4644,6 +4830,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
               });
             }
             created = true;
+            if (res.warnings?.length) warnings.push(...res.warnings);
             undo.push(() => s.remove(ref, opts.author));
           } else {
             const raw = s.snapshotRaw(ref);
@@ -4651,7 +4838,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
               undo.push(() => s.restoreRaw(ref, raw, opts.author));
             if (owned) {
               if (opts.resetCreated && owned.created) {
-                s.reset(ref, opts.author);
+                const resetWarnings = s.reset(ref, opts.author);
+                if (resetWarnings?.length) warnings.push(...resetWarnings);
                 reseedSeo = seoSeed != null;
               } else {
                 const base = s.checkBase(ref);
@@ -4803,6 +4991,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
     return out;
   }
 
+  function reviewerRobotsChoice(entry: ProposalEntryRow, caller: ProposalUpdateCaller): RobotsOnPublish | undefined {
+    return parseRobotsOnPublish(caller.robots_on_publish_by_entry?.[String(entry.id)]);
+  }
+
   /** Map promote failures to proposal terms (apply never overwrites newer live). */
   function applyFailureFor(code: string | undefined, details: Record<string, unknown> | undefined) {
     const staleDetails = (reason: string) => {
@@ -4885,14 +5077,23 @@ export function createProposalService(deps: ProposalServiceDeps) {
       confirm_text_limits: caller.confirm_text_limits,
       caller_is_mcp: caller.caller_is_mcp,
       seo_standalone_reason: seoReason,
+      robots_on_publish: reviewerRobotsChoice(entry, caller),
     });
     if (!dry.ok) {
       const mapped = applyFailureFor(dry.code, dry.details);
+      const details =
+        dry.code === ROBOTS_CHANGE_ON_PUBLISH_CODE
+          ? {
+              ...(mapped.details ?? {}),
+              entry_id: entry.id,
+              agent_choice: entry.baseline_context?.robots_on_publish ?? null,
+            }
+          : mapped.details;
       return {
         ...out,
         code: mapped.code,
         error: dry.error ?? "promote check failed",
-        ...(mapped.details ? { details: mapped.details } : {}),
+        ...(details ? { details } : {}),
       };
     }
     const displayWarnings = (dry.warnings ?? []).filter((w) => w.code === "display_values_change");
@@ -5017,6 +5218,24 @@ export function createProposalService(deps: ProposalServiceDeps) {
         },
       };
     }
+    const robotsChanges = failed.filter((c) => c.code === ROBOTS_CHANGE_ON_PUBLISH_CODE);
+    if (robotsChanges.length && !caller.dry_run) {
+      return {
+        ok: false as const,
+        code: ROBOTS_CHANGE_ON_PUBLISH_CODE,
+        error:
+          "Publishing changes whether search engines can see some pages. For each entry, choose keep_live or use_draft and re-send with robots_on_publish_by_entry ({ [entry_id]: choice }).",
+        proposal,
+        details: {
+          entries: robotsChanges.map((c) => ({
+            entry_key: c.entry_key,
+            locale: c.locale,
+            variant: c.variant,
+            ...(c.details ?? {}),
+          })),
+        },
+      };
+    }
     const placeholderGaps = affected ? templatePlaceholderWarnings(work) : [];
     if (caller.dry_run) {
       const chainGate = predecessorGate(db, proposal);
@@ -5091,6 +5310,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
         confirm_text_limits: caller.confirm_text_limits,
         caller_is_mcp: caller.caller_is_mcp,
         seo_standalone_reason: proposal.seo_target_override?.reason ?? null,
+        robots_on_publish: reviewerRobotsChoice(entry, caller),
       });
       if (!promoted.ok) {
         const mapped = applyFailureFor(promoted.code, promoted.details);
@@ -5611,6 +5831,13 @@ export function createProposalService(deps: ProposalServiceDeps) {
       ...e,
       updates: e.updates ?? [],
     }));
+    // Follow-through edits keep the idea's reserved address as written (never resolve onto another page).
+    const refWarnings: Array<{ code: string; message: string; details?: Record<string, unknown> }> = [];
+    if (!input.implements_proposal_id?.trim()) {
+      const normalized = normalizeEntryRefs(entriesIn);
+      if (!normalized.ok) return normalized;
+      refWarnings.push(...normalized.warnings);
+    }
     const createsEntryKeys = new Set<string>();
     let implementsIdeaForDrafts: ProposalRecord | null = null;
     let kind: ProposalKind;
@@ -5651,7 +5878,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       };
     }
 
-    const relatedEntries = normalizeRelatedEntries(input.related_entries);
+    const relatedEntries = resolveRelatedRefs(normalizeRelatedEntries(input.related_entries));
 
     if (kind === "idea" && deps.knownContentTypes) {
       const known = deps.knownContentTypes();
@@ -5925,12 +6152,25 @@ export function createProposalService(deps: ProposalServiceDeps) {
 
     if (!input.confirm_distinct && deps.findSimilar) {
       try {
-        const similar = (await deps.findSimilar(searchBlob)).filter((s) => s.score >= RAG_SIMILARITY_THRESHOLD);
+        const similar = (await deps.findSimilar(searchBlob))
+          .filter((s) => s.score >= RAG_SIMILARITY_THRESHOLD)
+          .map((s) => enrichSimilarMatch(db, s));
         if (similar.length) {
+          const retired = similar.filter((s) => s.retired);
           return {
             ok: false,
             code: "similar_proposals",
-            error: "Similar open proposals exist. Pass confirm_distinct: true to create anyway.",
+            error:
+              "Similar proposals exist. " +
+              retired
+                .map(
+                  (s) =>
+                    `"${s.title}" (${s.id}) was retired as ${s.retired!.reason.replace(/_/g, " ")}` +
+                    (s.retired!.note ? `: ${s.retired!.note}` : "") +
+                    ". ",
+                )
+                .join("") +
+              "Pass confirm_distinct: true to create anyway.",
             similar,
           };
         }
@@ -6236,6 +6476,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           values: {},
           ...(input.situation_note ? { note: input.situation_note } : {}),
           ...layoutOwnerAtFiling(plan.ref),
+          ...robotsIntentOf(plan.input),
         }),
         plan.fingerprint,
         plan.created ? 1 : 0,
@@ -6261,6 +6502,10 @@ export function createProposalService(deps: ProposalServiceDeps) {
     if (withSnap.kind === "edits") {
       const reminder = hubLinkReminder(db, withSnap, implementsIdeaForDrafts ?? null);
       if (reminder) draftWarnings.push(reminder);
+      if (deps.productPersonas) {
+        const personaHint = funnelPersonaAlternativesWarning(entriesIn, deps.productPersonas);
+        if (personaHint) draftWarnings.push(personaHint);
+      }
     }
     if (withSnap.kind === "idea" && withSnap.idea_funnel) {
       emitProposalEvent(
@@ -6289,8 +6534,55 @@ export function createProposalService(deps: ProposalServiceDeps) {
       ok: true,
       proposal: withSnap,
       ...(reviewCtx ? { review_context: reviewCtx } : {}),
-      ...(draftWarnings.length ? { warnings: draftWarnings } : {}),
+      ...(refWarnings.length || draftWarnings.length ? { warnings: [...refWarnings, ...draftWarnings] } : {}),
     };
+  }
+
+  /**
+   * Edits entries name pages by any slug; store the page ID. A language's slug sets the entry
+   * locale only when none was filed (filed locale wins, with a mismatch warning).
+   */
+  function normalizeEntryRefs(
+    entries: Array<{ contentType: string; slug: string; locale: string }>,
+  ):
+    | { ok: true; warnings: Array<{ code: string; message: string; details?: Record<string, unknown> }> }
+    | { ok: false; code: string; error: string; details?: unknown } {
+    const warnings: Array<{ code: string; message: string; details?: Record<string, unknown> }> = [];
+    if (!deps.resolveEntryRef) return { ok: true, warnings };
+    for (const e of entries) {
+      if (!e.contentType || !e.slug || isTemplateVersioningSlug(e.slug)) continue;
+      const r = deps.resolveEntryRef({
+        contentType: e.contentType,
+        slug: e.slug,
+        locale: e.locale || null,
+        localeExplicit: Boolean(e.locale),
+      });
+      if (!r.ok) {
+        if (r.reason === "not_found") continue;
+        return {
+          ok: false,
+          code: r.reason === "ambiguous" ? "ambiguous_slug" : "index_updating",
+          error: entryRefFailureMessage(e.contentType, e.slug, r),
+          ...(r.reason === "ambiguous" ? { details: { candidates: r.candidates } } : {}),
+        };
+      }
+      e.slug = r.entryId;
+      if (!e.locale && r.locale) e.locale = r.locale;
+      warnings.push(...r.warnings);
+    }
+    return { ok: true, warnings };
+  }
+
+  /**
+   * Idea related pages may name pages that do not exist yet, so only an exact existing address
+   * is rewritten to its page ID (a spelling variant is left as filed).
+   */
+  function resolveRelatedRefs(refs: RelatedEntryRef[]): RelatedEntryRef[] {
+    if (!deps.resolveEntryRef) return refs;
+    return refs.map((ref) => {
+      const r = deps.resolveEntryRef!({ contentType: ref.contentType, slug: ref.slug, locale: ref.locale ?? null });
+      return r.ok && r.exact && r.matchedBy !== "database" ? { ...ref, slug: r.entryId } : ref;
+    });
   }
 
   async function update(
@@ -6781,6 +7073,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
           error: "Four-eyes: a different agent role (or staff UI) must accept",
         };
       }
+      const selfAccept = selfApprovalBlocked(policy(), proposal, caller, "accept");
+      if (selfAccept) return { ok: false, code: selfAccept.code, error: selfAccept.error };
       if (proposal.open_blocker_count > 0) {
         return {
           ok: false,
@@ -6834,6 +7128,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
       };
       const taken = entryTaken();
       if (taken) return taken;
+      const existingPage = acceptedAddressMatchesExistingPage(acceptedEntry);
+      if (existingPage) return { ...existingPage, proposal };
       const urlSlugGate = gateAcceptedUrlSlug(acceptedEntry);
       if (!urlSlugGate.ok) return { ...urlSlugGate, proposal };
       const acceptEx = resolveExistence({
@@ -6904,6 +7200,196 @@ export function createProposalService(deps: ProposalServiceDeps) {
         proposal: get(id)!,
         ...(acceptWarnings.length ? { warnings: acceptWarnings } : {}),
       };
+    }
+
+    if (action === "retire") {
+      if (proposal.kind !== "idea" || proposal.status !== "finished" || proposal.close_reason !== "accepted") {
+        return {
+          ok: false,
+          code: "not_accepted_idea",
+          error:
+            "retire is for accepted ideas only. Open ideas are parked with close or rejected; edits and notes are withdrawn.",
+          proposal,
+        };
+      }
+      if (
+        fourEyesBlockedForCaller(
+          policy(),
+          proposal.proposer_username,
+          proposal.proposer_actor,
+          caller.username,
+          caller.actor,
+        )
+      ) {
+        return {
+          ok: false,
+          code: "four_eyes",
+          error: "Four-eyes: a different agent role (or staff UI) must retire",
+        };
+      }
+      const reason = (caller.retire_reason || "").trim();
+      if (!isIdeaRetireReason(reason)) {
+        return {
+          ok: false,
+          code: "retire_reason_required",
+          error: `retire_reason required: ${IDEA_RETIRE_REASONS.join(" | ")}`,
+        };
+      }
+      const note = (caller.close_note || caller.report || "").trim();
+      if (note.length < MIN_CLOSE_NOTE) {
+        return {
+          ok: false,
+          code: "retire_note_required",
+          error:
+            `retire note required (min ${MIN_CLOSE_NOTE} characters): ` +
+            (reason === "already_done" ? "say where the change already lives." : "say what changed."),
+        };
+      }
+      const openEdit = findOpenImplementsForIdea(db, site, id);
+      if (openEdit) {
+        return {
+          ok: false,
+          code: "implements_edit_open",
+          error:
+            `Implementing edit "${openEdit.title}" (${openEdit.id}) is still ${openEdit.status}. ` +
+            "Withdraw it first, then retire this idea.",
+          existing_proposal: openEdit,
+          details: { open_edit_id: openEdit.id },
+        };
+      }
+      const applied = db
+        .prepare(
+          `SELECT id FROM content_proposals
+           WHERE site = ? AND kind = 'edits' AND status = 'finished' AND implements_proposal_id = ?
+           LIMIT 1`,
+        )
+        .get(site, id) as { id: string } | undefined;
+      if (applied) {
+        return {
+          ok: false,
+          code: "idea_already_implemented",
+          error: `An implementing edit (${applied.id}) was already applied. This idea is done, not stale.`,
+          details: { applied_edit_id: applied.id },
+        };
+      }
+      const snapshot = {
+        close_note: proposal.close_note,
+        closed_by: proposal.closed_by,
+        closed_at: proposal.closed_at,
+      };
+      const changed = db
+        .prepare(
+          `UPDATE content_proposals
+           SET claim_json = NULL, updated_at = ?,
+               close_reason = ?, close_note = ?, closed_by = ?, closed_at = ?,
+               accept_snapshot_json = ?
+           WHERE id = ? AND close_reason = 'accepted'`,
+        )
+        .run(now, reason, note, caller.username, now, JSON.stringify(snapshot), id).changes;
+      if (!changed) {
+        return { ok: false, code: "closed", error: "Proposal changed meanwhile; reload and try again" };
+      }
+      emitProposalEvent(
+        site,
+        "proposal_retired",
+        id,
+        caller.username,
+        { retire_reason: reason, close_note: note, accepted_entry: proposal.accepted_entry },
+        caller.actor,
+      );
+      const released = ideaPageReleasedFollowUp(db, loadProposal(db, id));
+      return {
+        ok: true,
+        proposal: get(id)!,
+        ...(released ? { warnings: [released] } : {}),
+      };
+    }
+
+    if (action === "unretire") {
+      if (proposal.kind !== "idea" || proposal.status !== "finished" || !isIdeaRetireReason(proposal.close_reason)) {
+        return {
+          ok: false,
+          code: "not_retired",
+          error: "unretire is for retired ideas only (close_reason already_done or no_longer_relevant).",
+          proposal,
+        };
+      }
+      if (
+        fourEyesBlockedForCaller(
+          policy(),
+          proposal.proposer_username,
+          proposal.proposer_actor,
+          caller.username,
+          caller.actor,
+        )
+      ) {
+        return {
+          ok: false,
+          code: "four_eyes",
+          error: "Four-eyes: a different agent role (or staff UI) must restore",
+        };
+      }
+      const snapRow = db
+        .prepare(`SELECT accept_snapshot_json FROM content_proposals WHERE id = ?`)
+        .get(id) as { accept_snapshot_json: string | null } | undefined;
+      const snap = parseJson<{ close_note?: string | null; closed_by?: string | null; closed_at?: number | null } | null>(
+        snapRow?.accept_snapshot_json ?? null,
+        null,
+      );
+      if (!snap) {
+        return {
+          ok: false,
+          code: "accept_snapshot_missing",
+          error: "The original accept record is missing, so this idea cannot be restored. File and accept a new idea.",
+          proposal,
+        };
+      }
+      const entry = proposal.accepted_entry;
+      if (entry) {
+        const holder = findAcceptedIdeaOwningEntry(db, site, entry.contentType, entry.slug, entry.locale, id);
+        if (holder) {
+          return {
+            ok: false,
+            code: "accepted_entry_taken",
+            error:
+              `${acceptedEntryKey(entry)} was taken by accepted idea "${holder.title}" (${holder.id}) after this idea was retired. ` +
+              "Restore is refused while that idea holds the page.",
+            existing_proposal: holder,
+            details: { holder_id: holder.id },
+          };
+        }
+      }
+      const cluster = proposal.idea_seo_target?.cluster;
+      if (entry && cluster?.mode === "hub") {
+        const claims = ideasClaimingMembers(db, cluster.members, id);
+        if (claims.length) {
+          return {
+            ok: false,
+            code: IDEA_SEO_TARGET_MEMBERS_CLAIMED,
+            error:
+              "Another accepted idea now moves some of this hub's member pages into its own hub: " +
+              claims.map((c) => `${c.members.join(", ")} (idea ${c.id})`).join("; ") +
+              ". Restore is refused while that idea holds them.",
+            details: { claimed_by: claims },
+          };
+        }
+      }
+      const previousReason = proposal.close_reason;
+      db.prepare(
+        `UPDATE content_proposals
+         SET updated_at = ?, close_reason = 'accepted', close_note = ?, closed_by = ?, closed_at = ?,
+             accept_snapshot_json = NULL
+         WHERE id = ?`,
+      ).run(now, snap.close_note ?? null, snap.closed_by ?? null, snap.closed_at ?? null, id);
+      emitProposalEvent(
+        site,
+        "proposal_unretired",
+        id,
+        caller.username,
+        { previous_reason: previousReason, accepted_entry: entry },
+        caller.actor,
+      );
+      return { ok: true, proposal: get(id)! };
     }
 
     if (action === "close" || action === "acknowledge") {
@@ -7400,6 +7886,11 @@ export function createProposalService(deps: ProposalServiceDeps) {
         }
       }
 
+      if (!proposal.implements_proposal_id) {
+        const normalized = normalizeEntryRefs(entriesIn);
+        if (!normalized.ok) return normalized;
+      }
+
       const reviseDb = dbFor(site);
       const implementsResolved = resolveImplementsForEdits(
         reviseDb,
@@ -7786,7 +8277,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
           plan.ref.variant,
           "pending",
           JSON.stringify(plan.input.updates),
-          JSON.stringify({ values: {}, ...layoutOwnerAtFiling(plan.ref) }),
+          JSON.stringify({ values: {}, ...layoutOwnerAtFiling(plan.ref), ...robotsIntentOf(plan.input) }),
           plan.fingerprint,
           plan.created ? 1 : 0,
         );
@@ -7851,6 +8342,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
         },
         caller.actor,
       );
+      const revisePersonaHint = deps.productPersonas
+        ? funnelPersonaAlternativesWarning(entriesIn, deps.productPersonas)
+        : null;
       return {
         ok: true,
         proposal: get(id)!,
@@ -7862,6 +8356,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
               "Open needs-changes still block apply. Resolve each blocker after fixing, then re-preview before apply.",
           },
           ...refreshed.warnings,
+          ...(revisePersonaHint ? [revisePersonaHint] : []),
         ],
       };
     }
@@ -8173,6 +8668,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
           error: "Four-eyes: a different agent role (or staff UI) must apply",
         };
       }
+      const selfApply = selfApprovalBlocked(policy(), proposal, caller, "apply");
+      if (selfApply) return { ok: false, code: selfApply.code, error: selfApply.error };
       if (proposal.co_authors.some((c) => sameUsername(c.username, caller.username))) {
         return {
           ok: false,
@@ -9057,6 +9554,29 @@ export function createProposalService(deps: ProposalServiceDeps) {
     return findProposalDeletion(dbFor(site), site, id);
   }
 
+  /** Accepted or retired idea: what retire / unretire would run into (staff UI gating). */
+  function ideaRetireState(p: ProposalRecord): IdeaRetireState | null {
+    if (p.kind !== "idea" || p.status !== "finished") return null;
+    const accepted = p.close_reason === "accepted";
+    const retired = isIdeaRetireReason(p.close_reason);
+    if (!accepted && !retired) return null;
+    const db = dbFor(site);
+    const open = findOpenImplementsForIdea(db, site, p.id);
+    const applied = db
+      .prepare(
+        `SELECT id FROM content_proposals
+         WHERE site = ? AND kind = 'edits' AND status = 'finished' AND implements_proposal_id = ?
+         LIMIT 1`,
+      )
+      .get(site, p.id) as { id: string } | undefined;
+    return {
+      retired,
+      can_retire: accepted && !open && !applied,
+      open_edit: open ? { id: open.id, title: open.title, status: open.status } : null,
+      applied_edit_id: applied?.id ?? null,
+    };
+  }
+
   /** Referenced proposal ids (implements / supersedes / replaced_by / reverts) that no longer exist. */
   function referencedProposals(p: ProposalRecord): {
     missing: string[];
@@ -9186,6 +9706,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
     deletion,
     deleteProposals,
     referencedProposals,
+    ideaRetireState,
     migrateLegacy,
     staleSweep,
     blockedSweep,
@@ -9593,6 +10114,7 @@ export async function promoteEntryOnSite(
     confirmTextLimits: opts.confirm_text_limits === true,
     dryRun: opts.dry_run === true,
     seoStandaloneReason: opts.seo_standalone_reason ?? null,
+    robotsOnPublish: opts.robots_on_publish ?? null,
   });
   if (!result.ok) {
     return {
@@ -9809,6 +10331,14 @@ export function proposalServiceForSite(ctx: SiteContext) {
     variableDefinitions: () => ctx.variableManager.getDefinitions(),
     evidenceSources: () => loadEvidenceSourcesForSite(ctx),
     localeUrlSlug: localeUrlSlugDepsForSite(ctx),
+    resolveEntryRef: (ref) =>
+      resolveEntryRef(ctx.contentIndex, {
+        contentType: ref.contentType,
+        ref: ref.slug,
+        locale: ref.locale,
+        localeExplicit: ref.localeExplicit,
+      }),
+    productPersonas: productPersonasForFunnel,
   });
 }
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   IconAlertCircle,
@@ -472,17 +472,41 @@ function MigrationRow({
             </span>
             {last.output && <CopyOutputButton text={last.output} filename={filename} />}
           </div>
-          <pre
-            className={cn(
-              "font-mono px-3 py-2 overflow-auto max-h-48 whitespace-pre-wrap",
-              !lastOk && last.status !== "running" ? "text-destructive" : "text-foreground",
-            )}
-          >
-            {last.output || (last.status === "running" ? "Waiting for output…" : lastOk ? "Done." : "No output.")}
-          </pre>
+          <MigrationOutputLog
+            className={!lastOk && last.status !== "running" ? "text-destructive" : "text-foreground"}
+            text={last.output || (last.status === "running" ? "Waiting for output…" : lastOk ? "Done." : "No output.")}
+          />
         </div>
       )}
     </div>
+  );
+}
+
+const STICK_TO_BOTTOM_THRESHOLD_PX = 8;
+
+function MigrationOutputLog({ text, className }: { text: string; className?: string }) {
+  const ref = useRef<HTMLPreElement>(null);
+  const stickToBottom = useRef(true);
+
+  const onScroll = () => {
+    const el = ref.current;
+    if (!el) return;
+    stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_THRESHOLD_PX;
+  };
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [text]);
+
+  return (
+    <pre
+      ref={ref}
+      onScroll={onScroll}
+      className={cn("font-mono px-3 py-2 overflow-auto max-h-48 whitespace-pre-wrap", className)}
+    >
+      {text}
+    </pre>
   );
 }
 

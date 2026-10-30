@@ -3,7 +3,11 @@ import {
   type IssueActorRef,
 } from "@/lib/formatIssueActor";
 import { sameAgentIdentity } from "@shared/agent-identity";
-import { PROPOSAL_CLOSE_REASON_OPTIONS } from "@/lib/proposalCloseReason";
+import {
+  IDEA_RETIRE_REASON_OPTIONS,
+  isIdeaRetireReason,
+  PROPOSAL_CLOSE_REASON_OPTIONS,
+} from "@/lib/proposalCloseReason";
 
 export type ProposalClaimLike = {
   by: string;
@@ -101,7 +105,7 @@ export const PROPOSAL_LAST_FEEDBACK_TITLE =
   "Last person other than the author who added, resolved, or reopened a needs-changes note.";
 
 const CLOSE_REASON_LABEL: Record<string, string> = Object.fromEntries(
-  PROPOSAL_CLOSE_REASON_OPTIONS.map((o) => [o.value, o.label.toLowerCase()]),
+  [...PROPOSAL_CLOSE_REASON_OPTIONS, ...IDEA_RETIRE_REASON_OPTIONS].map((o) => [o.value, o.label.toLowerCase()]),
 );
 
 function closerLine(opts: {
@@ -118,6 +122,12 @@ function closerLine(opts: {
   const reason = opts.closeReason?.trim() || "";
   if (!reason) return { text: withBy("Applied"), title: "Who applied the last change." };
   if (reason === "accepted") return { text: withBy("Accepted"), title: "Who accepted this idea." };
+  if (isIdeaRetireReason(reason)) {
+    return {
+      text: `${withBy("Retired")} · ${CLOSE_REASON_LABEL[reason]}`,
+      title: "Who retired this accepted idea, and why it no longer needs doing.",
+    };
+  }
   const label = CLOSE_REASON_LABEL[reason] ?? reason.replace(/_/g, " ");
   return { text: `${withBy("Closed")} · ${label}`, title: "Who closed this proposal, and why." };
 }

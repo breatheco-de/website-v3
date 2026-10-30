@@ -237,7 +237,7 @@ describe("allowedToolNames", () => {
     expect(names.has("ensure_content_type_schema_org")).toBe(false);
   });
 
-  it("seo_edit-only sees SEO inspect and SEO writes, not YAML body reads or redirects", () => {
+  it("seo_edit-only sees SEO inspect and SEO writes (incl. draft-mode update_redirect), not YAML body reads or test_redirect", () => {
     const names = new Set(allowedToolNames(seoOnly));
     expect(names.has("get_entry_seo")).toBe(true);
     expect(names.has("list_entry_seo")).toBe(true);
@@ -252,7 +252,7 @@ describe("allowedToolNames", () => {
     expect(names.has("update_meta_fields")).toBe(false);
     expect(names.has("update_fields")).toBe(true);
     expect(names.has("test_redirect")).toBe(false);
-    expect(names.has("update_redirect")).toBe(false);
+    expect(names.has("update_redirect")).toBe(true);
     expect(names.has("ensure_content_type_schema_org")).toBe(false);
     expect(names.has("get_entry_content")).toBe(false);
     expect(names.has("list_entries")).toBe(false);

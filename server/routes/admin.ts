@@ -271,6 +271,13 @@ import { child } from "../logger";
 import { sqlite } from "../db";
 import { errorLogFingerprint } from "../utils/error-log-fingerprint";
 import { writeRedirectOnDestinationPage } from "../redirect-destination";
+import {
+  addDraftRedirect,
+  removeDraftRedirect,
+  type DraftRedirectResult,
+  type DraftRedirectTarget,
+} from "../redirect-draft";
+import { checkSimpleRedirectFrom, redirectsPageUrl } from "../redirect-simple-check";
 import { listInboundRedirects, parseRemovedEntry, removeInboundRedirects } from "../removed-item-redirect";
 import { findEntryPresence } from "../entry-layer";
 import { api } from "../rate-limit/api.js";
@@ -291,6 +298,69 @@ function getContentRootName(res: Response): string {
 
 function getValidationCache(res: Response) {
   return (res.locals.site as any)?.validationCache ?? getValidationCacheService();
+}
+
+/**
+ * Add or remove one of a page's own old addresses on its draft (0% traffic).
+ * Needs Edit page SEO for the page's type; nothing changes live until publish.
+ */
+async function handleDraftRedirect(req: Request, res: Response, action: "add" | "delete"): Promise<void> {
+  const body = req.body ?? {};
+  const contentType = typeof body.content_type === "string" ? body.content_type.trim() : "";
+  const auth = await requireCapability(req, res, "seo_edit", contentType || undefined);
+  if (!auth.authorized) return;
+  try {
+    if (!body.from || typeof body.from !== "string") {
+      res.status(400).json({ code: "missing_from", error: "'from' is required" });
+      return;
+    }
+    const target: DraftRedirectTarget = {
+      contentType,
+      slug: typeof body.slug === "string" ? body.slug.trim() : "",
+      variant: String(body.variant).trim(),
+      locale: typeof body.locale === "string" ? body.locale.trim() : "",
+    };
+    const authorName = typeof body.author === "string" ? body.author : undefined;
+    const ci = getCI(res);
+    const onWrite = (abs: string) => markFileAsModified(abs, authorName, undefined, getContentRoot(res));
+    let result: DraftRedirectResult;
+    if (action === "add") {
+      const allowedHosts = [req.get("host") ?? ""];
+      try {
+        if (process.env.SITE_URL) allowedHosts.push(new URL(process.env.SITE_URL).host);
+      } catch {}
+      result = addDraftRedirect({
+        ci,
+        target,
+        from: body.from,
+        statusCode: body.status === 302 ? 302 : 301,
+        allowedHosts,
+        onWrite,
+      });
+    } else {
+      result = removeDraftRedirect({ ci, target, from: body.from, onWrite });
+    }
+    if (!result.ok) {
+      res.status(result.status).json({ code: result.code, error: result.error, ...(result.details ?? {}) });
+      return;
+    }
+    res.json({
+      success: true,
+      draft: true,
+      from: result.from,
+      file: result.file,
+      ...(result.alreadyAbsent ? { alreadyAbsent: true } : {}),
+      message:
+        action === "add"
+          ? `Old address ${result.from} added to the draft (${result.file}). It takes effect when the draft is published.`
+          : result.alreadyAbsent
+            ? `Old address ${result.from} was not on the draft (${result.file}).`
+            : `Old address ${result.from} removed from the draft (${result.file}). Live is unchanged until publish.`,
+    });
+  } catch (err) {
+    log.error({ err }, "[Debug] Failed to change draft redirect:");
+    res.status(500).json({ error: "Failed to change draft redirect" });
+  }
 }
 
 function afterRedirectWrite(res: Response, filePath?: string): void {
@@ -1722,6 +1792,10 @@ export function registerAdminRoutes(app: Express): void {
 
   // Add a new redirect (for debug tools)
   app.post("/api/debug/redirects", async (req, res) => {
+    if (typeof req.body?.variant === "string" && req.body.variant.trim()) {
+      await handleDraftRedirect(req, res, "add");
+      return;
+    }
     const auth = await requireCapability(req, res, "edit_redirects");
     if (!auth.authorized) return;
     try {
@@ -1757,6 +1831,40 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       const destUrl = to as string;
+
+      if (req.body.simple === true) {
+        if (isCustomDestination || req.body.before_from || req.body.removed_entry) {
+          res.status(400).json({
+            code: "simple_redirect_options",
+            error: "Simple redirects only take from, to and allLanguages.",
+          });
+          return;
+        }
+        const ciSimple = getCI(res);
+        const allowedHosts = [req.get("host") ?? ""];
+        try {
+          if (process.env.SITE_URL) allowedHosts.push(new URL(process.env.SITE_URL).host);
+        } catch {}
+        const check = checkSimpleRedirectFrom({
+          from: from as string,
+          destUrl,
+          locale: ciSimple.parseContentUrl(destUrl)?.locale ?? getDefaultLocale(),
+          ci: ciSimple,
+          allowedHosts,
+        });
+        if (!check.ok) {
+          res.status(409).json({
+            error: check.message,
+            code: check.code,
+            ...(check.conflict_source ? { conflict_source: check.conflict_source } : {}),
+            ...(check.conflict_from ? { conflict_from: check.conflict_from } : {}),
+            ...(check.conflict_to ? { conflict_to: check.conflict_to } : {}),
+            redirects_page_url: redirectsPageUrl(check.normalizedFrom ?? String(from)),
+          });
+          return;
+        }
+        normalizedFrom = check.normalizedFrom;
+      }
 
       const beforeFrom =
         typeof req.body.before_from === "string" && req.body.before_from.trim()
@@ -1878,6 +1986,7 @@ export function registerAdminRoutes(app: Express): void {
       res.json({
         success: true,
         message: `Redirect added: ${normalizedFrom} -> ${destUrl}`,
+        from: normalizedFrom,
         file: main.file,
         ...(created.length > 0 ? { created } : {}),
         ...(removed ? { moved_inbound: moved, ...(notMoved.length > 0 ? { not_moved: notMoved } : {}) } : {}),
@@ -1891,6 +2000,10 @@ export function registerAdminRoutes(app: Express): void {
 
   // Delete a redirect (for debug tools)
   app.delete("/api/debug/redirects", async (req, res) => {
+    if (typeof req.body?.variant === "string" && req.body.variant.trim()) {
+      await handleDraftRedirect(req, res, "delete");
+      return;
+    }
     const auth = await requireCapability(req, res, "edit_redirects");
     if (!auth.authorized) return;
     try {

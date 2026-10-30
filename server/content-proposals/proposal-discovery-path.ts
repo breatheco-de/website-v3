@@ -521,7 +521,15 @@ export type ReviewContextForDiscovery = {
     claims: Array<{
       name: string;
       status: string;
-      row?: { domain: string; database: string; index: number; label: string; link: string | null };
+      row?: {
+        domain: string;
+        database: string;
+        index: number;
+        label: string;
+        link: string | null;
+        archive_status?: string;
+        archive_url?: string | null;
+      };
     }>;
     blocking: string[];
     databases: Array<{ domain: string; database: string; label: string }>;
@@ -549,6 +557,15 @@ export function buildEvidenceDiscoveryItems(
           why: `"${c.name}" matched evidence row "${row.label}" (${c.status}) in ${row.database}.`,
           look_for: [
             row.link ? `source link: ${row.link}` : "no source link on this row (unsourced — warning only)",
+            ...(row.link && row.archive_status
+              ? [
+                  row.archive_status === "archived" && row.archive_url === row.link
+                    ? "the source link is itself an archived copy"
+                    : row.archive_status === "archived" && row.archive_url
+                    ? `archived copy: ${row.archive_url}`
+                    : `no archived copy yet (${row.archive_status}) — warning only`,
+                ]
+              : []),
             "the proposed claim is not stronger than the row (selected vs contracted, partner vs client)",
             c.status === "unverified" ? "unverified: an agent last changed this row — add_blocker asking staff to verify" : "row status ok",
           ],

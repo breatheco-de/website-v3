@@ -271,6 +271,39 @@ describe("collectTypeStats / resolveEntryList", () => {
     expect(got.entries.find((e) => e.slug === "one")?.tags).toEqual(["t"]);
   });
 
+  it("returns one row per page with entry_id and locale_slugs, matching any address", async () => {
+    const fetchItems: FetchItemsFn = async () => ({
+      ok: true,
+      total: 3,
+      results: [
+        { slug: "javascript-empty-array", entry_id: "javascript-empty-array", locale: "en", title: "Empty array" },
+        { slug: "array-vacio-javascript", entry_id: "javascript-empty-array", locale: "es", title: "Array vacío" },
+        { slug: "other", entry_id: "other", locale: "en", title: "Other" },
+      ],
+    });
+    const base = {
+      contentType: "how-to",
+      domain: null,
+      contentPath: process.cwd(),
+      contentFolder: "site_4geeks-com",
+      fetchItems,
+    };
+    const all = await resolveEntryList(base);
+    if (!all.ok) throw new Error(all.error);
+    expect(all.total).toBe(2);
+    const page = all.entries.find((e) => e.entry_id === "javascript-empty-array")!;
+    expect(page.locale_slugs).toEqual({ en: "javascript-empty-array", es: "array-vacio-javascript" });
+    expect(page.locales).toEqual(["en", "es"]);
+
+    const bySpanish = await resolveEntryList({ ...base, slugs: ["Array_Vacio_JavaScript"] });
+    if (!bySpanish.ok) throw new Error(bySpanish.error);
+    expect(bySpanish.entries.map((e) => e.entry_id)).toEqual(["javascript-empty-array"]);
+
+    const search = await resolveEntryList({ ...base, search: "vacio" });
+    if (!search.ok) throw new Error(search.error);
+    expect(search.entries.map((e) => e.entry_id)).toEqual(["javascript-empty-array"]);
+  });
+
   it("empty slugs array returns zero rows (refresh_tier zero-match)", async () => {
     const fetchItems: FetchItemsFn = async () => ({
       ok: true,

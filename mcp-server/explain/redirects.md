@@ -4,7 +4,7 @@ CMS 301/302 routing lives in **two YAML stores**. Runtime is **first-match** (on
 
 ## Capability
 
-`test_redirect` requires **`read_redirects`**; `update_redirect` requires **`edit_redirects`**. Built-in Webmaster has both. Metrics Viewer (`metrics_view` only) does not. Missing cap → `denyResponse("read_redirects")` / `denyResponse("edit_redirects")`. Agent identity is the connected staff user (`get_current_user` / `check_capability`).
+`test_redirect` requires **`read_redirects`**. Live `update_redirect` requires **`edit_redirects`**; draft mode (`variant`) requires **`seo_edit`** for the page's content type. Built-in Platform Steward has all three. Swarm SEO Specialist and Publisher have `read_redirects` + `seo_edit` (draft mode only, never live). Metrics Viewer (`metrics_view` only) has none. Missing cap → `denyResponse("read_redirects")` / `denyResponse("edit_redirects")` / `denyResponse("seo_edit", type)`. Agent identity is the connected staff user (`get_current_user` / `check_capability`).
 
 ## Two MCP tools
 
@@ -13,7 +13,7 @@ CMS 301/302 routing lives in **two YAML stores**. Runtime is **first-match** (on
 | `test_redirect` | Inspect only. Returns winner, `conflicts[]`, `fixes[]`, `live_content`. Use this to verify. |
 | `update_redirect` | One rule per call. Required `action`: `add` \| `delete` \| `move`. |
 
-Do not dump the full catalog. Do not use `update_fields` as the primary redirect writer (it can still touch `meta.redirects` but is not the path). Do not use slug-scoped `run_entry_diagnostics` to re-check redirects.
+Do not dump the full catalog. `update_fields` / `update_entry_attributes` reject `meta.redirects` (`meta_redirects_use_update_redirect`); `update_redirect` is the only MCP writer. Do not use slug-scoped `run_entry_diagnostics` to re-check redirects.
 
 ## Two stores
 
@@ -40,7 +40,7 @@ Custom regex fallbacks (`custom-redirects.yml`, `priority: fallback`) only fire 
 
 ## `update_redirect`
 
-Call `test_redirect` first. Live routing only — **`variant` is refused**.
+Call `test_redirect` first. Without `variant` it edits live routing (below). With `variant` it edits a draft (next section).
 
 | `action` | Required | Notes |
 |---|---|---|
@@ -51,6 +51,23 @@ Call `test_redirect` first. Live routing only — **`variant` is refused**.
 `before_from` on a page-YAML add → **fail** (not ignored).
 
 Regex is allowed. Position can still be shadowed by an earlier broader pattern; `move` + `before_from` (custom only) raises it. No full-list reorder, no PUT of `custom-redirects.yml`, no regex inline from/to editor via MCP.
+
+## Draft mode (`variant`)
+
+A page's own old addresses can be staged on its draft so they go live with the page (e.g. a draft that renames the page). Cap: `seo_edit` for `content_type`.
+
+| `action` | Required | Notes |
+|---|---|---|
+| `add` | `from`, `content_type`, `slug`, `locale`, `variant` | Exact path only (no regex). Never `to`, `before_from`, `removed_entry`, `priority`, or confirms — the address always points to this page. Optional `status` 301/302. |
+| `delete` | same | May remove addresses copied from live (publish then removes them from live; proposal review is the gate). Optional `source` must be the draft file. |
+
+`move` is refused. Rules:
+
+- The draft file `{directory}/{slug}/{variant}.{locale}.yml` must exist (`draft_missing` → `create_variant`) and be at **0% traffic** (`draft_has_traffic`).
+- A live page, an address already redirected elsewhere, or one caught by a pattern is refused — **except** this page's own current address in that locale when the draft gives the page a different `slug` there (rename).
+- **Not indexed:** draft redirects never affect live routing, even on never-published pages. `test_redirect` shows live only. Warning `draft_redirect_dormant`.
+- **Traffic:** a non-default variant whose old addresses differ from today's live file (including addresses live gained after the draft was made) cannot get traffic — `variant_has_redirect_changes` on the traffic save. Publish it instead, or make its old addresses match live. Lowering to 0% is always allowed.
+- **Publish:** when live changed since the draft was made, `meta.redirects` merges per address (draft adds/removes + live adds/removes); only the same address changed differently on both sides conflicts (`meta.redirects[/path]`). Added addresses are re-checked; conflicting ones are dropped with warning `draft_redirects_skipped` (`details.skipped[]`: `from`, `code`, `message`) and publish continues. When live `meta.redirects` changed, publish flushes the redirect cache and queues redirects validation.
 
 ## Confirms (stacked)
 

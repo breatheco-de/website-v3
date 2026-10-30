@@ -42,7 +42,6 @@ const AgentsOrgChartPage = lazy(() => import("@/pages/AgentsOrgChartPage"));
 const ErrorLogPage = lazy(() => import("@/pages/ErrorLogPage"));
 const PerformancePage = lazy(() => import("@/pages/PerformancePage"));
 const BackgroundPipelinePage = lazy(() => import("@/pages/BackgroundPipelinePage"));
-const EventWebhooksPage = lazy(() => import("@/pages/EventWebhooksPage"));
 const PrivateOverlays = lazy(() => import("@/pages/PrivateOverlays"));
 const VariablesPage = lazy(() => import("@/pages/VariablesPage"));
 
@@ -89,6 +88,20 @@ function SeoGeoRedirect() {
 function AgentsRedirect() {
   if (typeof window !== "undefined") {
     window.location.replace("/private/agents/orgchart");
+  }
+  return null;
+}
+
+function WebhooksRedirect() {
+  const params = useParams<{ tab?: string }>();
+  const search = useSearch();
+  if (typeof window !== "undefined") {
+    if (params.tab === "logs") {
+      const qs = search.replace(/^\?/, "");
+      window.location.replace(qs ? `/private/agents/webhook-logs?${qs}` : "/private/agents/webhook-logs");
+    } else {
+      window.location.replace("/private/agents/webhooks");
+    }
   }
   return null;
 }
@@ -216,6 +229,8 @@ export default function PrivateRouter() {
           <Route path="/private/agents/orgchart" component={AgentsOrgChartPage} />
           <Route path="/private/agents/rules" component={AgentsOrgChartPage} />
           <Route path="/private/agents/outcomes" component={AgentsOrgChartPage} />
+          <Route path="/private/agents/webhooks" component={AgentsOrgChartPage} />
+          <Route path="/private/agents/webhook-logs" component={AgentsOrgChartPage} />
           <Route path="/private/agents/proposals/:id" component={AgentsOrgChartPage} />
           <Route path="/private/agents/proposals" component={AgentsOrgChartPage} />
           <Route path="/private/agents" component={AgentsRedirect} />
@@ -224,9 +239,8 @@ export default function PrivateRouter() {
           <Route path="/private/server" component={ServerLogsRedirect} />
           <Route path="/private/error-log" component={ServerLogsRedirect} />
           <Route path="/private/background-pipeline" component={BackgroundPipelinePage} />
-          <Route path="/private/webhooks/hooks" component={EventWebhooksPage} />
-          <Route path="/private/webhooks/logs" component={EventWebhooksPage} />
-          <Route path="/private/webhooks" component={EventWebhooksPage} />
+          <Route path="/private/webhooks/:tab" component={WebhooksRedirect} />
+          <Route path="/private/webhooks" component={WebhooksRedirect} />
           <Route path="/private/proposals/:id" component={ProposalsRedirect} />
           <Route path="/private/proposals" component={ProposalsRedirect} />
           <Route path="/private/overlays" component={PrivateOverlays} />

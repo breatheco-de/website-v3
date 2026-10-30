@@ -14,7 +14,10 @@ import path from "path";
 import { isTemplateVersioningSlug, liveTemplateBasename } from "@shared/sharedLayoutPaths";
 import { fieldScope, splitByFieldScope, type FieldScope, type FieldScopeOptions } from "@shared/field-scope";
 import { cloneJson, deleteAtPath, isPlainObject, setAtPath } from "@shared/object-path";
+import { FUNNEL_YAML_KEY, normalizeFunnelBlock } from "@shared/funnel";
+import { deepMerge } from "../utils/deepMerge";
 import { getFolder } from "../content-types";
+import { diffRedirectItems, mergeRedirectLists, type RedirectChanges } from "../redirect-items";
 import { getSiteSqlite } from "../db";
 import { urlParamsForContentType } from "../field-scope-config";
 import {
@@ -218,18 +221,56 @@ export function scopeOptionsOf(ref: Pick<DraftRef, "contentType" | "contentRoot"
  * Returns the raw text untouched when there is nothing to drop.
  */
 export function draftSeedFromLiveRaw(liveRaw: string, opts?: FieldScopeOptions): string {
+  return draftSeedFromLive(liveRaw, opts).content;
+}
+
+export const FUNNEL_CARRIED_WARNING = "funnel_carried_from_language_file";
+
+/**
+ * {@link draftSeedFromLiveRaw}, except a legacy `funnel:` in the live locale file that differs
+ * from `_common.yml` is kept in the draft (as visitors see it: locale merged over common), so
+ * publishing moves it to `_common.yml` instead of silently dropping it. `carried` lists kept keys.
+ */
+export function draftSeedFromLive(
+  liveRaw: string,
+  opts?: FieldScopeOptions & { commonRaw?: string | null },
+): { content: string; carried: string[] } {
   const raw = stripDraftMetaFromRaw(liveRaw);
   const data = safeLoadYaml(raw);
-  if (!data) return raw;
+  if (!data) return { content: raw, carried: [] };
   const { common, locale } = splitByFieldScope(data, opts);
-  if (Object.keys(common).length === 0) return raw;
-  return Object.keys(locale).length ? safeDumpYaml(locale) : "{}\n";
+  if (Object.keys(common).length === 0) return { content: raw, carried: [] };
+  const carried: string[] = [];
+  if (isPlainObject(common[FUNNEL_YAML_KEY]) && opts?.commonRaw !== undefined) {
+    const commonFunnel = (opts.commonRaw ? safeLoadYaml(opts.commonRaw) : null)?.[FUNNEL_YAML_KEY];
+    const own = common[FUNNEL_YAML_KEY] as Record<string, unknown>;
+    const visible = isPlainObject(commonFunnel) ? deepMerge(commonFunnel, own) : own;
+    if (JSON.stringify(normalizeFunnelBlock(visible)) !== JSON.stringify(normalizeFunnelBlock(commonFunnel))) {
+      locale[FUNNEL_YAML_KEY] = visible;
+      carried.push(FUNNEL_YAML_KEY);
+    }
+  }
+  return { content: Object.keys(locale).length ? safeDumpYaml(locale) : "{}\n", carried };
+}
+
+/** Warning for callers that seed a draft with {@link draftSeedFromLive}. */
+export function funnelCarriedWarning(locale: string): { code: string; message: string } {
+  return {
+    code: FUNNEL_CARRIED_WARNING,
+    message:
+      `This page's ${locale} language file had its own funnel, different from the page's shared settings (_common.yml). ` +
+      "The draft keeps it so it isn't lost; publishing moves it to _common.yml for every language. " +
+      "Change or remove funnel in the draft if it shouldn't become the page funnel.",
+  };
 }
 
 // ── Field-level diff ─────────────────────────────────────────────────────────
 
 /** Split one level deeper for these keys (`meta.page_title`, `seo.main_keyword`). */
 const NESTED_FIELD_KEYS = new Set(["meta", "seo"]);
+
+/** Merged per address on rebuild instead of as one value. */
+const REDIRECTS_PATH = "meta.redirects";
 
 /** Flatten to review-sized fields: top-level keys; `meta.*` / `seo.*` one level deeper. */
 export function flattenFields(data: Record<string, unknown> | null | undefined): Map<string, unknown> {
@@ -439,6 +480,8 @@ export type RebuildResult =
       ok: true;
       author_changes: FieldChange[];
       live_changes_since_base: FieldChange[];
+      /** Old addresses added on live since the base, kept in the rebuilt draft. */
+      redirects_kept_from_live: string[];
       /** Draft content after the rebuild (without `_draft`). */
       result: Record<string, unknown>;
       wrote: boolean;
@@ -453,8 +496,9 @@ export type RebuildResult =
 
 /**
  * Re-apply the author's changes on top of today's live when live moved since the
- * base. Field-by-field: a field changed on both sides is a conflict. Drafts whose
- * author changed `sections` are never rebuilt automatically.
+ * base. Field-by-field: a field changed on both sides is a conflict, except
+ * `meta.redirects`, which merges per address. Drafts whose author changed
+ * `sections` are never rebuilt automatically.
  */
 export function rebuildDraftFromBase(
   ref: DraftRef,
@@ -483,9 +527,33 @@ export function rebuildDraftFromBase(
     };
   }
   const liveByPath = new Map(liveChanges.map((c) => [c.field_path, c]));
-  const conflicts = authorChanges
-    .filter((c) => liveByPath.has(c.field_path))
-    .map((c) => ({ field_path: c.field_path, author: c.after ?? null, live: liveByPath.get(c.field_path)!.after ?? null }));
+
+  // Old addresses merge per address: both sides may add/remove different ones.
+  const authorRedirects = authorChanges.find((c) => c.field_path === REDIRECTS_PATH);
+  const liveRedirects = liveByPath.get(REDIRECTS_PATH);
+  let mergedRedirects: unknown[] | null = null;
+  const redirectConflicts: Array<{ field_path: string; author: unknown; live: unknown }> = [];
+  if (authorRedirects && liveRedirects) {
+    const merged = mergeRedirectLists(
+      authorRedirects.before,
+      authorRedirects.removed ? [] : authorRedirects.after,
+      liveRedirects.removed ? [] : liveRedirects.after,
+    );
+    if (merged.ok) mergedRedirects = merged.list;
+    else {
+      for (const c of merged.conflicts) {
+        redirectConflicts.push({ field_path: `${REDIRECTS_PATH}[${c.path}]`, author: c.author, live: c.live });
+      }
+    }
+    liveByPath.delete(REDIRECTS_PATH);
+  }
+
+  const conflicts = [
+    ...authorChanges
+      .filter((c) => liveByPath.has(c.field_path))
+      .map((c) => ({ field_path: c.field_path, author: c.after ?? null, live: liveByPath.get(c.field_path)!.after ?? null })),
+    ...redirectConflicts,
+  ];
   if (conflicts.length > 0) {
     return {
       ok: false,
@@ -498,7 +566,10 @@ export function rebuildDraftFromBase(
 
   const result: Record<string, unknown> = cloneJson(splitByFieldScope(now.live ?? {}, scopeOpts).locale);
   for (const c of authorChanges) {
-    if (c.scope === "common") {
+    if (c.field_path === REDIRECTS_PATH && mergedRedirects) {
+      if (mergedRedirects.length > 0) setAtPath(result, REDIRECTS_PATH, cloneJson(mergedRedirects));
+      else deleteAtPath(result, REDIRECTS_PATH);
+    } else if (c.scope === "common") {
       setAtPath(result, c.field_path, c.removed ? null : cloneJson(c.after));
     } else if (c.removed) {
       deleteAtPath(result, c.field_path);
@@ -514,9 +585,17 @@ export function rebuildDraftFromBase(
     ok: true,
     author_changes: authorChanges,
     live_changes_since_base: liveChanges,
+    redirects_kept_from_live: liveRedirects
+      ? diffRedirectItems(liveRedirects.before, liveRedirects.after).added.map((i) => i.path)
+      : [],
     result,
     wrote: !opts.preview,
   };
+}
+
+/** Old addresses (`meta.redirects`) where the variant differs from today's live file. */
+export function variantRedirectChanges(ref: DraftRef): RedirectChanges {
+  return diffRedirectItems(loadFile(livePathOf(ref)), readVariantData(draftPathOf(ref)));
 }
 
 // ── Translation source ───────────────────────────────────────────────────────

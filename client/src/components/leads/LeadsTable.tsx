@@ -16,6 +16,7 @@ import {
 import { AdsPullProductionButton } from "@/components/ads/AdsPullProductionButton";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import { LeadDetailsDialog } from "@/components/leads/LeadDetailsDialog";
+import { LeadDeliveryBadge } from "@/components/leads/LeadDeliveryBadge";
 import { useToast } from "@/hooks/use-toast";
 import type { LeadsListResponse, LeadsListRow, LeadsShow } from "@shared/leads-query";
 import { isTrafficChannel, TRAFFIC_CHANNEL_LABELS } from "@shared/traffic-channel";
@@ -156,6 +157,7 @@ export function LeadsTable({
                     <TableHead className="w-px whitespace-nowrap">When</TableHead>
                     <TableHead>Form / page</TableHead>
                     <TableHead>Source &amp; UTMs</TableHead>
+                    <TableHead className="w-px whitespace-nowrap">Delivery</TableHead>
                     <TableHead className="w-10" />
                   </TableRow>
                 </TableHeader>
@@ -284,6 +286,16 @@ export function LeadsTable({
                             {r.utm_campaign}
                           </div>
                         )}
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          type="button"
+                          className="rounded-sm"
+                          onClick={() => setDetailsId(r.submission_id)}
+                          aria-label="View delivery details"
+                        >
+                          <LeadDeliveryBadge status={r.delivery_status} testId={`badge-lead-delivery-${r.submission_id}`} />
+                        </button>
                       </TableCell>
                       <TableCell>
                         <Button

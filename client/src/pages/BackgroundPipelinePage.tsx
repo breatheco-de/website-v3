@@ -435,10 +435,24 @@ const EVENT_META: Record<string, EventMeta> = {
     icon: IconLink,
     iconClass: "text-emerald-400 border-emerald-400/40",
   },
+  evidence_archive_done: {
+    label: "Evidence Archive Checked",
+    description:
+      "The Internet Archive copy of an evidence row's source link was saved or found, failed, or the original link was checked.",
+    icon: IconLink,
+    iconClass: "text-emerald-400 border-emerald-400/40",
+  },
   job_failed: {
     label: "Job Failed",
     description:
       "A background job crashed. The save itself may have succeeded, but follow-up work — index rebuild, validation, or sync — did not complete.",
+    icon: IconAlertTriangle,
+    iconClass: "text-red-400 border-red-400/40",
+  },
+  lead_delivery_failed: {
+    label: "Lead Delivery Failed",
+    description:
+      "A lead did not reach the CRM webhook (rejected, misconfigured, or still failing after retries). Fired once per lead; open it on the Leads page to retry.",
     icon: IconAlertTriangle,
     iconClass: "text-red-400 border-red-400/40",
   },
@@ -2010,7 +2024,7 @@ export default function BackgroundPipelinePage() {
               disabled={!site}
               data-testid="button-event-webhooks"
             >
-              <Link href="/private/webhooks/hooks">
+              <Link href="/private/agents/webhooks">
                 <IconWebhook className="w-4 h-4 mr-2" />
                 Event webhooks
               </Link>

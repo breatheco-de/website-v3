@@ -9,6 +9,7 @@ import {
   IconScale,
   IconSearch,
   IconThumbUp,
+  IconWebhook,
 } from "@tabler/icons-react";
 import { Geekchart } from "geekchart";
 import "geekchart/fonts.css";
@@ -35,7 +36,13 @@ import {
 } from "@/pages/ProposalsPage";
 import { AgentsRulesPanel } from "@/pages/AgentsRulesPanel";
 import { AgentsOutcomesPanel } from "@/components/agents/AgentsOutcomesPanel";
-import { AGENTS_OUTCOMES_BASE, resolveAgentsTab, type AgentsTab } from "@/lib/agents-tab";
+import { EventWebhooksPanel } from "@/components/pipeline/EventWebhooksDialog";
+import {
+  AGENTS_OUTCOMES_BASE,
+  AGENTS_WEBHOOKS_HREF,
+  resolveAgentsTab,
+  type AgentsTab,
+} from "@/lib/agents-tab";
 
 interface CapabilityGrant {
   name: string;
@@ -64,6 +71,7 @@ const AGENTS_TABS: {
   { id: "proposals", href: AGENTS_PROPOSALS_BASE, label: "Proposals", Icon: IconClipboardList },
   { id: "outcomes", href: AGENTS_OUTCOMES_BASE, label: "Outcomes", Icon: IconThumbUp },
   { id: "rules", href: "/private/agents/rules", label: "Rules", Icon: IconScale },
+  { id: "webhooks", href: AGENTS_WEBHOOKS_HREF, label: "Webhooks", Icon: IconWebhook },
 ];
 
 /** Logos that cycle on the Swarm Orchestrator strip. */
@@ -488,6 +496,34 @@ export default function AgentsOrgChartPage() {
                       </p>
                     </PopoverContent>
                   </Popover>
+                ) : activeTab === "webhooks" || activeTab === "webhook-logs" ? (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 shrink-0"
+                        aria-label="Read more (advanced)"
+                        data-testid="button-agents-webhooks-advanced-info"
+                      >
+                        <IconInfoCircle className="h-4 w-4 text-muted-foreground" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="start"
+                      className="w-80 space-y-2 text-xs text-muted-foreground leading-relaxed"
+                    >
+                      <p className="font-medium text-foreground text-sm">Read more (advanced)</p>
+                      <p>
+                        Hook config is saved with site content (GitHub) in{" "}
+                        <code className="font-mono bg-muted px-1 rounded">event-webhooks.yml</code>.
+                      </p>
+                      <p>
+                        Call history and waiting events stay on this server (site SQLite); history is kept
+                        for 48 hours.
+                      </p>
+                    </PopoverContent>
+                  </Popover>
                 ) : (
                   <AgentsProposalsInfoPopover />
                 )}
@@ -507,6 +543,14 @@ export default function AgentsOrgChartPage() {
                   <>
                     Site policy for withdraw, four-eyes, holds, and claims — not who has which role.
                   </>
+                ) : activeTab === "webhooks" ? (
+                  <>
+                    Notify outside URLs when proposal events fire — every event or every N (max 50).
+                    Turning a hook off or changing its URL drops its waiting events. Does not change
+                    proposals.
+                  </>
+                ) : activeTab === "webhook-logs" ? (
+                  <>Calls sent to your webhook URLs in the last 48 hours, and whether they worked.</>
                 ) : (
                   <>Review and apply agent-suggested entry changes or handoff notes.</>
                 )}
@@ -516,7 +560,7 @@ export default function AgentsOrgChartPage() {
 
           <ToggleButtonBar
             className="shrink-0"
-            value={activeTab}
+            value={activeTab === "webhook-logs" ? "webhooks" : activeTab}
             onValueChange={(id) => {
               const tab = AGENTS_TABS.find((t) => t.id === id);
               if (!tab) return;
@@ -546,6 +590,8 @@ export default function AgentsOrgChartPage() {
           {activeTab === "outcomes" &&
             (params.id ? <ProposalDetailPanel id={params.id} /> : <AgentsOutcomesPanel />)}
           {activeTab === "rules" && <AgentsRulesPanel />}
+          {activeTab === "webhooks" && <EventWebhooksPanel tab="hooks" />}
+          {activeTab === "webhook-logs" && <EventWebhooksPanel tab="logs" />}
         </div>
       </div>
     </div>

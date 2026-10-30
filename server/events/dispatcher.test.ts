@@ -237,6 +237,16 @@ describe("event dispatcher", () => {
     );
   });
 
+  it("content_type_changed enqueues index refresh so entry URLs follow the new pattern", async () => {
+    await dispatchEventForTest(
+      baseEvent("content_type_changed", {
+        resource: { contentType: "news" },
+        payload: { urlPatternChanged: true, previousUrlPattern: { en: "/en/:slug" } },
+      }),
+    );
+    expect(jobNames()).toContain("index_refresh");
+  });
+
   it("site_redirects_changed enqueues index and redirects validation", async () => {
     await dispatchEventForTest(
       baseEvent("site_redirects_changed", {

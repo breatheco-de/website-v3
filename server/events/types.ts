@@ -28,6 +28,7 @@ export const EVENT_TYPES = [
   "binding_propagation_done",
   "cluster_hub_path_rewrite_started",
   "cluster_hub_path_rewrite_done",
+  "evidence_archive_done",
   "job_failed",
   "ai_image_gc_completed",
   "agent_session_started",
@@ -41,6 +42,8 @@ export const EVENT_TYPES = [
   "proposal_closed",
   "proposal_rejected",
   "proposal_withdrawn",
+  "proposal_retired",
+  "proposal_unretired",
   "proposal_revised",
   "proposal_escalated",
   "proposal_deescalated",
@@ -67,6 +70,7 @@ export const EVENT_TYPES = [
   "draft_orphan_cleaned",
   "proposal_co_author_edit",
   "proposal_deleted",
+  "lead_delivery_failed",
 ] as const;
 
 export type EventType = (typeof EVENT_TYPES)[number];
@@ -111,6 +115,7 @@ export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
   validation_issue_released: { outbox: "audit", affectsWriteGeneration: false },
   binding_propagation_done: { outbox: "audit", affectsWriteGeneration: false },
   cluster_hub_path_rewrite_done: { outbox: "audit", affectsWriteGeneration: false },
+  evidence_archive_done: { outbox: "audit", affectsWriteGeneration: false },
   job_failed: { outbox: "audit", affectsWriteGeneration: false },
   ai_image_gc_completed: { outbox: "audit", affectsWriteGeneration: false },
   agent_session_started: { outbox: "audit", affectsWriteGeneration: false },
@@ -124,6 +129,8 @@ export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
   proposal_closed: { outbox: "audit", affectsWriteGeneration: false },
   proposal_rejected: { outbox: "audit", affectsWriteGeneration: false },
   proposal_withdrawn: { outbox: "audit", affectsWriteGeneration: false },
+  proposal_retired: { outbox: "audit", affectsWriteGeneration: false },
+  proposal_unretired: { outbox: "audit", affectsWriteGeneration: false },
   proposal_revised: { outbox: "audit", affectsWriteGeneration: false },
   proposal_escalated: { outbox: "audit", affectsWriteGeneration: false },
   proposal_deescalated: { outbox: "audit", affectsWriteGeneration: false },
@@ -150,6 +157,7 @@ export const EVENT_TYPE_META: Record<EventType, EventTypeMeta> = {
   draft_orphan_cleaned: { outbox: "audit", affectsWriteGeneration: false },
   proposal_co_author_edit: { outbox: "audit", affectsWriteGeneration: false },
   proposal_deleted: { outbox: "audit", affectsWriteGeneration: false },
+  lead_delivery_failed: { outbox: "audit", affectsWriteGeneration: false },
 };
 
 export function isOutboxDispatchable(type: EventType): boolean {

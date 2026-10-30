@@ -1,6 +1,7 @@
 /**
  * MCP tools for CMS redirects: test_redirect (read) and update_redirect (add|delete|move).
- * Caps: test_redirect → read_redirects; update_redirect → edit_redirects.
+ * Caps: test_redirect → read_redirects; update_redirect → edit_redirects (live) or
+ * seo_edit for the page's type (variant / draft mode).
  */
 
 import fs from "fs";
@@ -148,7 +149,7 @@ function mutateWarnings(opts: { wroteCustom: boolean; regex?: boolean }): McpWar
     {
       code: "cap_edit_redirects",
       message:
-        "update_redirect requires edit_redirects; test_redirect requires read_redirects. Metrics Viewer (metrics_view only) cannot use these tools.",
+        "Live update_redirect requires edit_redirects (Platform Steward or custom roles); draft mode (variant) requires seo_edit for the page's type. test_redirect requires read_redirects. Metrics Viewer (metrics_view only) cannot use these tools.",
     },
   ];
   if (opts.regex) {
@@ -187,6 +188,108 @@ function testNextActions(data: InspectPayload): NextAction[] {
     ];
   }
   return [];
+}
+
+type DraftRedirectArgs = {
+  from?: string;
+  content_type?: string;
+  slug?: string;
+  locale?: string;
+  variant?: string;
+  status?: number;
+  site?: string;
+  agent_session_id?: string;
+};
+
+async function updateDraftRedirect(
+  args: DraftRedirectArgs,
+  action: "add" | "delete",
+  domain: string | undefined,
+  mcpToken?: string,
+) {
+  const from = args.from!.trim();
+  const target = {
+    content_type: args.content_type!.trim(),
+    slug: args.slug!.trim(),
+    locale: args.locale!.trim(),
+    variant: args.variant!.trim(),
+  };
+  const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects${siteQuery(domain)}`, {
+    method: action === "add" ? "POST" : "DELETE",
+    headers: internalHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
+    body: JSON.stringify({
+      from,
+      ...target,
+      ...(action === "add" && args.status ? { status: args.status } : {}),
+      author: authorName(mcpToken),
+    }),
+  });
+  const data = (await res.json()) as {
+    error?: string;
+    code?: string;
+    file?: string;
+    from?: string;
+    message?: string;
+    alreadyAbsent?: boolean;
+    conflict_source?: string;
+    conflict_from?: string;
+    conflict_to?: string;
+  };
+  if (!res.ok) {
+    const siteHint = args.site ? { site: args.site } : {};
+    const nextActions: NextAction[] =
+      data.code === "draft_missing"
+        ? [
+            {
+              tool: "create_variant",
+              priority: "required",
+              reason: "Create the draft first, then re-call update_redirect with variant.",
+              args_hint: {
+                contentType: target.content_type,
+                slug: target.slug,
+                locale: target.locale,
+                variantSlug: target.variant,
+                ...siteHint,
+              },
+            },
+          ]
+        : [];
+    return fail(data.error || `Server error: ${res.status}`, {
+      code: data.code,
+      status: res.status,
+      ...(data.conflict_source ? { conflict_source: data.conflict_source } : {}),
+      ...(data.conflict_from ? { conflict_from: data.conflict_from } : {}),
+      ...(data.conflict_to ? { conflict_to: data.conflict_to } : {}),
+      ...(nextActions.length ? { next_actions: nextActions } : {}),
+    });
+  }
+  const file = data.file || `${target.slug}/${target.variant}.${target.locale}.yml`;
+  return ok(
+    {
+      message: data.message || `Draft redirect ${action === "add" ? "added" : "removed"}: ${from}`,
+      action,
+      draft: true,
+      from: data.from ?? from,
+      file,
+      ...(data.alreadyAbsent ? { already_absent: true } : {}),
+    },
+    {
+      warnings: [
+        {
+          code: "draft_redirect_dormant",
+          message:
+            "Takes effect only when the draft is published (live is unchanged now; test_redirect shows live only). Publish merges per address with live and skips any added address that conflicts by then (warning draft_redirects_skipped). This variant cannot get traffic while its old addresses differ from live.",
+        },
+      ],
+      side_effects: data.alreadyAbsent
+        ? []
+        : [
+            { kind: "file_written", summary: `Wrote ${file} (draft meta.redirects)`, paths: [file] },
+            { kind: "sync_marked", summary: "markFileAsModified so Cloud Sync can commit this path" },
+          ],
+      next_actions: [],
+    },
+  );
 }
 
 export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
@@ -262,17 +365,24 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
 
   mcp.tool(
     "update_redirect",
-    "Call test_redirect first. One rule per call. Mutate CMS redirects (edit_redirects — Webmaster / custom roles with this cap; not Metrics Viewer). action add | delete | move. Two stores: dest-locale meta.redirects (never _common.yml / all_languages) or site_<name>/custom-redirects.yml. before_from and action: move fail on page YAML (custom file only). Live routing only — variant is refused. Stacked confirms: one action_required listing every missing flag (confirm_overwrite_content and/or confirm_live_edit); overwrite confirm does not imply live confirm. Write flushes redirect cache, queues redirects validation (slug-scoped run_entry_diagnostics does not). Regex allowed; omit before_from on add = append.",
+    "Call test_redirect first (live). One rule per call. action add | delete | move. " +
+      "LIVE (no variant; edit_redirects — Platform Steward / custom roles; not Metrics Viewer): two stores, dest-locale meta.redirects (never _common.yml / all_languages) or site_<name>/custom-redirects.yml. before_from and action: move fail on page YAML (custom file only). Stacked confirms: one action_required listing every missing flag (confirm_overwrite_content and/or confirm_live_edit); overwrite confirm does not imply live confirm. Write flushes redirect cache, queues redirects validation (slug-scoped run_entry_diagnostics does not). Regex allowed; omit before_from on add = append. " +
+      "DRAFT (variant; seo_edit for content_type): add | delete one of the page's own old addresses on {variant}.{locale}.yml. Pass from + content_type + slug + locale + variant; never to/before_from/removed_entry/priority/confirms. Draft must exist and be at 0% traffic. Exact paths only (no regex). A live page cannot be added, except this page's own current address when the draft renames it in that locale. Delete may remove addresses copied from live. Not indexed: takes effect only on publish, which merges per address with live and skips (with warning draft_redirects_skipped) any added address that conflicts by then. A variant with redirect changes cannot get traffic (variant_has_redirect_changes).",
     {
-      action: z.enum(["add", "delete", "move"]).describe("add: create one rule; delete: remove by from+source; move: splice custom-redirects.yml above before_from"),
-      from: z.string().optional().describe("Source path or regex (required for every action)"),
-      to: z.string().optional().describe("Destination path or URL (required for add)"),
-      source: z.string().optional().describe("Relative YAML path of the rule (required for delete; custom-redirects.yml for move if passed)"),
+      action: z.enum(["add", "delete", "move"]).describe("add: create one rule; delete: remove by from+source (live) or from (draft); move: splice custom-redirects.yml above before_from (live only)"),
+      from: z.string().optional().describe("Source path or regex (required for every action; draft: exact path only)"),
+      to: z.string().optional().describe("Destination path or URL (required for live add; never with variant)"),
+      source: z.string().optional().describe("Relative YAML path of the rule (required for live delete; custom-redirects.yml for move if passed; draft delete: optional, must be the draft file)"),
+      content_type: z.string().optional().describe("Draft mode: content type of the page that owns the draft"),
+      slug: z.string().optional().describe("Draft mode: page slug (folder) that owns the draft"),
       before_from: z.string().optional().describe("Insert/move immediately above this custom from. Custom-redirects.yml only. Omit on add = append at end."),
       confirm_overwrite_content: z.boolean().optional().describe("Required to hide or unhide a live content URL (contentIndex.isKnownUrl). Locale-home aliases (/ , /en, /es, /us) are not live."),
       confirm_live_edit: z.boolean().optional().describe("Required when writing a dest-locale file that has versioning.yml. Does not replace confirm_overwrite_content."),
-      variant: z.string().optional().describe("Refused — redirects are live routing only"),
-      locale: z.string().optional().describe("Optional locale for inspect / dest resolution (add)"),
+      variant: z
+        .string()
+        .optional()
+        .describe("Draft mode: the draft variant (0% traffic) whose own old addresses to change. Omit for live redirects."),
+      locale: z.string().optional().describe("Live: optional locale for inspect / dest resolution (add). Draft mode: required, the draft's language"),
       status: z.number().optional().describe("301 or 302 (add; default 301)"),
       priority: z.enum(["before", "fallback"]).optional().describe("Custom-file priority (add; default before)"),
       removed_entry: z
@@ -285,7 +395,12 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async (args) => {
-      if (mcpToken && !(await checkCap(mcpToken, "edit_redirects"))) {
+      const validated = validateRedirectUpdateInput(args);
+      if (validated.ok && validated.draft) {
+        if (mcpToken && !(await checkCap(mcpToken, "seo_edit", args.content_type!.trim()))) {
+          return denyResponse("seo_edit", args.content_type!.trim());
+        }
+      } else if (mcpToken && !(await checkCap(mcpToken, "edit_redirects"))) {
         return denyResponse("edit_redirects");
       }
       const siteResult = resolveSiteContext(args.site);
@@ -295,8 +410,10 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
       const domain = siteResult.domain;
       const { contentPath, contentFolder } = siteResult;
 
-      const validated = validateRedirectUpdateInput(args);
       if (!validated.ok) return fail(validated.message, validated.details);
+      if (validated.draft) {
+        return updateDraftRedirect(args, validated.action as "add" | "delete", domain, mcpToken);
+      }
 
       const { action } = validated;
       const from = args.from!.trim();

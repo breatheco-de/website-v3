@@ -17,6 +17,7 @@ import {
   LEADS_BREAKDOWN_TOP,
   LEADS_DAILY_MAX_DAYS,
   LEADS_DAY_MS,
+  LEADS_DELIVERY_FILTER_STATUSES,
   LEADS_NONE,
   LEADS_PAGE_SIZE,
   LEADS_TTL_BOUNDS,
@@ -29,6 +30,7 @@ import {
   utcDayKey,
   type LeadDetail,
   type LeadsBreakdownRow,
+  type LeadsDeliveryFilter,
   type LeadsFilters,
   type LeadsListResponse,
   type LeadsListRow,
@@ -91,7 +93,7 @@ function nullableEq(column: string, value: string, conds: string[], params: (str
  * `trackingIndex` resolves persona ids for the funnel_persona filter on rows without pairs.
  */
 export function buildLeadsWhere(
-  q: { show: LeadsShow; filters: LeadsFilters },
+  q: { show: LeadsShow; filters: LeadsFilters; delivery?: LeadsDeliveryFilter },
   window?: Window | null,
   trackingIndex?: FunnelIndex,
 ): Where {
@@ -99,6 +101,11 @@ export function buildLeadsWhere(
   const params: (string | number)[] = [];
   if (q.show === "real") conds.push("is_test = 0 AND is_repeat = 0");
   else if (q.show === "test") conds.push("is_test = 1");
+  if (q.delivery) {
+    const statuses = LEADS_DELIVERY_FILTER_STATUSES[q.delivery];
+    conds.push(`submission_id IN (SELECT submission_id FROM lead_outbox WHERE status IN (${statuses.map(() => "?").join(", ")}))`);
+    params.push(...statuses);
+  }
   if (window) {
     conds.push("created_at >= ?");
     params.push(window.startMs);
@@ -167,7 +174,9 @@ export function listLeadsPage(
   const page = Math.min(Math.max(1, q.page), totalPages);
   const rows = db
     .prepare(
-      `SELECT ${LIST_COLUMNS.join(", ")} FROM lead_submissions ${where.sql}
+      `SELECT ${LIST_COLUMNS.join(", ")},
+         (SELECT o.status FROM lead_outbox o WHERE o.submission_id = lead_submissions.submission_id) AS delivery_status
+       FROM lead_submissions ${where.sql}
        ORDER BY created_at DESC, submission_id DESC LIMIT ? OFFSET ?`,
     )
     .all(...where.params, LEADS_PAGE_SIZE, (page - 1) * LEADS_PAGE_SIZE) as LeadsListRow[];

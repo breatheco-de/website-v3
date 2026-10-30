@@ -1,4 +1,5 @@
 import type { SeoMeta } from "@/components/DebugBubble/types";
+import { EXPLICIT_INDEX_ROBOTS, robotsHasNoindex } from "@/lib/robotsMeta";
 
 export const EDITABLE_META_KEYS = [
   "page_title",
@@ -185,4 +186,20 @@ export function buildMetaSaveOperations(input: BuildMetaSaveOperationsInput): Me
       ? buildLiveMetaPayload(input.seoMeta, input.dirtyKeys)
       : buildVariantMetaPayload(input);
   return metaPayloadToOperations(payload);
+}
+
+/**
+ * Clearing robots on a live locale falls back to the page-wide value. When that
+ * value says noindex, write "index, follow" so the language really becomes indexable.
+ */
+export function withExplicitIndexRobots(
+  ops: MetaSaveOperation[],
+  inheritedRobots: string | null | undefined,
+): MetaSaveOperation[] {
+  if (!robotsHasNoindex(inheritedRobots)) return ops;
+  return ops.map((op) =>
+    op.path === "meta.robots" && (op.value === null || op.value === "")
+      ? { ...op, value: EXPLICIT_INDEX_ROBOTS }
+      : op,
+  );
 }

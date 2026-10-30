@@ -19,6 +19,13 @@ import {
   LOCALE_URL_SLUG_REQUIRED_CODE,
   LocaleUrlSlugPrompt,
 } from "@/components/editing/LocaleUrlSlugPrompt";
+import {
+  ROBOTS_CHANGE_ON_PUBLISH_CODE,
+  RobotsOnPublishChoiceField,
+  robotsChangeRows,
+  type RobotsChangeRow,
+  type RobotsOnPublishChoice,
+} from "@/components/editing/RobotsOnPublishChoice";
 import { TextLimitsIssue } from "@/components/TextLimitsIssue";
 import { deslugify } from "../utils/debugHelpers";
 import { IconChartBar, IconRobot, IconArrowLeft, IconGitBranch, IconRefresh, IconPencil, IconCheck, IconX, IconPlayerPlay, IconPlus, IconHistory, IconExternalLink, IconCrown, IconTrash, IconDots, IconCode, IconShare, IconCopy, IconEyeOff } from "@tabler/icons-react";
@@ -449,19 +456,23 @@ export function VersioningView({
     brokenLinks?: BrokenInternalLink[];
     displayChange?: { locale: string; fields: DisplayValueChange[]; paths?: { common?: string; locale?: string } };
     urlSlug?: { locale: string; currentSlug: string };
+    robots?: RobotsChangeRow[];
   } | null>(null);
   const [promoteUrlSlugInput, setPromoteUrlSlugInput] = useState("");
   const [promoteUrlSlugs, setPromoteUrlSlugs] = useState<Record<string, string>>({});
+  const [promoteRobotsChoice, setPromoteRobotsChoice] = useState<RobotsOnPublishChoice | null>(null);
   const [promoteConfirms, setPromoteConfirms] = useState<{
     overwrite: boolean;
     source: boolean;
     textLimits: boolean;
     displayChange: boolean;
+    robots: RobotsOnPublishChoice | null;
   }>({
     overwrite: false,
     source: false,
     textLimits: false,
     displayChange: false,
+    robots: null,
   });
   const [isPromoting, setIsPromoting] = useState(false);
 
@@ -654,7 +665,8 @@ export function VersioningView({
 
   const resetPromoteIssue = () => {
     setPromoteIssue(null);
-    setPromoteConfirms({ overwrite: false, source: false, textLimits: false, displayChange: false });
+    setPromoteConfirms({ overwrite: false, source: false, textLimits: false, displayChange: false, robots: null });
+    setPromoteRobotsChoice(null);
     setPromoteUrlSlugInput("");
     setPromoteUrlSlugs({});
   };
@@ -664,6 +676,7 @@ export function VersioningView({
     ...(confirms.source ? { confirm_source_changed: true } : {}),
     ...(confirms.textLimits ? { confirm_text_limits: true } : {}),
     ...(confirms.displayChange ? { confirm_display_change: true } : {}),
+    ...(confirms.robots ? { robots_on_publish: confirms.robots } : {}),
     ...(Object.keys(urlSlugs).length ? { locale_url_slugs: urlSlugs } : {}),
   });
 
@@ -679,9 +692,21 @@ export function VersioningView({
       fields?: DisplayValueChange[];
       paths?: { common?: string; locale?: string };
       current_slug?: string;
+      live_robots?: string;
+      draft_robots?: string;
+      locales?: RobotsChangeRow[];
     };
   }): boolean => {
     const code = data.code;
+    if (code === ROBOTS_CHANGE_ON_PUBLISH_CODE) {
+      setPromoteIssue({
+        code,
+        message: data.error || "Publishing changes whether search engines can see this page.",
+        robots: robotsChangeRows(data.details, promoteTarget?.locale ?? ""),
+      });
+      setPromoteRobotsChoice(null);
+      return true;
+    }
     if (code === LOCALE_URL_SLUG_REQUIRED_CODE) {
       setPromoteIssue({
         code,
@@ -2427,6 +2452,14 @@ export function VersioningView({
               value={promoteUrlSlugInput}
               onChange={setPromoteUrlSlugInput}
             />
+          ) : promoteIssue?.code === ROBOTS_CHANGE_ON_PUBLISH_CODE && promoteIssue.robots ? (
+            <RobotsOnPublishChoiceField
+              rows={promoteIssue.robots}
+              value={promoteRobotsChoice}
+              onChange={setPromoteRobotsChoice}
+              name="promote-robots-on-publish"
+              testIdPrefix="promote-robots-on-publish"
+            />
           ) : promoteIssue ? (
             <p
               className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive"
@@ -2447,6 +2480,14 @@ export function VersioningView({
                   void handlePromote(promoteConfirms, nextSlugs);
                   return;
                 }
+                if (promoteIssue?.code === ROBOTS_CHANGE_ON_PUBLISH_CODE) {
+                  if (!promoteRobotsChoice) return;
+                  const next = { ...promoteConfirms, robots: promoteRobotsChoice };
+                  setPromoteConfirms(next);
+                  setPromoteIssue(null);
+                  void handlePromote(next);
+                  return;
+                }
                 if (promoteIssue) {
                   const isTextLimits = promoteIssue.code === TEXT_LIMITS_EXCEEDED_CODE;
                   const isDisplayChange = promoteIssue.code === DISPLAY_VALUES_CHANGE_CODE;
@@ -2457,6 +2498,7 @@ export function VersioningView({
                     source: promoteConfirms.source || promoteIssue.code === "translation_source_changed",
                     textLimits: promoteConfirms.textLimits || isTextLimits,
                     displayChange: promoteConfirms.displayChange || isDisplayChange,
+                    robots: promoteConfirms.robots,
                   };
                   setPromoteConfirms(next);
                   setPromoteIssue(null);
@@ -2467,7 +2509,8 @@ export function VersioningView({
               }}
               disabled={
                 isPromoting ||
-                (promoteIssue?.code === LOCALE_URL_SLUG_REQUIRED_CODE && !isValidLocaleUrlSlug(promoteUrlSlugInput))
+                (promoteIssue?.code === LOCALE_URL_SLUG_REQUIRED_CODE && !isValidLocaleUrlSlug(promoteUrlSlugInput)) ||
+                (promoteIssue?.code === ROBOTS_CHANGE_ON_PUBLISH_CODE && !promoteRobotsChoice)
               }
               className="w-full"
               data-testid="button-confirm-promote"
@@ -2479,6 +2522,8 @@ export function VersioningView({
               )}
               {promoteIssue?.code === LOCALE_URL_SLUG_REQUIRED_CODE
                 ? "Publish with this address"
+                : promoteIssue?.code === ROBOTS_CHANGE_ON_PUBLISH_CODE
+                ? "Publish with this choice"
                 : promoteIssue
                 ? "Publish anyway"
                 : isDraftEntry

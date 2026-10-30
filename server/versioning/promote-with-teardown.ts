@@ -81,6 +81,13 @@ import {
   TEXT_LIMITS_EXCEEDED_CODE,
   summarizeTextLimitViolations,
 } from "@shared/component-text-limits";
+import {
+  normalizeRobotsValue,
+  parseRobotsOnPublish,
+  robotsLabel,
+  ROBOTS_CHANGE_ON_PUBLISH_CODE,
+  type RobotsOnPublish,
+} from "./robots-on-publish";
 
 export { hashVariantFileContents };
 
@@ -146,9 +153,32 @@ export type PromoteWithTeardownArgs = {
   seoStandaloneReason?: string | null;
   /** Staff publish: this language's own URL slug chosen at publish time (`{ [locale]: slug }`). */
   localeUrlSlugs?: Record<string, string> | null;
+  /** Answer to `robots_change_on_publish`: keep this language's live robots, or publish the draft's. */
+  robotsOnPublish?: RobotsOnPublish | null;
 };
 
-export type PromoteWarning = { code: string; message: string; fields?: string[] };
+export { ROBOTS_CHANGE_ON_PUBLISH_CODE, parseRobotsOnPublish, type RobotsOnPublish };
+
+/** Effective `meta.robots` of a locale file layered on `_common.yml`. */
+export function effectiveRobots(commonRaw: string | null, localeRaw: string | null): string {
+  const merged = deepMerge(parseOrNull(commonRaw) ?? {}, parseOrNull(localeRaw) ?? {}) as Record<string, unknown>;
+  return normalizeRobotsValue(valueAt(merged, "meta.robots"));
+}
+
+/** Put the live locale file's own `meta.robots` (or its absence) into the promoted YAML. */
+export function keepLiveRobots(promotedRaw: string, liveRaw: string | null): string {
+  const promoted = parseOrNull(promotedRaw) ?? {};
+  const liveOwn = valueAt(parseOrNull(liveRaw) ?? {}, "meta.robots");
+  const meta = isPlainObject(promoted.meta) ? { ...(promoted.meta as Record<string, unknown>) } : {};
+  if (liveOwn == null) delete meta.robots;
+  else meta.robots = liveOwn;
+  if (Object.keys(meta).length === 0) {
+    return findTopLevelKeySpan(promotedRaw, "meta") ? surgicalRemoveTopLevelKey(promotedRaw, "meta") : promotedRaw;
+  }
+  return surgicalSetTopLevelKey(promotedRaw, "meta", meta);
+}
+
+export type PromoteWarning = { code: string; message: string; fields?: string[]; details?: Record<string, unknown> };
 
 export type PromoteSnapshot = { live: string | null; common: string | null };
 
@@ -469,9 +499,14 @@ export async function promoteVariantWithOptionalTeardown(
         author_fields: rebuild.author_changes.map((c) => c.field_path),
       };
       if (args.dryRun) rebuiltContent = safeDumpYaml(rebuild.result);
+      const keptRedirects = rebuild.redirects_kept_from_live.length;
       warnings.push({
         code: "draft_rebuilt",
-        message: "Live changed after this draft was created; the draft was rebuilt on top of today's live and keeps both sets of changes.",
+        message:
+          "Live changed after this draft was created; the draft was rebuilt on top of today's live and keeps both sets of changes." +
+          (keptRedirects > 0
+            ? ` Kept ${keptRedirects} old address${keptRedirects === 1 ? "" : "es"} added on live: ${rebuild.redirects_kept_from_live.join(", ")}.`
+            : ""),
         fields: rebuilt.kept_live_fields,
       });
     } else if (!args.confirmOverwriteNewerLive) {
@@ -813,6 +848,74 @@ export async function promoteVariantWithOptionalTeardown(
 
     const { yamlForPromotePreservingLiveSeo } = await import("../seo-write-layer");
     const promoted = yamlForPromotePreservingLiveSeo(routed.localeRaw, liveContent);
+    let liveRedirectsChanged = false;
+    if (!templateMode) {
+      const { screenPublishedRedirects } = await import("../redirect-draft");
+      const screened = screenPublishedRedirects({
+        ci,
+        contentType,
+        folderSlug: slug,
+        locale,
+        liveRaw: liveContent,
+        promotedRaw: promoted.content,
+      });
+      promoted.content = screened.content;
+      liveRedirectsChanged = screened.changed;
+      if (screened.skipped.length > 0) {
+        warnings.push({
+          code: "draft_redirects_skipped",
+          message:
+            `These old addresses were not added because they conflict: ${screened.skipped
+              .map((s) => `${s.from} (${s.message})`)
+              .join("; ")}. The page was published without them; live routing for those addresses is unchanged.`,
+          fields: screened.skipped.map((s) => `meta.redirects[${s.from}]`),
+          details: { skipped: screened.skipped },
+        });
+      }
+    }
+    // Robots decide whether search engines see this language: a publish that changes it is confirmed.
+    if (liveContent != null) {
+      const commonAfterRaw = routed.commonChanged ? routed.commonRaw : commonBefore;
+      const liveRobots = effectiveRobots(commonBefore, liveContent);
+      const draftRobots = effectiveRobots(commonAfterRaw, promoted.content);
+      if (liveRobots !== draftRobots) {
+        const localePath = templateMode
+          ? `${folder}/${liveTemplateBasename(locale)}`
+          : `${folder}/${slug}/${locale}.yml`;
+        if (!args.robotsOnPublish) {
+          return {
+            ok: false,
+            code: ROBOTS_CHANGE_ON_PUBLISH_CODE,
+            error: `Publishing changes whether search engines can see this page in ${locale}: live is "${robotsLabel(liveRobots)}", the draft says "${robotsLabel(draftRobots)}". Choose to keep the live value or use the draft's.`,
+            status: 409,
+            details: {
+              locale,
+              live_robots: robotsLabel(liveRobots),
+              draft_robots: robotsLabel(draftRobots),
+              paths: { locale: localePath },
+            },
+          };
+        }
+        if (args.robotsOnPublish === "keep_live") {
+          promoted.content = keepLiveRobots(promoted.content, liveContent);
+        }
+        const kept = args.robotsOnPublish === "keep_live";
+        warnings.push({
+          code: "robots_on_publish",
+          message: kept
+            ? `Kept the live robots value "${robotsLabel(liveRobots)}" for ${locale}; the draft's "${robotsLabel(draftRobots)}" was not published.`
+            : `Published the draft's robots value "${robotsLabel(draftRobots)}" for ${locale} (was "${robotsLabel(liveRobots)}").`,
+          fields: ["meta.robots"],
+          details: {
+            locale,
+            choice: args.robotsOnPublish,
+            live_robots: robotsLabel(liveRobots),
+            draft_robots: robotsLabel(draftRobots),
+          },
+        });
+      }
+    }
+
     const publishedDiff = diffSnapshots(
       { live: parseOrNull(liveContent), common: parseOrNull(commonBefore) } as BaseSnapshot,
       {
@@ -946,6 +1049,13 @@ export async function promoteVariantWithOptionalTeardown(
       }
       ci.refresh();
       refreshSitemapEntriesForContentKey(contentType, slug, [locale]);
+      if (liveRedirectsChanged) {
+        const { clearRedirectCache } = await import("../redirects");
+        const { scheduleRedirectsValidation } = await import("../services/onSaveValidation");
+        ci.refreshAfterRedirectWrite(defaultFilePath);
+        clearRedirectCache();
+        scheduleRedirectsValidation({ contentRoot, contentRootName, ci, cache, filePath: defaultFilePath, redirectsChanged: true });
+      }
     }
 
     await cache.flush();

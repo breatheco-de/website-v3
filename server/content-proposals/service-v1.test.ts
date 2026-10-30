@@ -717,6 +717,32 @@ describe("proposals v1.0 (draft-first)", () => {
       }
     });
 
+    it("hub mode: retiring frees claimed members; unretire is refused once another split claims them", async () => {
+      const fake = fakeDraftStore();
+      currentStore = fake.store;
+      const { svc } = makeService({ store: fake.store, extraDeps: deps() });
+      const hubTarget = (kw: string) => ({
+        main_keyword: kw,
+        cluster: { mode: "hub", members: [{ contentType: "blog", slug: "member-one" }] },
+      });
+      const first = await fileIdea(svc, { idea_seo_target: hubTarget("ai engineering") });
+      expect((await accept(svc, first)).ok).toBe(true);
+      const retired = await svc.update(first, "retire", {
+        username: "bob",
+        retire_reason: "no_longer_relevant",
+        close_note: "The AI engineering hub plan was dropped after the Q4 content review.",
+      });
+      expect(retired.ok ? "ok" : `${retired.code}: ${retired.error}`).toBe("ok");
+
+      const second = await fileIdea(svc, { idea_seo_target: hubTarget("ai engineering jobs") }, "second-hub");
+      expect((await accept(svc, second, "second-hub")).ok).toBe(true);
+
+      const restore = await svc.update(first, "unretire", { username: "bob" });
+      expect(restore.ok).toBe(false);
+      if (!restore.ok) expect(restore.code).toBe("idea_seo_target_members_claimed");
+      expect(svc.get(first)!.close_reason).toBe("no_longer_relevant");
+    });
+
     it("join mode: the page's proposal reminds the author to link it from the hub (chained)", async () => {
       const fake = fakeDraftStore({ "blog/hub-ai-engineering/en": { title: "Hub" } });
       fake.entries.add("blog/hub-ai-engineering");
@@ -1451,6 +1477,50 @@ describe("proposals v1.0 (draft-first)", () => {
     expect(second.ok).toBe(true);
     if (second.ok) expect(second.proposal.status).toBe("finished");
     expect(promoteCalls.at(-1)!.opts.confirm_base_unknown).toBe(true);
+  });
+
+  it("robots change asks the reviewer per entry, with the author's intent preselected only", async () => {
+    const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" } });
+    const { svc, promoteCalls } = makeService({
+      store: fake.store,
+      promote: (_e, o) =>
+        o.robots_on_publish
+          ? { ok: true }
+          : {
+              ok: false,
+              code: "robots_change_on_publish",
+              error: "robots change",
+              details: { locale: "es", live_robots: "noindex", draft_robots: "index, follow" },
+            },
+    });
+    const created = await svc.create(
+      { title: "Title fix", summary: SUMMARY, entries: [entry({ robots_on_publish: "keep_live" })] },
+      { username: "alice" },
+    );
+    if (!created.ok) throw new Error(created.error);
+    const entryRow = created.proposal.entries[0]!;
+    expect(entryRow.baseline_context.robots_on_publish).toBe("keep_live");
+
+    const first = await svc.update(created.proposal.id, "apply", { username: "bob" });
+    expect(first.ok).toBe(false);
+    if (!first.ok) {
+      expect(first.code).toBe("robots_change_on_publish");
+      expect((first as { details?: { entries?: unknown[] } }).details?.entries?.[0]).toMatchObject({
+        entry_id: entryRow.id,
+        locale: "es",
+        live_robots: "noindex",
+        draft_robots: "index, follow",
+        agent_choice: "keep_live",
+      });
+    }
+    expect(svc.get(created.proposal.id)!.entries[0]!.status).toBe("pending");
+
+    const second = await svc.update(created.proposal.id, "apply", {
+      username: "bob",
+      robots_on_publish_by_entry: { [String(entryRow.id)]: "use_draft" },
+    });
+    expect(second.ok).toBe(true);
+    expect(promoteCalls.at(-1)!.opts.robots_on_publish).toBe("use_draft");
   });
 
   it("template proposals report affected pages and need confirm_affected_entries = count", async () => {

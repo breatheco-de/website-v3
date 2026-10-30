@@ -183,6 +183,7 @@ import {
   hasLiveLocaleFile,
   listVariantSlugsForLocale,
 } from "../draft-entry";
+import { buildLocaleVisibility } from "../seo-locale-visibility";
 
 
 import {
@@ -1306,6 +1307,44 @@ export function registerSeoRoutes(app: Express): void {
       res.status(500).json({ error: "Internal server error" });
     }
   });
+
+  api.get(
+    app,
+    "/api/seo-preview/:contentType/:slug/locale-visibility",
+    { rate: "staffWrite" },
+    (req, res) => {
+      try {
+        const { contentType, slug } = req.params;
+        const locale = normalizeLocale(
+          (req.query.locale as string) || getDefaultLocale(),
+        );
+        if (!isValidType(contentType)) {
+          res.status(400).json({
+            error: `Invalid content type. Must be one of: ${getAllFolders().join(", ")}`,
+          });
+          return;
+        }
+        const contentRoot = getContentRoot(res);
+        if (hasDatabaseSingle(contentType, contentRoot)) {
+          res.json({ supported: false, locales: [], current_inherited_robots: "" });
+          return;
+        }
+        res.json(
+          buildLocaleVisibility({
+            ci: getCI(res),
+            contentType,
+            slug,
+            locale,
+            contentDir: getEntryContentDir(contentType, slug, contentRoot),
+            locales: (getLocaleEntries() as Array<{ code: string }>).map((l) => l.code),
+          }),
+        );
+      } catch (error) {
+        log.error({ err: error }, "[SEO Preview] locale-visibility error:");
+        res.status(500).json({ error: "Internal server error" });
+      }
+    },
+  );
 
   app.get("/api/seo-preview/:contentType/:slug", async (req, res) => {
     try {

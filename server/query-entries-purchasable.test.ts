@@ -15,8 +15,9 @@ vi.mock("./ecommerce/ecommerce-manager", async (importOriginal) => {
       _contentType: string,
       slug?: string,
     ) {
+      // Product index keys products by the page ID (entry folder), like server/product/product-index.ts.
       const s = (slug || String(record.slug ?? "")).trim();
-      record.purchasable = s === "ai-engineering";
+      record.purchasable = s === "ai-engineering-folder";
     },
   };
 });
@@ -104,7 +105,7 @@ afterEach(() => {
 });
 
 describe("queryEntries purchasable vs locale URL slug", () => {
-  it("keeps a translated URL slug purchasable using _common.yml slug", async () => {
+  it("keeps a translated URL slug purchasable using the page ID", async () => {
     const { items } = await queryEntries(
       {
         from: { contentType: "program" },
@@ -120,13 +121,14 @@ describe("queryEntries purchasable vs locale URL slug", () => {
       bc_slug: "ai-engineering",
       title: "Ingeniería de Inteligencia Artificial",
       purchasable: true,
+      entry_id: "ai-engineering-folder",
     });
     expect(engineering).not.toHaveProperty("_common_slug");
     expect(engineering).not.toHaveProperty("_entry_slug");
     expect(items.find((i) => i.slug === "ai-flex")).toBeUndefined();
   });
 
-  it("still matches when locale slug equals the common slug", async () => {
+  it("still matches when the locale slug differs from the page ID", async () => {
     const { items } = await queryEntries(
       {
         from: { contentType: "program" },

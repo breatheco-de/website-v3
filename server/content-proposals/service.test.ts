@@ -173,6 +173,210 @@ describe("content proposals", () => {
     expect(closeSelf.proposal.close_reason).toBe("wont_fix");
   });
 
+  it("returns funnel_persona_alternatives on create when a funnel binding names a persona", async () => {
+    const svc = createProposalService({
+      site: SITE,
+      issueExists: () => true,
+      captureBaseline: () => ({ values: {} }),
+      applyUpdates: async () => ({ ok: true }),
+      productPersonas: (slug) =>
+        slug === "ai-engineering"
+          ? [
+              { id: "the-career-changer", label: "The Career Changer", role: "No technical background" },
+              { id: "the-frustrated-graduate", label: "The Frustrated Graduate", role: "Basic coding skills" },
+            ]
+          : null,
+    });
+    const created = await svc.create(
+      {
+        title: "Funnel: developer landing",
+        summary: "Classify the developer landing funnel to the right AI Engineering persona and stage. ".repeat(2),
+        entries: [
+          sampleEntry({
+            contentType: "landing",
+            slug: "from-developer",
+            locale: "en",
+            updates: [
+              {
+                field_path: "funnel.products",
+                value: [{ product: "ai-engineering", persona: "the-career-changer" }],
+              },
+            ],
+          }),
+        ],
+      },
+      { username: "alice", actor: { type: "mcp", role: "layout_editor", model: "claude/sonnet-5" } },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const hint = created.warnings?.find((w) => w.code === "funnel_persona_alternatives");
+    expect(hint).toBeDefined();
+    expect(JSON.stringify(hint?.details)).toContain("the-frustrated-graduate");
+  });
+
+  describe("four-eyes self-approval across roles", () => {
+    const SESSION_A = "3f2b8c1e-0a4d-4c6b-9e7f-1a2b3c4d5e6f";
+    const SESSION_B = "7c9d0e1f-2a3b-4c5d-8e6f-0a1b2c3d4e5f";
+    const summary =
+      "Set the funnel persona on this landing so the page joins the right buyer journey. ".repeat(2);
+    const author = {
+      username: "alesanchezr",
+      actor: { type: "mcp" as const, client: "Claude", model: "claude/sonnet-5", role: "layout_editor" },
+    };
+
+    function serviceWith(sameModelBlocked: boolean, fourEyesEnabled = true, staffUiExempt = false) {
+      const live: Record<string, unknown> = { "call_to_action.title": "Old title" };
+      return createProposalService({
+        site: SITE,
+        issueExists: () => true,
+        captureBaseline: (entry) => {
+          const values: Record<string, unknown> = {};
+          for (const u of entry.updates) values[u.field_path] = live[u.field_path];
+          return { values };
+        },
+        applyUpdates: async (entry) => {
+          for (const u of entry.ops) live[u.field_path] = u.reset ? undefined : u.value;
+          return { ok: true };
+        },
+        getProposalSettings: () => ({
+          withdraw: { mcp: "proposer_only", staff: "any_editor" },
+          four_eyes: {
+            enabled: fourEyesEnabled,
+            staff_ui_exempt: staffUiExempt,
+            same_model_blocked: sameModelBlocked,
+          },
+          hold: { stewards_only: true },
+          claim: { staff_ui_takeover: true },
+        }),
+      });
+    }
+
+    async function fileEdit(svc: ReturnType<typeof serviceWith>, slug: string) {
+      const created = await svc.create(
+        { title: `Funnel ${slug}`, summary, agent_session_id: SESSION_A, entries: [sampleEntry({ slug })] },
+        author,
+      );
+      expect(created.ok).toBe(true);
+      if (!created.ok) throw new Error(created.error);
+      return created.proposal.id;
+    }
+
+    it("blocks apply from the creating session under another role, even with the model rule off", async () => {
+      const svc = serviceWith(false);
+      const id = await fileEdit(svc, "same-session");
+      const res = await svc.update(id, "apply", {
+        username: "alesanchezr",
+        agent_session_id: SESSION_A,
+        actor: { type: "mcp", client: "Claude", model: "claude/sonnet-5", role: "publisher" },
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.code).toBe("four_eyes_same_session");
+    });
+
+    it("blocks the same user on the same exact model from another session when the rule is on", async () => {
+      const svc = serviceWith(true);
+      const id = await fileEdit(svc, "same-model-on");
+      const res = await svc.update(id, "apply", {
+        username: "AleSanchezR",
+        agent_session_id: SESSION_B,
+        actor: { type: "mcp", client: "Claude", model: " Claude/Sonnet-5 ", role: "publisher" },
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.code).toBe("four_eyes_same_model");
+        expect(res.error).toContain("Agents → Rules");
+      }
+    });
+
+    it("allows the same model from another session when the rule is off", async () => {
+      const svc = serviceWith(false);
+      const id = await fileEdit(svc, "same-model-off");
+      const res = await svc.update(id, "apply", {
+        username: "alesanchezr",
+        agent_session_id: SESSION_B,
+        actor: { type: "mcp", client: "Claude", model: "claude/sonnet-5", role: "publisher" },
+      });
+      expect(res.ok).toBe(true);
+    });
+
+    it("allows a different exact model, and a caller with no recorded model", async () => {
+      const svc = serviceWith(true);
+      const otherModel = await fileEdit(svc, "other-model");
+      const a = await svc.update(otherModel, "apply", {
+        username: "alesanchezr",
+        agent_session_id: SESSION_B,
+        actor: { type: "mcp", client: "Grok", model: "grokbot/proposal_reviewer/grok-4", role: "proposal_reviewer" },
+      });
+      expect(a.ok).toBe(true);
+
+      const noModel = await fileEdit(svc, "no-model");
+      const b = await svc.update(noModel, "apply", {
+        username: "alesanchezr",
+        agent_session_id: SESSION_B,
+        actor: { type: "mcp", client: "Claude", role: "publisher" },
+      });
+      expect(b.ok).toBe(true);
+    });
+
+    it("leaves reject on the role-only rule (creating session may reject under another role)", async () => {
+      const svc = serviceWith(true);
+      const id = await fileEdit(svc, "reject-same-session");
+      const res = await svc.update(id, "reject", {
+        username: "alesanchezr",
+        agent_session_id: SESSION_A,
+        actor: { type: "mcp", client: "Claude", model: "claude/sonnet-5", role: "publisher" },
+        confirm_reject: true,
+        reject_kind: "bad_idea",
+        close_note:
+          "Rejecting from the same chat is allowed under another role because nothing goes live on reject.",
+      });
+      expect(res.ok).toBe(true);
+    });
+
+    it("blocks accept on an idea from the creating session", async () => {
+      const svc = serviceWith(true);
+      const idea = await svc.create(
+        {
+          kind: "idea",
+          title: "Developer AI landing idea",
+          summary: "A landing for developers moving into AI engineering with clear routing. ".repeat(2),
+          agent_session_id: SESSION_A,
+        },
+        author,
+      );
+      expect(idea.ok).toBe(true);
+      if (!idea.ok) return;
+      const res = await svc.update(idea.proposal.id, "accept", {
+        username: "alesanchezr",
+        agent_session_id: SESSION_A,
+        actor: { type: "mcp", client: "Claude", model: "claude/opus-5.5", role: "publisher" },
+        next_step: "Open an edits proposal for the developer landing after research.",
+      });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.code).toBe("four_eyes_same_session");
+    });
+
+    it("does not apply the new rules to staff UI, or when four-eyes is off", async () => {
+      const exempt = serviceWith(true, true, true);
+      const id = await fileEdit(exempt, "staff-ui");
+      const ui = await exempt.update(id, "apply", {
+        username: "alesanchezr",
+        asStaff: true,
+        actor: { type: "ui" },
+      });
+      expect(ui.ok).toBe(true);
+
+      const off = serviceWith(true, false);
+      const id2 = await fileEdit(off, "four-eyes-off");
+      const mcp = await off.update(id2, "apply", {
+        username: "alesanchezr",
+        agent_session_id: SESSION_A,
+        actor: { type: "mcp", client: "Claude", model: "claude/sonnet-5", role: "publisher" },
+      });
+      expect(mcp.ok).toBe(true);
+    });
+  });
+
   it("applies remaining entries, skips done, marks stale, and rolls up partial then finished", async () => {
     const live: Record<string, unknown> = {
       "call_to_action.title": "Old A",
@@ -1801,7 +2005,7 @@ describe("content proposals", () => {
       applyUpdates: async () => ({ ok: true }),
       getProposalSettings: () => ({
         withdraw: { mcp: "disabled", staff: "any_editor" },
-        four_eyes: { enabled: true, staff_ui_exempt: false },
+        four_eyes: { enabled: true, staff_ui_exempt: false, same_model_blocked: true },
         hold: { stewards_only: true },
         claim: { staff_ui_takeover: true },
       }),
@@ -1831,7 +2035,7 @@ describe("content proposals", () => {
       applyUpdates: async () => ({ ok: true }),
       getProposalSettings: () => ({
         withdraw: { mcp: "any_create_author", staff: "any_editor" },
-        four_eyes: { enabled: true, staff_ui_exempt: false },
+        four_eyes: { enabled: true, staff_ui_exempt: false, same_model_blocked: true },
         hold: { stewards_only: true },
         claim: { staff_ui_takeover: true },
       }),
@@ -1864,7 +2068,7 @@ describe("content proposals", () => {
       applyUpdates: async () => ({ ok: true }),
       getProposalSettings: () => ({
         withdraw: { mcp: "proposer_only", staff: "any_editor" },
-        four_eyes: { enabled: false, staff_ui_exempt: false },
+        four_eyes: { enabled: false, staff_ui_exempt: false, same_model_blocked: true },
         hold: { stewards_only: true },
         claim: { staff_ui_takeover: true },
       }),
@@ -2487,6 +2691,211 @@ describe("content proposals", () => {
       expect(results.filter((r) => r.ok)).toHaveLength(1);
       const loser = results.find((r) => !r.ok);
       expect(loser && !loser.ok ? loser.code : null).toBe("accepted_entry_taken");
+    });
+  });
+
+  describe("retire accepted ideas", () => {
+    const alice = {
+      username: "alice",
+      actor: { type: "mcp" as const, role: "copy_editor", model: "claude/sonnet", client: "Cursor" },
+    };
+    const bob = {
+      username: "bob",
+      actor: { type: "mcp" as const, role: "seo_specialist", model: "claude/sonnet", client: "Cursor" },
+    };
+    const PAGE = { contentType: "blog", slug: "redirect-old-bootcamp", locale: "en" };
+    const NEXT_STEP = "Add the redirect from the old bootcamp URL in a follow-up edit.";
+    const RETIRE_NOTE = "The redirect already exists in _redirects.yml since the October cleanup.";
+    type Svc = ReturnType<typeof makeService>;
+
+    const fileIdea = async (svc: Svc, title: string) => {
+      const res = await svc.create(
+        {
+          kind: "idea",
+          title,
+          summary: `${title}: send the retired bootcamp URL to the current program page so old links keep working. `.repeat(2),
+          related_entries: [PAGE],
+          confirm_distinct: true,
+        },
+        alice,
+      );
+      if (!res.ok) throw new Error(`${res.code}: ${res.error}`);
+      return res.proposal.id;
+    };
+    const accept = (svc: Svc, id: string) =>
+      svc.update(id, "accept", { ...bob, next_step: NEXT_STEP, accepted_entry: PAGE });
+    const fileEdits = (svc: Svc, title: string, implementsId: string) =>
+      svc.create(
+        {
+          title,
+          summary: `${title}: implement the accepted redirect idea on the old bootcamp page. `.repeat(2),
+          implements_proposal_id: implementsId,
+          confirm_distinct: true,
+          entries: [sampleEntry({ ...PAGE, updates: [{ field_path: "meta.title", value: title }] })],
+        },
+        alice,
+      );
+    const retire = (svc: Svc, id: string, extra: Record<string, unknown> = {}) =>
+      svc.update(id, "retire", { ...bob, retire_reason: "already_done", close_note: RETIRE_NOTE, ...extra });
+
+    it("takes a stalled idea off the list, frees its page, and stays out of outcome review", async () => {
+      const svc = makeService({ liveValues: { "meta.title": "Old" } });
+      const idea = await fileIdea(svc, "Redirect old bootcamp URL");
+      expect((await accept(svc, idea)).ok).toBe(true);
+      const acceptedAt = svc.get(idea)!.closed_at;
+      expect(svc.stats().stalled_ideas).toBe(1);
+      expect(svc.list({ outcome_review: "none" }).proposals.map((p) => p.id)).toContain(idea);
+
+      const waiting = await fileIdea(svc, "Point the old bootcamp URL at the new syllabus");
+      expect((await accept(svc, waiting)).ok).toBe(false);
+
+      const res = await retire(svc, idea);
+      expect(res.ok ? "ok" : `${res.code}: ${res.error}`).toBe("ok");
+      if (!res.ok) return;
+      expect(res.proposal.status).toBe("finished");
+      expect(res.proposal.close_reason).toBe("already_done");
+      expect(res.proposal.close_note).toBe(RETIRE_NOTE);
+      expect(res.proposal.accepted_entry).toEqual(PAGE);
+      const released = res.warnings?.find((w) => w.code === "idea_page_released_waiting_ideas") as
+        | { details?: { waiting_ideas?: Array<{ id: string }> } }
+        | undefined;
+      expect(released?.details?.waiting_ideas?.map((w) => w.id)).toEqual([waiting]);
+
+      expect(svc.stats().stalled_ideas).toBe(0);
+      expect(svc.list({ stalled: true }).total).toBe(0);
+      expect(svc.list({ outcome_review: "none" }).proposals.map((p) => p.id)).not.toContain(idea);
+      const event = listEvents({ site: SITE, type: "proposal_retired", limit: 10 }).find(
+        (e) => e.payload?.proposal_id === idea,
+      );
+      expect(event?.payload?.retire_reason).toBe("already_done");
+
+      expect((await accept(svc, waiting)).ok).toBe(true);
+
+      const restore = await svc.update(idea, "unretire", { ...bob });
+      expect(restore.ok).toBe(false);
+      if (!restore.ok) expect(restore.code).toBe("accepted_entry_taken");
+
+      const implementRetired = await fileEdits(svc, "Late redirect edit", idea);
+      expect(implementRetired.ok).toBe(false);
+      if (!implementRetired.ok) expect(implementRetired.code).toBe("implements_idea_retired");
+      expect(acceptedAt).not.toBeNull();
+    });
+
+    it("unretire restores the original accept note, author and date", async () => {
+      const svc = makeService();
+      const idea = await fileIdea(svc, "Redirect old bootcamp URL");
+      expect((await accept(svc, idea)).ok).toBe(true);
+      const before = svc.get(idea)!;
+      expect((await retire(svc, idea, { retire_reason: "no_longer_relevant" })).ok).toBe(true);
+
+      const restored = await svc.update(idea, "unretire", { ...bob });
+      expect(restored.ok ? "ok" : `${restored.code}: ${restored.error}`).toBe("ok");
+      if (!restored.ok) return;
+      expect(restored.proposal.close_reason).toBe("accepted");
+      expect(restored.proposal.close_note).toBe(before.close_note);
+      expect(restored.proposal.closed_by).toBe(before.closed_by);
+      expect(restored.proposal.closed_at).toBe(before.closed_at);
+      expect(svc.stats().stalled_ideas).toBe(1);
+
+      const again = await svc.update(idea, "unretire", { ...bob });
+      expect(again.ok).toBe(false);
+      if (!again.ok) expect(again.code).toBe("not_retired");
+    });
+
+    it("refuses with an open edit, after an applied edit, for the proposer role, and with bad input", async () => {
+      const svc = makeService({ liveValues: { "meta.title": "Old" } });
+      const idea = await fileIdea(svc, "Redirect old bootcamp URL");
+
+      const notAccepted = await retire(svc, idea);
+      expect(notAccepted.ok).toBe(false);
+      if (!notAccepted.ok) expect(notAccepted.code).toBe("not_accepted_idea");
+
+      expect((await accept(svc, idea)).ok).toBe(true);
+
+      const sameRole = await svc.update(idea, "retire", {
+        ...alice,
+        retire_reason: "already_done",
+        close_note: RETIRE_NOTE,
+      });
+      expect(sameRole.ok).toBe(false);
+      if (!sameRole.ok) expect(sameRole.code).toBe("four_eyes");
+
+      const noReason = await retire(svc, idea, { retire_reason: undefined });
+      expect(noReason.ok).toBe(false);
+      if (!noReason.ok) expect(noReason.code).toBe("retire_reason_required");
+
+      const shortNote = await retire(svc, idea, { close_note: "already there" });
+      expect(shortNote.ok).toBe(false);
+      if (!shortNote.ok) expect(shortNote.code).toBe("retire_note_required");
+
+      const edit = await fileEdits(svc, "Redirect edit", idea);
+      expect(edit.ok).toBe(true);
+      if (!edit.ok) return;
+      const whileOpen = await retire(svc, idea);
+      expect(whileOpen.ok).toBe(false);
+      if (!whileOpen.ok) {
+        expect(whileOpen.code).toBe("implements_edit_open");
+        expect((whileOpen.details as { open_edit_id?: string }).open_edit_id).toBe(edit.proposal.id);
+      }
+
+      const applied = await svc.update(edit.proposal.id, "apply", { ...bob });
+      expect(applied.ok).toBe(true);
+      const afterApply = await retire(svc, idea);
+      expect(afterApply.ok).toBe(false);
+      if (!afterApply.ok) expect(afterApply.code).toBe("idea_already_implemented");
+      expect(svc.get(idea)!.close_reason).toBe("accepted");
+    });
+
+    it("retires once the only implementing edit was withdrawn", async () => {
+      const svc = makeService({ liveValues: { "meta.title": "Old" } });
+      const idea = await fileIdea(svc, "Redirect old bootcamp URL");
+      expect((await accept(svc, idea)).ok).toBe(true);
+      const edit = await fileEdits(svc, "Redirect edit", idea);
+      if (!edit.ok) throw new Error(edit.error);
+      const withdrawn = await svc.update(edit.proposal.id, "withdraw", {
+        ...alice,
+        close_note: "The redirect is already live, so this edit is a no-op.",
+      });
+      expect(withdrawn.ok).toBe(true);
+      expect(svc.stats().stalled_ideas).toBe(1);
+      expect((await retire(svc, idea)).ok).toBe(true);
+      expect(svc.stats().stalled_ideas).toBe(0);
+    });
+
+    it("similar-proposal matches say when the match was retired", async () => {
+      const seed = makeService();
+      const idea = await fileIdea(seed, "Redirect old bootcamp URL");
+      expect((await accept(seed, idea)).ok).toBe(true);
+      expect((await retire(seed, idea)).ok).toBe(true);
+
+      const svc = createProposalService({
+        site: SITE,
+        issueExists: () => true,
+        captureBaseline: () => ({ values: {} }),
+        applyUpdates: async () => ({ ok: true }),
+        findSimilar: async () => [{ id: idea, title: idea, score: 0.93 }],
+      });
+      const res = await svc.create(
+        {
+          kind: "idea",
+          title: "Redirect the old bootcamp URL again",
+          summary: "Send the retired bootcamp URL to the current program page so old links keep working. ".repeat(2),
+          related_entries: [PAGE],
+        },
+        alice,
+      );
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.code).toBe("similar_proposals");
+      expect(res.error).toContain("retired as already done");
+      const match = (res as { similar?: Array<Record<string, unknown>> }).similar?.[0];
+      expect(match).toMatchObject({
+        id: idea,
+        title: "Redirect old bootcamp URL",
+        status: "finished",
+        close_reason: "already_done",
+        retired: { reason: "already_done", note: RETIRE_NOTE },
+      });
     });
   });
 

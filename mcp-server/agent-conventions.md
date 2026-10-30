@@ -57,6 +57,7 @@ A gate is the server asking for a decision. Passing a `confirm_*` flag is you an
 - **Ask the human (or your orchestrator / reviewer) first**, showing the payload facts:
   - new taxonomy values — categories, URL params, tags (`confirm_new_values`; show `observed_values`)
   - overwriting newer work (`confirm_overwrite_newer_live`, `confirm_source_changed`, `confirm_base_unknown`; show `conflicting_fields` / `live_changes_since_base`)
+  - whether search engines see a page after publish (`robots_on_publish` / `robots_on_publish_by_entry`: `keep_live` | `use_draft`; show `live_robots` vs `draft_robots`)
   - deleting, or changing many pages at once (`confirm_delete`, `confirm_affected_entries`, `confirm_template_*`; show the count)
   - ending an experiment (`confirm_end_experiment`), rejecting a proposal (`confirm_reject`), spending research budget past a warning (`confirm_seo_research_budget`)
 - **Never confirm a gate you do not understand.** Open the `explain_site` topic from `next_actions` first.

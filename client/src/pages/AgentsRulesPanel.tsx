@@ -41,6 +41,7 @@ export interface ProposalRulesSettings {
   four_eyes: {
     enabled: boolean;
     staff_ui_exempt: boolean;
+    same_model_blocked: boolean;
   };
   hold: {
     stewards_only: boolean;
@@ -125,7 +126,8 @@ export function AgentsRulesPanel() {
     draft &&
       data?.settings &&
       (draft.four_eyes.enabled !== data.settings.four_eyes.enabled ||
-        draft.four_eyes.staff_ui_exempt !== data.settings.four_eyes.staff_ui_exempt),
+        draft.four_eyes.staff_ui_exempt !== data.settings.four_eyes.staff_ui_exempt ||
+        draft.four_eyes.same_model_blocked !== data.settings.four_eyes.same_model_blocked),
   );
 
   const saveMut = useMutation({
@@ -355,7 +357,8 @@ export function AgentsRulesPanel() {
               <div className="min-w-0 space-y-0.5">
                 <Label htmlFor="rules-four-eyes">Four-eyes on Approve / Reject / Accept</Label>
                 <p className="text-xs text-muted-foreground">
-                  When on, a different person (or role) must decide—not the original author alone.
+                  When on, a different person, or a different AI agent, must approve. The chat that
+                  wrote a proposal can never approve it.
                 </p>
               </div>
               <Switch
@@ -389,6 +392,29 @@ export function AgentsRulesPanel() {
                   )
                 }
                 data-testid="switch-staff-ui-exempt"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-md border border-muted-foreground/20 px-3 py-2.5">
+              <div className="min-w-0 space-y-0.5">
+                <Label htmlFor="rules-same-model">Same AI model can't approve its own work</Label>
+                <p className="text-xs text-muted-foreground">
+                  When on, an agent running the same AI model under your account can't approve what
+                  another role on that model filed. Turn off if proposals pile up with no reviewer on a
+                  different model.
+                </p>
+              </div>
+              <Switch
+                id="rules-same-model"
+                checked={draft.four_eyes.same_model_blocked}
+                disabled={disabled || !draft.four_eyes.enabled}
+                onCheckedChange={(checked) =>
+                  setDraft((d) =>
+                    d
+                      ? { ...d, four_eyes: { ...d.four_eyes, same_model_blocked: checked } }
+                      : d,
+                  )
+                }
+                data-testid="switch-same-model-blocked"
               />
             </div>
           </section>

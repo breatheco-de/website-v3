@@ -27,3 +27,5 @@ export { HtmlContentTypeListingRebuildJob } from "./server/jobs/definitions/html
 export { HtmlContentTypeRebuildJob } from "./server/jobs/definitions/html-content-type-rebuild";
 export { LocalDatabaseRefreshJob } from "./server/jobs/definitions/local-database-refresh";
 export { VectorIndexSyncJob } from "./server/jobs/definitions/vector-index-sync";
+export { EvidenceArchiveJob } from "./server/jobs/definitions/evidence-archive";
+export { EvidenceArchiveSweepJob } from "./server/jobs/definitions/evidence-archive-sweep";

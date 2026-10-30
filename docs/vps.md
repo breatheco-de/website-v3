@@ -353,7 +353,15 @@ Runtime secrets can come from **GitHub Actions** (`_WEBSITE_*` → pack → merg
 4. Code/runtime secrets vs content-repo token stay out of git.
 5. `sites.yml` is not an app secret but is gitignored in the code repo.
 
-Typical names (not values): `DATABASE_URL`, `SESSION_SECRET`, `SITE_URL`, `PORT`, `LISTEN_HOST`, `TURNSTILE_*`, `MCP_*`, `MCP_TOKEN_ENCRYPTION_KEY`, `EVENT_WEBHOOK_ENCRYPTION_KEY`, `GITHUB_*` (content + App Connect), `GCS_*`, `OPENROUTER_API_KEY`, `VITE_BREATHECODE_HOST`, `QDRANT_URL`, `IPN_SECRET`, …
+Typical names (not values): `DATABASE_URL`, `SESSION_SECRET`, `SITE_URL`, `PORT`, `LISTEN_HOST`, `TURNSTILE_*`, `MCP_*`, `MCP_TOKEN_ENCRYPTION_KEY`, `EVENT_WEBHOOK_ENCRYPTION_KEY`, `LEAD_OUTBOX_ENCRYPTION_KEY`, `GITHUB_*` (content + App Connect), `GCS_*`, `OPENROUTER_API_KEY`, `VITE_BREATHECODE_HOST`, `QDRANT_URL`, `IPN_SECRET`, …
+
+**Lead recovery key.** `LEAD_OUTBOX_ENCRYPTION_KEY` (64 hex, `openssl rand -hex 32`) encrypts the saved copy of each lead and the CRM's replies (pipeline tables `lead_outbox`, `lead_delivery_attempts`). Without it, leads still go to the CRM, but failed deliveries cannot be retried and the Leads page shows "Recovery is off". Only the web process needs it; automatic retries run only on the live server. Rotation:
+
+1. Copy the current value into `LEAD_OUTBOX_ENCRYPTION_KEY_PREVIOUS` (only used to read leads saved before the change).
+2. Set a new `LEAD_OUTBOX_ENCRYPTION_KEY` and redeploy.
+3. After 30 days (saved copies expire by then), remove `LEAD_OUTBOX_ENCRYPTION_KEY_PREVIOUS`.
+
+Losing both keys makes waiting leads unreadable: they move to Needs attention ("Saved copy unreadable") and their copy is erased.
 
 
 MCP OAuth persistence across redeploys: see [`docs/runbooks/mcp-oauth-persistence.md`](runbooks/mcp-oauth-persistence.md).

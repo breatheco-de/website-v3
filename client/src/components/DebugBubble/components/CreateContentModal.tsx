@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { decodeFunctionMapping } from "@shared/functionEncoding";
+import { slugify, slugifyInput } from "@shared/slug";
 import { buildContentUrlFromPattern, listExtraUrlPatternParams } from "@/lib/locale";
 import { useContentTypes, useContentTypesRaw } from "@/hooks/useContentTypes";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
@@ -119,15 +120,6 @@ function humanizeField(field: string): string {
   return map[field] ?? field.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function slugifyParamValue(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-
 interface UrlParamOptionsResponse {
   params: string[];
   options: Record<string, string[]>;
@@ -188,7 +180,7 @@ function UrlParamCombobox({
             <div className="flex items-center border-b px-2">
               <input
                 value={value}
-                onChange={(e) => onChange(slugifyParamValue(e.target.value))}
+                onChange={(e) => onChange(slugify(e.target.value))}
                 placeholder={`Search or create…`}
                 className="flex h-8 w-full bg-transparent py-2 text-xs font-mono outline-none placeholder:text-muted-foreground"
                 data-testid={`input-url-param-${param}-${locale}`}
@@ -544,7 +536,7 @@ export function CreateContentModal({
     keys.forEach((key, i) => {
       if (key === "slug" || key === "locale") return;
       const val = match[i + 1];
-      if (val) extracted[key] = slugifyParamValue(decodeURIComponent(val));
+      if (val) extracted[key] = slugify(decodeURIComponent(val));
     });
     if (Object.keys(extracted).length === 0) return;
     setUrlParamValues((prev) => {
@@ -1103,12 +1095,7 @@ export function CreateContentModal({
                   return next;
                 });
               };
-              const deriveSlug = (t: string) =>
-                t.toLowerCase().trim()
-                  .replace(/[^a-z0-9\s-]/g, "")
-                  .replace(/\s+/g, "-")
-                  .replace(/-+/g, "-")
-                  .replace(/^-|-$/g, "");
+              const deriveSlug = (t: string) => slugify(t);
 
               return (
                 <div className="space-y-3 p-3 bg-muted/50 rounded-md">
@@ -1411,11 +1398,7 @@ export function CreateContentModal({
                                     type="text"
                                     value={createContentSlugEn}
                                     onChange={(e) => {
-                                      const slug = e.target.value
-                                        .toLowerCase()
-                                        .replace(/\s+/g, "-")
-                                        .replace(/[^a-z0-9-]/g, "")
-                                        .replace(/-+/g, "-");
+                                      const slug = slugifyInput(e.target.value);
                                       setCreateContentSlugEn(slug);
                                       if (slug) {
                                         setCreateContentSlugEnStatus("checking");
@@ -1486,11 +1469,7 @@ export function CreateContentModal({
                                     type="text"
                                     value={createContentSlugEs}
                                     onChange={(e) => {
-                                      const slug = e.target.value
-                                        .toLowerCase()
-                                        .replace(/\s+/g, "-")
-                                        .replace(/[^a-z0-9-]/g, "")
-                                        .replace(/-+/g, "-");
+                                      const slug = slugifyInput(e.target.value);
                                       setCreateContentSlugEs(slug);
                                       if (slug) {
                                         setCreateContentSlugEsStatus("checking");

@@ -179,6 +179,11 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
       await enqueueIndexRefresh(event, ctx.contentRoot);
       break;
     }
+    case "content_type_changed": {
+      ctx.contentIndex?.reloadContentTypeConfigs();
+      await enqueueIndexRefresh(event, ctx.contentRoot);
+      break;
+    }
     case "entry_seo_changed": {
       if (event.payload.seoIndexSynced === true) break;
       await enqueueSeoIndexRefresh(event, ctx.contentRoot);
