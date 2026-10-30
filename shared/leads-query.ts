@@ -95,11 +95,81 @@ export const LEADS_FILTER_KEYS = [
 ] as const;
 export type LeadsFilterKey = (typeof LEADS_FILTER_KEYS)[number];
 
+/** Lead outbox status: did the lead reach the CRM webhook? */
+export const LEAD_DELIVERY_STATUSES = [
+  "delivered",
+  "retrying",
+  "needs_attention",
+  "gave_up",
+  "superseded",
+  "expired",
+  "not_sent_no_webhook",
+] as const;
+export type LeadDeliveryStatus = (typeof LEAD_DELIVERY_STATUSES)[number];
+export const LEAD_DELIVERY_STATUS_LABELS: Record<LeadDeliveryStatus, string> = {
+  delivered: "Delivered",
+  retrying: "Retrying",
+  needs_attention: "Needs attention",
+  gave_up: "Gave up",
+  superseded: "Superseded",
+  expired: "Expired",
+  not_sent_no_webhook: "Not sent",
+};
+
+export const LEAD_DELIVERY_ERROR_KINDS = [
+  "timeout",
+  "dns",
+  "connection_refused",
+  "tls",
+  "network",
+  "non_2xx",
+  "blocked_private_url",
+  "config_missing",
+  "decrypt_failed",
+] as const;
+export type LeadDeliveryErrorKind = (typeof LEAD_DELIVERY_ERROR_KINDS)[number];
+export const LEAD_DELIVERY_ERROR_LABELS: Record<LeadDeliveryErrorKind, string> = {
+  timeout: "Timed out",
+  dns: "Address not found",
+  connection_refused: "Connection refused",
+  tls: "Secure connection failed",
+  network: "Network error",
+  non_2xx: "CRM returned an error",
+  blocked_private_url: "Blocked private address",
+  config_missing: "Webhook not configured",
+  decrypt_failed: "Saved copy unreadable",
+};
+
+export const LEAD_WEBHOOK_SOURCES = ["event", "global", "env", "form"] as const;
+export type LeadWebhookSource = (typeof LEAD_WEBHOOK_SOURCES)[number];
+
+/** Delivery filter on the Leads page; separate from LEADS_FILTER_KEYS (not an MCP breakdown filter). */
+export const LEADS_DELIVERY_FILTERS = ["failed", "delivered", "retrying", "needs_attention", "gave_up", "not_sent"] as const;
+export type LeadsDeliveryFilter = (typeof LEADS_DELIVERY_FILTERS)[number];
+export const LEADS_DELIVERY_FILTER_LABELS: Record<LeadsDeliveryFilter, string> = {
+  failed: "Failed (needs attention or gave up)",
+  delivered: "Delivered",
+  retrying: "Retrying",
+  needs_attention: "Needs attention",
+  gave_up: "Gave up",
+  not_sent: "Not sent",
+};
+/** Outbox statuses each delivery filter matches. */
+export const LEADS_DELIVERY_FILTER_STATUSES: Record<LeadsDeliveryFilter, readonly LeadDeliveryStatus[]> = {
+  failed: ["needs_attention", "gave_up"],
+  delivered: ["delivered"],
+  retrying: ["retrying"],
+  needs_attention: ["needs_attention"],
+  gave_up: ["gave_up"],
+  not_sent: ["not_sent_no_webhook"],
+};
+
 export type LeadsQuery = {
   range: LeadsRange;
   show: LeadsShow;
   page: number;
   filters: LeadsFilters;
+  delivery?: LeadsDeliveryFilter;
 };
 
 const filterValue = z.string().trim().min(1).max(300);
@@ -124,6 +194,7 @@ export const leadsQuerySchema = z.object({
   product: filterValue.optional(),
   funnel_product: filterValue.optional(),
   funnel_persona: filterValue.optional(),
+  delivery: z.enum(LEADS_DELIVERY_FILTERS).optional(),
 });
 
 function firstValue(v: unknown): unknown {
@@ -146,13 +217,16 @@ export function parseLeadsQuery(
     const issue = parsed.error.issues[0];
     return { ok: false, error: `Invalid ${issue?.path.join(".") || "query"}: ${issue?.message ?? "bad value"}` };
   }
-  const { range, show, include_test, page, ...rest } = parsed.data;
+  const { range, show, include_test, page, delivery, ...rest } = parsed.data;
   const filters: LeadsFilters = {};
   for (const key of LEADS_FILTER_KEYS) {
     const v = rest[key];
     if (v !== undefined) (filters as Record<string, string>)[key] = key === "source" || key === "medium" ? normalizeUtmKey(v) : v;
   }
-  return { ok: true, query: { range, show: show ?? (include_test ? "all" : "real"), page, filters } };
+  return {
+    ok: true,
+    query: { range, show: show ?? (include_test ? "all" : "real"), page, filters, ...(delivery ? { delivery } : {}) },
+  };
 }
 
 /** Client URL / API query string. Defaults are omitted to keep URLs short. */
@@ -165,6 +239,7 @@ export function leadsQueryToSearchParams(q: Partial<LeadsQuery>): URLSearchParam
     const v = q.filters?.[key];
     if (v) p.set(key, v);
   }
+  if (q.delivery) p.set("delivery", q.delivery);
   return p;
 }
 
@@ -261,6 +336,46 @@ export type LeadsListRow = {
   channel: string | null;
   /** Latest non-paid channel when the lead itself counts as paid. */
   last_organic_channel: string | null;
+  /** Lead outbox status; null for leads recorded before delivery tracking ("Not tracked"). */
+  delivery_status?: LeadDeliveryStatus | null;
+};
+
+/** One HTTP attempt to the CRM webhook. */
+export type LeadDeliveryAttemptView = {
+  attempt: number;
+  started_at: number;
+  duration_ms: number | null;
+  url_host: string | null;
+  http_status: number | null;
+  error_kind: LeadDeliveryErrorKind | null;
+  error_message: string | null;
+  /** CRM reply (capped at 4 KB); null when hidden, wiped after 30 days, or empty. */
+  response_body: string | null;
+  /** True when the caller lacks ads_edit and a reply was saved. */
+  response_body_hidden: boolean;
+  response_headers: Record<string, string>;
+  trigger: "submit" | "retry" | "manual";
+};
+
+export type LeadDeliveryView = {
+  status: LeadDeliveryStatus;
+  webhook_source: LeadWebhookSource | null;
+  url_host: string;
+  attempts: number;
+  next_attempt_at: number | null;
+  last_http_status: number | null;
+  last_error_kind: LeadDeliveryErrorKind | null;
+  last_error_message: string | null;
+  is_test: boolean;
+  pulled_from_production: boolean;
+  created_at: number;
+  delivered_at: number | null;
+  /** True while the encrypted copy of the lead is still saved (needed for Retry). */
+  payload_saved: boolean;
+  can_retry: boolean;
+  /** Plain reason Retry is unavailable; null when it is available. */
+  retry_blocked_reason: string | null;
+  attempts_log: LeadDeliveryAttemptView[];
 };
 
 /** submission_id format accepted by the ledger and the detail route. */
@@ -296,6 +411,8 @@ export type LeadDetail = LeadsListRow & {
   /** Catalog product the form resolved; null when unresolved or recorded before product tracking. */
   product_id: string | null;
   product_slug: string | null;
+  /** CRM delivery status and attempts; null for leads recorded before delivery tracking. */
+  delivery?: LeadDeliveryView | null;
 };
 
 export type LeadsListResponse = {
@@ -427,6 +544,24 @@ export type LeadsStatsResponse = {
   };
   /** Present only off production (dev local copy banner). */
   local_copy?: LeadsLocalCopy;
+  delivery?: LeadsDeliverySummary;
+};
+
+export type LeadsDeliverySummary = {
+  /** "missing" = LEAD_OUTBOX_ENCRYPTION_KEY not set: leads are not saved for recovery. */
+  key_status: "ok" | "missing";
+  /** Real (non-test) leads in view that haven't reached the CRM and still have a saved copy. */
+  needs_attention_count: number;
+  /** Failed leads in view (tests included when shown) that Retry all failed would requeue. */
+  retryable_count: number;
+  /** Leads waiting for an automatic retry. */
+  queued_count: number;
+  /** Latest Retry all failed batch while it drains (null when none is recent). */
+  bulk: { requeued_at: number; queued: number; delivered: number; remaining: number } | null;
+  /** Automatic retries and alerts run only on the live production server. */
+  live_server: boolean;
+  /** Caller may see CRM replies and use Retry (ads_edit). */
+  can_retry: boolean;
 };
 
 export function sharePct(part: number, whole: number): number | null {

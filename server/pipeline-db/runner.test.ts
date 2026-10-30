@@ -2098,6 +2098,46 @@ describe("pipeline-db runner", () => {
     rmSite(site);
   });
 
+  it("adds lead_outbox and lead_delivery_attempts when upgrading from v44", () => {
+    const site = `${TEST_PREFIX}-v44-lead-outbox-${Date.now()}`;
+    rmSite(site);
+    fs.mkdirSync(siteDir(site), { recursive: true });
+    const raw = new Database(dbPath(site));
+    raw.exec(`
+      CREATE TABLE pipeline_schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO pipeline_schema_version (id, version) VALUES (1, 44);
+      CREATE TABLE lead_submissions (
+        submission_id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        form TEXT,
+        browser_hash TEXT,
+        is_test INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO lead_submissions (submission_id, created_at, form) VALUES ('lead-1', 1, 'apply');
+    `);
+    raw.close();
+
+    ensurePipelineDb(site, { skipBackup: true });
+    expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    const db = new Database(dbPath(site));
+    db.prepare(
+      `INSERT INTO lead_outbox (submission_id, status, url_host, created_at, updated_at) VALUES ('lead-1', 'delivered', 'crm.example.com', 1, 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO lead_delivery_attempts (submission_id, attempt, started_at, http_status) VALUES ('lead-1', 1, 1, 200)`,
+    ).run();
+    const outbox = db.prepare(`SELECT status, attempts, is_test, pulled_from_production FROM lead_outbox`).get();
+    expect(outbox).toEqual({ status: "delivered", attempts: 0, is_test: 0, pulled_from_production: 0 });
+    const attempt = db.prepare(`SELECT http_status, trigger FROM lead_delivery_attempts`).get();
+    expect(attempt).toEqual({ http_status: 200, trigger: "submit" });
+    expect((db.prepare(`SELECT form FROM lead_submissions WHERE submission_id = 'lead-1'`).get() as { form: string }).form).toBe("apply");
+    db.close();
+    rmSite(site);
+  });
+
   it("fails fast when migration cannot write", () => {
     const site = `${TEST_PREFIX}-readonly-${Date.now()}`;
     rmSite(site);

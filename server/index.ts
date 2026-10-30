@@ -661,6 +661,9 @@ app.use((req, res, next) => {
 
     // All deferred background tasks fire here — server is already ready to handle requests.
     startEventWebhookDueScan();
+    void import("./ads/lead-outbox")
+      .then(({ startLeadOutboxScan }) => startLeadOutboxScan())
+      .catch((err) => logger.warn({ err }, "failed to start lead outbox scan"));
     void import("./jobs/definitions/proposal-maintenance")
       .then(({ scheduleProposalMaintenance }) => scheduleProposalMaintenance())
       .catch((err) => logger.warn({ err }, "failed to schedule proposal maintenance jobs"));

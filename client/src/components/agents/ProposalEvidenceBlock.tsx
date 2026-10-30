@@ -16,7 +16,16 @@ import { cn } from "@/lib/utils";
 export type EvidenceClaimPayload = {
   name: string;
   status: "sourced" | "unsourced" | "unverified" | "no_evidence" | "already_live" | "dismissed";
-  row?: { site: string; domain: string; database: string; index: number; label: string; link: string | null };
+  row?: {
+    site: string;
+    domain: string;
+    database: string;
+    index: number;
+    label: string;
+    link: string | null;
+    archive_status?: "none" | "not_archived" | "pending" | "archived" | "failed";
+    archive_url?: string | null;
+  };
   row_status?: "sourced" | "unsourced" | "unverified";
   dismissal?: { name: string; reason: string; by: string | null; at: number };
 };
@@ -127,8 +136,28 @@ export function ProposalEvidenceBlock({
                 rel="noreferrer"
                 className="text-xs text-muted-foreground hover:underline"
               >
-                Source
+                {c.row.archive_url === c.row.link ? "Source (archived copy)" : "Source"}
               </a>
+            ) : null}
+            {!c.row?.link || c.row.archive_url === c.row.link ? null : c.row.archive_status === "archived" &&
+              c.row.archive_url ? (
+              <a
+                href={c.row.archive_url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-muted-foreground hover:underline"
+                data-testid={`link-evidence-archive-${c.name}`}
+              >
+                Archived copy
+              </a>
+            ) : c.row.archive_status && c.row.archive_status !== "none" ? (
+              <span
+                className="text-xs text-muted-foreground"
+                title="No Internet Archive copy of this source link yet. You can still approve."
+                data-testid={`text-evidence-not-archived-${c.name}`}
+              >
+                Not archived yet
+              </span>
             ) : null}
             {c.status === "dismissed" && c.dismissal ? (
               <span className="text-xs text-muted-foreground">

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyRowStamp, applyRowStampsBulk, stripRowStamp } from "./database-row-stamp";
 import { ROW_STAMP_KEY, rowTrust } from "@shared/evidence-kinds";
+import { ARCHIVE_KEY, archiveView } from "@shared/evidence-archive";
 
 const evidence = {
   enabled: true,
@@ -85,6 +86,60 @@ describe("applyRowStamp", () => {
   it("leaves non-evidence databases unstamped", () => {
     const row = applyRowStamp({ prev: null, next: { title: "x" }, evidence: undefined, writer: agent, now });
     expect(ROW_STAMP_KEY in row).toBe(false);
+  });
+});
+
+describe("_archive record", () => {
+  const archive = {
+    source_url: "https://example.com/a",
+    status: "archived",
+    url: "https://web.archive.org/web/20260101000000/https://example.com/a",
+    captured_at: "2026-01-01T00:00:00.000Z",
+    error: null,
+    set_by: null,
+    updated_at: "2026-01-01T00:00:00.000Z",
+    original: null,
+  };
+  const archivedRow = { ...verifiedRow, [ARCHIVE_KEY]: archive };
+
+  it("is stripped with the stamp", () => {
+    const out = stripRowStamp(archivedRow);
+    expect(ARCHIVE_KEY in out).toBe(false);
+    expect(ROW_STAMP_KEY in out).toBe(false);
+  });
+
+  it("a client-sent record is dropped and the previous one carried forward", () => {
+    const row = applyRowStamp({
+      prev: archivedRow,
+      next: { ...archivedRow, image: "b.png", [ARCHIVE_KEY]: { source_url: "x", status: "manual", url: "https://evil" } },
+      evidence,
+      writer: agent,
+      now,
+    });
+    expect(row[ARCHIVE_KEY]).toEqual(archive);
+  });
+
+  it("a link change keeps the old record, which is now stale", () => {
+    const row = applyRowStamp({
+      prev: archivedRow,
+      next: { ...stripRowStamp(archivedRow), link_url: "https://example.com/b" },
+      evidence,
+      writer: staff,
+      now,
+    });
+    expect(row[ARCHIVE_KEY]).toEqual(archive);
+    expect(archiveView(row, "link_url").status).toBe("not_archived");
+  });
+
+  it("bulk saves keep the record when only the title changed", () => {
+    const out = applyRowStampsBulk({
+      prevRows: [archivedRow],
+      nextRows: [{ ...stripRowStamp(archivedRow), title: "Renamed" }],
+      evidence,
+      writer: staff,
+      now,
+    });
+    expect(out[0]![ARCHIVE_KEY]).toEqual(archive);
   });
 });
 

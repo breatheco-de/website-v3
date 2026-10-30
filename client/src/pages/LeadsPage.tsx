@@ -14,9 +14,15 @@ import { LeadsTimelineChart } from "@/components/leads/LeadsTimelineChart";
 import { LeadsBreakdownCard } from "@/components/leads/LeadsBreakdownCard";
 import { LeadsTable } from "@/components/leads/LeadsTable";
 import { LeadsLocalCopyBanner } from "@/components/leads/LeadsLocalCopyBanner";
+import { LeadsDeliveryBanners } from "@/components/leads/LeadsDeliveryBanners";
+import { LeadDetailsDialog } from "@/components/leads/LeadDetailsDialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch } from "@/lib/queryClient";
 import { PAID_LOOKBACK_DAYS } from "@shared/paid-traffic";
 import {
+  LEAD_ID_PATTERN,
+  LEADS_DELIVERY_FILTER_LABELS,
+  LEADS_DELIVERY_FILTERS,
   LEADS_NONE,
   LEADS_RANGES,
   LEADS_RANGE_LABELS,
@@ -26,6 +32,7 @@ import {
   hasLeadsFilters,
   leadsQueryToSearchParams,
   parseLeadsQuery,
+  type LeadsDeliveryFilter,
   type LeadsFilters,
   type LeadsListResponse,
   type LeadsQuery,
@@ -113,10 +120,17 @@ function LeadsPageInner() {
     return parsed.ok ? parsed.query : DEFAULT_QUERY;
   }, [search]);
 
+  /** `?lead=<id>` (from a lead_delivery_failed alert) opens that lead's details. */
+  const linkedLeadId = useMemo(() => {
+    const id = new URLSearchParams(search).get("lead");
+    return id && LEAD_ID_PATTERN.test(id) ? id : null;
+  }, [search]);
+
   const navigate = (next: LeadsQuery) => {
     const qs = leadsQueryToSearchParams(next).toString();
     setLocation(qs ? `${PAGE_PATH}?${qs}` : PAGE_PATH, { replace: true });
   };
+  const setDelivery = (delivery: LeadsDeliveryFilter | undefined) => navigate({ ...query, page: 1, delivery });
   const setRange = (range: LeadsRange) => navigate({ ...query, range, page: 1 });
   const setShow = (show: LeadsShow) => navigate({ ...query, show, page: 1 });
   const setPage = (page: number) => navigate({ ...query, page });
@@ -126,7 +140,7 @@ function LeadsPageInner() {
     for (const k of keys) delete filters[k];
     navigate({ ...query, page: 1, filters });
   };
-  const clearFilters = () => navigate({ ...query, page: 1, filters: {} });
+  const clearFilters = () => navigate({ ...query, page: 1, filters: {}, delivery: undefined });
 
   const statsQs = leadsQueryToSearchParams({ ...query, page: 1 }).toString();
   const listQs = leadsQueryToSearchParams(query).toString();
@@ -148,13 +162,16 @@ function LeadsPageInner() {
   };
 
   const chips = filterChips(query.filters, stats.data?.product_name, stats.data?.funnel_filter_labels);
+  if (query.delivery) {
+    chips.push({ id: "delivery", label: `Delivery: ${LEADS_DELIVERY_FILTER_LABELS[query.delivery]}`, remove: [] });
+  }
   const productSince = stats.data?.product_since ?? null;
   const funnelSince = stats.data?.funnel_since ?? null;
   const funnelSinceText =
     funnelSince != null
       ? new Date(funnelSince).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
       : null;
-  const filtersActive = hasLeadsFilters(query.filters);
+  const filtersActive = hasLeadsFilters(query.filters) || !!query.delivery;
   const b = stats.data?.breakdowns;
   const ttl = b?.time_to_lead;
   const statsLoading = stats.isLoading;
@@ -228,6 +245,14 @@ function LeadsPageInner() {
                       included, last 28 days), so it will not match this page exactly.
                     </p>
                     <p>
+                      <span className="text-foreground">Delivery</span> says whether the lead reached the CRM webhook. Each lead is saved
+                      encrypted (<code>LEAD_OUTBOX_ENCRYPTION_KEY</code>) before the CRM is called. Outages (timeouts, 5xx, 429) retry
+                      automatically on the live server after 1 min, 5 min, 30 min, 2 h and 12 h; CRM rejections and missing webhooks go
+                      straight to Needs attention. Retry all failed sends at most 5 leads per site every 30 seconds. Test leads never raise
+                      the <code>lead_delivery_failed</code> alert. The saved copy is erased after delivery or 30 days. Tables:{" "}
+                      <code>lead_outbox</code>, <code>lead_delivery_attempts</code>.
+                    </p>
+                    <p>
                       Data lives in the pipeline SQLite table <code>lead_submissions</code> (<code>server/ads/lead-ledger.ts</code>). Cost per
                       lead lives in the Ads overview.
                     </p>
@@ -253,11 +278,38 @@ function LeadsPageInner() {
                 </ToggleButtonBarTrigger>
               ))}
             </ToggleButtonBar>
+            <Select
+              value={query.delivery ?? "any"}
+              onValueChange={(v) => setDelivery(v === "any" ? undefined : (v as LeadsDeliveryFilter))}
+            >
+              <SelectTrigger className="h-8 w-[170px] text-xs" aria-label="Delivery" data-testid="select-leads-delivery">
+                <SelectValue placeholder="Delivery" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any" className="text-xs">
+                  Any delivery status
+                </SelectItem>
+                {LEADS_DELIVERY_FILTERS.map((d) => (
+                  <SelectItem key={d} value={d} className="text-xs" data-testid={`select-leads-delivery-${d}`}>
+                    {LEADS_DELIVERY_FILTER_LABELS[d]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <AdsPullProductionButton variant="icon" testIdPrefix="leads-header" onDone={refreshAll} />
           </div>
         </div>
 
         <LeadsLocalCopyBanner localCopy={stats.data?.local_copy} />
+
+        <LeadsDeliveryBanners
+          delivery={stats.data?.delivery}
+          viewQs={statsQs}
+          onChanged={refreshAll}
+          onShowFailed={() => setDelivery("failed")}
+        />
+
+        <LeadDetailsDialog leadId={linkedLeadId} onClose={() => navigate(query)} />
 
         {error && (
           <p className="text-sm text-destructive" data-testid="text-leads-error">
@@ -284,7 +336,7 @@ function LeadsPageInner() {
                   type="button"
                   className="rounded-sm p-0.5 hover:bg-muted"
                   aria-label={`Remove filter ${c.label}`}
-                  onClick={() => removeFilters(c.remove)}
+                  onClick={() => (c.id === "delivery" ? setDelivery(undefined) : removeFilters(c.remove))}
                   data-testid={`button-leads-remove-filter-${c.id}`}
                 >
                   <X className="h-3 w-3" />

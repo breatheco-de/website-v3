@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-10-29"
+    summary: "Evidence rows keep a hidden Internet Archive copy of their source link (_archive); review warns evidence_not_archived"
+    agent_impact:
+      - "On evidence banks the server writes _archive { source_url, status, url, captured_at, original } next to _changed_by. Like the stamp it is dropped from client writes and never reaches pages, listings or MCP item reads. Archiving runs only on the live server after a save and in a weekly sweep; agents cannot trigger it or paste backup links (staff-only Databases page)."
+      - "review_context.evidence.claims[].row gains archive_status (none | not_archived | pending | archived | failed) and archive_url. A sourced claim whose link has no archived copy adds warning evidence_not_archived — warning only, never a blocker."
+      - "A link that already is a saved copy (Wayback snapshot or archive.today / archive.ph snapshot) counts as archived with archive_url = link; Wayback calendar pages (/web/2024*/…) do not."
+    tools_changed: false
+    paths:
+      - shared/evidence-archive.ts
+      - server/content-proposals/review-context.ts
+      - server/content-proposals/proposal-review-rules.ts
+      - mcp-server/tools/databases.ts
+      - mcp-server/explain/local_databases.md
+  - date: "2026-10-29"
     summary: "Platform Steward can edit press_mentions rows: add/update/delete_database_item(s) now appear on /mcp/role/platform_steward"
     agent_impact:
       - "platform_steward gains databases_view and databases_edit_data scoped to press_mentions (same grants as the News Editor role). Row writes to any other database still return forbidden; bank settings and reindex stay on databases_manage."

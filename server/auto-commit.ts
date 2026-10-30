@@ -425,7 +425,7 @@ async function processQueue(opts: ProcessQueueOpts = {}): Promise<void> {
   }
 }
 
-const SERVICE_COMMIT_AUTHORS = new Set(["system", "unknown", "github-pull", "agent", "api", "ads-sync"]);
+const SERVICE_COMMIT_AUTHORS = new Set(["system", "unknown", "github-pull", "agent", "api", "ads-sync", "evidence-archive"]);
 
 /**
  * Authors that are not a person, so they commit with the service token. With GitHub Connect

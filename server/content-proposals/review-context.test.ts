@@ -1542,7 +1542,36 @@ describe("third-party evidence", () => {
       ],
     });
   const lookups = [{ contentType: "landing", slug: "ai", locale: "en", existence: "exists" as const }];
-  const row = { site: "site_a", domain: "a.com", database: "press_mentions", index: 0, label: "Bahamas", link: "https://x" };
+  const row = {
+    site: "site_a",
+    domain: "a.com",
+    database: "press_mentions",
+    index: 0,
+    label: "Bahamas",
+    link: "https://x",
+    archive_status: "archived" as const,
+    archive_url: "https://web.archive.org/web/1/https://x",
+  };
+
+  it("a sourced claim without an archived copy warns evidence_not_archived (never blocks)", () => {
+    const ctx = classifyProposalReview({
+      proposal: evidenceProposal("Chosen alongside Harvard and Oxford."),
+      lookups,
+      evidenceCheck: {
+        outcome: "ok",
+        claims: [
+          { name: "Harvard", status: "sourced", row: { ...row, archive_status: "pending", archive_url: null }, row_status: "sourced" },
+          { name: "Oxford", status: "sourced", row, row_status: "sourced" },
+        ],
+        blocking: [],
+        databases: [],
+      },
+    });
+    const warning = ctx.agent_preview.warnings.find((w) => w.code === "evidence_not_archived");
+    expect(warning?.message).toContain("Harvard");
+    expect(warning?.message).not.toContain("Oxford");
+    expect(ctx.evidence_block).toBeUndefined();
+  });
 
   it("asks for an evidence check when a relationship cue appears", () => {
     const ctx = classifyProposalReview({

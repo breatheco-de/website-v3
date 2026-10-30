@@ -2,6 +2,8 @@
  * Dev-only: replace local lead-ledger rows and daily consent counters with production's.
  * Never uploads. Local test leads (`is_test = 1`) are kept. The ledger stores no name,
  * email or phone (personal data only goes to the CRM webhook), so the export is safe to copy.
+ * Lead delivery comes along as metadata only (status, codes, errors): imported rows are
+ * view-only (`pulled_from_production = 1`), never scanned or retried locally.
  */
 
 import {
@@ -12,6 +14,12 @@ import {
 import { getSiteSqlite } from "../db";
 import { ensurePipelineDb } from "../pipeline-db/runner";
 import { listLedgerRows, replaceLedgerFromSnapshot, type LedgerRow } from "./lead-ledger";
+import {
+  buildLeadOutboxExport,
+  replaceLeadOutboxFromSnapshot,
+  type LeadAttemptExportRow,
+  type LeadOutboxExportRow,
+} from "./lead-outbox";
 import { listConsentDaily, replaceConsentFromSnapshot, utcDateKey, type ConsentDailyRow } from "./consent-store";
 import type { LeadsLocalCopy } from "@shared/leads-query";
 
@@ -53,6 +61,8 @@ export type LeadsExportPayload = {
   consent_daily: ConsentDailyRow[];
   /** Epoch ms; consent rows start at this UTC day. */
   since: number;
+  /** Delivery status + attempt metadata. Never the encrypted lead copy or CRM replies. Absent from older production builds. */
+  delivery?: { outbox: LeadOutboxExportRow[]; attempts: LeadAttemptExportRow[] };
 };
 
 export function defaultLeadsSince(now = Date.now(), days = LEADS_PULL_DEFAULT_DAYS): number {
@@ -65,6 +75,7 @@ export function buildLeadsExport(site: string, sinceMs: number): LeadsExportPayl
     leads: listLedgerRows(site, sinceMs),
     consent_daily: listConsentDaily(site, utcDateKey(sinceMs)),
     since: sinceMs,
+    delivery: buildLeadOutboxExport(site, sinceMs),
   };
 }
 
@@ -72,6 +83,7 @@ export function parseLeadsExport(body: unknown): LeadsExportPayload | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
   if (!Array.isArray(b.leads) || typeof b.since !== "number") return null;
+  const delivery = parseDeliveryExport(b.delivery);
   return {
     leads: b.leads.filter(
       (r): r is LedgerRow => !!r && typeof r === "object" && typeof (r as LedgerRow).submission_id === "string" && typeof (r as LedgerRow).created_at === "number",
@@ -80,6 +92,17 @@ export function parseLeadsExport(body: unknown): LeadsExportPayload | null {
       ? b.consent_daily.filter((r): r is ConsentDailyRow => !!r && typeof r === "object" && typeof (r as ConsentDailyRow).date === "string")
       : [],
     since: b.since,
+    ...(delivery ? { delivery } : {}),
+  };
+}
+
+function parseDeliveryExport(raw: unknown): LeadsExportPayload["delivery"] | null {
+  if (!raw || typeof raw !== "object") return null;
+  const d = raw as Record<string, unknown>;
+  if (!Array.isArray(d.outbox) || !Array.isArray(d.attempts)) return null;
+  return {
+    outbox: d.outbox.filter((r): r is LeadOutboxExportRow => !!r && typeof r === "object"),
+    attempts: d.attempts.filter((r): r is LeadAttemptExportRow => !!r && typeof r === "object"),
   };
 }
 
@@ -138,6 +161,7 @@ export async function pullProductionLeads(
         imported_leads: replaceLedgerFromSnapshot(site, snap.leads, since),
         imported_consent_days: replaceConsentFromSnapshot(site, snap.consent_daily, utcDateKey(since)),
       };
+      if (snap.delivery) replaceLeadOutboxFromSnapshot(site, snap.delivery, since);
       writeLeadsPullState(site, { at: Date.now(), since, origin: productionOrigin });
       return counts;
     })();

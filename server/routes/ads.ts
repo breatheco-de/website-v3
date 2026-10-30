@@ -30,7 +30,11 @@
  *   POST /api/diagnostics/ads/recheck     — Re-check one issue or resource (instant or ready-to-confirm only)
  *   POST /api/diagnostics/ads/mark-fixed  — pending verification (MCP must send report); /undo reopens it
  *   GET /api/ads/leads, GET /api/ads/leads/stats, GET /api/ads/leads/:id — Leads page: newest-first page of 20 + KPIs / UTC timeline / breakdowns + one lead's details
+ *       (delivery status + attempts; CRM replies only with ads_edit)
  *   GET /api/ads/export, GET /api/ads/leads/export — snapshots for local "Download from production"
+ * Lead delivery (ads_edit):
+ *   POST /api/ads/leads/:id/retry      — one immediate attempt from the saved copy
+ *   POST /api/ads/leads/retry-failed   — requeue failed leads in the current view (live server only; sent gradually)
  * Dev only (metrics_view): /api/ads/pull-production(/origin), /api/ads/leads/pull-production
  */
 
@@ -42,7 +46,7 @@ import { AdsConfigUnreadableError, getAdsConfigStatus, getAdsSettings, updateAds
 import { utmConventionView } from "../ads/utm-convention-view";
 import { ADS_CONFIG_FILENAME } from "../ads-config";
 import { markFileAsModified } from "../sync-state";
-import { isMcpLoopbackRequest, requireCapability, resolveIssueActor } from "./_helpers";
+import { callerHasCapability, isMcpLoopbackRequest, requireCapability, resolveIssueActor } from "./_helpers";
 import { child } from "../logger";
 import {
   MAX_EXPECTED_EVENT_PAIRS,
@@ -58,7 +62,15 @@ import {
   DEFAULT_UTM_CONVENTION,
   type UtmConvention,
 } from "@shared/ads-settings";
-import { LEAD_ID_PATTERN, LEADS_NONE, parseLeadsQuery, type LeadsLocalCopy } from "@shared/leads-query";
+import {
+  LEAD_ID_PATTERN,
+  LEADS_NONE,
+  leadsRangeBounds,
+  parseLeadsQuery,
+  type LeadsDeliverySummary,
+  type LeadsLocalCopy,
+  type LeadsQuery,
+} from "@shared/leads-query";
 import { parseAttributionModel } from "@shared/paid-attribution";
 import type { AdPlatform } from "@shared/paid-traffic";
 import {
@@ -959,9 +971,10 @@ export function registerAdsRoutes(app: Express): void {
 
 /**
  * Leads page (/private/store/leads), metrics_view:
- *   GET /api/ads/leads        — newest-first page of 20 ledger leads (?range, show=real|all|test, page, filters; legacy include_test=1 = show=all)
- *   GET /api/ads/leads/stats  — KPIs, UTC timeline and breakdowns for the same params
- *   GET /api/ads/leads/:id    — one lead's full ledger row (no browser_hash); 404 when unknown
+ *   GET /api/ads/leads        — newest-first page of 20 ledger leads (?range, show=real|all|test, page, filters, delivery; legacy include_test=1 = show=all)
+ *   GET /api/ads/leads/stats  — KPIs, UTC timeline and breakdowns for the same params, plus delivery banner counts
+ *   GET /api/ads/leads/:id    — one lead's full ledger row (no browser_hash) + delivery; 404 when unknown
+ * ads_edit: POST /api/ads/leads/:id/retry, POST /api/ads/leads/retry-failed
  */
 /** Product / persona tracking keys for the funnel filters and breakdowns; null when unreadable. */
 async function leadsTrackingIndex(res: Response) {
@@ -1018,6 +1031,11 @@ function registerLeadsRoutes(app: Express): void {
       }
       const trackingIndex = await leadsTrackingIndex(res);
       const stats = getLeadsStats(site, parsed.query, { convention, grace, localCopy, trackingIndex });
+      try {
+        stats.delivery = await leadsDeliverySummary(req, res, site, parsed.query, trackingIndex);
+      } catch (err) {
+        log.warn({ err }, "[ads] lead delivery summary failed");
+      }
       const productFilter = parsed.query.filters.product;
       if (productFilter && productFilter !== LEADS_NONE) {
         const { findCatalogProduct } = await import("../ads/lead-product");
@@ -1042,14 +1060,103 @@ function registerLeadsRoutes(app: Express): void {
     if (!LEAD_ID_PATTERN.test(id)) return void res.status(400).json({ error: "Invalid lead ID" });
     try {
       const { getLeadDetail } = await import("../ads/leads-query");
-      const lead = getLeadDetail(getSite(res), id);
+      const site = getSite(res);
+      const lead = getLeadDetail(site, id);
       if (!lead) return void res.status(404).json({ error: "Lead not found" });
+      const canEdit = await callerHasCapability(req, res, "ads_edit");
+      const { getLeadDelivery } = await import("../ads/lead-outbox");
+      lead.delivery = getLeadDelivery(site, id, { canSeeBodies: canEdit, canRetry: canEdit });
       res.json(lead);
     } catch (err) {
       log.warn({ err }, "[ads] lead detail failed");
       res.status(500).json({ error: "Failed to load lead" });
     }
   });
+
+  api.post(app, "/api/ads/leads/retry-failed", { rate: "staffWrite" }, async (req: Request, res: Response) => {
+    const auth = await requireCapability(req, res, "ads_edit");
+    if (!auth.authorized) return;
+    const { isLiveServer } = await import("../live-server");
+    if (!isLiveServer()) {
+      return void res.status(409).json({
+        error: "Bulk retry runs only on the live server.",
+        code: "not_live_server",
+      });
+    }
+    const { leadOutboxKeyStatus } = await import("../ads/lead-outbox-crypto");
+    if (leadOutboxKeyStatus() === "missing") {
+      return void res.status(409).json({
+        error: "Recovery is off: the lead encryption key is not set on this server.",
+        code: "key_missing",
+      });
+    }
+    const parsed = parseLeadsQuery({ ...(req.query as Record<string, unknown>), ...((req.body ?? {}) as Record<string, unknown>) });
+    if (!parsed.ok) return void res.status(400).json({ error: parsed.error });
+    try {
+      const site = getSite(res);
+      const ledgerWhere = await leadsViewWhere(res, site, parsed.query);
+      const { requeueFailedLeads } = await import("../ads/lead-outbox");
+      const queued = requeueFailedLeads(site, { ledgerWhere });
+      log.info({ site, queued, by: auth.username }, "[ads] retry all failed leads");
+      res.json({ success: true, queued });
+    } catch (err) {
+      log.warn({ err }, "[ads] retry-failed failed");
+      res.status(500).json({ error: "Failed to queue leads for retry" });
+    }
+  });
+
+  api.post(app, "/api/ads/leads/:id/retry", { rate: "staffWrite" }, async (req: Request, res: Response) => {
+    const auth = await requireCapability(req, res, "ads_edit");
+    if (!auth.authorized) return;
+    const id = String(req.params.id ?? "");
+    if (!LEAD_ID_PATTERN.test(id)) return void res.status(400).json({ error: "Invalid lead ID" });
+    try {
+      const { retryLeadNow } = await import("../ads/lead-outbox");
+      const result = await retryLeadNow(getSite(res), getContentRoot(res), id);
+      if (!result.ok) {
+        const status = result.code === "not_found" ? 404 : 409;
+        return void res.status(status).json({ error: result.message, code: result.code });
+      }
+      log.info({ submission_id: id, status: result.status, by: auth.username }, "[ads] manual lead retry");
+      res.json({ success: true, ...result });
+    } catch (err) {
+      log.warn({ err }, "[ads] lead retry failed");
+      res.status(500).json({ error: "Failed to retry lead" });
+    }
+  });
+}
+
+/** Ledger WHERE for the Leads page's current range, show, filters and delivery filter. */
+async function leadsViewWhere(
+  res: Response,
+  site: string,
+  query: LeadsQuery,
+  trackingIndex?: Awaited<ReturnType<typeof leadsTrackingIndex>>,
+) {
+  const { buildLeadsWhere } = await import("../ads/leads-query");
+  const { ledgerCollectingSince } = await import("../ads/lead-ledger");
+  const index = trackingIndex !== undefined ? trackingIndex : query.filters.funnel_persona ? await leadsTrackingIndex(res) : null;
+  const bounds = leadsRangeBounds(query.range, Date.now(), ledgerCollectingSince(site));
+  return buildLeadsWhere(query, query.range === "all" ? null : { startMs: bounds.startMs }, index ?? undefined);
+}
+
+async function leadsDeliverySummary(
+  req: Request,
+  res: Response,
+  site: string,
+  query: LeadsQuery,
+  trackingIndex: Awaited<ReturnType<typeof leadsTrackingIndex>>,
+): Promise<LeadsDeliverySummary> {
+  const { leadDeliveryCounts } = await import("../ads/lead-outbox");
+  const { leadOutboxKeyStatus } = await import("../ads/lead-outbox-crypto");
+  const { isLiveServer } = await import("../live-server");
+  const ledgerWhere = await leadsViewWhere(res, site, { ...query, delivery: undefined }, trackingIndex);
+  return {
+    key_status: leadOutboxKeyStatus(),
+    ...leadDeliveryCounts(site, ledgerWhere),
+    live_server: isLiveServer(),
+    can_retry: await callerHasCapability(req, res, "ads_edit"),
+  };
 }
 
 /** Refuse dev-only routes on production; returns true when the handler should stop. */

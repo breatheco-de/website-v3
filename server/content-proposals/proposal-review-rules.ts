@@ -517,6 +517,7 @@ export const THINK_TEMPLATES: Record<ChecklistId, ThinkTemplate> = {
     look_for: [
       "sourced → pass; open the row (discovery get_database_item) and confirm the claim is not stronger than the row (e.g. \"contracted\" vs \"selected\") — stronger → add_blocker",
       "unsourced (row has no link) → warning only; you may still apply",
+      "sourced but row.archive_status is not archived (evidence_not_archived) → warning only; the live server keeps an Internet Archive copy of the link",
       "unverified (an agent last changed the row's link or claim) → add_blocker asking staff to verify the row",
       "no_evidence → apply is refused (evidence_missing); add_blocker asking for a sourced row, or for staff to dismiss the name",
       "already_live → the claim is already published; warning only, never a blocker",

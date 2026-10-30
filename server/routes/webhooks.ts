@@ -9,7 +9,18 @@ import { invalidateContentCaches } from "./_helpers";
 import { getTrackingSettings } from "../settings";
 import { getDefaultContentRoot } from "../site-config";
 import { buildLeadPayload } from "../utils/buildLeadPayload";
-import { recordLeadSubmission } from "../ads/lead-ledger";
+import { recordLeadSubmissionWithMeta } from "../ads/lead-ledger";
+import {
+  applyAttemptResult,
+  classifyLeadDelivery,
+  createLeadOutboxEntry,
+  deliverLeadWebhook,
+  recordLeadNotSent,
+  resolveSettingsLeadWebhook,
+  urlHostOf,
+  type LeadDeliveryResult,
+  type LeadWebhookTarget,
+} from "../ads/lead-outbox";
 import { z } from "zod";
 import { child } from "../logger";
 const log = child({ module: "routes/webhooks" });
@@ -45,66 +56,36 @@ import { isPrivateDestination } from "../../shared/ssrf";
 import { sanitizeWebhookHeaders } from "../../shared/webhookHeaders";
 export { isPrivateDestination };
 
-const WEBHOOK_UPSTREAM_TIMEOUT_MS = 8_000;
-
-async function deliverLeadWebhook(opts: {
-  url: string;
-  method: string;
-  headers: Record<string, string>;
-  payload: Record<string, unknown>;
-}): Promise<{ ok: true; status: number } | { ok: false; status: number; error: string; details?: string }> {
-  const { url, method, headers, payload } = opts;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), WEBHOOK_UPSTREAM_TIMEOUT_MS);
-  try {
-    let fetchUrl = url;
-    const fetchOptions: RequestInit = { method, signal: controller.signal };
-
-    if (method === "POST") {
-      fetchOptions.headers = { "Content-Type": "application/json", ...headers };
-      fetchOptions.body = JSON.stringify(payload);
-    } else {
-      fetchOptions.headers = { ...headers };
-      const params = new URLSearchParams();
-      for (const [key, value] of Object.entries(payload)) {
-        if (value !== undefined && value !== null) {
-          params.set(key, String(value));
-        }
-      }
-      const sep = url.includes("?") ? "&" : "?";
-      fetchUrl = `${url}${sep}${params.toString()}`;
-    }
-
-    const response = await fetch(fetchUrl, fetchOptions);
-    if (!response.ok) {
-      const upstreamBody = await response.text().catch(() => "");
-      // Response only: field name + validator message. Not the lead payload.
-      log.error(
-        { status: response.status, upstream: upstreamBody.slice(0, 500) },
-        "Lead webhook delivery error",
-      );
-      return {
-        ok: false,
-        status: 502,
-        error: "Upstream webhook returned a non-2xx response",
-        details: upstreamBody.slice(0, 500),
-      };
-    }
-    log.info(`[LeadWebhookDelivery] Delivered to ${url} — status ${response.status}`);
-    return { ok: true, status: response.status };
-  } catch (err) {
-    const aborted =
-      err instanceof Error && (err.name === "AbortError" || /aborted/i.test(err.message));
-    log.error({ err }, "[LeadWebhookDelivery] Failed to deliver:");
-    return {
-      ok: false,
-      status: 502,
-      error: aborted ? "Webhook upstream timed out" : "Failed to deliver webhook",
-      details: String(err),
-    };
-  } finally {
-    clearTimeout(timer);
+/** Visitor-facing 502 body for a failed delivery (same wording as before the lead outbox). */
+function deliveryErrorBody(result: LeadDeliveryResult): { error: string; details?: string } {
+  switch (result.errorKind) {
+    case "blocked_private_url":
+      return { error: "Webhook destination is not allowed (private or internal address)" };
+    case "non_2xx":
+      return { error: "Upstream webhook returned a non-2xx response", details: (result.responseBody ?? "").slice(0, 500) };
+    case "timeout":
+      return { error: "Webhook upstream timed out", ...(result.errorMessage ? { details: result.errorMessage } : {}) };
+    default:
+      return { error: "Failed to deliver webhook", ...(result.errorMessage ? { details: result.errorMessage } : {}) };
   }
+}
+
+function logDeliveryFailure(result: LeadDeliveryResult, submissionId: string | null): void {
+  if (result.errorKind === "blocked_private_url") {
+    log.warn({ submission_id: submissionId }, "[LeadWebhookDelivery] Blocked private/internal destination");
+    return;
+  }
+  // Response only: field name + validator message. Not the lead payload.
+  log.error(
+    {
+      submission_id: submissionId,
+      status: result.status,
+      error_kind: result.errorKind,
+      upstream: (result.responseBody ?? "").slice(0, 500),
+      detail: result.errorMessage,
+    },
+    "Lead webhook delivery error",
+  );
 }
 
 export function registerWebhooksRoutes(app: Express): void {
@@ -186,9 +167,11 @@ export function registerWebhooksRoutes(app: Express): void {
    *     settings server-side (credentials never leave the server).
    *   - When `webhook.url` is supplied → uses that URL/method/headers (client may
    *     resolve {{ visitor.* }} / {{ entry.* }} templates before POST).
-   *   - Default: await upstream; network / non-2xx / timeout / private URL → 502.
-   *   - When `webhook.fail_silently` is true (or global fail_silently): respond 200
-   *     immediately; upstream failures are logged only.
+   *   - Lead outbox (LEAD_OUTBOX_ENCRYPTION_KEY set): the lead is saved encrypted before
+   *     attempt 1. Then 2xx → 200 { delivered }; outage or config problem → 200 { queued }
+   *     (retried / staff fix it); 400 / 422 → 502 with details so the visitor can fix the field.
+   *   - Without the outbox: network / non-2xx / timeout / private URL → 502.
+   *   - fail_silently (form or settings): respond 200 right away; the attempt still runs and is recorded.
    */
   app.post("/api/leads/webhook-delivery", async (req, res) => {
     const body = req.body;
@@ -207,8 +190,12 @@ export function registerWebhooksRoutes(app: Express): void {
       return;
     }
 
-    const enriched = await recordLeadSubmission(req, res, incoming as Record<string, unknown>);
-    const payload = buildLeadPayload(enriched);
+    const recorded = await recordLeadSubmissionWithMeta(req, res, incoming as Record<string, unknown>);
+    const payload = buildLeadPayload(recorded.body);
+    const lead = recorded.lead;
+    const siteInfo = res.locals.site as { contentRoot?: string; contentRootName?: string } | undefined;
+    const site = siteInfo?.contentRootName;
+    const contentRoot = siteInfo?.contentRoot ?? getDefaultContentRoot();
 
     const override = body.webhook as {
       url?: string;
@@ -217,70 +204,85 @@ export function registerWebhooksRoutes(app: Express): void {
       fail_silently?: boolean;
     } | undefined;
 
-    let url: string;
-    let method: string;
-    let rawHeaders: Record<string, string> | undefined;
-    let failSilently: boolean;
-
+    let target: LeadWebhookTarget | null;
     if (override?.url && typeof override.url === "string" && override.url.trim()) {
-      url = override.url.trim();
-      method = override.method === "GET" ? "GET" : "POST";
-      rawHeaders = override.headers;
-      failSilently = override.fail_silently === true;
+      target = {
+        url: override.url.trim(),
+        method: override.method === "GET" ? "GET" : "POST",
+        headers: sanitizeWebhookHeaders(override.headers),
+        failSilently: override.fail_silently === true,
+        source: "form",
+      };
     } else {
-      const contentRoot = (res.locals.site as { contentRoot?: string } | undefined)?.contentRoot ?? getDefaultContentRoot();
-      const tracking = getTrackingSettings(contentRoot);
-      const eventWebhook = tracking.conversion_events?.find((e) => e?.name === payload.conversion_name)?.webhook;
-      const globalWebhook = tracking.webhook;
-      const envUrl = process.env.DEFAULT_WEBHOOK_URL;
-      if (!eventWebhook?.url && !globalWebhook?.url && !envUrl) {
-        res.json({ success: true, skipped: "no_webhook" });
-        return;
-      }
-      if (eventWebhook?.url) {
-        url = eventWebhook.url;
-        method = eventWebhook.method === "GET" ? "GET" : "POST";
-        rawHeaders = eventWebhook.headers;
-        failSilently = eventWebhook.fail_silently === true;
-      } else if (globalWebhook?.url) {
-        url = globalWebhook.url;
-        method = globalWebhook.method === "GET" ? "GET" : "POST";
-        rawHeaders = globalWebhook.headers;
-        failSilently = globalWebhook.fail_silently === true;
-      } else {
-        url = envUrl!;
-        method = process.env.DEFAULT_WEBHOOK_METHOD === "GET" ? "GET" : "POST";
-        rawHeaders = undefined;
-        failSilently = false;
-      }
+      // Routing key as before: buildLeadPayload drops conversion_name, so this matches today's routing.
+      target = resolveSettingsLeadWebhook(contentRoot, payload.conversion_name);
     }
 
-    let headers = sanitizeWebhookHeaders(rawHeaders);
-
-    if (failSilently) {
-      res.json({ success: true });
+    if (!target) {
+      if (site && lead) {
+        try {
+          recordLeadNotSent(site, { submissionId: lead.submission_id, browserHash: lead.browser_hash, form: lead.form, isTest: lead.is_test });
+        } catch (err) {
+          log.warn({ err }, "[LeadWebhookDelivery] could not record not-sent lead");
+        }
+      }
+      res.json({ success: true, skipped: "no_webhook" });
+      return;
     }
 
-    if (isPrivateDestination(url)) {
-      log.warn(`[LeadWebhookDelivery] Blocked private/internal destination: ${url}`);
-      if (!failSilently) {
-        res.status(502).json({
-          error: "Webhook destination is not allowed (private or internal address)",
+    let saved = false;
+    if (site && lead) {
+      try {
+        saved = createLeadOutboxEntry(site, {
+          submissionId: lead.submission_id,
+          copy: {
+            v: 1,
+            payload,
+            routing_conversion_name: typeof payload.conversion_name === "string" ? payload.conversion_name : null,
+            target: target.source === "form" ? { url: target.url, method: target.method, headers: target.headers } : null,
+          },
+          target,
+          browserHash: lead.browser_hash,
+          form: lead.form,
+          isTest: lead.is_test,
         });
+      } catch (err) {
+        log.error({ err, submission_id: lead.submission_id }, "[LeadWebhookDelivery] could not save lead for recovery");
       }
-      return;
     }
 
-    const result = await deliverLeadWebhook({ url, method, headers, payload });
-    if (failSilently) return;
-    if (!result.ok) {
-      res.status(result.status).json({
-        error: result.error,
-        ...(result.details ? { details: result.details } : {}),
-      });
+    if (target.failSilently) {
+      res.json({ success: true, ...(saved ? { queued: true } : {}) });
+    }
+
+    const startedAt = Date.now();
+    const result = await deliverLeadWebhook({
+      url: target.url,
+      method: target.method,
+      headers: target.headers,
+      payload,
+      idempotencyKey: lead?.submission_id ?? null,
+    });
+    if (saved && site && lead) {
+      try {
+        applyAttemptResult(site, lead.submission_id, result, { urlHost: urlHostOf(target.url), trigger: "submit", startedAt });
+      } catch (err) {
+        log.error({ err, submission_id: lead.submission_id }, "[LeadWebhookDelivery] could not record attempt");
+      }
+    }
+    if (!result.ok) logDeliveryFailure(result, lead?.submission_id ?? null);
+    else log.info(`[LeadWebhookDelivery] Delivered to ${urlHostOf(target.url)} — status ${result.status}`);
+
+    if (target.failSilently) return;
+    if (result.ok) {
+      res.json({ success: true, status: result.status, delivered: true });
       return;
     }
-    res.json({ success: true, status: result.status });
+    if (saved && classifyLeadDelivery(result) !== "rejected_data") {
+      res.json({ success: true, queued: true });
+      return;
+    }
+    res.status(502).json(deliveryErrorBody(result));
   });
 
   /**
@@ -333,7 +335,9 @@ export function registerWebhooksRoutes(app: Express): void {
         payload,
       });
       if (!result.ok) {
-        res.json({ ok: false, status: result.status, error: result.details || result.error });
+        logDeliveryFailure(result, null);
+        const body = deliveryErrorBody(result);
+        res.json({ ok: false, status: 502, error: body.details || body.error });
         return;
       }
       log.info(`[WebhookTest] Delivered to ${url} — status ${result.status}`);

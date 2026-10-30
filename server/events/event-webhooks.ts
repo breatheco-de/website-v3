@@ -54,6 +54,7 @@ export const EVENT_WEBHOOK_ALLOWLIST = [
   "proposal_blocker_reopened",
   "entry_common_saved",
   "entry_locale_saved",
+  "lead_delivery_failed",
 ] as const;
 
 export type EventWebhookAllowlistedType = (typeof EVENT_WEBHOOK_ALLOWLIST)[number];
@@ -159,6 +160,8 @@ const NON_PROPOSAL_FILTER_KEYS = [
 export function filterKeysForEventType(eventType: string): readonly string[] {
   if (!isEventWebhookAllowlisted(eventType)) return [];
   if (eventType.startsWith("proposal_")) return [...ALL_FILTER_KEYS];
+  // No author, content type or locale on a lead delivery alert.
+  if (eventType === "lead_delivery_failed") return [];
   // The common file has no language. A locale filter on it never matches.
   if (eventType === "entry_common_saved") {
     return NON_PROPOSAL_FILTER_KEYS.filter((key) => key !== "locales" && key !== "exclude_locales");
@@ -1449,6 +1452,17 @@ const WEBHOOK_PAYLOAD_PASSTHROUGH: Partial<Record<EventWebhookAllowlistedType, r
     "open_blocker_count",
     "blocker_author",
     "blocker_author_actor_type",
+  ],
+  // No personal data: the CRM gets the lead; the alert only points at it.
+  lead_delivery_failed: [
+    "submission_id",
+    "form",
+    "url_host",
+    "status",
+    "http_status",
+    "error_kind",
+    "attempts",
+    "leads_url",
   ],
 };
 

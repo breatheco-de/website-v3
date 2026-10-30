@@ -226,6 +226,11 @@ import { child } from "../logger";
 import { api } from "../rate-limit/api";
 import { applyRowStamp, applyRowStampsBulk, stripRowStamp, verifiedStamp, type RowWriter } from "../database-row-stamp";
 import { ROW_STAMP_KEY, readEvidenceConfig, rowTrust, validateEvidenceConfig } from "@shared/evidence-kinds";
+import { archiveView, isArchiveCopyUrl, normalizeBackupArchiveUrl, rowProofLink } from "@shared/evidence-archive";
+import { writeArchiveRecords } from "../evidence-archive/apply";
+import { markRowsPendingArchive, queueArchiveJobs } from "../evidence-archive/on-save";
+import { manualRecord, pendingRecord } from "../evidence-archive/rows";
+import { isLiveServer } from "../live-server";
 import {
   defaultMigrationDeps,
   listMigrations,
@@ -244,6 +249,10 @@ function getContentRoot(res: Response): string {
 function getContentRootName(res: Response): string {
   const cr = getContentRoot(res);
   return path.isAbsolute(cr) ? path.relative(process.cwd(), cr) : cr;
+}
+/** Event-store site key (what the applier reads events under). */
+function getSiteKey(res: Response): string {
+  return (res.locals.site as { contentRootName?: string } | undefined)?.contentRootName ?? getContentRootName(res);
 }
 
 /** Per-site DatabaseManager for the active request (multi-site / dev-site override aware). */
@@ -477,7 +486,7 @@ export function registerDatabasesRoutes(app: Express): void {
         return;
       }
       const limit = Math.min(Number(req.query.limit) || 3, 10);
-      res.json({ items: rawItems.slice(0, limit), count: rawItems.length });
+      res.json({ items: rawItems.slice(0, limit).map((i) => stripRowStamp(i)), count: rawItems.length });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("not found")) {
@@ -533,7 +542,7 @@ export function registerDatabasesRoutes(app: Express): void {
         return;
       }
 
-      const sample = rawItems.slice(0, 3);
+      const sample = rawItems.slice(0, 3).map((i) => stripRowStamp(i));
       const sampleKeys = Object.keys(sample[0] || {}).slice(0, 50);
 
       const prompt = `You are analyzing raw API response data to suggest a field mapping that normalizes it into clean database fields.
@@ -695,7 +704,12 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         // Stored position of each returned row; PATCH/DELETE /items/:index expect this, not the page row.
         indices: pageEntries.map((e) => e.index),
         ...(evidenceCfg
-          ? { evidence_trust: pageEntries.map((e) => rowTrust(rawRows[e.index] as Record<string, unknown> | undefined)) }
+          ? {
+              evidence_trust: pageEntries.map((e) => rowTrust(rawRows[e.index] as Record<string, unknown> | undefined)),
+              evidence_archive: pageEntries.map((e) =>
+                archiveView(rawRows[e.index] as Record<string, unknown> | undefined, evidenceCfg.proof_field),
+              ),
+            }
           : {}),
         total_count,
         page,
@@ -747,6 +761,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         evidence: config.evidence,
         writer: rowWriterFor(req, auth.author),
       });
+      const archiveLinks = markRowsPendingArchive(stamped, config.evidence);
       const data: unknown = resultsPath ? { [resultsPath]: stamped } : stamped;
       const yamlStr = safeYamlDump(data, { lineWidth: 120 });
       fs.writeFileSync(filePath, yamlStr);
@@ -755,6 +770,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
 
       const relPath = `db/${dbName}/${filename}`;
       markContentFileModified(relPath, { author: auth.author ?? "api", req, contentRoot: getContentRoot(res) });
+      queueArchiveJobs({ site: getSiteKey(res), contentRoot: getContentRoot(res), database: dbName, links: archiveLinks });
 
       res.json({ success: true, count: items.length });
     } catch (err: unknown) {
@@ -863,7 +879,9 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
       }
       const localConfig = config.source.local!;
       const { items: existing, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
+      const archiveLinks = markRowsPendingArchive(coercedItems, config.evidence);
       writeLocalItems(dbm, dbName, filePath, resultsPath, [...existing, ...coercedItems], localConfig.filename, getContentRoot(res), { req, author: auth.author });
+      queueArchiveJobs({ site: getSiteKey(res), contentRoot: getContentRoot(res), database: dbName, links: archiveLinks });
       res.json({ success: true, count: existing.length + coercedItems.length });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -912,9 +930,10 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         evidence: config.evidence,
         writer: rowWriterFor(req, auth.author),
       });
+      const archiveLinks = markRowsPendingArchive([items[idx]], config.evidence);
       writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res), { req, author: auth.author });
-      const { [ROW_STAMP_KEY]: _stamp, ...publicItem } = items[idx];
-      res.json({ success: true, item: publicItem });
+      queueArchiveJobs({ site: getSiteKey(res), contentRoot: getContentRoot(res), database: dbName, links: archiveLinks });
+      res.json({ success: true, item: stripRowStamp(items[idx]) });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(msg.includes("not found") ? 404 : 500).json({ error: msg });
@@ -978,6 +997,101 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
       items[idx] = { ...items[idx], [ROW_STAMP_KEY]: verifiedStamp(auth.author) };
       writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res), { req, author: auth.author });
       res.json({ success: true, index: idx, trust: rowTrust(items[idx]) });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(msg.includes("not found") || msg.includes("Only local") ? 404 : 500).json({ error: msg });
+    }
+  });
+
+  /** Evidence row + its proof link for the staff archive routes; sends the error response and returns null otherwise. */
+  async function evidenceRowForArchive(req: Request, res: Response) {
+    if (isMcpLoopbackRequest(req) || typeof req.headers["x-mcp-author"] === "string") {
+      res.status(403).json({ error: "Archive copies are managed from the staff Databases page only.", code: "staff_only" });
+      return null;
+    }
+    const auth = await requireCapability(req, res, "databases_edit_data", req.params.name);
+    if (!auth.authorized) return null;
+    const idx = parseInt(req.params.index, 10);
+    if (isNaN(idx) || idx < 0) {
+      res.status(400).json({ error: "Invalid index" });
+      return null;
+    }
+    const dbName = req.params.name;
+    const dbm = getDB(res);
+    const cfg = readEvidenceConfig(dbm.get(dbName).evidence);
+    if (!cfg) {
+      res.status(400).json({ error: "This database is not an evidence source.", code: "not_evidence" });
+      return null;
+    }
+    const { items } = readLocalItems(dbm, dbName, getContentRoot(res));
+    if (idx >= items.length) {
+      res.status(404).json({ error: `Item at index ${idx} not found` });
+      return null;
+    }
+    const link = rowProofLink(items[idx], cfg.proof_field);
+    if (!link) {
+      res.status(400).json({ error: `This row has no ${cfg.proof_field} to archive.`, code: "no_link" });
+      return null;
+    }
+    return { auth, dbm, dbName, cfg, link, idx };
+  }
+
+  function archiveResponse(res: Response, dbm: DatabaseManager, dbName: string, idx: number, proofField: string) {
+    const { items } = readLocalItems(dbm, dbName, getContentRoot(res));
+    res.json({ success: true, index: idx, archive: archiveView(items[idx], proofField) });
+  }
+
+  api.post(app, "/api/databases/:name/items/:index/archive", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const ctx = await evidenceRowForArchive(req, res);
+      if (!ctx) return;
+      if (isArchiveCopyUrl(ctx.link)) {
+        res.status(400).json({ error: "This row's link is already a saved archive copy.", code: "already_archive_link" });
+        return;
+      }
+      if (!isLiveServer()) {
+        res.status(409).json({
+          error: "Archiving runs only on the live server. Use Archive now there, or paste a backup link.",
+          code: "not_live_server",
+        });
+        return;
+      }
+      const at = new Date().toISOString();
+      writeArchiveRecords({
+        contentRoot: getContentRoot(res),
+        database: ctx.dbName,
+        sourceUrl: ctx.link,
+        dbm: ctx.dbm,
+        author: ctx.auth.author ?? "api",
+        next: (prev) => pendingRecord(prev, ctx.link, at),
+      });
+      queueArchiveJobs({ site: getSiteKey(res), contentRoot: getContentRoot(res), database: ctx.dbName, links: [ctx.link] });
+      archiveResponse(res, ctx.dbm, ctx.dbName, ctx.idx, ctx.cfg.proof_field);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(msg.includes("not found") || msg.includes("Only local") ? 404 : 500).json({ error: msg });
+    }
+  });
+
+  api.put(app, "/api/databases/:name/items/:index/archive-link", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const ctx = await evidenceRowForArchive(req, res);
+      if (!ctx) return;
+      const url = normalizeBackupArchiveUrl((req.body as { url?: unknown } | undefined)?.url);
+      if (!url) {
+        res.status(400).json({ error: "Paste a full http(s) link to the saved copy.", code: "invalid_url" });
+        return;
+      }
+      const at = new Date().toISOString();
+      writeArchiveRecords({
+        contentRoot: getContentRoot(res),
+        database: ctx.dbName,
+        sourceUrl: ctx.link,
+        dbm: ctx.dbm,
+        author: ctx.auth.author ?? "api",
+        next: (prev) => manualRecord(prev, ctx.link, url, ctx.auth.author ?? null, at),
+      });
+      archiveResponse(res, ctx.dbm, ctx.dbName, ctx.idx, ctx.cfg.proof_field);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(msg.includes("not found") || msg.includes("Only local") ? 404 : 500).json({ error: msg });

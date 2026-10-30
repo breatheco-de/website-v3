@@ -9,7 +9,7 @@ import {
 } from "../events/types";
 import { sameAgentIdentity, type AgentActorLike } from "../../shared/agent-identity";
 
-export const PIPELINE_SCHEMA_VERSION = 44;
+export const PIPELINE_SCHEMA_VERSION = 45;
 
 export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
   {
@@ -818,6 +818,60 @@ export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
       if (!tableHasColumn(db, "content_proposals", "accept_snapshot_json")) {
         db.exec("ALTER TABLE content_proposals ADD COLUMN accept_snapshot_json TEXT");
       }
+    },
+  },
+  {
+    version: 45,
+    name: "lead_outbox_and_delivery_attempts",
+    up(db) {
+      // payload_enc / response_body_enc hold personal data, AES-256-GCM encrypted; wiped after delivery or 30 days.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS lead_outbox (
+          submission_id TEXT PRIMARY KEY,
+          status TEXT NOT NULL,
+          payload_enc TEXT,
+          webhook_source TEXT,
+          url_host TEXT NOT NULL DEFAULT '',
+          method TEXT NOT NULL DEFAULT 'POST',
+          attempts INTEGER NOT NULL DEFAULT 0,
+          cycle_attempts INTEGER NOT NULL DEFAULT 0,
+          next_attempt_at INTEGER,
+          lease_until INTEGER,
+          last_http_status INTEGER,
+          last_error_kind TEXT,
+          last_error_message TEXT,
+          browser_hash TEXT,
+          form TEXT,
+          is_test INTEGER NOT NULL DEFAULT 0,
+          pulled_from_production INTEGER NOT NULL DEFAULT 0,
+          alerted_at INTEGER,
+          requeued_at INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          delivered_at INTEGER,
+          payload_wiped_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_lead_outbox_due ON lead_outbox (status, next_attempt_at);
+        CREATE INDEX IF NOT EXISTS idx_lead_outbox_browser_form ON lead_outbox (browser_hash, form, created_at);
+        CREATE INDEX IF NOT EXISTS idx_lead_outbox_created ON lead_outbox (created_at);
+        CREATE TABLE IF NOT EXISTS lead_delivery_attempts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          submission_id TEXT NOT NULL,
+          attempt INTEGER NOT NULL,
+          started_at INTEGER NOT NULL,
+          duration_ms INTEGER,
+          url_host TEXT,
+          http_status INTEGER,
+          error_kind TEXT,
+          error_message TEXT,
+          response_body_enc TEXT,
+          response_headers_json TEXT,
+          trigger TEXT NOT NULL DEFAULT 'submit'
+        );
+        CREATE INDEX IF NOT EXISTS idx_lead_delivery_attempts_submission
+          ON lead_delivery_attempts (submission_id, attempt);
+        CREATE INDEX IF NOT EXISTS idx_lead_delivery_attempts_started ON lead_delivery_attempts (started_at);
+      `);
     },
   },
 ];

@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import yaml from "js-yaml";
 import { ROW_STAMP_KEY, readEvidenceConfig } from "@shared/evidence-kinds";
+import { ARCHIVE_KEY } from "@shared/evidence-archive";
 import { getSiteContextMap, type SiteContext } from "../site-manager";
 import { child } from "../logger";
 import { brandTerms, type EvidenceSource } from "./evidence-match";
@@ -47,10 +48,16 @@ async function sourcesFor(ctx: SiteContext): Promise<EvidenceSource[]> {
       await ctx.database.fetchItems(name);
       const raw = ctx.database.getRawItems(name) ?? [];
       const mapped = ctx.database.getMappedItems(name) ?? raw;
-      // Mapped field names (what staff pick in the dialog) plus the stamp, which only the raw row carries.
+      // Mapped field names (what staff pick in the dialog) plus the server keys, which only the raw row carries.
       const rows = mapped.map((m, i) => {
-        const stamp = (raw[i] as Record<string, unknown> | undefined)?.[ROW_STAMP_KEY];
-        return stamp ? { ...m, [ROW_STAMP_KEY]: stamp } : m;
+        const r = raw[i] as Record<string, unknown> | undefined;
+        const stamp = r?.[ROW_STAMP_KEY];
+        const archive = r?.[ARCHIVE_KEY];
+        return {
+          ...m,
+          ...(stamp ? { [ROW_STAMP_KEY]: stamp } : {}),
+          ...(archive ? { [ARCHIVE_KEY]: archive } : {}),
+        };
       });
       out.push({ site: ctx.contentRootName, domain: ctx.config.domain, database: name, label: config.name || name, config: cfg, rows });
     } catch (err) {

@@ -333,6 +333,22 @@ export async function requireCapability(
 }
 
 /**
+ * True when the caller (already authorized by requireCapability) also holds `capName`.
+ * Same dev / MCP bypass as requireCapability. Never writes a response for a missing capability.
+ */
+export async function callerHasCapability(
+  req: Request,
+  res: Response,
+  capName: CapabilityName,
+  scope?: string,
+): Promise<boolean> {
+  const base = await resolveStaffCapAuth(req, res);
+  if (!base.authorized) return false;
+  if (!base.sessionUsername) return true;
+  return userStore.hasCapability(base.sessionUsername, capName, resolveCapabilityScope(req, capName, scope));
+}
+
+/**
  * Like requireCapability, but any one of the listed capabilities is enough.
  * Each cap resolves its own scope from `scope` / the request (content type vs database slug).
  */
