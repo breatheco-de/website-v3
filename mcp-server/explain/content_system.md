@@ -131,7 +131,8 @@ Content files may reference template expressions that are resolved at **delivery
 | `{{ entry.<field> }}` | Type schema / DB row / static root keys / `field_overrides` (DB); plus auto `slug`/`locale`/`image`/`updated_at` (and `_slug`/`_locale`/`_image`/`_updated_at`). **Preferred.** Legacy `{{ single.<field> }}` still resolves on delivery; **saves reject** new `single.*` tokens. | `{{ entry.title }}`, `{{ entry._slug }}`, `{{ entry.updated_at }}` |
 | `{{ meta.<key> }}` | Page SEO block (`meta:`), after `entry.*` inside meta is resolved | `{{ meta.page_title }}` |
 | `{{ param.<key> }}` | URL path params + querystring (path wins on conflict) | `{{ param.category }}`, `{{ param.utm }}` |
-| `{{ funnel.products }}` | Page funnel (merged `funnel:`), same product/persona/product_persona **ids** as the lead webhook, JSON then `encodeURIComponent`. No funnel → `none`. Not `entry.*` / Fields / SEO. Does not write `_common.yml` or the dataLayer. | `url: /x?funnel={{ funnel.products }}` |
+| `{{ funnel.products }}` | Page funnel block, same lookup as `meta`. Stored list, or `"all"`. Missing key stays unresolved. Does not encode, does not add the program slug, does not write `_common.yml` or the dataLayer. | `{{ funnel.products }}` |
+| `{{ entry.funnel_products_encoded_ids }}` | Computed on **program**, **landing**, and **page** only. URI-encoded JSON of `product`, `persona`, `product_persona` ids (sorted; empty → `none`; `"all"` → `all`). Program adds its own slug when the list omits it. Landing and page do not. | `url: /x?gtm_payload={{ entry.funnel_products_encoded_ids }}` |
 | `{{ brand.* }}` | Protected site identity in `variables.yml` (Brand Settings) | `{{ brand.logo }}`, `{{ brand.title }}` |
 | `{{ global.* }}` / `reserved.*` | Other site variables in `variables.yml` | `{{ global.campus_phone }}` |
 

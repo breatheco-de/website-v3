@@ -23,12 +23,23 @@ export function followExternalHref(url: string, mode: ExternalNavigation): void 
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+/** A `{qs:}` fallback may already be percent-encoded so `{` and `}` can sit inside the token. */
+function plainQsFallback(fallback: string): string {
+  const trimmed = fallback.trim();
+  try {
+    return decodeURIComponent(trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
 /** Replace {qs:paramName} and {qs:paramName|fallback} tokens with values from
  *  the current URL's querystring.
  *  - If the named param is present: use its value.
  *  - If absent and a fallback is provided (e.g. {qs:cohort|bootcamp-2025}): use the fallback.
+ *    An already-encoded fallback is decoded once, then encoded for the query string.
  *  - If absent and no fallback: strip the entire key=value pair from the URL. */
-function resolveQsTokens(str: string): string {
+export function resolveQsTokens(str: string): string {
   const hashIdx = str.indexOf("#");
   const hash = hashIdx === -1 ? "" : str.slice(hashIdx);
   const withoutHash = hashIdx === -1 ? str : str.slice(0, hashIdx);
@@ -52,7 +63,7 @@ function resolveQsTokens(str: string): string {
         const fallback = match[2]; // undefined if no fallback was specified
         const val = urlParams.get(paramName);
         if (val !== null) return `${k}=${encodeURIComponent(val.trim())}`;
-        if (fallback !== undefined) return `${k}=${encodeURIComponent(fallback.trim())}`;
+        if (fallback !== undefined) return `${k}=${encodeURIComponent(plainQsFallback(fallback))}`;
         return null; // no value, no fallback → strip pair
       }
       return pair;

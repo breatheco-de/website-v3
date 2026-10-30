@@ -5,6 +5,19 @@
 window_days: 6
 
 entries:
+  - date: "2026-10-30"
+    summary: "{{ funnel.products }} is the stored list; links use entry.funnel_products_encoded_ids"
+    agent_impact:
+      - "{{ funnel.products }} returns the page funnel list (array or \"all\"), same lookup as meta. It does not URI-encode and does not add the program slug. Missing products leaves the token unresolved."
+      - "CTA query strings use {{ entry.funnel_products_encoded_ids }} on program, landing, and page. That computed field is URI-encoded JSON of product, persona, and product_persona ids (sorted; empty → none; \"all\" → all). Only the program field adds { product: slug } when the list omits it. It does not write the page YAML, _common.yml, or the dataLayer."
+    tools_changed: false
+    paths:
+      - server/resolve-template-vars.ts
+      - client/src/components/SectionRenderer.tsx
+      - site_4geeks-com/content-types.yml
+      - mcp-server/explain/funnel.md
+      - mcp-server/explain/content_system.md
+      - mcp-server/explain/lead-forms.md
   - date: "2026-10-29"
     summary: "Lead forms submit only through POST /api/leads/webhook-delivery"
     agent_impact:

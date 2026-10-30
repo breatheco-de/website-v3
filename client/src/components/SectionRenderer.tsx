@@ -7,12 +7,11 @@ import { canonicalSectionId } from "@shared/sectionIdentity";
 import { useSession } from "@/contexts/SessionContext";
 import { PageFunnelProvider } from "@/contexts/PageFunnelContext";
 import { PageSectionsProvider } from "@/contexts/PageSectionsContext";
-import type { FunnelBlock } from "@shared/funnel";
+import { normalizeFunnelBlock } from "@shared/funnel";
 import { useMenuVisualContext } from "@/contexts/MenuVisualContext";
 import { VariableHighlightProvider } from "@/components/editing/VariableHighlight";
 import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
 import { resolveDeep, patchVariableFieldHighlights, type ResolveOptions, type VariableDefinition } from "@/lib/variable-manager";
-import { funnelProductsQueryValue } from "@shared/tracking-context";
 import { useLlmAudience } from "@/contexts/LlmAudienceContext";
 import { describePageSection, llmLocationCatalog } from "@/lib/llmAudienceCatalog";
 import { expandLlmVariablesDeep, type LlmVariableDef } from "@shared/llm-html-audience";
@@ -385,8 +384,8 @@ interface SectionRendererProps {
   landingLocations?: string[];
   isSharedTemplate?: boolean;
   singleEntry?: Record<string, unknown>;
-  /** Page-level funnel from merged _common.yml (tracking scope). */
-  funnel?: FunnelBlock | null;
+  /** Page funnel block as stored. Templates read it like meta; tracking normalizes it. */
+  funnel?: unknown;
   /** Page SEO meta for {{ meta.* }} in sections (may still contain {{ single.* }}). */
   meta?: Record<string, unknown>;
   /** Unified URL path + querystring params for {{ param.* }}. */
@@ -692,9 +691,10 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
   }, [contentType, slug, locale, sections, toast]);
 
   const resolvedSections = (() => {
-    const funnelBag = {
-      products: funnelProductsQueryValue(funnel, contentType, slug),
-    };
+    const funnelBag =
+      funnel && typeof funnel === "object" && !Array.isArray(funnel)
+        ? (funnel as Record<string, unknown>)
+        : undefined;
     const llmLocale = locale || "en";
     if (llmAudience) {
       const defs = (varDefinitions || {}) as Record<string, LlmVariableDef>;
@@ -1750,7 +1750,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
   ) || [];
 
   return (
-    <PageFunnelProvider funnel={funnel}>
+    <PageFunnelProvider funnel={normalizeFunnelBlock(funnel)}>
     <PageSectionsProvider value={pageSectionsContextValue}>
       <>
         {content}

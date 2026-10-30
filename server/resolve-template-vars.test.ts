@@ -317,38 +317,44 @@ describe("resolveAllTemplateVars", () => {
     resetVariableManagerCache();
   });
 
-  it("encodes {{ funnel.products }} as webhook id JSON", () => {
-    const encoded = encodeURIComponent(
-      JSON.stringify({
-        product: "ai-engineering,ai-flex",
-        persona: "the-career-changer,the-explorer",
-        product_persona: "ai-engineering:the-career-changer,ai-flex:the-explorer",
-      }),
-    );
-    const result = resolveAllTemplateVars(
-      { url: "/pay?funnel={{ funnel.products }}" },
-      {
-        funnel: {
-          products: [
-            { product: "ai-flex", persona: "the-explorer" },
-            { product: "ai-engineering", persona: "the-career-changer" },
-          ],
-        },
-      },
-    ) as { url: string };
-    expect(result.url).toBe(`/pay?funnel=${encoded}`);
+  it("returns {{ funnel.products }} as stored, including a plain string list", () => {
+    expect(
+      (
+        resolveAllTemplateVars(
+          { x: "{{ funnel.products }}" },
+          { funnel: { products: ["ai-flex"], note: "kept" } },
+        ) as { x: unknown }
+      ).x,
+    ).toEqual(["ai-flex"]);
+    expect(
+      (
+        resolveAllTemplateVars(
+          { x: "{{ funnel.note }}" },
+          { funnel: { products: ["ai-flex"], note: "kept" } },
+        ) as { x: string }
+      ).x,
+    ).toBe("kept");
   });
 
-  it("uses none when there is no funnel and all when products is all", () => {
-    const none = encodeURIComponent(
-      JSON.stringify({ product: "none", persona: "none", product_persona: "none" }),
-    );
-    const all = encodeURIComponent(
-      JSON.stringify({ product: "all", persona: "all", product_persona: "all" }),
-    );
+  it("returns stored {{ funnel.products }} like meta, stringifying inside a longer string", () => {
+    const products = [
+      { product: "ai-flex", persona: "the-explorer" },
+      { product: "ai-engineering", persona: "the-career-changer" },
+    ];
+    const result = resolveAllTemplateVars(
+      { url: "/pay?funnel={{ funnel.products }}" },
+      { funnel: { products } },
+    ) as { url: string };
+    expect(result.url).toBe(`/pay?funnel=${JSON.stringify(products)}`);
+    expect(
+      (resolveAllTemplateVars({ x: "{{ funnel.products }}" }, { funnel: { products } }) as { x: unknown }).x,
+    ).toEqual(products);
+  });
+
+  it("leaves {{ funnel.products }} when missing and returns all when products is all", () => {
     expect(
       (resolveAllTemplateVars({ x: "{{ funnel.products }}" }) as { x: string }).x,
-    ).toBe(none);
+    ).toBe("{{ funnel.products }}");
     expect(
       (
         resolveAllTemplateVars(
@@ -356,7 +362,7 @@ describe("resolveAllTemplateVars", () => {
           { funnel: { products: "all" } },
         ) as { x: string }
       ).x,
-    ).toBe(all);
+    ).toBe("all");
     expect(
       (
         resolveAllTemplateVars({
@@ -364,17 +370,10 @@ describe("resolveAllTemplateVars", () => {
           x: "{{ funnel.products }}",
         }) as { x: string }
       ).x,
-    ).toBe(all);
+    ).toBe("all");
   });
 
-  it("includes the program itself for {{ funnel.products }} when type is passed and slug is on singleEntry", () => {
-    const encoded = encodeURIComponent(
-      JSON.stringify({
-        product: "ai-engineering",
-        persona: "none",
-        product_persona: "ai-engineering:",
-      }),
-    );
+  it("does not add the program itself to {{ funnel.products }}", () => {
     expect(
       (
         resolveAllTemplateVars(
@@ -382,17 +381,6 @@ describe("resolveAllTemplateVars", () => {
           { contentType: "program", singleEntry: { slug: "ai-engineering" }, funnel: {} },
         ) as { x: string }
       ).x,
-    ).toBe(encoded);
-    const none = encodeURIComponent(
-      JSON.stringify({ product: "none", persona: "none", product_persona: "none" }),
-    );
-    expect(
-      (
-        resolveAllTemplateVars(
-          { x: "{{ funnel.products }}" },
-          { singleEntry: { contentType: "program", slug: "ai-engineering" }, funnel: {} },
-        ) as { x: string }
-      ).x,
-    ).toBe(none);
+    ).toBe("{{ funnel.products }}");
   });
 });
