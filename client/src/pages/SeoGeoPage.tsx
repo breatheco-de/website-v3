@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { AlertTriangle, ArrowDown, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Brain, Check, ChevronDown, Copy, Crosshair, Download, DownloadCloud, ExternalLink, Filter, Globe, History, Info, Loader2, MoreVertical, MousePointerClick, Network, Pencil, Plus, RefreshCw, ShieldCheck, Star, TrendingUp, Unlink, type LucideIcon } from "lucide-react";
 import { OpenRushFetchControl } from "@/components/seo/OpenRushFetchControl";
+import { RecentPageChangesCard } from "@/components/indexnow/RecentPageChangesCard";
 import { formatOpenRushFetchedAge } from "@/components/seo/openrushFetchAge";
 import { SeoIndexReindexControl } from "@/components/seo/SeoIndexReindexControl";
 import * as CountryFlags from "country-flag-icons/react/3x2";
@@ -4936,6 +4937,8 @@ export function SeoTab({
       </div>
 
       <SearchConsoleCoverageCard configured={gsc?.configured} summary={summary} />
+
+      <RecentPageChangesCard />
 
       <SeoOverviewCollapsibleCard
         testId="card-cluster-map"

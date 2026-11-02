@@ -2315,7 +2315,8 @@ export function registerPageTools(
     "release (drop your claim or staff release — requires report min 80 when an active claim exists; idempotent no-op if already unclaimed), " +
     "complete (re-validates the entry — or seo-duplicates for DUPLICATE_* — then soft-completes only if the issue_id is gone; " +
     "also lists auto_completed_ids for sibling issues on that entry cleared by the same revalidation; refuses with complete_rejected_still_open + prior_attempts if still failing), " +
-    "uncomplete (reopen). " +
+    "uncomplete (reopen), " +
+    "mark_link_ok (EXTERNAL_LINK_GONE / EXTERNAL_LINK_UNREACHABLE only: record that the URL works for visitors — applies to every page using that URL; requires report min 40 chars with your evidence; use only when you verified the link opens the cited content). " +
     "MCP-only: claim requires report (why you are taking this issue + what you plan to change; min 80 chars; optional when refreshing your own claim). " +
     "complete requires why + highlights (goal + biggest deltas; not JSON/YAML dumps). " +
     "release requires report when releasing an active claim (what you tried + why stopping; stored as prior_attempts for the next agent). " +
@@ -2331,8 +2332,8 @@ export function registerPageTools(
     {
       issue_id: z.string().describe("Stable issue id from validation_issues[].id"),
       action: z
-        .enum(["claim", "release", "complete", "uncomplete"])
-        .describe("claim | release | complete | uncomplete"),
+        .enum(["claim", "release", "complete", "uncomplete", "mark_link_ok"])
+        .describe("claim | release | complete | uncomplete | mark_link_ok (EXTERNAL_LINK_GONE / EXTERNAL_LINK_UNREACHABLE only)"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
       model: z
         .string()
@@ -2366,6 +2367,71 @@ export function registerPageTools(
       const { domain } = siteResult;
 
       let trimmedReport = typeof report === "string" ? report.trim() : "";
+      if (action === "mark_link_ok") {
+        if (trimmedReport.length < 40) {
+          return actionRequired(
+            {
+              success: false,
+              action_required: "report_required",
+              code: trimmedReport ? "report_too_short" : "report_required",
+              message:
+                "mark_link_ok requires report (min 40 chars): the evidence that the link works for visitors (e.g. what you opened and what it showed).",
+            },
+            [],
+          );
+        }
+        const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
+        const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/link-status/verify-ok${q}`, {
+          method: "POST",
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          body: JSON.stringify({ issueId: issue_id, reason: trimmedReport }),
+        }).catch((err: unknown) => err as Error);
+        if (res instanceof Error) return fail(`mark_link_ok failed: ${res.message}`, { code: "mark_link_ok_failed" });
+        const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+        if (!res.ok) {
+          return fail(String(data.error ?? `mark_link_ok failed (${res.status})`), {
+            code: typeof data.code === "string" ? data.code : "mark_link_ok_failed",
+            status: res.status,
+          });
+        }
+        const entryKeys = Array.isArray(data.entry_keys) ? (data.entry_keys as string[]) : [];
+        return ok(
+          {
+            issue_id,
+            action,
+            url: data.url,
+            entry_keys: entryKeys,
+            cleared_issue_ids: data.cleared_issue_ids ?? [],
+            verified_ok: (data.record as { verified_ok?: unknown } | null)?.verified_ok ?? null,
+          },
+          {
+            side_effects: [
+              {
+                kind: "link_status_verified_ok",
+                summary: `Marked ${String(data.url)} as working for ${entryKeys.length} entr${entryKeys.length === 1 ? "y" : "ies"}; re-ran external-links for them`,
+                paths: [`${siteResult.contentFolder}/link-status.json`],
+              },
+            ],
+            warnings: [
+              {
+                code: "applies_to_all_pages_using_url",
+                message:
+                  "Applies site-wide to this URL: no page using it is flagged for EXTERNAL_LINK_GONE / EXTERNAL_LINK_UNREACHABLE until the mark is removed (staff: Diagnostics or DELETE /api/validation/link-status/verify-ok).",
+              },
+              {
+                code: "mark_dropped_when_unused",
+                message:
+                  "The mark is dropped when no live page uses the URL any more (site-wide diagnostics prune), so a link removed and added back later is checked again.",
+              },
+              {
+                code: "no_content_change",
+                message: "Does not edit YAML or push GitHub; only link-status.json and this environment's validation cache.",
+              },
+            ],
+            next_actions: [],
+          },
+        );
+      }
       if (action === "complete") {
         const whyS = sanitizeWhy(why);
         const hl = sanitizeHighlights(highlights);
@@ -2745,7 +2811,9 @@ export function registerPageTools(
     "non_effects: entry/slug runs do not refresh redirects/slug-conflicts/sitemap/seo-duplicates; fixing meta does not clear REDIRECT_CONFLICT or DUPLICATE_TITLE; " +
     "does not change staff Diagnostics HTTP payloads. Empty issues without lastFullRunAt means cache_miss, not clean. After edits prefer freshness 'hard' + one slug then poll get_diagnostics_job. " +
     "In-app / MCP content writes debounce entry-local validation for 1 minute; redirect-config changes queue redirects separately. " +
-    "When get_entry_* returns validation_pending:true, cache may lag until that debounce settles.",
+    "When get_entry_* returns validation_pending:true, cache may lag until that debounce settles. " +
+    "External links: on the live server, recompute jobs first re-check due external URLs (site-wide: up to 300 new or >7-day-old; one slug + hard: that page's URLs now) into link-status.json; " +
+    "EXTERNAL_LINK_GONE / EXTERNAL_LINK_UNREACHABLE need two dead results ≥3 days apart (explain_site seo). Cached responses include external_link_coverage.",
     {
       slugs: z.array(z.string()).optional().describe("Optional page slugs to scope. Any slug count that needs a recompute starts an async job (poll get_diagnostics_job). Omit for site-wide (needs confirm:true)."),
       categories: z
@@ -2967,11 +3035,19 @@ export function registerPageTools(
                 "open_issues[] is a ranked page of the open work queue (default 50). Soft-completed and other-author claims are excluded unless issue_status is completed, claimed, or all. Use open_issues_offset/open_issues_next_offset to page; full set remains in validation-cache / staff Diagnostics.",
             });
           }
+          const coverageRes = await fetch(
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/link-status/coverage${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`,
+            { headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }) },
+          ).catch(() => null);
+          const coverageBody = coverageRes?.ok
+            ? ((await coverageRes.json().catch(() => null)) as { external_links?: unknown } | null)
+            : null;
           return ok(
             {
               status: "cached",
               ...diagnosticsIssueQueueFields(queue),
               lastFullRunAtBySlug: data.lastFullRunAtBySlug ?? {},
+              ...(coverageBody?.external_links ? { external_link_coverage: coverageBody.external_links } : {}),
               cache_misses: cacheMisses,
               message: cacheMisses.length
                 ? "Returned cache work queue; some slugs have no lastFullRunAt (cache_miss — not necessarily clean)."

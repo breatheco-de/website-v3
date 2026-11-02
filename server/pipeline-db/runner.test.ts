@@ -2138,6 +2138,53 @@ describe("pipeline-db runner", () => {
     rmSite(site);
   });
 
+  it("adds public URL change log tables when upgrading from v45", () => {
+    const site = `${TEST_PREFIX}-v45-public-urls-${Date.now()}`;
+    rmSite(site);
+    fs.mkdirSync(siteDir(site), { recursive: true });
+    const raw = new Database(dbPath(site));
+    raw.exec(`
+      CREATE TABLE pipeline_schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO pipeline_schema_version (id, version) VALUES (1, 45);
+      CREATE TABLE lead_outbox (
+        submission_id TEXT PRIMARY KEY,
+        status TEXT NOT NULL,
+        url_host TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO lead_outbox (submission_id, status, created_at, updated_at) VALUES ('lead-1', 'delivered', 1, 1);
+    `);
+    raw.close();
+
+    ensurePipelineDb(site, { skipBackup: true });
+    expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    const db = new Database(dbPath(site));
+    db.prepare(
+      `INSERT INTO public_url_state (url, first_seen_at, last_seen_at) VALUES ('https://example.com/en/a', 1, 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO public_url_changes (url, kind, detected_at) VALUES ('https://example.com/en/a', 'published', 1)`,
+    ).run();
+    db.prepare(`INSERT INTO public_url_consumers (consumer) VALUES ('indexnow')`).run();
+    db.prepare(`INSERT INTO public_url_scan_state (id) VALUES (1)`).run();
+    db.prepare(
+      `INSERT INTO public_url_pending_updates (url, queued_at) VALUES ('https://example.com/en/a', 1)`,
+    ).run();
+    const consumer = db
+      .prepare(`SELECT last_change_id, last_submitted_count, stopped_at FROM public_url_consumers`)
+      .get();
+    expect(consumer).toEqual({ last_change_id: 0, last_submitted_count: 0, stopped_at: null });
+    const scan = db.prepare(`SELECT held_removed_count, release_next_drop FROM public_url_scan_state`).get();
+    expect(scan).toEqual({ held_removed_count: 0, release_next_drop: 0 });
+    expect((db.prepare(`SELECT status FROM lead_outbox`).get() as { status: string }).status).toBe("delivered");
+    db.close();
+    rmSite(site);
+  });
+
   it("fails fast when migration cannot write", () => {
     const site = `${TEST_PREFIX}-readonly-${Date.now()}`;
     rmSite(site);

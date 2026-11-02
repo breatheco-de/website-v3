@@ -21,6 +21,8 @@ import { LocalDatabaseRefreshJob } from "./definitions/local-database-refresh";
 import { VectorIndexSyncJob } from "./definitions/vector-index-sync";
 import { EvidenceArchiveJob } from "./definitions/evidence-archive";
 import { EvidenceArchiveSweepJob } from "./definitions/evidence-archive-sweep";
+import { PublicUrlChangesScanJob } from "./definitions/public-url-changes-scan";
+import { IndexNowSubmitJob } from "./definitions/indexnow-submit";
 
 export function registerAllJobs(): void {
   registerJobClass("index_refresh", IndexRefreshJob);
@@ -46,4 +48,6 @@ export function registerAllJobs(): void {
   registerJobClass("vector_index_sync", VectorIndexSyncJob);
   registerJobClass("evidence_archive", EvidenceArchiveJob);
   registerJobClass("evidence_archive_sweep", EvidenceArchiveSweepJob);
+  registerJobClass("public_url_changes_scan", PublicUrlChangesScanJob);
+  registerJobClass("indexnow_submit", IndexNowSubmitJob);
 }

@@ -36,7 +36,7 @@ Fact-staleness class for **substantive** content refreshes — **not** GSC traff
 
 | Action | When | Credits (approx) | TTL |
 |---|---|---|---|
-| `keyword_metrics` | Volume/difficulty for main_keyword | 5 | 7d |
+| `keyword_metrics` | Volume/difficulty for main_keyword; `kw_difficulty_source` = `reported` or `derived_from_competition` (rough proxy) | 5 | 7d |
 | `serp` | Live SERP snapshot for a query | 2 | 7d |
 | `keyword_ideas` | Expand a seed into demand ideas | 3 | 7d |
 | `competitors` | Rival domains (domain or seeds) | 7 | 14d |
@@ -118,3 +118,16 @@ Every internal link on the page must reach a live page. Same answer as Redirects
 - **Rollout per site:** blocking starts only after data migration `005_fix_broken_internal_links` completed for that site (Settings → General → Migrations). Before that, live saves pass with warning `broken_internal_links_not_enforced`.
 - **Not gated:** shared DB/template edits (`layout_target` type template), which have no single page URL.
 - **Fix:** copy URLs from list/get tools (`list_entries`, `test_redirect`) — never invent slugs. Use `closest_live_match` only when it is the page you meant; otherwise remove the link and keep the anchor text.
+- **Full URLs on our own domain** (`https://4geeks.com/es/…`, aliases included): the save gate still skips them, but diagnostics `BROKEN_INTERNAL_LINK` checks their path like a relative link.
+
+## External links and images (diagnostics only, `external-links` validator)
+
+Dead third-party links and images are reported from a saved check per URL — never blocks a save, and validators make no network requests.
+
+- **Who checks:** only the live server's diagnostics runs (`run_entry_diagnostics` jobs and staff Refresh) request external URLs, before validators run. Site-wide runs check up to 300 URLs that are new or older than 7 days; a one-slug `freshness: "hard"` run rechecks that page's URLs immediately. Results: `{site}/link-status.json` (GCS-synced on production, never committed to the content repo). Dev reads the synced file and checks only with `LINK_CHECK_LOCAL=1`.
+- **What counts:** one `GET` per URL. `gone` = 404/410, or a deep link that redirects to the site root / a bare locale root (`reason: redirected_to_home`). `unreachable` = domain does not exist or certificate invalid. Everything else (403, 429, LinkedIn 999, challenge pages, 5xx, timeouts) is `unknown` and never shown.
+- **Codes:** `EXTERNAL_LINK_GONE` (warning) and `EXTERNAL_LINK_UNREACHABLE` (warning) need two such results ≥ 3 days apart. `OWN_MEDIA_GONE` (error) = image on our storage buckets returned 404 once. One issue per page per URL; `external_link { url, field_paths, media, status, reason, final_url, http_status, checked_at, gone_streak, unreachable_streak, other_entries_using_url, archive_lookup }` on `open_issues[]` / `get_validation_issues`.
+- **Scope:** live locale content only — markdown links and images, `<a href>`, `<img src>`, URL and image fields (`src`, `image`, `og_image`, …). Drafts and A/B variants are not checked. Skipped: own domains (internal check), archive.org copies, `{{ }}` templates, `meta.redirects`.
+- **Fix:** `get_entry_fields` on `field_paths`, then `update_fields` with a live source or the archived copy (`archive_lookup` opens the latest Wayback snapshot when one exists — confirm it loads before linking), or remove the link. A replaced URL has no saved check, so the issue clears on the next validator pass.
+- **False alarm:** `update_issue` action `mark_link_ok` + `report` (≥ 40 chars of evidence) marks the URL as working for **every** page that uses it and re-runs `external-links` for them. The mark is dropped when no live page uses the URL any more. Never mark a link you did not open. `OWN_MEDIA_GONE` cannot be marked.
+- **Coverage:** cached `run_entry_diagnostics` responses include `external_link_coverage { total, checked, gone, unreachable, verified_ok }`. Right after launch most links are unchecked, and nothing is confirmed until the second check a few days later.

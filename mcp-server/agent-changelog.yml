@@ -5,6 +5,32 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-02"
+    summary: "Diagnostics now report dead external links and images (EXTERNAL_LINK_GONE, EXTERNAL_LINK_UNREACHABLE, OWN_MEDIA_GONE); update_issue gains mark_link_ok"
+    agent_impact:
+      - "New entry-local validator external-links reads saved checks in {site}/link-status.json (no network in validators). Only live-server diagnostics jobs re-check URLs: site-wide up to 300 new or >7-day-old; one slug + freshness hard rechecks that page now. GONE/UNREACHABLE need two dead results ≥3 days apart; OWN_MEDIA_GONE (error) = 404 on our storage bucket once. Bot walls / 403 / 429 / 999 / 5xx / timeouts are never reported."
+      - "Issues carry external_link { url, field_paths, media, status, reason (not_found | redirected_to_home | unreachable), final_url, checked_at, gone_streak, other_entries_using_url, archive_lookup }. Fix with get_entry_fields + update_fields; a replaced URL clears on the next pass. update_issue action mark_link_ok (report ≥40 chars of evidence) marks the URL working for every page using it — only after you opened it."
+      - "Diagnostics BROKEN_INTERNAL_LINK now also checks full URLs on our own domain (https://4geeks.com/...); the live-save link gate is unchanged. Cached run_entry_diagnostics responses include external_link_coverage. Drafts and A/B variants are not checked."
+    tools_changed: false
+    paths:
+      - scripts/validation/validators/external-links.ts
+      - server/link-check/
+      - server/link-index.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/seo.md
+  - date: "2026-11-02"
+    summary: "get_or_refresh_seo_research runs with why only (no more \"highlights required\"); keyword_metrics says where difficulty came from"
+    agent_impact:
+      - "Every get_or_refresh_seo_research call was refused with \"highlights required for structural edits\" even though the tool has no highlights arg. It now checks why only (≥40 chars, not boilerplate); session, seo_edit, budget and cache rules are unchanged."
+      - "keyword_metrics data gains kw_difficulty_source (reported | derived_from_competition | null), competition_level and market { location, language }. derived_from_competition means the provider sent no difficulty and we mapped its ad competition (LOW→20, MEDIUM→50, HIGH→80, very high→90; 0–1 ×100) — warning seo_research_difficulty_derived; call it a rough proxy, not a ranking-difficulty score."
+      - "Results use the site's configured research market (Settings → OpenRush location/language, default United States / English), not the page locale — compare data.market before quoting numbers for another country."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/seo-clusters.ts
+      - mcp-server/lib/seo-research-mcp.ts
+      - server/openrush-keyword-difficulty.ts
+      - server/openrush-keyword-cache.ts
+      - shared/agent-report-structured.ts
   - date: "2026-10-30"
     summary: "{{ funnel.products }} is the stored list; links use entry.funnel_products_encoded_ids"
     agent_impact:

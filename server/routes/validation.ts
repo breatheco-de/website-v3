@@ -95,6 +95,8 @@ import {
 } from "../validation-issue-context";
 import { markFileAsModified } from "../sync-state";
 import { api } from "../rate-limit/api";
+import { VERIFY_OK_CODES, markExternalLinkOk, unmarkExternalLinkOk } from "../link-check/verify-ok";
+import { getCoverage } from "../link-check/status-store";
 const log = child({ module: "routes/validation" });
 
 /** Returns the per-site ContentIndex for this request, falling back to the global singleton in single-site mode. */
@@ -1519,6 +1521,77 @@ export function registerValidationRoutes(app: Express): void {
     const dismissed = await cache.dismissIssuesByUrlAndCode(url, code);
     return res.json({ success: true, dismissed });
   });
+
+  /** External URL from `url`, or from an EXTERNAL_LINK_* issue's saved details. */
+  const resolveVerifyOkUrl = (
+    res: Response,
+    body: Record<string, unknown> | undefined,
+  ): { ok: true; url: string } | { ok: false; status: number; error: string; code: string } => {
+    const issueId = typeof body?.issueId === "string" ? body.issueId.trim() : "";
+    if (issueId) {
+      const issue = getValidationCache(res).getIssueById(issueId);
+      if (!issue) return { ok: false, status: 404, error: `Unknown issue id: ${issueId}`, code: "unknown_issue" };
+      if (!VERIFY_OK_CODES.has(issue.code) || !issue.externalLink?.url) {
+        return {
+          ok: false,
+          status: 400,
+          error: `"This link works" applies only to ${[...VERIFY_OK_CODES].join(" / ")} issues (got ${issue.code}).`,
+          code: "verify_ok_wrong_code",
+        };
+      }
+      return { ok: true, url: issue.externalLink.url };
+    }
+    const url = typeof body?.url === "string" ? body.url.trim() : "";
+    if (!/^https?:\/\//i.test(url)) {
+      return { ok: false, status: 400, error: "issueId or an absolute http(s) url is required", code: "missing_url" };
+    }
+    return { ok: true, url };
+  };
+
+  /** "This link works": stop flagging one external URL on every page that uses it. */
+  api.post(app, "/api/validation/link-status/verify-ok", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+    const target = resolveVerifyOkUrl(res, req.body);
+    if (!target.ok) return res.status(target.status).json({ error: target.error, code: target.code });
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    if (!reason) return res.status(400).json({ error: "reason is required", code: "missing_reason" });
+    const result = await markExternalLinkOk({
+      cache: getValidationCache(res),
+      ci: getCI(res),
+      contentRoot: getContentRoot(res),
+      url: target.url,
+      by: auth.author || auth.username || "staff",
+      reason,
+    });
+    return res.json({ success: true, ...result });
+  });
+
+  api.delete(app, "/api/validation/link-status/verify-ok", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+    const target = resolveVerifyOkUrl(res, { ...(req.query as Record<string, unknown>), ...(req.body ?? {}) });
+    if (!target.ok) return res.status(target.status).json({ error: target.error, code: target.code });
+    const result = await unmarkExternalLinkOk({
+      cache: getValidationCache(res),
+      ci: getCI(res),
+      contentRoot: getContentRoot(res),
+      url: target.url,
+    });
+    return res.json({ success: true, ...result });
+  });
+
+  /** External links checked so far vs. used in content (Global Health coverage line). */
+  api.get(
+    app,
+    "/api/validation/link-status/coverage",
+    { rate: "exempt", reason: "staff dashboard read of a small local file" },
+    async (req, res) => {
+      const auth = await requireCapability(req, res, "metrics_view");
+      if (!auth.authorized) return;
+      return res.json({ external_links: getCoverage(getContentRoot(res)) });
+    },
+  );
 
   app.get("/api/validation/diagnostics-jobs", async (req, res) => {
     const auth = await requireCapability(req, res, "metrics_view");

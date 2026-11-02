@@ -12,6 +12,7 @@ export const SYNC_FILENAMES = {
   runtimeIssuesIgnore: "runtime-issues-ignore.json",
   gscUrlInspection: "gsc-url-inspection.json",
   linkIndex: "link-index.json",
+  linkStatus: "link-status.json",
   relationIndex: "relation-index.json",
   seoIndex: "seo-index.json",
 } as const;

@@ -187,6 +187,7 @@ export default function PrivateRouter() {
           <Route path="/private/settings/seo/og" component={SeoGeoSettingsPage} />
           <Route path="/private/settings/seo/schema" component={SeoGeoSettingsPage} />
           <Route path="/private/settings/seo/search-console" component={SeoGeoSettingsPage} />
+          <Route path="/private/settings/seo/indexnow" component={SeoGeoSettingsPage} />
           <Route path="/private/settings/seo/openrush" component={SeoGeoSettingsPage} />
           <Route path="/private/settings/seo" component={SeoGeoSettingsPage} />
           <Route path="/private/settings/ads/meta" component={AdsSettingsPage} />

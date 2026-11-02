@@ -6,6 +6,8 @@ import {
   _resetLinkIndexStateForTests,
   entryKeysFromDeletedPaths,
   flushLinkIndexPendingSync,
+  getEntriesForExternalUrl,
+  getLinkIndexExternal,
   getLinkIndexOutbound,
   invertLinkIndex,
   LINK_INDEX_FILENAME,
@@ -55,6 +57,33 @@ describe("link-index", () => {
     });
     expect(inverted.get("/en/hub")?.sort()).toEqual(["blog/a/en", "page/b/en"]);
     expect(inverted.get("/en/other")).toEqual(["blog/a/en"]);
+  });
+
+  it("stores external URLs per entry, keeps them when a set omits them, and inverts by URL", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "link-index-external-"));
+    _resetLinkIndexStateForTests();
+    rebuildLinkIndex({ "blog/a/en": ["/en/hub"] }, dir, {
+      "blog/a/en": ["https://x.com/1"],
+      "blog/b/en": ["https://x.com/1", "https://y.com/2"],
+    });
+    expect(getEntriesForExternalUrl("https://x.com/1", dir)).toEqual(["blog/a/en", "blog/b/en"]);
+    queueLinkIndexSet("blog/a/en", ["/en/hub2"], dir);
+    flushLinkIndexPendingSync(dir);
+    expect(getLinkIndexExternal("blog/a/en", dir)).toEqual(["https://x.com/1"]);
+    queueLinkIndexSet("blog/a/en", ["/en/hub2"], dir, []);
+    flushLinkIndexPendingSync(dir);
+    expect(getLinkIndexExternal("blog/a/en", dir)).toBeNull();
+  });
+
+  it("reads files written before the external map existed", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "link-index-v1-"));
+    _resetLinkIndexStateForTests();
+    fs.writeFileSync(
+      path.join(dir, LINK_INDEX_FILENAME),
+      JSON.stringify({ version: 1, updated_at: "x", outbound: { "page/p/en": ["/en/a"] } }),
+    );
+    expect(getLinkIndexOutbound("page/p/en", dir)).toEqual(["/en/a"]);
+    expect(getEntriesForExternalUrl("https://x.com/1", dir)).toEqual([]);
   });
 
   it("entryKeysFromDeletedPaths parses locale YAML paths", () => {

@@ -193,6 +193,25 @@ describe("event dispatcher", () => {
     expect(mocks.clearSiteSitemapCache).not.toHaveBeenCalled();
   });
 
+  it("live content changes enqueue one debounced public URL scan per site; variant saves do not", async () => {
+    await dispatchEventForTest(baseEvent("entry_locale_saved"));
+    const scans = mocks.enqueueJob.mock.calls.filter((c) => c[0] === "public_url_changes_scan");
+    expect(scans).toHaveLength(1);
+    expect(scans[0]?.[1]).toEqual(expect.objectContaining({ site: "site_test", contentRoot: "/tmp/site_test" }));
+    expect(scans[0]?.[2]).toEqual(
+      expect.objectContaining({ uniqueKey: "public-urls:site_test", uniqueWhileAlive: true, delayMs: 30_000 }),
+    );
+
+    mocks.enqueueJob.mockClear();
+    await dispatchEventForTest(
+      baseEvent("entry_locale_saved", {
+        resource: { contentType: "page", slug: "home", locale: "en", layer: "variant" },
+        payload: { layer: "variant" },
+      }),
+    );
+    expect(jobNames()).not.toContain("public_url_changes_scan");
+  });
+
   it("entry_deleted enqueues cleanup", async () => {
     await dispatchEventForTest(
       baseEvent("entry_deleted", {

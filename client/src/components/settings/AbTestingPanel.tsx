@@ -6,6 +6,7 @@ import {
   IconBrandGoogleAnalytics,
   IconCircleCheck,
   IconCircleX,
+  IconFlask,
   IconListCheck,
   IconLoader2,
   IconPlayerPlay,
@@ -37,6 +38,16 @@ type CheckRun = {
   error?: string;
 };
 
+type ActiveTest = {
+  contentType: string;
+  slug: string;
+  locale: string;
+  started_at: string | null;
+  template: boolean;
+  url: string | null;
+  variants: Array<{ slug: string; allocation: number }>;
+};
+
 type AbStatus = {
   set_up: boolean;
   latest_check_ok: boolean;
@@ -46,6 +57,7 @@ type AbStatus = {
   has_token: boolean;
   running: boolean;
   running_tests: number;
+  active_tests: ActiveTest[];
   latest_run: CheckRun | null;
   latest_summary: string | null;
   latest_conclusive_status: "passed" | "failed" | null;
@@ -160,6 +172,86 @@ function CheckList({ run }: { run: CheckRun }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+function splitLine(variants: ActiveTest["variants"]): string {
+  const onVariants = variants.reduce((n, v) => n + (v.allocation > 0 ? v.allocation : 0), 0);
+  const parts = [`Default ${Math.max(0, 100 - onVariants)}%`];
+  for (const v of variants) if (v.allocation > 0) parts.push(`${v.slug} ${v.allocation}%`);
+  return parts.join(" / ");
+}
+
+function formatDate(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString();
+}
+
+function LiveTestsCard() {
+  const { data } = useAbStatus();
+  if (!data) return null;
+  const tests = data.active_tests ?? [];
+  const paused = !data.set_up;
+
+  return (
+    <Card data-testid="panel-ab-live-tests">
+      <CardHeader className="flex flex-row items-center justify-between gap-2 pb-3">
+        <div className="flex items-center gap-2">
+          <IconFlask className="h-5 w-5 text-muted-foreground" />
+          <CardTitle className="text-base">Live tests</CardTitle>
+        </div>
+        <Badge variant="outline" className="text-xs font-normal" data-testid="badge-ab-live-count">
+          {tests.length} running
+        </Badge>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        {tests.length === 0 ? (
+          <p className="text-sm text-muted-foreground" data-testid="text-ab-live-empty">
+            No tests are running. A test starts when a page version gets traffic above 0%.
+          </p>
+        ) : (
+          <>
+            {paused && (
+              <p className="flex items-start gap-2 text-xs text-status-away" data-testid="text-ab-live-paused">
+                <IconAlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Paused until setup passes: visitors see Default on these pages.
+              </p>
+            )}
+            <ul className="divide-y text-sm">
+              {tests.map((t) => {
+                const key = `${t.contentType}:${t.slug}:${t.locale}`;
+                const started = formatDate(t.started_at);
+                const label = t.template ? `All ${t.contentType} pages (shared template)` : t.url ?? `${t.contentType}/${t.slug}`;
+                return (
+                  <li key={key} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2" data-testid={`ab-live-test-${key}`}>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Badge variant="outline" className="text-xs font-normal uppercase">{t.locale}</Badge>
+                      {t.url ? (
+                        <a
+                          href={t.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="truncate font-mono text-xs underline-offset-2 hover:underline"
+                        >
+                          {label}
+                        </a>
+                      ) : (
+                        <span className="truncate font-mono text-xs">{label}</span>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {splitLine(t.variants)}
+                      {started ? ` · since ${started}` : ""}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -603,6 +695,7 @@ export function AbTestingPanel() {
         </ul>
       </details>
       <div className="space-y-4 pt-2">
+        <LiveTestsCard />
         <SetupCard canManage={canManage} />
         <HealthCard canManage={canManage} />
         {canViewMetrics && <AnalyticsCard canManage={canManage} />}

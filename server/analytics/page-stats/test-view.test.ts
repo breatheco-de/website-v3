@@ -13,7 +13,7 @@ import { clearSiteSqliteCacheForTests } from "../../db";
 import { resetPipelineDbCache } from "../../pipeline-db/runner";
 import { insertLedgerRow } from "../../ads/lead-ledger";
 import { queryTestLeads } from "./leads";
-import { buildCompareRows, firstPartyNotices, testWindow, TEST_VIEW_CAP_DAYS } from "./test-view";
+import { buildCompareRows, firstPartyCoversTest, firstPartyNotices, testWindow, TEST_VIEW_CAP_DAYS } from "./test-view";
 import { pageStatsSchema } from "../../routes/analytics";
 import type { TrafficTotals, VersionFacts } from "@shared/page-stats";
 
@@ -189,6 +189,28 @@ describe("firstPartyNotices", () => {
       { kind: "first_party_started", day: "2026-10-03" },
       { kind: "first_party_gap", start: "2026-10-05", end: "2026-10-08" },
     ]);
+  });
+});
+
+describe("firstPartyCoversTest", () => {
+  const now = Date.parse("2026-10-21T12:00:00Z");
+  const w = (on: string, off: string | null) => ({
+    content_type: "landing",
+    enabled_at: Date.parse(on),
+    disabled_at: off ? Date.parse(off) : null,
+  });
+
+  it("is true when own counting overlapped the test, even if it is off now", () => {
+    expect(firstPartyCoversTest([w("2026-10-03T00:00:00Z", "2026-10-10T00:00:00Z")], { started_at: "2026-10-05", ended_at: null }, now)).toBe(true);
+  });
+
+  it("is false when counting stopped before the test or started after it ended", () => {
+    expect(firstPartyCoversTest([w("2026-09-01T00:00:00Z", "2026-09-30T00:00:00Z")], { started_at: "2026-10-05", ended_at: null }, now)).toBe(false);
+    expect(firstPartyCoversTest([w("2026-10-15T00:00:00Z", null)], { started_at: "2026-10-01", ended_at: "2026-10-10" }, now)).toBe(false);
+  });
+
+  it("is false with no counting history", () => {
+    expect(firstPartyCoversTest([], { started_at: "2026-10-05", ended_at: null }, now)).toBe(false);
   });
 });
 

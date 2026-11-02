@@ -43,6 +43,7 @@ const SKIP_SUBTREE_KEYS = new Set(["redirects"]);
 
 const STATIC_EXT_RE =
   /\.(?:png|jpe?g|gif|webp|avif|svg|ico|pdf|css|json|xml|txt|mp4|webm|mov|mp3|zip|woff2?|ttf|csv)$/i;
+const STATIC_IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|avif|svg|ico)$/i;
 const NON_PAGE_PREFIXES = ["/api/", "/v1/", "/attached_assets/", "/images/", "/assets/", "/uploads/", "/static/"];
 
 function isUrlFieldKey(key: string): boolean {
@@ -137,6 +138,149 @@ function hitsFromString(
     const path = linkToInternalPath(link, opts);
     if (path) push({ link, path, fieldPath, component, kind: "bare" });
   }
+}
+
+export type ExternalLinkMedia = "link" | "image";
+
+export interface ExternalLinkHit {
+  /** Absolute URL without its #fragment (the part a server sees). */
+  url: string;
+  fieldPath: string;
+  component?: string;
+  media: ExternalLinkMedia;
+}
+
+export type ExtractExternalLinkOptions = {
+  /** Hosts resolved offline as internal links (www. ignored); never returned here. */
+  ownHosts?: string[];
+};
+
+/** Fields whose absolute value is an image, besides markdown / `<img>` in text. */
+const IMAGE_FIELD_KEYS = new Set(["src", "image", "og_image", "image_url", "thumbnail"]);
+const IMG_SRC_RE = /<img\b[^>]*\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+
+/** Absolute http(s) URL normalized for checking, or null when it is not an external target. */
+export function normalizeExternalUrl(raw: string, ownHosts: Set<string>): string | null {
+  const trimmed = raw.trim();
+  if (!/^https?:\/\//i.test(trimmed) || trimmed.includes("{{")) return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  const host = stripHost(url.hostname);
+  if (ownHosts.has(host)) return null;
+  if (host === "web.archive.org" || host === "archive.org") return null;
+  url.hash = "";
+  return url.toString();
+}
+
+/** `[text](url)` / `![alt](url)` targets with balanced parentheses (Wikipedia-style URLs). */
+function markdownTargets(text: string): Array<{ target: string; image: boolean }> {
+  const out: Array<{ target: string; image: boolean }> = [];
+  let i = text.indexOf("](");
+  while (i !== -1) {
+    const open = text.lastIndexOf("[", i);
+    const image = open > 0 && text[open - 1] === "!";
+    let j = i + 2;
+    while (j < text.length && /\s/.test(text[j]!)) j++;
+    let depth = 0;
+    let end = j;
+    for (; end < text.length; end++) {
+      const ch = text[end]!;
+      if (/\s/.test(ch)) break;
+      if (ch === "(") depth++;
+      else if (ch === ")") {
+        if (depth === 0) break;
+        depth--;
+      }
+    }
+    const target = text.slice(j, end);
+    if (target) out.push({ target, image });
+    i = text.indexOf("](", end);
+  }
+  return out;
+}
+
+/**
+ * Every external http(s) link and image in a YAML / DB tree (markdown links and images,
+ * `<a href>`, `<img src>`, and URL / image fields), deduped per (field, url).
+ * Own-site hosts and archive.org copies are skipped.
+ */
+export function extractExternalLinkHits(
+  data: unknown,
+  opts: ExtractExternalLinkOptions = {},
+): ExternalLinkHit[] {
+  const ownHosts = new Set((opts.ownHosts ?? []).map(stripHost));
+  const hits: ExternalLinkHit[] = [];
+  const seen = new Set<string>();
+  const push = (raw: string, media: ExternalLinkMedia, fieldPath: string, component?: string) => {
+    const url = normalizeExternalUrl(raw, ownHosts);
+    if (!url) return;
+    const key = `${fieldPath}\u0000${url}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    hits.push({ url, fieldPath, component, media });
+  };
+
+  const fromString = (value: string, keyHint: string, fieldPath: string, component?: string) => {
+    const text = value.trim();
+    if (!text) return;
+    if (keyHint && (isUrlFieldKey(keyHint) || IMAGE_FIELD_KEYS.has(keyHint))) {
+      if (/^https?:\/\//i.test(text)) {
+        const media: ExternalLinkMedia =
+          IMAGE_FIELD_KEYS.has(keyHint) || STATIC_IMAGE_EXT_RE.test(text.split(/[?#]/)[0]!) ? "image" : "link";
+        push(text, media, fieldPath, component);
+        return;
+      }
+    }
+    if (text.includes("](")) {
+      for (const { target, image } of markdownTargets(text)) {
+        push(target, image ? "image" : "link", fieldPath, component);
+      }
+    }
+    if (/<a\b/i.test(text)) {
+      for (const href of extractHrefValues(text)) push(href, "link", fieldPath, component);
+    }
+    if (/<img\b/i.test(text)) {
+      const re = new RegExp(IMG_SRC_RE.source, "gi");
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) !== null) {
+        const src = (m[1] ?? m[2] ?? m[3] ?? "").trim();
+        if (src) push(src, "image", fieldPath, component);
+      }
+    }
+  };
+
+  const walk = (node: unknown, keyHint: string, fieldPath: string, component?: string): void => {
+    if (node == null) return;
+    if (typeof node === "string") {
+      fromString(node, keyHint, fieldPath || "(root)", component);
+      return;
+    }
+    if (Array.isArray(node)) {
+      const underSections = fieldPath === "sections" || fieldPath.endsWith(".sections");
+      node.forEach((item, index) => {
+        let nextComponent = component;
+        if (underSections && item && typeof item === "object" && !Array.isArray(item)) {
+          const t = (item as Record<string, unknown>).type;
+          if (typeof t === "string" && t.length > 0) nextComponent = t;
+        }
+        walk(item, keyHint, `${fieldPath}[${index}]`, nextComponent);
+      });
+      return;
+    }
+    if (typeof node === "object") {
+      for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+        if (SKIP_SUBTREE_KEYS.has(k)) continue;
+        walk(v, k, fieldPath ? `${fieldPath}.${k}` : k, component);
+      }
+    }
+  };
+
+  walk(data, "", "");
+  return hits;
 }
 
 /** Every internal page link in a YAML / DB tree, deduped per (field, link). */

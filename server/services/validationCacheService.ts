@@ -12,6 +12,7 @@ import type {
   ContentFile,
   DatabaseCacheEntry,
   EntryRunMeta,
+  ExternalLinkIssueDetails,
   PageCacheEntry,
   StoredValidationIssue,
   ValidationCacheFile,
@@ -1793,6 +1794,7 @@ export type CacheIssueListRow = {
   lastFullRunAt?: string;
   suggestion?: string;
   file?: string;
+  externalLink?: ExternalLinkIssueDetails;
   completed?: { by: string; at: string; actor?: ValidationIssueActor; report?: string };
   claimed?: { by: string; at: string; expiresAt: string; actor?: ValidationIssueActor; report?: string };
   attempts?: ValidationIssueAttempt[];
@@ -1904,6 +1906,7 @@ function buildCacheIssueRowsFromIssues(
         ...(issue.staleSourceAgeMs != null ? { staleSourceAgeMs: issue.staleSourceAgeMs } : {}),
         ...(issue.staleSourceDatabase ? { staleSourceDatabase: issue.staleSourceDatabase } : {}),
         ...(issue.redirectSuggestion ? { redirectSuggestion: issue.redirectSuggestion } : {}),
+        ...(issue.externalLink ? { externalLink: issue.externalLink } : {}),
         completed,
         claimed,
         attempts,
@@ -1926,6 +1929,7 @@ function buildCacheIssueRowsFromIssues(
         ...(issue.staleSourceAgeMs != null ? { staleSourceAgeMs: issue.staleSourceAgeMs } : {}),
         ...(issue.staleSourceDatabase ? { staleSourceDatabase: issue.staleSourceDatabase } : {}),
         ...(issue.redirectSuggestion ? { redirectSuggestion: issue.redirectSuggestion } : {}),
+        ...(issue.externalLink ? { externalLink: issue.externalLink } : {}),
         completed,
         claimed,
         attempts,

@@ -18,6 +18,36 @@ import {
   diagnosticsNeedsSeoIndex,
   ensureSeoIndexBeforeDiagnostics,
 } from "../../server/seo-index";
+import { linkChecksEnabled, refreshExternalLinkStatuses } from "../../server/link-check/refresh";
+import { pruneLinkStatus } from "../../server/link-check/status-store";
+import { externalUrlsForFiles } from "./shared/externalLinkUrls";
+import { EXTERNAL_LINKS_VALIDATOR_NAME } from "./validators/external-links.issueCodes";
+
+/**
+ * Live server (or LINK_CHECK_LOCAL=1): re-check due external URLs for this run's files
+ * before validators read `link-status.json`. Never fails the diagnostics run.
+ */
+async function refreshExternalLinksForRun(input: {
+  contentRoot: string;
+  files: ContentFile[];
+  force: boolean;
+  pruneUnused: boolean;
+  onProgress: (done: number, total: number) => void;
+}): Promise<void> {
+  if (!linkChecksEnabled()) return;
+  try {
+    const urls = externalUrlsForFiles(input.files, input.contentRoot);
+    if (input.pruneUnused) pruneLinkStatus(input.contentRoot, urls);
+    await refreshExternalLinkStatuses({
+      contentRoot: input.contentRoot,
+      urls,
+      force: input.force,
+      onProgress: input.onProgress,
+    });
+  } catch (err) {
+    console.error("[diagnostics] external link refresh failed", err);
+  }
+}
 
 export type DiagnosticsUrlTarget = {
   url: string;
@@ -307,6 +337,28 @@ export async function runDiagnosticsJob(
       outcome: "cached",
       message: "Cache is still fresh for this scope.",
       targets: allTargets,
+    });
+  }
+
+  if (!validatorOnly && pageValidators.includes(EXTERNAL_LINKS_VALIDATOR_NAME)) {
+    await refreshExternalLinksForRun({
+      contentRoot,
+      files: slugFiltered
+        ? context.contentFiles.filter((file) => {
+            const fileUrl = getCanonicalUrl(file).toLowerCase().replace(/\/$/, "") || "/";
+            return staleTargets.some((t) => (t.url.toLowerCase().replace(/\/$/, "") || "/") === fileUrl);
+          })
+        : context.contentFiles,
+      force: slugFiltered && freshness === "hard",
+      pruneUnused: !slugFiltered && !partial,
+      onProgress: (done, totalUrls) =>
+        onProgress({
+          processed: 0,
+          total: 1,
+          staleUrlCount: staleTargets.length,
+          urlCount: allTargets.length,
+          message: `Checking external links (${done}/${totalUrls})`,
+        }),
     });
   }
 

@@ -9,6 +9,7 @@ import {
   waybackCapturedAt,
   waybackTimestampToIso,
 } from "@shared/evidence-archive";
+import { classifyUrl } from "../link-check/classify";
 
 const AVAILABILITY_URL = "https://archive.org/wayback/available";
 const SAVE_URL = "https://web.archive.org/save";
@@ -206,22 +207,13 @@ export async function archiveUrl(url: string, opts: ArchiveUrlOpts = {}): Promis
 
 export type OriginalCheck = "ok" | "gone" | "unknown";
 
-/** 404 / 410 → gone; 2xx / 3xx → ok; anything else (timeouts, 5xx, 403 walls) → unknown. */
+/**
+ * 404 / 410 → gone; 2xx / 3xx → ok (including homepage redirects); anything else
+ * (timeouts, 5xx, 403 walls, DNS / certificate failures) → unknown.
+ */
 export async function checkOriginal(url: string, fetchImpl: FetchLike = fetch): Promise<OriginalCheck> {
-  const attempt = async (method: "HEAD" | "GET") =>
-    fetchImpl(url, {
-      method,
-      redirect: "follow",
-      headers: { "User-Agent": USER_AGENT, Accept: "text/html,*/*" },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-  try {
-    let res = await attempt("HEAD");
-    if (res.status === 405 || res.status === 403 || res.status === 501) res = await attempt("GET");
-    if (res.status === 404 || res.status === 410) return "gone";
-    if (res.status >= 200 && res.status < 400) return "ok";
-    return "unknown";
-  } catch {
-    return "unknown";
-  }
+  const result = await classifyUrl(url, { fetchImpl, timeoutMs: REQUEST_TIMEOUT_MS });
+  if (result.status === "gone") return result.reason === "not_found" ? "gone" : "ok";
+  if (result.status === "ok") return "ok";
+  return "unknown";
 }

@@ -100,6 +100,23 @@ function siteArg(site?: string): Record<string, string> {
   return site ? { site } : {};
 }
 
+function difficultyProvenanceWarnings(
+  source: string | null,
+  competition: string | number | null,
+): McpWarning[] {
+  if (source !== "derived_from_competition") return [];
+  const label = competition == null ? "a competition score" : `competition "${competition}"`;
+  return [
+    {
+      code: "seo_research_difficulty_derived",
+      message:
+        `kw_difficulty was not reported by the provider — it is mapped from ${label} ` +
+        "(low→20, medium→50, high→80, very high→90; 0–1 scores ×100). Competition measures ad bidding, " +
+        "not how hard the keyword is to rank for. Treat kw_difficulty as a rough proxy and say so to staff.",
+    },
+  ];
+}
+
 export async function runSeoResearch(opts: {
   action: SeoResearchAction;
   contentPath: string;
@@ -238,6 +255,8 @@ export async function runSeoResearch(opts: {
     const {
       getKeywordEntry,
       keywordMetricsCompleteAndFresh,
+      keywordDifficultySourceOf,
+      competitionLevelOf,
     } = await import("../../server/openrush-keyword-cache.js");
 
     const keyword = await resolveEntryKeyword({
@@ -270,6 +289,8 @@ export async function runSeoResearch(opts: {
 
     const cached = getKeywordEntry(keyword, location, language, opts.contentFolder);
     if (!opts.force && keywordMetricsCompleteAndFresh(cached)) {
+      const difficultySource = keywordDifficultySourceOf(cached);
+      const competition = competitionLevelOf(cached);
       return {
         ok: true,
         action: "keyword_metrics",
@@ -280,6 +301,9 @@ export async function runSeoResearch(opts: {
           keyword: cached!.keyword,
           kw_monthly_volume: cached!.monthly_volume,
           kw_difficulty: cached!.kw_difficulty,
+          kw_difficulty_source: difficultySource,
+          competition_level: competition,
+          market: { location, language },
           fetched_at: cached!.fetched_at,
           notes: cached!.notes,
           source: "seo_research_cache",
@@ -289,6 +313,7 @@ export async function runSeoResearch(opts: {
             code: "seo_research_cache_hit",
             message: "Returned fresh keyword metrics from cache (no credits spent).",
           },
+          ...difficultyProvenanceWarnings(difficultySource, competition),
         ],
         side_effects: [],
         next_actions: [
@@ -367,6 +392,9 @@ export async function runSeoResearch(opts: {
         keyword: inspected.metrics.keyword,
         kw_monthly_volume: volume ?? null,
         kw_difficulty: difficulty ?? null,
+        kw_difficulty_source: inspected.metrics.kw_difficulty_source ?? null,
+        competition_level: inspected.metrics.competition_level ?? null,
+        market: { location, language },
         fetched_at: inspected.entry?.fetched_at ?? null,
         notes: inspected.entry?.notes ?? null,
         source: "seo_research_cache",
@@ -377,6 +405,10 @@ export async function runSeoResearch(opts: {
           message:
             "Refreshed keyword research cache only — did not write seo.kw_monthly_volume / seo.kw_difficulty YAML.",
         },
+        ...difficultyProvenanceWarnings(
+          inspected.metrics.kw_difficulty_source ?? null,
+          inspected.metrics.competition_level ?? null,
+        ),
       ],
       side_effects: [
         {
@@ -829,6 +861,7 @@ export async function runRefreshKeywordMetrics(opts: {
       keyword: string;
       kw_monthly_volume: number | null;
       kw_difficulty: number | null;
+      kw_difficulty_source: string | null;
       fetched_at: string | null;
       notes: string | null;
       source: "openrush_cache" | "seo_research_cache";
@@ -859,6 +892,7 @@ export async function runRefreshKeywordMetrics(opts: {
     keyword: String(result.data.keyword || ""),
     kw_monthly_volume: (result.data.kw_monthly_volume as number | null) ?? null,
     kw_difficulty: (result.data.kw_difficulty as number | null) ?? null,
+    kw_difficulty_source: (result.data.kw_difficulty_source as string | null) ?? null,
     fetched_at: (result.data.fetched_at as string | null) ?? null,
     notes: (result.data.notes as string | null) ?? null,
     source: "seo_research_cache",

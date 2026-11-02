@@ -1,5 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
-import { IconBrandGoogle } from "@tabler/icons-react";
+import { IconBrandGoogle, IconSend } from "@tabler/icons-react";
+import {
+  INDEXNOW_STATUS_KEY,
+  PUBLIC_URL_CHANGES_KEY,
+  fetchIndexNowStatus,
+  fetchPublicUrlChanges,
+  relativeTime,
+  urlPath,
+  type IndexNowStatus,
+  type PublicUrlChangesResponse,
+} from "@/lib/indexnow";
 import { TabCountBadge } from "./PageErrorsModal";
 import { cn } from "@/lib/utils";
 import { getDebugToken } from "@/hooks/useDebugAuth";
@@ -13,6 +23,25 @@ import {
 import { isPrivatePreviewPath } from "@/lib/visual-edit-path";
 
 import type { PageErrorsTab } from "./PageErrorsModal";
+
+type IndexNowLine = { short: string; text: string; sent: boolean };
+
+export function indexNowLineFor(
+  status: IndexNowStatus | undefined,
+  changes: PublicUrlChangesResponse | undefined,
+  now = Date.now(),
+): IndexNowLine | null {
+  if (!status) return null;
+  if (!status.enabled) return { short: "Off", text: "IndexNow off", sent: false };
+  const latest = changes?.changes[0];
+  if (!latest) return { short: "—", text: "No changes recorded for this page yet", sent: false };
+  if (latest.sent) {
+    const when = relativeTime(latest.detectedAt, now);
+    return { short: when.replace(" ago", ""), text: `Last change sent to IndexNow ${when}`, sent: true };
+  }
+  if (!status.live) return { short: "Wait", text: "Waiting to send (only the live site sends notices)", sent: false };
+  return { short: "Wait", text: "Waiting to send", sent: false };
+}
 
 interface PageHealthIndicatorsProps {
   errorCount: number;
@@ -57,6 +86,22 @@ export function PageHealthIndicators({
       return res.json() as Promise<GscInspectionGetResponse>;
     },
   });
+
+  const showIndexNow = !useExternalCrawler && Boolean(inspectLookupUrl);
+  const indexNowStatusQuery = useQuery({
+    queryKey: INDEXNOW_STATUS_KEY,
+    queryFn: fetchIndexNowStatus,
+    enabled: showIndexNow,
+    staleTime: 60_000,
+  });
+  const indexNowPath = showIndexNow ? urlPath(inspectLookupUrl) : "";
+  const indexNowChangesQuery = useQuery({
+    queryKey: [PUBLIC_URL_CHANGES_KEY, "page", indexNowPath],
+    queryFn: () => fetchPublicUrlChanges({ limit: 1, path: indexNowPath }),
+    enabled: showIndexNow && Boolean(indexNowStatusQuery.data?.enabled),
+    staleTime: 60_000,
+  });
+  const indexNowLine = showIndexNow ? indexNowLineFor(indexNowStatusQuery.data, indexNowChangesQuery.data) : null;
 
   const crawlerBadge =
     crawlerStateProp ??
@@ -181,6 +226,20 @@ export function PageHealthIndicators({
           {crawlInner}
         </div>
       )}
+      {indexNowLine ? (
+        <div
+          className="inline-flex items-center gap-0.5 rounded-md p-0.5 shrink-0"
+          title={indexNowLine.text}
+          aria-label={indexNowLine.text}
+          data-testid="text-page-health-indexnow"
+        >
+          <IconSend
+            className={cn("h-3.5 w-3.5", indexNowLine.sent ? "text-chart-3" : "text-muted-foreground")}
+            aria-hidden
+          />
+          <span className="text-[10px] font-semibold leading-none text-muted-foreground">{indexNowLine.short}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

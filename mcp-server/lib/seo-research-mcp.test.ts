@@ -29,6 +29,8 @@ vi.mock("../../server/settings.js", () => ({
 vi.mock("../../server/openrush-keyword-cache.js", () => ({
   getKeywordEntry: vi.fn(),
   keywordMetricsCompleteAndFresh: vi.fn(),
+  keywordDifficultySourceOf: vi.fn((e?: { kw_difficulty_source?: string | null }) => e?.kw_difficulty_source ?? null),
+  competitionLevelOf: vi.fn((e?: { competition_level?: string | number | null }) => e?.competition_level ?? null),
 }));
 
 vi.mock("../../server/seo-research-budget.js", () => ({
@@ -170,6 +172,7 @@ describe("runSeoResearch", () => {
         keyword: "test kw",
         monthly_volume: 200,
         kw_difficulty: 30,
+        kw_difficulty_source: "reported",
         competition_level: null,
         intent: null,
       },
@@ -200,8 +203,45 @@ describe("runSeoResearch", () => {
     if (r.ok) {
       expect(r.outcome).toBe("fetched");
       expect(r.credits_spent).toBe(5);
+      expect(r.data.kw_difficulty_source).toBe("reported");
+      expect(r.warnings.map((w) => w.code)).not.toContain("seo_research_difficulty_derived");
     }
     expect(mockedInspect).toHaveBeenCalled();
+  });
+
+  it("flags difficulty mapped from a competition label on cache hit", async () => {
+    mockedFresh.mockReturnValue(true);
+    mockedGetEntry.mockReturnValue({
+      keyword: "tipos de inteligencia artificial",
+      location: "Mexico",
+      language: "Spanish",
+      fetched_at: new Date().toISOString(),
+      monthly_volume: 3600,
+      kw_difficulty: 20,
+      kw_difficulty_source: "derived_from_competition",
+      competition_level: "LOW",
+      notes: null,
+      payload: { competition: "LOW", search_volume: 3600 },
+    });
+    const r = await runSeoResearch({
+      action: "keyword_metrics",
+      contentPath: "/tmp",
+      contentFolder: "site_x",
+      contentType: "blog",
+      slug: "a",
+      locale: "es",
+      keyword: "tipos de inteligencia artificial",
+      agent_session_id: "s1",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.data.kw_difficulty).toBe(20);
+      expect(r.data.kw_difficulty_source).toBe("derived_from_competition");
+      expect(r.data.competition_level).toBe("LOW");
+      expect(r.data.market).toEqual({ location: "United States", language: "English" });
+      const derived = r.warnings.find((w) => w.code === "seo_research_difficulty_derived");
+      expect(derived?.message).toContain('competition "LOW"');
+    }
   });
 
   it("hard-fails keyword_gaps without competitors", async () => {

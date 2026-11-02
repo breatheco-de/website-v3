@@ -116,6 +116,7 @@ function mapOpenIssue(
     if (row.staleSourceDatabase) base.stale_source_database = row.staleSourceDatabase;
   }
   if (row.redirectSuggestion) base.redirect_suggestion = row.redirectSuggestion;
+  if (row.externalLink) base.external_link = row.externalLink;
   if (opts?.includeLastFullRunAt && row.lastFullRunAt != null) {
     base.lastFullRunAt = row.lastFullRunAt;
   }

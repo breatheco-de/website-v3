@@ -40,6 +40,7 @@ import { listingSortValidator } from "./listing-sort";
 import { componentBehaviorsValidator } from "./component-behaviors";
 import { ctaTrackingValidator } from "./cta-tracking";
 import { internalLinkUtmValidator } from "./internal-link-utm";
+import { externalLinksValidator } from "./external-links";
 import { requiredFieldsValidator } from "./required-fields";
 import { schemaOrgCompanionsValidator } from "./schema-org-companions";
 import { staticFieldOverridesValidator } from "./static-field-overrides";
@@ -109,6 +110,7 @@ export const validators: Validator[] = [
   componentBehaviorsValidator,
   ctaTrackingValidator,
   internalLinkUtmValidator,
+  externalLinksValidator,
   updatedAtValidator,
   siteLinkIndexValidator,
   siteRelationIndexValidator,

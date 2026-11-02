@@ -30,6 +30,7 @@ import { loadResolvedArchivesFromBucket } from "./services/resolvedIssuesArchive
 import { loadGscInspectionStoresFromBucket } from "./gsc-url-inspection";
 import { emitEntryEventsFromFileChange } from "./content-events";
 import { startEventPruneTimer, wipeAllSiteEventStores } from "./events/event-store";
+import { startPublicUrlChangesPruneTimer } from "./public-url-changes/store";
 import { startEventDispatcher } from "./events/dispatcher";
 import { startEventWebhookDueScan } from "./events/event-webhooks";
 import { registerAllJobs } from "./jobs/register";
@@ -689,6 +690,13 @@ app.use((req, res, next) => {
           logger.error({ err, worker: "LinkIndex" }, "failed to load link indexes from GCS");
         });
 
+        const { loadLinkStatusFromBucket } = await import("./link-check/status-store");
+        await loadLinkStatusFromBucket(
+          [...getSiteContextMap().values()].map((ctx) => ({ contentRoot: ctx.contentRoot })),
+        ).catch((err) => {
+          logger.error({ err, worker: "LinkStatus" }, "failed to load external link statuses from GCS");
+        });
+
         const { loadRelationIndexesFromBucket } = await import("./relation-index");
         await loadRelationIndexesFromBucket(
           [...getSiteContextMap().values()].map((ctx) => ({ contentRoot: ctx.contentRoot })),
@@ -813,6 +821,7 @@ app.use((req, res, next) => {
     startJobApplier();
     startEngineWatchdog();
     startEventPruneTimer(siteNames);
+    startPublicUrlChangesPruneTimer(siteNames);
     /** Previous YAML bodies for redirects_changed gating (in-process seed). */
     const lastYamlContentByPath = new Map<string, string>();
     addFileModifiedListener((evt) => {
