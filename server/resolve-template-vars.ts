@@ -21,8 +21,6 @@ import {
   extractUrlPatternParams,
 } from "./content-types";
 import { parsePipeFallback } from "@shared/json-field";
-import { funnelProductsQueryValue } from "@shared/tracking-context";
-import { normalizeFunnelBlock } from "@shared/funnel";
 
 function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown {
   const parts = dotPath.split(".");
@@ -178,9 +176,9 @@ export interface ResolveAllTemplateVarsOptions {
   seo?: Record<string, unknown>;
   /** Unified URL path + querystring params (path wins). */
   param?: Record<string, unknown>;
-  /** Merged page funnel; defaults to `data.funnel`. */
+  /** Page funnel block, same lookup as meta. Defaults to `data.funnel`. */
   funnel?: unknown;
-  /** Route identity for program self-include. Omit when unknown. Slug comes from singleEntry. */
+  /** Route content type. Kept for callers; funnel tokens read the page funnel block. */
   contentType?: string;
   contentRoot?: string;
   context?: VariableContext;
@@ -303,24 +301,12 @@ export function resolveAllTemplateVars(
     steps.push({ kind: "bag", prefix: "param", bag: opts.param });
   }
 
-  const funnelRaw = opts.funnel !== undefined ? opts.funnel : page?.funnel;
-  const funnelSlug =
-    typeof singleEntry?.slug === "string"
-      ? singleEntry.slug
-      : typeof singleEntry?._slug === "string"
-        ? singleEntry._slug
-        : undefined;
-  steps.push({
-    kind: "bag",
-    prefix: "funnel",
-    bag: {
-      products: funnelProductsQueryValue(
-        normalizeFunnelBlock(funnelRaw),
-        typeof opts.contentType === "string" ? opts.contentType : undefined,
-        funnelSlug,
-      ),
-    },
-  });
+  const funnelSource =
+    opts.funnel !== undefined ? asRecord(opts.funnel) : page ? asRecord(page.funnel) : undefined;
+  const funnelBag = funnelSource ? asRecord(walkNamespaces(funnelSource, steps, 0)) : undefined;
+  if (funnelBag && Object.keys(funnelBag).length > 0) {
+    steps.push({ kind: "bag", prefix: "funnel", bag: funnelBag });
+  }
 
   let result = steps.length > 0 ? walkNamespaces(data, steps, 0) : data;
 

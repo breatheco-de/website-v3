@@ -229,7 +229,7 @@ Every event and lead carries the page funnel's products / personas (topic `produ
 - Reading values back: split with `parseTrackingList` / `decodeTrackingCodes` / `decodeTrackingPairs` (`shared/tracking-context.ts`); never group by the raw string. GA4 data sent before sorting (2026-10-25) can hold the same set in two orders. Persona full ids can repeat across products: use `product_persona` pairs for the product; a shared id without a pair has no product (never guessed).
 
 - Default: the page funnel (`effectiveBindings`; program page includes itself). `funnel.products: all` → `all`; content page without funnel → `none`.
-- CTA YAML can pass the same id triple on a query string with `{{ funnel.products }}` (JSON, always URL-encoded). Form hidden `product`/`persona` overrides do not change that token.
+- CTA YAML passes that id triple with `{{ entry.funnel_products_encoded_ids }}` (URI-encoded JSON; program, landing, and page). `{{ funnel.products }}` is the stored list, not that string. Form hidden `product`/`persona` overrides do not change either token.
 - Override per form with hidden fields (no schema change — `fields` accepts extra keys; also inside `form_overrides[].fields`):
 
 ```yaml

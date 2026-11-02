@@ -59,7 +59,7 @@ export interface ResolveOptions {
   param?: Record<string, unknown>;
   /** Logged-in consumer profile (AuthUserProfile-shaped) for {{ visitor.* }} */
   visitor?: Record<string, unknown>;
-  /** Page funnel wire JSON for {{ funnel.products }} (already URL-encoded). */
+  /** Page funnel block for {{ funnel.* }} (stored values, same lookup as meta). */
   funnel?: Record<string, unknown>;
 }
 

@@ -204,9 +204,9 @@ export function buildFunnelTrackingContext(
 }
 
 /**
- * `{{ funnel.products }}` for query strings: webhook id lists as JSON, then encodeURIComponent.
+ * Lead-webhook id lists as JSON, then encodeURIComponent.
  * Type + slug are optional (program self-include only). `products: all` / missing funnel
- * resolve without them.
+ * resolve without them. Template `{{ funnel.products }}` does not use this.
  */
 export function funnelProductsQueryValue(
   funnel: FunnelBlock | null | undefined,
