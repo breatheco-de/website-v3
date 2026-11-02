@@ -383,7 +383,7 @@ function schemaOrgOverrideWarningsFromFieldUpdates(
  */
 function internalHeaders(
   mcpToken?: string,
-  opts?: { agentSessionId?: string; omitJsonContentType?: boolean },
+  opts?: { agentSessionId?: string; omitJsonContentType?: boolean; site?: string; model?: string },
 ): Record<string, string> {
   return buildLoopbackHeaders(mcpToken, opts);
 }
@@ -455,10 +455,10 @@ async function callEditSectionsApi(
   domain?: string,
 ): Promise<{ error: McpTextResult } | { data: Record<string, unknown> }> {
   try {
-    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/edit-sections${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/edit-sections`;
     const res = await fetch(url, {
       method: "POST",
-      headers: internalHeaders(mcpToken, { agentSessionId: params.agent_session_id }),
+      headers: internalHeaders(mcpToken, { agentSessionId: params.agent_session_id, site: domain }),
       body: JSON.stringify({
         contentType: params.contentType,
         slug: params.slug,
@@ -647,10 +647,10 @@ async function callEditCommonApi(
   domain?: string
 ): Promise<McpTextResult | null> {
   try {
-    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/edit-common${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/edit-common`;
     const res = await fetch(url, {
       method: "POST",
-      headers: internalHeaders(mcpToken, { agentSessionId: params.agent_session_id }),
+      headers: internalHeaders(mcpToken, { agentSessionId: params.agent_session_id, site: domain }),
       body: JSON.stringify({
         contentType: params.contentType,
         slug: params.slug,
@@ -704,10 +704,10 @@ async function callRefreshCacheApi(
   domain?: string,
 ): Promise<{ ok: boolean; knownUrlCount?: number; error?: string }> {
   try {
-    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/refresh-cache${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/refresh-cache`;
     const res = await fetch(url, {
       method: "POST",
-      headers: internalHeaders(),
+      headers: internalHeaders(undefined, { site: domain }),
       body: JSON.stringify(contentType ? { contentType } : {}),
     });
     const data = await res.json() as { knownUrlCount?: number; error?: string };
@@ -733,10 +733,10 @@ async function callRenameSlugApi(
   domain?: string,
 ): Promise<{ ok: true; data: Record<string, unknown> } | { ok: false; error: McpTextResult }> {
   try {
-    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/rename-slug${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/rename-slug`;
     const res = await fetch(url, {
       method: "POST",
-      headers: internalHeaders(mcpToken),
+      headers: internalHeaders(mcpToken, { site: domain }),
       body: JSON.stringify(params),
     });
     const data = await res.json() as Record<string, unknown>;
@@ -773,11 +773,11 @@ async function callCommitFilesApi(
 ): Promise<{ commitSha?: string; queued?: boolean; warning?: string; connectRequired?: boolean }> {
   if (files.length === 0) return {};
   try {
-    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/github/commit${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/github/commit`;
     const author = mcpToken ? getTokenUsername(mcpToken) : undefined;
     const res = await fetch(url, {
       method: "POST",
-      headers: internalHeaders(mcpToken),
+      headers: internalHeaders(mcpToken, { site: domain }),
       body: JSON.stringify({
         queue: true,
         files,
@@ -843,7 +843,7 @@ async function checkRemoteConflict(
   domain?: string
 ): Promise<{ conflict: true; remoteContent: string } | { conflict: false }> {
   try {
-    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/github/file-status?file=${encodeURIComponent(filePath)}${domain ? `&__site=${encodeURIComponent(domain)}` : ""}`;
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/github/file-status?file=${encodeURIComponent(filePath)}`;
     const res = await fetch(url);
     if (!res.ok) return { conflict: false };
     const data = await res.json() as {
@@ -1178,7 +1178,6 @@ async function fetchCacheIssueRowsForQueue(
   filters: { severity?: string; category?: string; code?: string; includeCompleted?: boolean },
 ): Promise<{ rows: ReturnType<typeof cacheIssueRowsToQueueInput>; ok: boolean }> {
   const params = new URLSearchParams();
-  if (domain) params.set("__site", domain);
   if (filters.severity) params.set("severity", filters.severity);
   if (filters.category) params.set("category", filters.category);
   if (filters.code) params.set("code", filters.code);
@@ -1187,7 +1186,7 @@ async function fetchCacheIssueRowsForQueue(
   try {
     const res = await fetch(
       `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues${qs}`,
-      { headers: internalHeaders() },
+      { headers: internalHeaders(undefined, { site: domain }) },
     );
     if (!res.ok) return { rows: [], ok: false };
     const data = (await res.json()) as { issues?: unknown[] };
@@ -1366,13 +1365,12 @@ export function registerPageTools(
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/agent-sessions/checkpoint${
-          domain ? `?__site=${encodeURIComponent(domain)}` : ""
-        }`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/agent-sessions/checkpoint`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken, {
             agentSessionId: action === "start" ? undefined : agent_session_id,
+            site: domain,
             ...(model && isExactAgentModel(model) ? { model } : {}),
           }),
           body: JSON.stringify({
@@ -1642,7 +1640,7 @@ export function registerPageTools(
         ? allTypeNames.filter((t) => allowedTypes.has(t))
         : allTypeNames;
 
-      const fetchItems = createDefaultFetchItems(MAIN_SERVER_PORT, internalHeaders(mcpToken));
+      const fetchItems = createDefaultFetchItems(MAIN_SERVER_PORT, internalHeaders(mcpToken, { site: domain }));
 
       // Stats mode — no contentType
       if (!contentType) {
@@ -2476,14 +2474,12 @@ export function registerPageTools(
           [],
         );
       }
-
-      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       try {
         const res = await fetch(
-          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues/update${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues/update`,
           {
             method: "POST",
-            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }),
             body: JSON.stringify({
               issueId: issue_id,
               action,
@@ -2673,15 +2669,13 @@ export function registerPageTools(
       } catch (e) {
         return fail((e as Error).message);
       }
-
-      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       const forceOverwrite = overwrite === true;
       try {
         const res = await fetch(
-          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(content_type)}/entry-previews/enqueue${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(content_type)}/entry-previews/enqueue`,
           {
             method: "POST",
-            headers: { ...internalHeaders(mcpToken, { agentSessionId: agent_session_id }), "Content-Type": "application/json" },
+            headers: { ...internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }), "Content-Type": "application/json" },
             body: JSON.stringify({
               locales,
               mode: mode ?? "missing",
@@ -2876,7 +2870,6 @@ export function registerPageTools(
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
-      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       const validators = mcpValidatorsFromCategories(categories);
       const requestBody = {
         slugs: slugs && slugs.length > 0 ? slugs : undefined,
@@ -2912,10 +2905,10 @@ export function registerPageTools(
       };
       try {
         const res = await fetch(
-          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs`,
           {
             method: "POST",
-            headers: internalHeaders(),
+            headers: internalHeaders(undefined, { site: domain }),
             body: JSON.stringify(requestBody),
           },
         );
@@ -3136,7 +3129,6 @@ export function registerPageTools(
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       const { domain } = siteResult;
-      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       const issueArgsHint = {
         job_id,
         ...(site ? { site } : {}),
@@ -3147,8 +3139,8 @@ export function registerPageTools(
       };
       try {
         const res = await fetch(
-          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs/${encodeURIComponent(job_id)}${q}`,
-          { headers: internalHeaders() },
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/diagnostics-jobs/${encodeURIComponent(job_id)}`,
+          { headers: internalHeaders(undefined, { site: domain }) },
         );
         const data = await res.json() as Record<string, unknown>;
 
@@ -3762,7 +3754,6 @@ export function registerPageTools(
 
       if (resetUpdates.length > 0) {
         const ct = resolved.contentType;
-        const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
         const resetResults: Array<{
           field_path: string;
           noop: boolean;
@@ -3771,10 +3762,10 @@ export function registerPageTools(
         }> = [];
         for (const u of resetUpdates) {
           try {
-            const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
+            const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}`;
             const res = await fetch(url, {
               method: "POST",
-              headers: internalHeaders(mcpToken),
+              headers: internalHeaders(mcpToken, { site: domain }),
               body: JSON.stringify({ field: u.field_path, locale, variant: variant || undefined }),
             });
             const data = await res.json() as {
@@ -4649,12 +4640,10 @@ export function registerPageTools(
       }
 
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/bulk-update-entry-attributes${
-          domain ? `?__site=${encodeURIComponent(domain)}` : ""
-        }`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/bulk-update-entry-attributes`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { site: domain }),
           body: JSON.stringify({
             slugs,
             locale,
@@ -4881,7 +4870,6 @@ export function registerPageTools(
       const ctDir = getDirectory(ct, resolved.config);
       const dbSlug = resolved.config.database?.slug as string | undefined;
       const defaultStorage = mappedFieldsStorageFor(ct, siteResult.contentPath);
-      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       const getHint = {
         tool: "get_entry_fields",
         reason: "Re-check provenance after write",
@@ -4900,10 +4888,10 @@ export function registerPageTools(
           const layerFile = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
           const dbPath = `db/${dbSlug || "<database>"}/overrides.json`;
           const ctPath = `${ctDir}/${slug}/${layerFile}`;
-          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}${q}`;
+          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-reset/${encodeURIComponent(slug)}`;
           const res = await fetch(url, {
             method: "POST",
-            headers: internalHeaders(mcpToken),
+            headers: internalHeaders(mcpToken, { site: domain }),
             body: JSON.stringify({ field, locale, variant: variant || undefined }),
           });
           const data = await res.json() as {
@@ -4963,10 +4951,10 @@ export function registerPageTools(
 
         if (level === "database") {
           const relPath = `db/${dbSlug || "<database>"}/overrides.json`;
-          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/db-overrides/${encodeURIComponent(slug)}${q}`;
+          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/db-overrides/${encodeURIComponent(slug)}`;
           const res = await fetch(url, {
             method: "PUT",
-            headers: internalHeaders(mcpToken),
+            headers: internalHeaders(mcpToken, { site: domain }),
             body: JSON.stringify({ fields: { [field]: value } }),
           });
           const data = await res.json() as { error?: string };
@@ -4996,10 +4984,10 @@ export function registerPageTools(
 
         const layerFile = variant ? `${variant}.${locale}.yml` : `${locale}.yml`;
         const relPathFallback = `${ctDir}/${slug}/${layerFile}`;
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-overrides/${encodeURIComponent(slug)}${q}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/field-overrides/${encodeURIComponent(slug)}`;
         const res = await fetch(url, {
           method: "PUT",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, { site: domain }),
           body: JSON.stringify({
             locale,
             variant: variant || undefined,
@@ -5250,11 +5238,10 @@ export function registerPageTools(
 
       const requestedSet = new Set(requested);
       const q = new URLSearchParams({ locale });
-      if (domain) q.set("__site", domain);
       if (variant) q.set("variant", variant);
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(resolved.contentType)}/field-provenance/${encodeURIComponent(slug)}?${q}`;
-        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(resolved.contentType)}/field-provenance/${encodeURIComponent(slug)}?`;
+        const res = await fetch(url, { headers: internalHeaders(mcpToken, { site: domain }) });
         const data = await res.json();
         if (!res.ok) return fail((data as { error?: string }).error || `Server error: ${res.status}`);
 
@@ -5430,8 +5417,8 @@ export function registerPageTools(
 
       try {
         const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
-        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}`;
+        const res = await fetch(url, { headers: internalHeaders(mcpToken, { site: domain }) });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
           return fail((data.error as string) || `Server error: ${res.status}`);
@@ -5676,10 +5663,10 @@ export function registerPageTools(
           );
         }
 
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }),
           body: JSON.stringify({ variantSlug, locale, ...(sourceVariant ? { sourceVariant } : {}) }),
         });
         const data = await res.json() as Record<string, unknown>;
@@ -5933,10 +5920,10 @@ export function registerPageTools(
       try {
         // Entry slug as-is (same as promote_variant) — do not remap attached entries to "single".
         const versioningSlug = slug;
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/publish${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/publish`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }),
           body: JSON.stringify({
             variantSlug,
             report: trimmedReport,
@@ -6189,10 +6176,10 @@ export function registerPageTools(
         // Entry slug as-is: attached translate drafts live under the entry folder.
         // Use slug "single" only for type-root template variants.
         const versioningSlug = slug;
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/promote/${encodeURIComponent(variantSlug)}${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/promote/${encodeURIComponent(variantSlug)}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }),
           body: JSON.stringify({
             report: trimmedReport,
             ...(confirm_overwrite_newer_live ? { confirm_overwrite_newer_live: true } : {}),
@@ -6515,7 +6502,6 @@ export function registerPageTools(
 
       try {
         const q = new URLSearchParams();
-        if (domain) q.set("__site", domain);
         if (cleanup_orphan === true) q.set("cleanup_orphan", "true");
         const qs = q.toString();
         const url =
@@ -6524,7 +6510,7 @@ export function registerPageTools(
           (qs ? `?${qs}` : "");
         const res = await fetch(url, {
           method: "DELETE",
-          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }),
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
@@ -6771,8 +6757,8 @@ const next_actions: NextAction[] = entryDeleted
       }
 
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}/${encodeURIComponent(locale)}/convert-to-draft${domain ? `?__site=${encodeURIComponent(domain)}` : ""}`;
-        const res = await fetch(url, { method: "POST", headers: internalHeaders(mcpToken) });
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(slug)}/${encodeURIComponent(locale)}/convert-to-draft`;
+        const res = await fetch(url, { method: "POST", headers: internalHeaders(mcpToken, { site: domain }) });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
           return fail((data.error as string) || `Server error: ${res.status}`, {
@@ -9577,9 +9563,8 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
           sectionIndex: String(sectionIndex),
           locale,
         });
-        if (domain) params.set("__site", domain);
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/bindings/section?${params}`;
-        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const res = await fetch(url, { headers: internalHeaders(mcpToken, { site: domain }) });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
           return fail((data.error as string) || `Server error: ${res.status}`);
@@ -9642,9 +9627,7 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         if ("deny" in agenticGate) return agenticGate.deny;
       }
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/delete-entries${
-          domain ? `?__site=${encodeURIComponent(domain)}` : ""
-        }`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content/delete-entries`;
         if (confirm === true) {
           const trimmedReport = typeof report === "string" ? report.trim() : "";
           if (trimmedReport.length < 80) {
@@ -9662,7 +9645,7 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         const trimmedReport = typeof report === "string" ? report.trim() : "";
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }),
           body: JSON.stringify({
             contentType,
             slugs,
@@ -9955,9 +9938,8 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       let schema_org_coverage: Array<Record<string, unknown>> = [];
       if (schema_org_requirements.length > 0) {
         try {
-          const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
           const res = await fetch(
-            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/schema-org-coverage${q}`,
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/schema-org-coverage`,
           );
           if (res.ok) {
             const data = (await res.json()) as { coverage?: Array<Record<string, unknown>> };
@@ -10314,15 +10296,12 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
           editor: editor as ContentTypeEditorHint | undefined,
           confirm,
           site,
-          domain,
           contentPath,
           mcpToken,
           mainServerPort: MAIN_SERVER_PORT,
-          internalHeaders,
+          internalHeaders: (token) => internalHeaders(token, { site: domain }),
         });
       }
-
-      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       const ymlPath = `${path.basename(contentPath)}/content-types.yml`;
 
       if (hasSharedToggle) {
@@ -10342,10 +10321,10 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         }
         try {
           const res = await fetch(
-            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config`,
             {
               method: "PUT",
-              headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
+              headers: { ...internalHeaders(mcpToken, { site: domain }), "Content-Type": "application/json" },
               body: JSON.stringify(body),
             },
           );
@@ -10506,10 +10485,10 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
 
       try {
         const res = await fetch(
-          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/config`,
           {
             method: "PUT",
-            headers: { ...internalHeaders(mcpToken), "Content-Type": "application/json" },
+            headers: { ...internalHeaders(mcpToken, { site: domain }), "Content-Type": "application/json" },
             body: JSON.stringify(body),
           },
         );
@@ -10606,14 +10585,12 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       if (mcpToken && !(await checkCap(mcpToken, "seo_settings"))) {
         return denyResponse("seo_settings");
       }
-
-      const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
       try {
         const res = await fetch(
-          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/schema-org-ensure${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(contentType)}/schema-org-ensure`,
           {
             method: "POST",
-            headers: { ...internalHeaders(mcpToken, { agentSessionId: agent_session_id }), "Content-Type": "application/json" },
+            headers: { ...internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }), "Content-Type": "application/json" },
             body: JSON.stringify({
               schema_type,
               dry_run: !!dry_run,
@@ -10741,7 +10718,6 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
           try {
             const params = new URLSearchParams();
             if (locale) params.set("locale", locale);
-            if (domain) params.set("__site", domain);
             const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(ct)}/seo-entries?${params}`;
             const res = await fetch(url);
             if (!res.ok) {

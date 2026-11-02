@@ -16,6 +16,7 @@ import { SyncLog } from "./sync-log";
 import { createSiteDb } from "./db";
 import { getVariableManager, resetVariableManagerCache, type VariableManager } from "./variable-manager";
 import { EntryPreviewManager } from "./entry-preview-manager";
+import { isMcpLoopbackRequest } from "./mcp-loopback-auth";
 import { child } from "./logger";
 
 const log = child({ module: "site-manager" });
@@ -249,11 +250,39 @@ export function siteResolutionMiddleware(req: Request, res: Response, next: Next
   }
   let isDevOverride = false;
 
+  // MCP loopback site — trusted `x-mcp-site` (domain from sites.yml) when the
+  // request carries the MCP server secret. Works in all environments so writes
+  // to 127.0.0.1 resolve Florida/Business correctly in production too.
+  // Missing header: fall through (global loopbacks omit it on purpose).
+  // Unknown domain: 400 — never silent-default for a spoofed/wrong value.
+  // Public traffic without the secret ignores this header.
+  if (isMcpLoopbackRequest(req)) {
+    const raw = req.headers["x-mcp-site"];
+    const headerSite = typeof raw === "string" ? raw.trim() : "";
+    if (headerSite) {
+      const matched = [...sites.keys()].find((d) => d.toLowerCase() === headerSite.toLowerCase());
+      if (!matched) {
+        res.status(400).json({
+          error: `Unknown site '${headerSite}'`,
+          code: "unknown_site",
+          available_sites: [...sites.keys()],
+        });
+        return;
+      }
+      domain = matched;
+      let ctx = sites.get(domain)!;
+      res.locals.site = { ...ctx, isDevOverride: false };
+      next();
+      return;
+    }
+  }
+
   // DEV SITE OVERRIDE — reads .local/dev-site-override (non-production only).
   //
-  // In PRODUCTION this block is skipped entirely. Site resolution is driven
-  // by req.hostname (the actual subdomain/domain of the incoming request).
-  // There is no override mechanism in production — and there should never be.
+  // In PRODUCTION this block is skipped entirely for browser/staff traffic.
+  // Site resolution is driven by req.hostname, except authenticated MCP
+  // loopback above (`x-mcp-site`). There is no public `?__site=` override
+  // in production.
   //
   // In DEVELOPMENT the file is the single source of truth. If absent, falls
   // through to req.hostname (localhost is not a real site domain, so the

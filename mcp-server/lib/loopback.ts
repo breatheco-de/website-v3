@@ -31,6 +31,8 @@ export type LoopbackHeaderOpts = {
   omitJsonContentType?: boolean;
   /** Exact versioned model (provider/model), e.g. claude/sonnet-4.5. */
   model?: string;
+  /** Canonical site domain from sites.yml (e.g. fl.4geeksacademy.com). */
+  site?: string;
 };
 
 /** Model for headers: explicit opts, else RAM session registry. Env MCP_AGENT_MODEL is not used. */
@@ -73,6 +75,8 @@ export function buildLoopbackHeaders(
   if (model) headers["x-mcp-model"] = model;
   const roleId = getActiveRoleId()?.trim();
   if (roleId) headers["x-mcp-role"] = roleId;
+  const site = typeof opts?.site === "string" ? opts.site.trim() : "";
+  if (site) headers["x-mcp-site"] = site;
   return headers;
 }
 

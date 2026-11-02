@@ -9,22 +9,12 @@ import type { CatalogGrant } from "../lib/tool-catalog.js";
 import { ok, fail } from "../lib/respond.js";
 import { resolveSiteContext } from "../lib/content.js";
 import { SITE_PARAM_DESC, MULTI_SITE_TOOL_BLURB } from "../lib/entry-helpers.js";
-import { getTokenUsername } from "../lib/oauth.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
-const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
 
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (INTERNAL_SECRET) {
-    headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
-    const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-    if (username) headers["x-mcp-author"] = username;
-  } else if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-  }
-  return headers;
+function internalHeaders(mcpToken?: string, site?: string): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, { site });
 }
 
 export function registerAnalyticsTools(
@@ -146,10 +136,9 @@ export function registerAnalyticsTools(
         if (attribution) params.set("attribution", attribution);
         if (item_id) params.set("item_id", item_id);
         if (source) params.set("source", source);
-        if (domain) params.set("__site", domain);
 
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/analytics/report?${params}`;
-        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const res = await fetch(url, { headers: internalHeaders(mcpToken, siteResult.domain) });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
           const details =

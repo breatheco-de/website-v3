@@ -4,7 +4,7 @@ import { checkCap, denyResponse } from "../lib/auth.js";
 import { hasCapAnyScope, type CatalogGrant } from "../lib/tool-catalog.js";
 import { ok, fail } from "../lib/respond.js";
 import { resolveSiteContext, resolveContentType, loadPage, safeLoad, getDirectory } from "../lib/content.js";
-import { getTokenUsername } from "../lib/oauth.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
 import { missingLocaleDetails } from "../lib/missing-locale.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
 import fs from "fs";
@@ -24,26 +24,9 @@ import {
 } from "../lib/validation-issues-mcp.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
-const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
 
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (INTERNAL_SECRET) {
-    headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
-    const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-    if (username) headers["x-mcp-author"] = username;
-  } else if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-  }
-  return headers;
-}
-
-function siteQuery(domain: string | null, extra = ""): string {
-  const parts: string[] = [];
-  if (domain) parts.push(`__site=${encodeURIComponent(domain)}`);
-  if (extra) parts.push(extra);
-  return parts.length ? `?${parts.join("&")}` : "";
+function internalHeaders(mcpToken?: string, site?: string): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, { site });
 }
 
 async function requireMetricsView(mcpToken: string | undefined, grants: CatalogGrant[] | undefined) {
@@ -229,15 +212,14 @@ export function registerValidationIssuesTools(
         }
       }
 
-      const headers = internalHeaders(mcpToken);
-      const q = siteQuery(domain);
+      const headers = internalHeaders(mcpToken, domain);
 
       let open_stats = { errors: 0, warnings: 0, total: 0 };
       let resolved_stats = resolvedStatsFromArchiveSummary({});
 
       try {
         const openRes = await fetch(
-          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues${q}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues`,
           { headers },
         );
         if (openRes.ok) {
@@ -258,7 +240,7 @@ export function registerValidationIssuesTools(
 
       try {
         const resolvedRes = await fetch(
-          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/resolved-issues${q}${q ? "&" : "?"}limit=1`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/resolved-issues?limit=1`,
           { headers },
         );
         if (resolvedRes.ok) {
@@ -311,10 +293,9 @@ export function registerValidationIssuesTools(
         if (args.validator?.trim()) qs.set("validator", args.validator.trim());
         if (args.category?.trim()) qs.set("category", args.category.trim());
         if (args.search?.trim()) qs.set("search", args.search.trim());
-        const sep = q ? `${q}&` : "?";
         try {
           const res = await fetch(
-            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/resolved-issues${sep}${qs.toString()}`,
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/resolved-issues?${qs.toString()}`,
             { headers },
           );
           if (!res.ok) {
@@ -369,7 +350,7 @@ export function registerValidationIssuesTools(
       if (args.category?.trim()) qs.set("category", args.category.trim());
       if (args.search?.trim()) qs.set("search", args.search.trim());
       const extra = qs.toString();
-      const sep = q ? (extra ? `${q}&${extra}` : q) : extra ? `?${extra}` : "";
+      const sep = extra ? `?${extra}` : "";
       try {
         const res = await fetch(
           `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues${sep}`,

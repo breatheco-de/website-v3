@@ -11,6 +11,7 @@ import { ok, fail, type McpWarning, type NextAction } from "../lib/respond.js";
 import { getMcpSiteConfigs, resolveSiteContext } from "../lib/content.js";
 import { SITE_PARAM_DESC, MULTI_SITE_TOOL_BLURB } from "../lib/entry-helpers.js";
 import { getTokenUsername } from "../lib/oauth.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
 import {
   LEADS_FILTER_KEYS,
   LEADS_NONE,
@@ -54,12 +55,8 @@ export type LeadsBreakdownArgs = {
   site?: string;
 } & LeadsFilters;
 
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (INTERNAL_SECRET) headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
-  const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-  if (username) headers["x-mcp-author"] = username;
-  return headers;
+function internalHeaders(mcpToken?: string, site?: string): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, { site });
 }
 
 export function filtersFromArgs(args: LeadsBreakdownArgs): LeadsFilters {
@@ -79,7 +76,6 @@ export function leadsQueryParams(args: LeadsBreakdownArgs, domain?: string): URL
     page: 1,
     filters: filtersFromArgs(args),
   });
-  if (domain) p.set("__site", domain);
   return p;
 }
 
@@ -256,9 +252,13 @@ export function filtersMatchNothingNextAction(args: LeadsBreakdownArgs, filters:
   };
 }
 
-async function fetchJson<T>(url: string, mcpToken?: string): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+async function fetchJson<T>(
+  url: string,
+  mcpToken?: string,
+  site?: string,
+): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
   try {
-    const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+    const res = await fetch(url, { headers: internalHeaders(mcpToken, site) });
     const data = (await res.json().catch(() => ({}))) as T & { error?: string };
     if (!res.ok) return { ok: false, error: data.error || `HTTP ${res.status}` };
     return { ok: true, data };
@@ -317,8 +317,8 @@ export function registerLeadsBreakdownTools(mcp: McpServer, mcpToken?: string, g
       const params = leadsQueryParams(args, domain).toString();
       const base = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/ads/leads`;
       const [statsRes, listRes] = await Promise.all([
-        fetchJson<LeadsStatsResponse>(`${base}/stats?${params}`, mcpToken),
-        args.include_leads ? fetchJson<LeadsListResponse>(`${base}?${params}`, mcpToken) : Promise.resolve(null),
+        fetchJson<LeadsStatsResponse>(`${base}/stats?${params}`, mcpToken, domain),
+        args.include_leads ? fetchJson<LeadsListResponse>(`${base}?${params}`, mcpToken, domain) : Promise.resolve(null),
       ]);
       if (!statsRes.ok) return fail(`Could not load leads: ${statsRes.error}`);
       if (listRes && !listRes.ok) return fail(`Could not load lead rows: ${listRes.error}`);

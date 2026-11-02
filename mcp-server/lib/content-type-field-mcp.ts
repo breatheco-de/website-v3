@@ -33,16 +33,15 @@ export type FieldPatchToolInput = {
   editor?: ContentTypeEditorHint;
   confirm?: boolean;
   site?: string;
-  domain?: string;
   contentPath: string;
   mcpToken?: string;
   mainServerPort: string;
+  /** Must already include x-mcp-site when multi-site (caller bakes domain into headers). */
   internalHeaders: (token?: string) => Record<string, string>;
 };
 
 export async function fetchContentTypeConfigSlice(
   contentType: string,
-  domain: string | undefined,
   mainServerPort: string,
   internalHeaders: (token?: string) => Record<string, string>,
   mcpToken?: string,
@@ -50,9 +49,8 @@ export async function fetchContentTypeConfigSlice(
   | { ok: true; config: ContentTypeConfigSlice }
   | { ok: false; message: string; status?: number }
 > {
-  const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
   const res = await fetch(
-    `http://127.0.0.1:${mainServerPort}/api/content-types/${encodeURIComponent(contentType)}/config${q}`,
+    `http://127.0.0.1:${mainServerPort}/api/content-types/${encodeURIComponent(contentType)}/config`,
     { headers: internalHeaders(mcpToken) },
   );
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
@@ -80,15 +78,13 @@ export async function fetchContentTypeConfigSlice(
 export async function fetchFieldTemplateUsages(
   contentType: string,
   field: string,
-  domain: string | undefined,
   mainServerPort: string,
   internalHeaders: (token?: string) => Record<string, string>,
   mcpToken?: string,
 ): Promise<string[]> {
-  const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
   try {
     const res = await fetch(
-      `http://127.0.0.1:${mainServerPort}/api/content-types/${encodeURIComponent(contentType)}/fields/${encodeURIComponent(field)}/usages${q}`,
+      `http://127.0.0.1:${mainServerPort}/api/content-types/${encodeURIComponent(contentType)}/fields/${encodeURIComponent(field)}/usages`,
       { headers: internalHeaders(mcpToken) },
     );
     if (!res.ok) return [];
@@ -100,14 +96,12 @@ export async function fetchFieldTemplateUsages(
 }
 
 export async function fetchDatabaseNameList(
-  domain: string | undefined,
   mainServerPort: string,
   internalHeaders: (token?: string) => Record<string, string>,
   mcpToken?: string,
 ): Promise<string[]> {
-  const q = domain ? `?__site=${encodeURIComponent(domain)}` : "";
   try {
-    const res = await fetch(`http://127.0.0.1:${mainServerPort}/api/databases${q}`, {
+    const res = await fetch(`http://127.0.0.1:${mainServerPort}/api/databases`, {
       headers: internalHeaders(mcpToken),
     });
     const data = (await res.json()) as Array<{ name?: string }> | { error?: string };
@@ -210,7 +204,6 @@ export async function runContentTypeFieldPatch(input: FieldPatchToolInput) {
 
   const fetched = await fetchContentTypeConfigSlice(
     input.contentType,
-    input.domain,
     input.mainServerPort,
     input.internalHeaders,
     input.mcpToken,
@@ -221,7 +214,6 @@ export async function runContentTypeFieldPatch(input: FieldPatchToolInput) {
 
   const isDbBacked = !!fetched.config.database?.slug;
   const databaseNames = await fetchDatabaseNameList(
-    input.domain,
     input.mainServerPort,
     input.internalHeaders,
     input.mcpToken,
@@ -272,7 +264,6 @@ export async function runContentTypeFieldPatch(input: FieldPatchToolInput) {
           await fetchFieldTemplateUsages(
             input.contentType,
             fieldKey,
-            input.domain,
             input.mainServerPort,
             input.internalHeaders,
             input.mcpToken,
@@ -310,7 +301,6 @@ export async function runContentTypeFieldPatch(input: FieldPatchToolInput) {
 
   const fresh = await fetchContentTypeConfigSlice(
     input.contentType,
-    input.domain,
     input.mainServerPort,
     input.internalHeaders,
     input.mcpToken,
@@ -326,15 +316,13 @@ export async function runContentTypeFieldPatch(input: FieldPatchToolInput) {
       { code: preparedFresh.code, ...(preparedFresh.details ?? {}), drift: true },
     );
   }
-
-  const q = input.domain ? `?__site=${encodeURIComponent(input.domain)}` : "";
   const body: Record<string, unknown> = {
     field_mapping: preparedFresh.nextFieldMapping,
     editor: preparedFresh.nextEditor,
   };
 
   const res = await fetch(
-    `http://127.0.0.1:${input.mainServerPort}/api/content-types/${encodeURIComponent(input.contentType)}/config${q}`,
+    `http://127.0.0.1:${input.mainServerPort}/api/content-types/${encodeURIComponent(input.contentType)}/config`,
     {
       method: "PUT",
       headers: {

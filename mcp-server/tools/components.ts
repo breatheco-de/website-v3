@@ -8,26 +8,17 @@ import {
   getMcpSiteConfigs,
 } from "../lib/content.js";
 import { assertSafeSegment, assertWithinBase } from "../lib/sanitize.js";
-import { getTokenUsername } from "../lib/oauth.js";
 import { resolveComponentPath } from "../../shared/registry-resolve.js";
 import { denyUnlessContentView } from "../lib/auth.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
 import { SITE_PARAM_DESC } from "../lib/entry-helpers.js";
 import { ok, fail } from "../lib/respond.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
-const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
 
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (MCP_SERVER_SECRET) {
-    headers["Authorization"] = `Bearer ${MCP_SERVER_SECRET}`;
-  }
-  if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-  }
-  return headers;
+function internalHeaders(mcpToken?: string, site?: string): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, { site });
 }
 
 const VARIANT_FIELD_SOURCES = {
@@ -44,8 +35,8 @@ async function fetchVariantLiveStats(
   mcpToken?: string,
 ): Promise<Record<string, { uses: number; pages: number }> | null> {
   try {
-    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/private/component-insights/summary/${encodeURIComponent(componentType)}?__site=${encodeURIComponent(domain)}`;
-    const res = await fetch(url, { headers: internalHeaders(mcpToken), signal: AbortSignal.timeout(3000) });
+    const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/private/component-insights/summary/${encodeURIComponent(componentType)}`;
+    const res = await fetch(url, { headers: internalHeaders(mcpToken, domain), signal: AbortSignal.timeout(3000) });
     if (!res.ok) return null;
     const json = (await res.json()) as { variants?: Array<{ variant: string; count: number; pageCount: number }> };
     if (!Array.isArray(json.variants)) return null;
@@ -211,11 +202,10 @@ export function registerComponentTools(
       const params = new URLSearchParams();
       if (intent) params.set("intent", intent);
       if (contentType) params.set("contentType", contentType);
-      params.set("__site", domain);
 
       const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/private/component-insights/component/${encodeURIComponent(componentType)}?${params}`;
       try {
-        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const res = await fetch(url, { headers: internalHeaders(mcpToken, domain) });
         const json = await res.json();
         if (!res.ok) {
           return { content: [{ type: "text", text: JSON.stringify(json, null, 2) }], isError: res.status !== 400 };
@@ -260,11 +250,11 @@ export function registerComponentTools(
       const pathErr = assertResolvedComponent(componentType, contentFolder);
       if (pathErr) return fail(pathErr);
 
-      const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/component-section-demos?__site=${encodeURIComponent(domain)}`;
+      const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/component-section-demos`;
       try {
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, domain),
           body: JSON.stringify({
             componentType,
             yaml: yamlText,

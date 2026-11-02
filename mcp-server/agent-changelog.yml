@@ -6,6 +6,18 @@ window_days: 6
 
 entries:
   - date: "2026-11-02"
+    summary: "Multi-site loopback writes use x-mcp-site (pass tool site as usual)"
+    agent_impact:
+      - "Keep passing site (domain from list_sites) on every tool in multi-site setups. Under the hood, MCP loopback to 127.0.0.1 now sends x-mcp-site so production writes land in the correct content folder (e.g. Florida), not the default site."
+      - "No new tool parameter. Agents do not set HTTP headers themselves. Ship/reconnect so the MCP process and main app both have this change."
+      - "Unknown x-mcp-site values fail the request; omitting the header on global calls (get_current_user, write-pause) remains fine."
+    tools_changed: false
+    paths:
+      - server/site-manager.ts
+      - server/mcp-loopback-auth.ts
+      - mcp-server/lib/loopback.ts
+      - mcp-server/README.md
+  - date: "2026-11-02"
     summary: "Diagnostics now report dead external links and images (EXTERNAL_LINK_GONE, EXTERNAL_LINK_UNREACHABLE, OWN_MEDIA_GONE); update_issue gains mark_link_ok"
     agent_impact:
       - "New entry-local validator external-links reads saved checks in {site}/link-status.json (no network in validators). Only live-server diagnostics jobs re-check URLs: site-wide up to 300 new or >7-day-old; one slug + freshness hard rechecks that page now. GONE/UNREACHABLE need two dead results ≥3 days apart; OWN_MEDIA_GONE (error) = 404 on our storage bucket once. Bot walls / 403 / 429 / 999 / 5xx / timeouts are never reported."

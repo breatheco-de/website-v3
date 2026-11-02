@@ -10,6 +10,7 @@ import { ok, fail, type McpSideEffect, type NextAction } from "../lib/respond.js
 import { resolveSiteContext } from "../lib/content.js";
 import { SITE_PARAM_DESC, MULTI_SITE_TOOL_BLURB } from "../lib/entry-helpers.js";
 import { getTokenUsername } from "../lib/oauth.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
@@ -301,12 +302,8 @@ type Report = {
 /** Summary keeps the costliest ad link switches; entries rows carry their own `url_changes`. */
 const SUMMARY_URL_CHANGES = 10;
 
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (INTERNAL_SECRET) headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
-  const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-  if (username) headers["x-mcp-author"] = username;
-  return headers;
+function internalHeaders(mcpToken?: string, site?: string): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, { site });
 }
 
 function moneyTotal(m: Money | undefined): number {
@@ -507,10 +504,9 @@ export function registerPaidTrafficTools(mcp: McpServer, mcpToken?: string, gran
             });
           } else {
             const syncParams = new URLSearchParams();
-            if (domain) syncParams.set("__site", domain);
             const syncRes = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/ads/sync?${syncParams}`, {
               method: "POST",
-              headers: internalHeaders(mcpToken),
+              headers: internalHeaders(mcpToken, domain),
               body: JSON.stringify({ mode: "refresh" }),
             });
             const syncBody = (await syncRes.json().catch(() => ({}))) as { error?: string; refresh?: RefreshStatus };
@@ -558,8 +554,7 @@ export function registerPaidTrafficTools(mcp: McpServer, mcpToken?: string, gran
 
           if (diagPlatform === "overview") {
             const params = new URLSearchParams({ platform: "overview", days: String(days ?? 28) });
-            if (domain) params.set("__site", domain);
-            const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/diagnostics/ads?${params}`, { headers: internalHeaders(mcpToken) });
+            const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/diagnostics/ads?${params}`, { headers: internalHeaders(mcpToken, domain) });
             const data = (await res.json()) as Record<string, unknown> & { platforms?: Partial<Record<"meta" | "google", PlatformCard>> };
             if (!res.ok) return fail((data.error as string) || `Server error: ${res.status}`);
             const warnings: Warning[] = [...refreshWarningsOut, ADS_DIAGNOSTICS_MODEL, ...adsRunWarnings(data.run as AdsRunInfo | undefined)];
@@ -591,9 +586,8 @@ export function registerPaidTrafficTools(mcp: McpServer, mcpToken?: string, gran
 
           if (diagPlatform === "google") {
             const params = new URLSearchParams({ platform: "google", days: String(days ?? 28) });
-            if (domain) params.set("__site", domain);
             for (const id of issue_ids ?? []) params.append("issue_ids[]", id);
-            const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/diagnostics/ads?${params}`, { headers: internalHeaders(mcpToken) });
+            const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/diagnostics/ads?${params}`, { headers: internalHeaders(mcpToken, domain) });
             const data = (await res.json()) as Record<string, unknown>;
             if (!res.ok) return fail((data.error as string) || `Server error: ${res.status}`);
             const run = data.run as AdsRunInfo | undefined;
@@ -641,12 +635,11 @@ export function registerPaidTrafficTools(mcp: McpServer, mcpToken?: string, gran
           }
 
           const params = new URLSearchParams({ platform: "meta", days: String(days ?? 28) });
-          if (domain) params.set("__site", domain);
           for (const id of issue_ids ?? []) params.append("issue_ids[]", id);
           if (ads_limit != null) params.set("ads_limit", String(ads_limit));
           if (ads_offset != null) params.set("ads_offset", String(ads_offset));
           const filtered = appendIdFilters(params, { campaign_ids, adset_ids, ad_ids });
-          const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/diagnostics/ads?${params}`, { headers: internalHeaders(mcpToken) });
+          const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/diagnostics/ads?${params}`, { headers: internalHeaders(mcpToken, domain) });
           const data = (await res.json()) as Record<string, unknown>;
           if (!res.ok) return fail((data.error as string) || `Server error: ${res.status}`);
           refreshWarningsOut.push(...takeUtmWarnings(data));
@@ -750,8 +743,7 @@ export function registerPaidTrafficTools(mcp: McpServer, mcpToken?: string, gran
         if (since) params.set("since", since);
         if (until) params.set("until", until);
         appendIdFilters(params, { campaign_ids, adset_ids, ad_ids });
-        if (domain) params.set("__site", domain);
-        const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/ads/report?${params}`, { headers: internalHeaders(mcpToken) });
+        const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/ads/report?${params}`, { headers: internalHeaders(mcpToken, domain) });
         const data = (await res.json()) as Report & { error?: string; code?: string };
         if (!res.ok) {
           if (data.code === "platform_required_for_ids") {

@@ -43,17 +43,12 @@ const REFRESH_ARG_DESC =
 
 function internalHeaders(
   mcpToken?: string,
-  opts?: { agentSessionId?: string },
+  opts?: { agentSessionId?: string; site?: string },
 ): Record<string, string> {
   return buildLoopbackHeaders(mcpToken, opts);
 }
 
-function siteQuery(domain: string | null): string {
-  return domain ? `?__site=${encodeURIComponent(domain)}` : "";
-}
-
-function siteQueryJoin(domain: string | null, extra: string): string {
-  if (domain) return `?__site=${encodeURIComponent(domain)}&${extra}`;
+function queryStringJoin(extra: string): string {
   return extra ? `?${extra}` : "";
 }
 
@@ -127,8 +122,8 @@ async function fetchDbConfig(
   | { ok: true; data: DbConfigResponse }
   | { ok: false; message: string; status?: number }
 > {
-  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}${siteQuery(domain)}`;
-  const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}`;
+  const res = await fetch(url, { headers: internalHeaders(mcpToken, { site: domain ?? undefined }) });
   const data = (await res.json()) as DbConfigResponse & { error?: string };
   if (!res.ok) {
     return {
@@ -171,8 +166,8 @@ async function forceRefreshDatabase(
   domain: string | null,
   mcpToken?: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/refresh${siteQuery(domain)}`;
-  const res = await fetch(url, { method: "POST", headers: internalHeaders(mcpToken) });
+  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/refresh`;
+  const res = await fetch(url, { method: "POST", headers: internalHeaders(mcpToken, { site: domain ?? undefined }) });
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     return { ok: false, message: data.error || `Refresh failed: ${res.status}` };
@@ -186,8 +181,8 @@ async function fetchAllItems(
   mcpToken?: string,
 ): Promise<{ ok: true; items: Record<string, unknown>[] } | { ok: false; message: string }> {
   // High limit so we can stamp global indices correctly before filtering.
-  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/items${siteQueryJoin(domain, "limit=1000&page=1")}`;
-  const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/items${queryStringJoin("limit=1000&page=1")}`;
+  const res = await fetch(url, { headers: internalHeaders(mcpToken, { site: domain ?? undefined }) });
   const data = (await res.json()) as {
     items?: Record<string, unknown>[];
     total_count?: number;
@@ -202,8 +197,8 @@ async function fetchAllItems(
     // Paginate remaining pages if needed
     const pages = Math.ceil(total / 1000);
     for (let page = 2; page <= pages; page++) {
-      const pageUrl = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/items${siteQueryJoin(domain, `limit=1000&page=${page}`)}`;
-      const pageRes = await fetch(pageUrl, { headers: internalHeaders(mcpToken) });
+      const pageUrl = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/items${queryStringJoin(`limit=1000&page=${page}`)}`;
+      const pageRes = await fetch(pageUrl, { headers: internalHeaders(mcpToken, { site: domain ?? undefined }) });
       const pageData = (await pageRes.json()) as { items?: Record<string, unknown>[]; error?: string };
       if (!pageRes.ok) {
         return { ok: false, message: pageData.error || `Server error: ${pageRes.status}` };
@@ -384,8 +379,8 @@ async function maybeReindex(
       },
     };
   }
-  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/reindex${siteQuery(domain)}`;
-  const res = await fetch(url, { method: "POST", headers: internalHeaders(mcpToken) });
+  const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/reindex`;
+  const res = await fetch(url, { method: "POST", headers: internalHeaders(mcpToken, { site: domain ?? undefined }) });
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     return {
@@ -427,8 +422,8 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       const domain = siteResult.domain;
 
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases${siteQuery(domain)}`;
-        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases`;
+        const res = await fetch(url, { headers: internalHeaders(mcpToken, { site: domain ?? undefined }) });
         const data = (await res.json()) as Array<Record<string, unknown>> | { error?: string };
         if (!res.ok || !Array.isArray(data)) {
           return fail(
@@ -717,10 +712,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           });
         }
 
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items${siteQuery(domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
           body: JSON.stringify({ item: toWrite }),
         });
         const data = (await res.json()) as Record<string, unknown>;
@@ -846,10 +841,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const indices: number[] = [];
 
         if (toWrite.length > 0) {
-          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items${siteQuery(domain)}`;
+          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items`;
           const res = await fetch(url, {
             method: "POST",
-            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
             body: JSON.stringify({ items: toWrite.map((r) => r.item) }),
           });
           const data = (await res.json()) as Record<string, unknown>;
@@ -1034,10 +1029,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           }
         }
 
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}${siteQuery(domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}`;
         const res = await fetch(url, {
           method: "PATCH",
-          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
           body: JSON.stringify(item),
         });
         const data = (await res.json()) as Record<string, unknown>;
@@ -1165,10 +1160,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
 
         for (let i = 0; i < toPatch.length; i++) {
           const row = toPatch[i];
-          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${row.index}${siteQuery(domain)}`;
+          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${row.index}`;
           const res = await fetch(url, {
             method: "PATCH",
-            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
             body: JSON.stringify(row.item),
           });
           const data = (await res.json()) as Record<string, unknown>;
@@ -1334,8 +1329,8 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         let usageSummary: ReturnType<typeof summarizeUsage> | null = null;
         let usageUnknown = false;
         try {
-          const usageUrl = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/usage${siteQuery(domain)}`;
-          const usageRes = await fetch(usageUrl, { headers: internalHeaders(mcpToken) });
+          const usageUrl = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/usage`;
+          const usageRes = await fetch(usageUrl, { headers: internalHeaders(mcpToken, { site: domain ?? undefined }) });
           if (usageRes.ok) {
             const usageData = (await usageRes.json()) as {
               content_types?: Array<{ name: string; label?: string }>;
@@ -1389,10 +1384,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         }
         const vectorEnabled = cfg.data.config.vector_search?.enabled === true;
 
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}${siteQuery(domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}`;
         const res = await fetch(url, {
           method: "DELETE",
-          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
@@ -1519,10 +1514,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
             });
           }
 
-          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases${siteQuery(domain)}`;
+          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases`;
           const res = await fetch(url, {
             method: "POST",
-            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+            headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
             body: JSON.stringify({ slug: database, config }),
           });
           const data = (await res.json()) as Record<string, unknown>;
@@ -1606,10 +1601,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         }
 
         const { merged, needsReindex } = plan;
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/config${siteQuery(domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/config`;
         const res = await fetch(url, {
           method: "PUT",
-          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
           body: JSON.stringify(merged),
         });
         const data = (await res.json()) as Record<string, unknown>;
@@ -1687,10 +1682,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           return fail(`Semantic search is not enabled for database "${database}"`);
         }
 
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/reindex${siteQuery(domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/reindex`;
         const res = await fetch(url, {
           method: "POST",
-          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id }),
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {

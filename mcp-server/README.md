@@ -4,7 +4,7 @@ An MCP (Model Context Protocol) server that gives Claude read and write access t
 
 **Vocabulary:** an *entry* is one slug under a content type (`blog`, `program`, `page`, …). The content type key `page` is unrelated to tool names.
 
-**Multi-site:** call `list_sites` first when more than one domain exists, then pass `site` (the user-named domain from `sites.yml`) on every tool. Never assume the first `sites.yml` entry; matching is case-insensitive.
+**Multi-site:** call `list_sites` first when more than one domain exists, then pass `site` (the user-named domain from `sites.yml`) on every tool. Never assume the first `sites.yml` entry; matching is case-insensitive. Loopback writes to the main app send that domain as the `x-mcp-site` header (not `?__site=`, which is a local staff/browser override only).
 
 **Catalog by capability:** in production, `tools/list` on `/mcp` only includes tools the caller’s grants allow (`content_view` for YAML/component/explain reads). `GET /tools` is the full unauthenticated map. After a role change, refresh the MCP server in Cursor — the palette does not update mid-session. `get_current_user` returns `allowed_tools`. Handlers still `checkCap`. Dev does not filter the catalog on plain `/mcp`. **Production plain `/mcp`:** mutating tools may appear but every mutate returns `role_connector_required` with `connector_guide` / swarm setup; OAuth consent warns that `/mcp` is read-only and recommends one role connector per agent. **Non-production:** plain `/mcp` freestyle mutates when MCP write is on. **MCP write off:** `mcp_write_disabled` + `mcp_write_guide` on bootstrap/`get_current_user` (propose-only).
 
