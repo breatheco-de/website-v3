@@ -181,6 +181,8 @@ import { resolveOwnedStaffSession } from "../staff-session-resolve";
 import { child } from "../logger";
 import { buildServerPageTracking } from "../tracking-page-context";
 import { getDefaultContentRoot } from "../site-config";
+import { isMcpLoopbackRequest } from "../mcp-loopback-auth";
+export { isMcpLoopbackRequest };
 const log = child({ module: "routes/_helpers" });
 
 
@@ -521,8 +523,6 @@ export async function requireMutatingStaff(
 
   return { authorized: true, token, username: session.username, author: session.username };
 }
-
-export { isMcpLoopbackRequest } from "../mcp-loopback-auth";
 
 function sanitizeIssueActorModel(model: unknown): string | undefined {
   if (typeof model !== "string") return undefined;
