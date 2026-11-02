@@ -3,8 +3,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
 
 vi.mock("../lib/content.js", () => ({ resolveSiteContext: () => ({ ok: true, domain: "4geeks.com" }) }));
-vi.mock("../lib/oauth.js", () => ({ getTokenUsername: () => "staff@4geeks.com" }));
-vi.mock("../lib/auth.js", () => ({ denyUnlessMetricsView: async () => null, checkCap: async () => false }));
+vi.mock("../lib/oauth.js", () => ({ getTokenUsername: () => "staff@4geeks.com", getTokenClientName: () => undefined }));
+vi.mock("../lib/auth.js", () => ({
+  denyUnlessMetricsView: async () => null,
+  checkCap: async () => false,
+  getActiveRoleId: () => undefined,
+  getActiveMcpToken: () => undefined,
+}));
 
 const { registerPaidTrafficTools, accountSyncWarnings, overviewNextActions, adsRunWarnings, adsIssueNextActions, compactCampaignRef } = await import("./paid-traffic");
 
