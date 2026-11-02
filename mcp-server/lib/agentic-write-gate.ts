@@ -95,11 +95,10 @@ async function fetchActiveClaimForEntry(opts: {
     locale: opts.locale,
     author,
   });
-  if (opts.domain) params.set("__site", opts.domain);
   try {
     const res = await fetch(
       `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues/active-claim-for-entry?${params}`,
-      { headers: buildLoopbackHeaders(opts.mcpToken) },
+      { headers: buildLoopbackHeaders(opts.mcpToken, { site: opts.domain }) },
     );
     if (!res.ok) return { has_active_claim: false, claim_issue_ids: [] };
     const data = (await res.json()) as {
@@ -229,13 +228,12 @@ export async function refreshAgenticClaimAfterLiveWrite(opts: {
   if (!isAgenticRoleSession()) return;
   const author = opts.mcpToken ? getTokenUsername(opts.mcpToken) : undefined;
   if (!author) return;
-  const params = opts.domain ? `?__site=${encodeURIComponent(opts.domain)}` : "";
   try {
     await fetch(
-      `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues/refresh-claims-for-entry${params}`,
+      `http://127.0.0.1:${MAIN_SERVER_PORT}/api/validation/cache-issues/refresh-claims-for-entry`,
       {
         method: "POST",
-        headers: buildLoopbackHeaders(opts.mcpToken),
+        headers: buildLoopbackHeaders(opts.mcpToken, { site: opts.domain }),
         body: JSON.stringify({
           contentType: opts.contentType,
           slug: opts.slug,

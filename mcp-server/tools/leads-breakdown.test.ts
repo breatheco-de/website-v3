@@ -7,8 +7,15 @@ vi.mock("../lib/content.js", () => ({
   resolveSiteContext: () => ({ ok: true, domain: "4geeks.com" }),
   getMcpSiteConfigs: () => sites,
 }));
-vi.mock("../lib/oauth.js", () => ({ getTokenUsername: () => "staff@4geeks.com" }));
-vi.mock("../lib/auth.js", () => ({ denyUnlessMetricsView: async () => null }));
+vi.mock("../lib/oauth.js", () => ({
+  getTokenUsername: () => "staff@4geeks.com",
+  getTokenClientName: () => "Cursor",
+}));
+vi.mock("../lib/auth.js", () => ({
+  denyUnlessMetricsView: async () => null,
+  getActiveRoleId: () => undefined,
+  getActiveMcpToken: () => undefined,
+}));
 
 const {
   registerLeadsBreakdownTools,
@@ -91,7 +98,7 @@ describe("leadsQueryParams", () => {
     expect(p.get("medium")).toBe("(none)");
     expect(p.get("channel")).toBe("organic_search");
     expect(p.get("product")).toBe("full-stack");
-    expect(p.get("__site")).toBe("4geeks.com");
+    expect(p.has("__site")).toBe(false);
     const funnel = leadsQueryParams({ funnel_product: "ai-flex", funnel_persona: "ai-flex:the-developer" });
     expect(funnel.get("funnel_product")).toBe("ai-flex");
     expect(funnel.get("funnel_persona")).toBe("ai-flex:the-developer");
@@ -257,18 +264,21 @@ function register(): Handler {
 }
 
 const calls: string[] = [];
+const headerSites: Array<string | undefined> = [];
 let statsBody: LeadsStatsResponse = stats();
 let statsStatus = 200;
 
 beforeEach(() => {
   calls.length = 0;
+  headerSites.length = 0;
   statsBody = stats();
   statsStatus = 200;
   sites = [{ domain: "4geeks.com" }, { domain: "florida.4geeks.com" }];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (url: string) => {
+    vi.fn(async (url: string, init?: { headers?: Record<string, string> }) => {
       calls.push(url);
+      headerSites.push(init?.headers?.["x-mcp-site"]);
       if (url.includes("/api/ads/leads/stats")) {
         return new Response(JSON.stringify(statsStatus === 200 ? statsBody : { error: "Invalid range" }), { status: statsStatus });
       }
@@ -287,7 +297,8 @@ describe("get_leads_breakdown handler", () => {
     const body = JSON.parse(res.content[0]!.text);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain("/api/ads/leads/stats?");
-    expect(calls[0]).toContain("__site=4geeks.com");
+    expect(calls[0]).not.toContain("__site=");
+    expect(headerSites[0]).toBe("4geeks.com");
     expect(body.success).toBe(true);
     expect(body.leads).toBeUndefined();
     expect(codes(body.warnings)).toEqual(

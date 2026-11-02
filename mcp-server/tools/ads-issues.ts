@@ -124,10 +124,9 @@ export function registerAdsIssueTools(mcp: McpServer, mcpToken?: string, grants?
       }
 
       const params = new URLSearchParams();
-      if (siteResult.domain) params.set("__site", siteResult.domain);
       const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/diagnostics/ads/${path}?${params}`, {
         method: "POST",
-        headers: buildLoopbackHeaders(mcpToken, { agentSessionId: agent_session_id, model }),
+        headers: buildLoopbackHeaders(mcpToken, { agentSessionId: agent_session_id, model, site: siteResult.domain }),
         body: JSON.stringify(body),
       });
       const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;

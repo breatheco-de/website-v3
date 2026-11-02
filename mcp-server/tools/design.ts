@@ -2,28 +2,20 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { resolveSiteContext } from "../lib/content.js";
 import { assertSafeSegment } from "../lib/sanitize.js";
-import { getTokenUsername } from "../lib/oauth.js";
 import { denyUnlessContentView } from "../lib/auth.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
 import { SITE_PARAM_DESC } from "../lib/entry-helpers.js";
 import { ok, fail, actionRequired, type NextAction } from "../lib/respond.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
-const MCP_SERVER_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
 
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (MCP_SERVER_SECRET) headers["Authorization"] = `Bearer ${MCP_SERVER_SECRET}`;
-  if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-  }
-  return headers;
+function internalHeaders(mcpToken?: string, site?: string): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, { site });
 }
 
-function api(path: string, domain: string): string {
-  const sep = path.includes("?") ? "&" : "?";
-  return `http://127.0.0.1:${MAIN_SERVER_PORT}${path}${sep}__site=${encodeURIComponent(domain)}`;
+function api(path: string): string {
+  return `http://127.0.0.1:${MAIN_SERVER_PORT}${path}`;
 }
 
 type Finding = {
@@ -84,8 +76,8 @@ export function registerDesignTools(mcp: McpServer, mcpToken?: string, grants?: 
       if (locale) params.set("locale", locale);
       if (slug) params.set("slug", slug);
       try {
-        const res = await fetch(api(`/api/private/component-insights/recipe?${params}`, siteResult.domain), {
-          headers: internalHeaders(mcpToken),
+        const res = await fetch(api(`/api/private/component-insights/recipe?${params}`), {
+          headers: internalHeaders(mcpToken, siteResult.domain),
         });
         const json = (await res.json()) as Record<string, unknown>;
         if (!res.ok) return fail(String(json.error ?? `Failed to build recipe (${res.status})`), { http_status: res.status });
@@ -206,9 +198,9 @@ export function registerDesignTools(mcp: McpServer, mcpToken?: string, grants?: 
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return fail(siteResult.error);
       try {
-        const res = await fetch(api("/api/page-demos", siteResult.domain), {
+        const res = await fetch(api("/api/page-demos"), {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, siteResult.domain),
           body: JSON.stringify({ yaml, ...(locale ? { locale } : {}), ...(title ? { title } : {}) }),
         });
         const json = (await res.json()) as Record<string, unknown>;
@@ -297,9 +289,9 @@ export function registerDesignTools(mcp: McpServer, mcpToken?: string, grants?: 
         return fail((e as Error).message);
       }
       try {
-        const res = await fetch(api("/api/render-reviews", siteResult.domain), {
+        const res = await fetch(api("/api/render-reviews"), {
           method: "POST",
-          headers: internalHeaders(mcpToken),
+          headers: internalHeaders(mcpToken, siteResult.domain),
           body: JSON.stringify({ ...body, ...(viewports?.length ? { viewports } : {}) }),
         });
         const json = (await res.json()) as Record<string, unknown>;
@@ -387,7 +379,7 @@ export function registerDesignTools(mcp: McpServer, mcpToken?: string, grants?: 
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return fail(siteResult.error);
       try {
-        const res = await fetch(api(`/api/render-reviews/${job_id}`, siteResult.domain), { headers: internalHeaders(mcpToken) });
+        const res = await fetch(api(`/api/render-reviews/${job_id}`), { headers: internalHeaders(mcpToken, siteResult.domain) });
         const job = (await res.json()) as Record<string, unknown>;
         if (!res.ok) return fail(String(job.error ?? `Review not found (${res.status})`), { http_status: res.status });
         const status = String(job.status);
@@ -515,8 +507,8 @@ export function registerDesignTools(mcp: McpServer, mcpToken?: string, grants?: 
         for (const vp of vps) {
           const q = new URLSearchParams({ viewport: vp });
           if (crop_section !== undefined) q.set("section_index", String(crop_section));
-          const imgRes = await fetch(api(`/api/render-reviews/${job_id}/image?${q}`, siteResult.domain), {
-            headers: internalHeaders(mcpToken),
+          const imgRes = await fetch(api(`/api/render-reviews/${job_id}/image?${q}`), {
+            headers: internalHeaders(mcpToken, siteResult.domain),
           });
           if (!imgRes.ok) continue;
           blocks.push({ type: "image", data: Buffer.from(await imgRes.arrayBuffer()).toString("base64"), mimeType: "image/webp" });

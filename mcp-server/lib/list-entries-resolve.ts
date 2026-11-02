@@ -322,7 +322,6 @@ export function paginateRows<T>(
 export function createDefaultFetchItems(port: string, headers: Record<string, string>): FetchItemsFn {
   return async ({ contentType, domain, locale, countOnly }) => {
     const params = new URLSearchParams();
-    if (domain) params.set("__site", domain);
     if (locale) params.set("locale", locale);
     if (countOnly) {
       params.set("page", "1");

@@ -20,7 +20,7 @@ describe("list_variables", () => {
         context: { entry: { contentType: "landing", slug: "x", locale: "es" } },
       }).slice(1),
     );
-    expect(q.get("__site")).toBe("4geeks.com");
+    expect(q.has("__site")).toBe(false);
     expect(q.get("names")).toBe("global.a,b");
     expect(q.get("entry_type")).toBe("landing");
     expect(q.get("entry_locale")).toBe("es");

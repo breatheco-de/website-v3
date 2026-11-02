@@ -886,11 +886,8 @@ export function allowedProposalUpdateActions(
   return new Set();
 }
 
-function siteQuery(domain: string | null, extra = ""): string {
-  const parts: string[] = [];
-  if (domain) parts.push(`__site=${encodeURIComponent(domain)}`);
-  if (extra) parts.push(extra);
-  return parts.length ? `?${parts.join("&")}` : "";
+function queryString(extra = ""): string {
+  return extra ? `?${extra}` : "";
 }
 
 async function hasGrantOrCap(
@@ -1119,10 +1116,10 @@ export function registerProposalTools(
       const siteResult = resolveSiteContext(args.site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals`;
         const res = await fetch(url, {
           method: "POST",
-          headers: buildLoopbackHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
+          headers: buildLoopbackHeaders(mcpToken, { agentSessionId: args.agent_session_id, site: siteResult.domain }),
           body: JSON.stringify({
             title: args.title,
             summary: args.summary,
@@ -1921,8 +1918,8 @@ export function registerProposalTools(
       }
       const extra = qs.toString();
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals${siteQuery(siteResult.domain, extra)}`;
-        const res = await fetch(url, { headers: buildLoopbackHeaders(mcpToken) });
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals${queryString(extra)}`;
+        const res = await fetch(url, { headers: buildLoopbackHeaders(mcpToken, { site: siteResult.domain }) });
         const data = (await res.json()) as {
           proposals?: unknown[];
           total?: number;
@@ -1959,8 +1956,8 @@ export function registerProposalTools(
           if (args.kind) kQs.set("kind", args.kind);
           if (args.kpi_from) kQs.set("from", args.kpi_from);
           if (args.kpi_to) kQs.set("to", args.kpi_to);
-          const kUrl = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals/kpis${siteQuery(siteResult.domain, kQs.toString())}`;
-          const kRes = await fetch(kUrl, { headers: buildLoopbackHeaders(mcpToken) });
+          const kUrl = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals/kpis${queryString(kQs.toString())}`;
+          const kRes = await fetch(kUrl, { headers: buildLoopbackHeaders(mcpToken, { site: siteResult.domain }) });
           const kData = (await kRes.json()) as { error?: string; series?: unknown };
           if (!kRes.ok) {
             return fail(String(kData.error ?? "kpi_history failed"), { code: "kpi_history_failed" });
@@ -2430,10 +2427,10 @@ export function registerProposalTools(
       const siteResult = resolveSiteContext(args.site);
       if (!siteResult.ok) return siteFailResult(siteResult.error);
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals/${encodeURIComponent(args.proposal_id)}/${encodeURIComponent(args.action)}${siteQuery(siteResult.domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/admin/proposals/${encodeURIComponent(args.proposal_id)}/${encodeURIComponent(args.action)}`;
         const res = await fetch(url, {
           method: "POST",
-          headers: buildLoopbackHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
+          headers: buildLoopbackHeaders(mcpToken, { agentSessionId: args.agent_session_id, site: siteResult.domain }),
           body: JSON.stringify({
             report: args.report,
             agent_session_id: args.agent_session_id,

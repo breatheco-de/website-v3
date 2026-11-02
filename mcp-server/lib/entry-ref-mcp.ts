@@ -64,13 +64,13 @@ export type EntryRefLookup = (q: {
 
 /** Loopback to the main app. Null when it cannot answer (MCP running without the app). */
 export const loopbackEntryRefLookup: EntryRefLookup = async (q) => {
-  const params = new URLSearchParams({ ref: q.ref, __site: q.domain });
+  const params = new URLSearchParams({ ref: q.ref });
   if (q.contentType) params.set("contentType", q.contentType);
   if (q.locale) params.set("locale", q.locale);
   if (q.localeExplicit) params.set("locale_explicit", "1");
   try {
     const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/internal/content/resolve-entry?${params}`, {
-      headers: buildLoopbackHeaders(undefined, { omitJsonContentType: true }),
+      headers: buildLoopbackHeaders(undefined, { omitJsonContentType: true, site: q.domain }),
       signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
     });
     if (!res.ok) return null;

@@ -91,7 +91,6 @@ export function buildVariablesQuery(args: {
   };
 }): string {
   const p = new URLSearchParams();
-  if (args.domain) p.set("__site", args.domain);
   const cats = Array.isArray(args.category) ? args.category : args.category ? [args.category] : [];
   if (cats.length) p.set("category", cats.join(","));
   if (args.figures_only) p.set("figures_only", "true");
@@ -170,7 +169,7 @@ export function registerVariableTools(
           ...args,
           domain: siteResult.domain,
         })}`;
-        const res = await fetch(url, { headers: buildLoopbackHeaders(mcpToken) });
+        const res = await fetch(url, { headers: buildLoopbackHeaders(mcpToken, { site: siteResult.domain }) });
         const data = (await res.json()) as CatalogBody | DetailBody | ErrorBody;
 
         if (!res.ok) {

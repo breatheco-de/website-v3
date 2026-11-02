@@ -14,9 +14,8 @@ import { requiredAgentSessionIdField } from "../lib/page-tool-helpers.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 
-function siteQuery(domain: string | null | undefined, extra?: Record<string, string>): string {
+function queryString(extra?: Record<string, string>): string {
   const params = new URLSearchParams();
-  if (domain) params.set("__site", domain);
   if (extra) {
     for (const [k, v] of Object.entries(extra)) params.set(k, v);
   }
@@ -130,8 +129,8 @@ export function registerProductTools(
           include_removed: include_removed === true ? "true" : "false",
         };
         if (content_type) extra.content_type = content_type;
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/product${siteQuery(siteResult.domain, extra)}`;
-        const res = await fetch(url, { headers: buildLoopbackHeaders(mcpToken) });
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/product${queryString(extra)}`;
+        const res = await fetch(url, { headers: buildLoopbackHeaders(mcpToken, { site: siteResult.domain }) });
         const data = (await res.json()) as {
           products?: Array<{ content_slug: string; audience_status?: string; purchasable?: boolean }>;
           error?: string;
@@ -220,11 +219,8 @@ export function registerProductTools(
       if (!siteResult.ok) return fail(siteResult.error);
       const ct = content_type || "program";
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/product/${encodeURIComponent(slug)}${siteQuery(
-          siteResult.domain,
-          { content_type: ct },
-        )}`;
-        const res = await fetch(url, { headers: buildLoopbackHeaders(mcpToken) });
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/product/${encodeURIComponent(slug)}${queryString({ content_type: ct })}`;
+        const res = await fetch(url, { headers: buildLoopbackHeaders(mcpToken, { site: siteResult.domain }) });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
           return fail((data.error as string) || `Server error: ${res.status}`);
@@ -512,10 +508,10 @@ export function registerProductTools(
       }
 
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/product/${encodeURIComponent(args.slug)}${siteQuery(domain)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/product/${encodeURIComponent(args.slug)}${queryString()}`;
         const res = await fetch(url, {
           method: "PUT",
-          headers: buildLoopbackHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
+          headers: buildLoopbackHeaders(mcpToken, { agentSessionId: args.agent_session_id, site: siteResult.domain }),
           body: JSON.stringify(patchBody),
         });
         const data = (await res.json()) as Record<string, unknown>;

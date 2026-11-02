@@ -80,16 +80,13 @@ const EXT_TO_MIME: Record<string, string> = {
 
 function internalHeaders(
   mcpToken?: string,
-  opts?: { omitJsonContentType?: boolean; agentSessionId?: string },
+  opts?: { omitJsonContentType?: boolean; agentSessionId?: string; site?: string },
 ): Record<string, string> {
   return buildLoopbackHeaders(mcpToken, {
     omitJsonContentType: opts?.omitJsonContentType,
     agentSessionId: opts?.agentSessionId,
+    site: opts?.site,
   });
-}
-
-function siteQuery(domain: string | null): string {
-  return domain ? `?__site=${encodeURIComponent(domain)}` : "";
 }
 
 export type GalleryMediaSource = "media_id" | "url" | "prompt" | "bytes_base64";
@@ -619,7 +616,7 @@ export async function handleGetOrSetMediaToGallery(
     });
   }
   const { contentPath, contentFolder, domain } = siteResult;
-  const q = siteQuery(domain);
+  const q = "";
 
   if (source === "media_id") {
     const viewDenied = await denyUnlessContentView(mcpToken, undefined, grants);
@@ -950,7 +947,7 @@ export async function handleGetOrSetMediaToGallery(
   try {
     genRes = await fetchFn(genUrl, {
       method: "POST",
-      headers: internalHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
+      headers: internalHeaders(mcpToken, { agentSessionId: args.agent_session_id, site: domain }),
       body: JSON.stringify({
         prompt,
         n: 1,

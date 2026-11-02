@@ -6,26 +6,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, fail } from "../lib/respond.js";
 import { resolveSiteContext } from "../lib/content.js";
-import { getTokenUsername } from "../lib/oauth.js";
 import { denyUnlessContentView } from "../lib/auth.js";
 import type { CatalogGrant } from "../lib/tool-catalog.js";
+import { buildLoopbackHeaders } from "../lib/loopback.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
-const INTERNAL_SECRET = process.env.MCP_SERVER_SECRET || process.env.MCP_API_KEY || "";
 
-function internalHeaders(mcpToken?: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (INTERNAL_SECRET) {
-    headers.Authorization = `Bearer ${INTERNAL_SECRET}`;
-    const username = mcpToken ? getTokenUsername(mcpToken) : undefined;
-    if (username) headers["x-mcp-author"] = username;
-  } else if (mcpToken) {
-    const username = getTokenUsername(mcpToken);
-    if (username) headers["x-mcp-author"] = username;
-  }
-  return headers;
+function internalHeaders(mcpToken?: string, site?: string): Record<string, string> {
+  return buildLoopbackHeaders(mcpToken, { site });
 }
 
 export function registerEcommerceTools(
@@ -50,10 +38,8 @@ export function registerEcommerceTools(
       const domain = siteResult.domain;
 
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/ecommerce/funnel/${encodeURIComponent(slug)}${
-          domain ? `?__site=${encodeURIComponent(domain)}` : ""
-        }`;
-        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/ecommerce/funnel/${encodeURIComponent(slug)}`;
+        const res = await fetch(url, { headers: internalHeaders(mcpToken, domain) });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
           return fail((data.error as string) || `Server error: ${res.status}`);
@@ -132,9 +118,8 @@ export function registerEcommerceTools(
         const params = new URLSearchParams();
         params.set("mode", mode || "page_performance");
         if (days) params.set("days", String(days));
-        if (domain) params.set("__site", domain);
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/ecommerce/funnel/${encodeURIComponent(slug)}/analytics?${params}`;
-        const res = await fetch(url, { headers: internalHeaders(mcpToken) });
+        const res = await fetch(url, { headers: internalHeaders(mcpToken, domain) });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
           return fail((data.error as string) || `Server error: ${res.status}`);

@@ -29,18 +29,13 @@ const MAIN_SERVER_PORT = process.env.PORT || "5000";
 
 function internalHeaders(
   mcpToken?: string,
-  opts?: { agentSessionId?: string },
+  opts?: { agentSessionId?: string; site?: string },
 ): Record<string, string> {
   return buildLoopbackHeaders(mcpToken, opts);
 }
 
-function siteQuery(domain?: string): string {
-  return domain ? `?__site=${encodeURIComponent(domain)}` : "";
-}
-
-function siteQueryJoin(domain: string | undefined, params: Record<string, string>): string {
+function queryStringJoin(params: Record<string, string>): string {
   const q = new URLSearchParams(params);
-  if (domain) q.set("__site", domain);
   const s = q.toString();
   return s ? `?${s}` : "";
 }
@@ -81,12 +76,12 @@ async function fetchInspect(
   domain?: string,
   mcpToken?: string,
 ): Promise<{ ok: true; data: InspectPayload } | { ok: false; status: number; error: string }> {
-  const qs = siteQueryJoin(domain, {
+  const qs = queryStringJoin({
     url,
     ...(locale ? { locale } : {}),
   });
   const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects/test${qs}`, {
-    headers: internalHeaders(mcpToken),
+    headers: internalHeaders(mcpToken, { site: domain }),
   });
   const data = (await res.json()) as InspectPayload;
   if (!res.ok) {
@@ -100,9 +95,9 @@ async function fetchLocaleUrls(
   domain?: string,
   mcpToken?: string,
 ): Promise<{ ok: true; contentType: string; slug: string } | { ok: false }> {
-  const qs = siteQueryJoin(domain, { url: destUrl });
+  const qs = queryStringJoin({ url: destUrl });
   const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects/locale-urls${qs}`, {
-    headers: internalHeaders(mcpToken),
+    headers: internalHeaders(mcpToken, { site: domain }),
   });
   if (!res.ok) return { ok: false };
   const data = (await res.json()) as { contentType?: string; slug?: string };
@@ -214,9 +209,9 @@ async function updateDraftRedirect(
     locale: args.locale!.trim(),
     variant: args.variant!.trim(),
   };
-  const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects${siteQuery(domain)}`, {
+  const res = await fetch(`http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects`, {
     method: action === "add" ? "POST" : "DELETE",
-    headers: internalHeaders(mcpToken, { agentSessionId: args.agent_session_id }),
+    headers: internalHeaders(mcpToken, { agentSessionId: args.agent_session_id, site: domain }),
     body: JSON.stringify({
       from,
       ...target,
@@ -477,7 +472,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
           // Never allLanguages / _common.yml in v1.
 
           const res = await fetch(
-            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects${siteQuery(domain)}`,
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects`,
             {
               method: "POST",
               headers: internalHeaders(mcpToken, sessOpts),
@@ -582,7 +577,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
           }
 
           const res = await fetch(
-            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects${siteQuery(domain)}`,
+            `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects`,
             {
               method: "DELETE",
               headers: internalHeaders(mcpToken, sessOpts),
@@ -624,7 +619,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
         }
         const beforeFrom = args.before_from!.trim();
         const res = await fetch(
-          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects/move${siteQuery(domain)}`,
+          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/debug/redirects/move`,
           {
             method: "PATCH",
             headers: internalHeaders(mcpToken, sessOpts),

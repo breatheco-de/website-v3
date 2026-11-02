@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-02"
+    summary: "Multi-site loopback writes use x-mcp-site (pass tool site as usual)"
+    agent_impact:
+      - "Keep passing site (domain from list_sites) on every tool in multi-site setups. Under the hood, MCP loopback to 127.0.0.1 now sends x-mcp-site so production writes land in the correct content folder (e.g. Florida), not the default site."
+      - "No new tool parameter. Agents do not set HTTP headers themselves. Ship/reconnect so the MCP process and main app both have this change."
+      - "Unknown x-mcp-site values fail the request; omitting the header on global calls (get_current_user, write-pause) remains fine."
+    tools_changed: false
+    paths:
+      - server/site-manager.ts
+      - server/mcp-loopback-auth.ts
+      - mcp-server/lib/loopback.ts
+      - mcp-server/README.md
   - date: "2026-10-30"
     summary: "{{ funnel.products }} is the stored list; links use entry.funnel_products_encoded_ids"
     agent_impact:
