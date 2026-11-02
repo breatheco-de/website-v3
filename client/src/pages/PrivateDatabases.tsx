@@ -57,7 +57,9 @@ import {
 } from "@shared/database-items-sort";
 import type { DatabaseEvidenceConfig, EvidenceRowTrust } from "@shared/evidence-kinds";
 import { EvidenceSourceKpiCard } from "@/components/databases/EvidenceSourceKpiCard";
-import { ARCHIVE_COLUMN_HELP, EvidenceArchiveCell } from "@/components/databases/EvidenceArchiveCell";
+import { ArchiveColumnHeader, EvidenceArchiveCell } from "@/components/databases/EvidenceArchiveCell";
+import { EvidenceTrustLabel } from "@/components/databases/EvidenceTrustLabel";
+import { KpiLabelHelp } from "@/components/databases/KpiLabelHelp";
 import type { RowArchiveView } from "@shared/evidence-archive";
 
 const RELATIVE_FETCHED_AT_MAX_MS = 2 * 24 * 60 * 60 * 1000;
@@ -81,6 +83,73 @@ function FetchedAtLabel({ fetchedAt }: { fetchedAt?: string | number | null }) {
     <span data-testid="text-fetched-at" title={absolute}>
       {label}
     </span>
+  );
+}
+
+function humanMinutes(m: number): string {
+  if (m > 0 && m % 1440 === 0) return `${m / 1440} day${m === 1440 ? "" : "s"}`;
+  if (m > 0 && m % 60 === 0) return `${m / 60} hour${m === 60 ? "" : "s"}`;
+  return `${m} minute${m === 1 ? "" : "s"}`;
+}
+
+/** "1h ago · TTL 1440m" line; click opens what last-fetched time and TTL mean. */
+function CacheFreshnessLine({
+  fetchedAt,
+  ttlMinutes,
+  sourceType,
+}: {
+  fetchedAt?: string | number | null;
+  ttlMinutes: number;
+  sourceType?: string;
+}) {
+  const fetched = fetchedAt ? new Date(fetchedAt) : null;
+  const expiresAt = fetched && ttlMinutes > 0 ? new Date(fetched.getTime() + ttlMinutes * 60_000) : null;
+  const expired = expiresAt ? expiresAt.getTime() <= Date.now() : ttlMinutes === 0;
+  const isLocal = sourceType === "local";
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors text-left"
+          data-testid="button-cache-freshness"
+        >
+          <Clock className="h-3 w-3 shrink-0" />
+          <FetchedAtLabel fetchedAt={fetchedAt} />
+          <span>· TTL {ttlMinutes}m</span>
+          <Info className="h-3 w-3 shrink-0" aria-hidden />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 space-y-2 text-xs leading-relaxed text-muted-foreground" data-testid="popover-cache-freshness">
+        <p className="font-medium text-sm text-foreground">How fresh is this data?</p>
+        {fetched ? (
+          <p>
+            The time (<span className="text-foreground">{fetched.toLocaleString()}</span>) is when the app last read this
+            database {isLocal ? "from its file" : "from its source"} and saved a copy to serve pages quickly.
+          </p>
+        ) : (
+          <p>The app has not read this database yet. It will the first time a page or this screen needs it.</p>
+        )}
+        <p>
+          <span className="text-foreground">TTL {ttlMinutes}m</span> ({humanMinutes(ttlMinutes)}) is how long that copy is
+          reused. After it expires, the next page or screen that needs this data reads the source again.
+          {ttlMinutes === 0 ? " With 0, it reads the source every time." : ""}
+        </p>
+        {expiresAt ? (
+          <p>
+            {expired
+              ? "This copy has expired, so it refreshes the next time it is used."
+              : `This copy expires ${expiresAt.toLocaleString()}.`}
+          </p>
+        ) : null}
+        <p>
+          {isLocal
+            ? "Edits saved here or by agents refresh the copy right away; the TTL never delays them."
+            : "Changes made at the source show up after the TTL expires, or right away when someone refreshes this database."}{" "}
+          You can change the TTL in this database&apos;s settings (Cache TTL).
+        </p>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -3399,7 +3468,17 @@ function CachedImagesKpiCard({ dbName }: { dbName: string }) {
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Image className="h-3.5 w-3.5" />
-              <span>Cached Images</span>
+              <KpiLabelHelp label="Cached Images" testId="cached-images">
+                <p>
+                  Images in this database&apos;s image fields are downloaded into the media gallery, so pages load them
+                  from us instead of the original site. The number is how many are saved.
+                </p>
+                <p>
+                  &quot;Failed&quot; images could not be downloaded (for example the link is broken); pages keep using
+                  the original link. Click it to see them and retry. The refresh button only recounts; it does not
+                  download anything.
+                </p>
+              </KpiLabelHelp>
             </div>
             <Button
               size="icon"
@@ -3559,7 +3638,16 @@ function ErrorsKpiCard({
         <CardContent className="pt-4 pb-3 space-y-1">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <AlertTriangle className="h-3.5 w-3.5" />
-            <span>Errors</span>
+            <KpiLabelHelp label="Errors" testId="errors">
+              <p>
+                Problems found in this database&apos;s rows by the last diagnostics run, such as a missing required
+                field or a value in the wrong format.
+              </p>
+              <p>
+                The count is from that saved run, so it can be out of date after edits. Click the card to see the list
+                and run Check Health for a fresh check.
+              </p>
+            </KpiLabelHelp>
           </div>
           <p
             className={`text-sm font-medium ${errorCount > 0 ? "text-destructive" : ""}`}
@@ -4871,7 +4959,36 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                     {itemsData ? itemsData.raw_count ?? itemsData.total_count : detail?.cache_status ? detail.cache_status.item_count : itemsLoading || itemsFetching ? "..." : "\u2014"}
                   </span>
                   <span>items</span>
-                  {(itemsData?.from_cache || (!itemsData && detail?.cache_status)) && <span>· from cache</span>}
+                  {(itemsData?.from_cache || (!itemsData && detail?.cache_status)) && (
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                          data-testid="button-from-cache"
+                        >
+                          · from cache
+                          <Info className="h-3 w-3 shrink-0" aria-hidden />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        className="w-72 space-y-2 text-xs leading-relaxed text-muted-foreground"
+                        data-testid="popover-from-cache"
+                      >
+                        <p className="font-medium text-sm text-foreground">From cache</p>
+                        <p>
+                          These rows come from the app&apos;s saved copy of this database, not from reading
+                          {config?.source?.type === "local" ? " its file" : " its source"} just now. That is normal and
+                          keeps pages fast.
+                        </p>
+                        <p>
+                          The copy is replaced when its TTL expires (see the line below), when a row is edited here or
+                          by an agent, or when someone refreshes this database.
+                        </p>
+                      </PopoverContent>
+                    </Popover>
+                  )}
                 </div>
                 {fetchRunning ? (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="text-fetched-at">
@@ -4899,13 +5016,11 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                     </Button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3 shrink-0" />
-                    <FetchedAtLabel fetchedAt={itemsData?.fetched_at ?? detail?.cache_status?.fetched_at} />
-                    <span title="How long cached items are reused before the next fetch">
-                      · TTL {resolveCacheTtlMinutes(config?.cache)}m
-                    </span>
-                  </div>
+                  <CacheFreshnessLine
+                    fetchedAt={itemsData?.fetched_at ?? detail?.cache_status?.fetched_at}
+                    ttlMinutes={resolveCacheTtlMinutes(config?.cache)}
+                    sourceType={config?.source?.type}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -5545,10 +5660,9 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                         {showEvidenceTrust && (
                           <th
                             className="px-3 py-2 text-left font-medium text-muted-foreground whitespace-nowrap"
-                            title={ARCHIVE_COLUMN_HELP}
                             data-testid="th-evidence-archive"
                           >
-                            <span className="underline decoration-dotted underline-offset-2 cursor-help">Archive</span>
+                            <ArchiveColumnHeader />
                           </th>
                         )}
                         {columns.map((col) => (
@@ -5655,8 +5769,8 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                                     </Button>
                                   )}
                                 </div>
-                              ) : trustOf(item) === "verified" ? (
-                                <span className="text-[10px] text-muted-foreground">Verified</span>
+                              ) : trustOf(item) === "verified" || trustOf(item) === "trusted" ? (
+                                <EvidenceTrustLabel trust={trustOf(item) as "verified" | "trusted"} testId={String(i)} />
                               ) : (
                                 <span className="text-[10px] text-muted-foreground">—</span>
                               )}
@@ -5667,6 +5781,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                               <EvidenceArchiveCell
                                 view={archiveOf(item)}
                                 dbName={dbName}
+                                proofField={config?.evidence?.proof_field}
                                 storedIndex={storedIndexOf(item, i)}
                                 canEdit={canEditRows}
                                 onChanged={refetchItems}

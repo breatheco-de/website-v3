@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,12 +12,43 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { apiFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { RowArchiveView } from "@shared/evidence-archive";
 
 export const ARCHIVE_COLUMN_HELP =
   "We save a copy of each source link on the Internet Archive, so the proof survives if the article is removed. Visitors still see the original link.";
+
+/** Archive column header: click to open what the column means. */
+export function ArchiveColumnHeader() {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 font-medium text-muted-foreground hover:text-foreground transition-colors"
+          data-testid="button-archive-column-help"
+        >
+          Archive
+          <Info className="h-3 w-3" aria-hidden />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-72 space-y-2 text-xs font-normal leading-relaxed text-muted-foreground"
+        data-testid="popover-archive-column-help"
+      >
+        <p className="font-medium text-sm text-foreground">Archive</p>
+        <p>{ARCHIVE_COLUMN_HELP}</p>
+        <p>
+          The live server saves the copy automatically when a row&apos;s link is saved, and checks every week for
+          copies that failed and for articles that were taken down.
+        </p>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 const ORIGINAL_GONE_HELP =
   "The original article no longer loads. The archived copy is still available; update the public link if you want.";
@@ -35,9 +67,12 @@ export function EvidenceArchiveCell({
   canEdit,
   onChanged,
   testId,
+  proofField,
 }: {
   view: RowArchiveView | null;
   dbName: string;
+  /** Row field that holds the source link (the database's evidence proof field). */
+  proofField?: string;
   /** Stored row position for `/items/:index/*`. */
   storedIndex: number;
   canEdit: boolean;
@@ -51,7 +86,38 @@ export function EvidenceArchiveCell({
   const [advanced, setAdvanced] = useState(false);
 
   if (!view || view.status === "none") {
-    return <span className="text-[10px] text-muted-foreground">—</span>;
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            data-testid={`button-nothing-to-archive-${testId}`}
+          >
+            Nothing to archive
+            <Info className="h-3 w-3" aria-hidden />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-72 space-y-2 text-xs leading-relaxed text-muted-foreground" data-testid={`popover-nothing-to-archive-${testId}`}>
+          <p className="font-medium text-sm text-foreground">Nothing to archive</p>
+          <p>
+            This row has no source link, so there is no article to save a copy of. Add a link to the article or
+            announcement that backs this row
+            {proofField ? (
+              <>
+                {" "}
+                in the <span className="font-mono text-foreground">{proofField}</span> field
+              </>
+            ) : null}
+            .
+          </p>
+          <p>
+            After you save the link, the live server saves a copy on the Internet Archive automatically. Until then,
+            proposals that rely on this row show a &quot;No link&quot; warning, but they are not blocked.
+          </p>
+        </PopoverContent>
+      </Popover>
+    );
   }
 
   const call = async (path: string, init: RequestInit, success: string) => {

@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SearchableMultiCombobox } from "@/components/ui/searchable-multi-combobox";
+import { KpiLabelHelp } from "@/components/databases/KpiLabelHelp";
 import { queryClient, apiFetch } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -105,7 +106,16 @@ export function EvidenceSourceKpiCard({
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <ShieldCheck className="h-3.5 w-3.5" />
-              <span>Evidence source</span>
+              <KpiLabelHelp label="Evidence source" testId="evidence-source">
+                <p>
+                  When this is on, rows in this database count as proof when a proposal says someone partnered with,
+                  covered, chose or awarded us. A claim with no matching row cannot be applied.
+                </p>
+                <p>
+                  Rows an agent adds or changes only count after staff verify them, and each row&apos;s source link is
+                  saved on the Internet Archive. Turning this on or off does not change what visitors see.
+                </p>
+              </KpiLabelHelp>
             </div>
             <Switch
               checked={Boolean(current)}
