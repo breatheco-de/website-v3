@@ -531,7 +531,8 @@ export function parseUtmConvention(raw: unknown): { convention: UtmConvention; r
         }
         out.sources[p].canonical = kept.length > 0 ? kept : [...d.sources[p].canonical];
       }
-      if (s.aliases != null) out.sources[p].aliases = utmValueList(s.aliases).filter((a) => !out.sources[p].canonical.includes(a));
+      if (s.aliases != null) out.sources[p].aliases = utmValueList(s.aliases);
+      out.sources[p].aliases = out.sources[p].aliases.filter((a) => !out.sources[p].canonical.includes(a));
     }
     const m = mediums[p];
     if (m != null) {
@@ -575,10 +576,13 @@ function utmMediumRejection(p: UtmConventionPlatform, v: string): string | null 
     : "GA4 only counts Google visits as paid when the medium matches ^(.*cp.*|ppc|retargeting|paid.*)$ or is a display medium (e.g. cpc, display)";
 }
 
-/** utm_source the Meta template writes: `{{site_source_name}}` when the convention accepts Meta's per-placement values. */
+/**
+ * utm_source the Meta template writes: `{{site_source_name}}` when the convention accepts at least two of
+ * Meta's per-placement values (extra accepted values like `facebook` don't change the template).
+ */
 export function metaTemplateSource(c: UtmConvention): string {
   const canonical = c.sources.meta.canonical;
-  return canonical.length > 1 && canonical.every((v) => META_SITE_SOURCE_VALUES.includes(v)) ? "{{site_source_name}}" : canonical[0]!;
+  return canonical.filter((v) => META_SITE_SOURCE_VALUES.includes(v)).length > 1 ? "{{site_source_name}}" : canonical[0]!;
 }
 
 /** Meta URL parameters template staff paste into every ad (ids enable matching). */
