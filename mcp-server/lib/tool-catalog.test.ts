@@ -270,6 +270,17 @@ describe("allowedToolNames", () => {
     expect(names.has("update_redirect")).toBe(false);
   });
 
+  it("edit_page_redirects (scoped) reveals test_redirect and update_redirect", () => {
+    const names = new Set(
+      allowedToolNames([
+        { name: "content_view", contentTypes: ["landing"] },
+        { name: "edit_page_redirects", contentTypes: ["landing"] },
+      ]),
+    );
+    expect(names.has("test_redirect")).toBe(true);
+    expect(names.has("update_redirect")).toBe(true);
+  });
+
   it("seo_settings reveals ensure_content_type_schema_org", () => {
     const names = new Set(allowedToolNames([{ name: "seo_settings" }]));
     expect(names.has("ensure_content_type_schema_org")).toBe(true);

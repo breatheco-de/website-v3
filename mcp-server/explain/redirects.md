@@ -4,7 +4,24 @@ CMS 301/302 routing lives in **two YAML stores**. Runtime is **first-match** (on
 
 ## Capability
 
-`test_redirect` requires **`read_redirects`**. Live `update_redirect` requires **`edit_redirects`**; draft mode (`variant`) requires **`seo_edit`** for the page's content type. Built-in Platform Steward has all three. Swarm SEO Specialist and Publisher have `read_redirects` + `seo_edit` (draft mode only, never live). Metrics Viewer (`metrics_view` only) has none. Missing cap → `denyResponse("read_redirects")` / `denyResponse("edit_redirects")` / `denyResponse("seo_edit", type)`. Agent identity is the connected staff user (`get_current_user` / `check_capability`).
+`test_redirect` requires **`read_redirects`** or **`edit_page_redirects`** (any type). Live `update_redirect` requires **`edit_redirects`**, or **`edit_page_redirects`** for the page's content type (live page scope, below); draft mode (`variant`) requires **`seo_edit`** for the page's content type. Built-in Platform Steward has `read_redirects` + `edit_redirects` + `seo_edit`. Swarm SEO Specialist and Publisher have `read_redirects` + `seo_edit` (draft mode only, never live). Metrics Viewer (`metrics_view` only) has none. `edit_page_redirects` is never on a built-in or swarm role; staff grant it on custom roles (e.g. PPC Content Editor) per content type. Missing cap → `denyResponse("read_redirects|edit_page_redirects")` / `denyResponse("edit_redirects")` / `denyResponse("edit_redirects|edit_page_redirects", type)` / `denyResponse("seo_edit", type)`. Agent identity is the connected staff user (`get_current_user` / `check_capability`).
+
+### Live page scope (`edit_page_redirects`, no `edit_redirects`)
+
+Add or delete **one exact old address** on a live page of a granted type. `add`: `to` must be a page on this site (type = `to`'s type); written to that page's dest-locale `meta.redirects`. `delete`: `source` must be that page's `{directory}/{slug}/{locale}.yml` or `_common.yml`. `confirm_live_edit` still applies.
+
+Refused with `code: page_scope_refused` + `reason`, nothing written, warning `page_scope_non_effects`, `next_actions` `test_redirect`:
+
+| `reason` | When |
+|---|---|
+| `option_not_allowed` (+ `option`) | `before_from`, `priority`, `removed_entry`, `confirm_overwrite_content` |
+| `pattern_match` | regex `from`, or a pattern rule already catches the address |
+| `not_a_page` | external / non-page `to`, or a `source` that is not a page file |
+| `custom_file` | `source` = `custom-redirects.yml` |
+| `live_content` | the address is a live page (add hides it; delete unhides it) |
+| `already_redirected` / `self_redirect` / `locale_home` / `invalid_path` | same rules as the staff SEO modal's simple add |
+
+`move` → `denyResponse("edit_redirects")`. Type outside the grant → `denyResponse("edit_redirects|edit_page_redirects", type)`. Escalate anything refused to a Platform Steward (`edit_redirects`).
 
 ## Two MCP tools
 

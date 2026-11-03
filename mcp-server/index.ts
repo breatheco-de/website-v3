@@ -419,7 +419,7 @@ async function createMcpServer(
   registerProductTools(mcp, mcpToken, grants);
   registerVariableTools(mcp, mcpToken, grants);
   registerDatabaseTools(mcp, mcpToken);
-  registerRedirectTools(mcp, mcpToken);
+  registerRedirectTools(mcp, mcpToken, grants);
   registerMediaTools(mcp, mcpToken, grants);
   registerProposalTools(mcp, mcpToken, grants);
   registerValidationIssuesTools(mcp, mcpToken, grants);

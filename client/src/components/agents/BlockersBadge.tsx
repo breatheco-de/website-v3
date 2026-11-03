@@ -84,8 +84,8 @@ export function BlockersBadge({
           {count === 1
             ? "Someone left one open change request on this proposal."
             : `Someone left ${count} open change requests on this proposal.`}{" "}
-          Approve (and Accept for ideas) stay blocked until each request is marked resolved.
-          Reject and withdraw still work.
+          Approve (and Accept for ideas) stay blocked until each request is marked resolved, unless a
+          proposal reviewer approves anyway with a written reason. Reject and withdraw still work.
         </p>
         <p className="text-muted-foreground leading-5" data-testid={`text-blockers-inactivity${testIdSuffix}`}>
           {closesOn
@@ -104,6 +104,11 @@ export function BlockersBadge({
           <div className="space-y-1 border-t pt-2 text-xs text-muted-foreground leading-5">
             <p>
               Open blockers block apply / accept only — reject, withdraw, and close still succeed.
+            </p>
+            <p>
+              Staff with Review proposals (proposals_review) can approve anyway from this page with a
+              reason (min 20 characters). Once something goes live, every open blocker is resolved with
+              &quot;Overridden on approve by …&quot; and that reason. Agents cannot override.
             </p>
             <p>
               Clearing a blocker does not ship the proposal; re-preview, then Approve with four-eyes.

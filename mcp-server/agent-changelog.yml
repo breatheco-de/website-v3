@@ -5,6 +5,33 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-03"
+    summary: "Staff with proposals_review can approve or accept past open blockers from the staff UI; agents still cannot"
+    agent_impact:
+      - "update_proposal apply / accept from MCP with open blockers is still proposal_blocked; override_blockers from MCP is refused (403 override_staff_only). The proposal_blocked failure now carries a warning saying only staff can override."
+      - "After a staff override, once something went live (apply: >=1 entry newly done, incl. partial; accept: success), every open blocker (incl. predecessor_closed) is resolved with resolve_note 'Overridden on approve by <user>: <reason>' and resolved_by_actor.override: true; event proposal_blocker_resolved carries override: true. Nothing published -> blockers stay open."
+      - "Read the override reason before reopen_blocker; reopen only if the live page still shows the problem. All other apply / accept gates (four-eyes, self-approval, predecessor chain, target missing, stale) are unchanged."
+    tools_changed: false
+    paths:
+      - server/content-proposals/service.ts
+      - server/content-proposals/blocker-override-gate.ts
+      - server/routes/proposals.ts
+      - mcp-server/explain/proposals.md
+      - mcp-server/tools/proposals.ts
+  - date: "2026-11-03"
+    summary: "New scoped capability edit_page_redirects: live update_redirect for one exact old address on pages of granted types"
+    agent_impact:
+      - "Without edit_redirects, live update_redirect runs in page scope when the caller has edit_page_redirects for the page's content type (add: type of `to`; delete: type of `source` page file). Only one exact old address on that page's {locale}.yml / _common.yml meta.redirects. confirm_live_edit still applies."
+      - "Refused with code page_scope_refused + reason (option_not_allowed for before_from|priority|removed_entry|confirm_overwrite_content, pattern_match, not_a_page, custom_file, live_content, already_redirected, self_redirect, locale_home, invalid_path). Nothing written; warning page_scope_non_effects; next_actions test_redirect. move → denyResponse(edit_redirects). Escalate to a Platform Steward."
+      - "test_redirect is visible with read_redirects or edit_page_redirects (any type). update_redirect visibility adds edit_page_redirects. Reconnect the MCP connector to refresh tools/list."
+    tools_changed: false
+    paths:
+      - shared/capabilities.ts
+      - shared/mcp-tool-catalog.ts
+      - mcp-server/tools/redirects.ts
+      - mcp-server/lib/redirect-update.ts
+      - mcp-server/explain/redirects.md
+      - server/redirect-page-scope.ts
   - date: "2026-11-02"
     summary: "Multi-site loopback writes use x-mcp-site (pass tool site as usual)"
     agent_impact:

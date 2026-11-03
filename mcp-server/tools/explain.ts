@@ -73,7 +73,7 @@ const TOPIC_DESC: Record<string, string> = {
   "lead-forms":
     "catalog source content_type/database/related_field, required value_path/label_path, required query on ecommerce catalogs, purchasable vs actively_selling",
   redirects:
-    "CMS 301/302: two stores, first-match, test_redirect (read_redirects) + update_redirect (edit_redirects live; variant = draft old addresses with seo_edit, effective on publish), before_from custom-only",
+    "CMS 301/302: two stores, first-match, test_redirect (read_redirects or edit_page_redirects) + update_redirect (edit_redirects live; edit_page_redirects = one exact old address on a live page of that type, page_scope_refused otherwise; variant = draft old addresses with seo_edit, effective on publish), before_from custom-only",
   proposals:
     "Entry proposals hub — omit subtopic for index; subtopics: overview, reading, situations, internal-links, serp-title-description, funnel-classification, idea-opportunity-harm, existing-demand, broken-url, translations",
   analytics:

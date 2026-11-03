@@ -1,7 +1,8 @@
 /**
  * MCP tools for CMS redirects: test_redirect (read) and update_redirect (add|delete|move).
- * Caps: test_redirect → read_redirects; update_redirect → edit_redirects (live) or
- * seo_edit for the page's type (variant / draft mode).
+ * Caps: test_redirect → read_redirects or edit_page_redirects (any type); update_redirect →
+ * edit_redirects (live), edit_page_redirects for the page's type (live page scope: one exact
+ * old address on that page), or seo_edit for the page's type (variant / draft mode).
  */
 
 import fs from "fs";
@@ -10,19 +11,23 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, fail, actionRequired, type NextAction, type McpWarning, type McpSideEffect } from "../lib/respond.js";
 import { checkCap, denyResponse } from "../lib/auth.js";
-import { loadVersioning, resolveSiteContext } from "../lib/content.js";
+import { loadContentTypes, loadVersioning, resolveSiteContext } from "../lib/content.js";
+import { hasCapAnyScope, type CatalogGrant } from "../lib/tool-catalog.js";
 import { getTokenUsername } from "../lib/oauth.js";
 import { buildLoopbackHeaders } from "../lib/loopback.js";
 import { requiredAgentSessionIdField } from "../lib/page-tool-helpers.js";
 import { SITE_PARAM_DESC, siteFailResult } from "../lib/entry-helpers.js";
 import {
   collectMissingConfirms,
+  contentTypeForRedirectSource,
   failBeforeFromOnPageYaml,
   isCustomRedirectSource,
   isExternalDest,
   isRegexFrom,
+  pageScopeInputRefusal,
   stackedConfirmPayload,
   validateRedirectUpdateInput,
+  type PageScopeRefusal,
 } from "../lib/redirect-update.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
@@ -144,7 +149,7 @@ function mutateWarnings(opts: { wroteCustom: boolean; regex?: boolean }): McpWar
     {
       code: "cap_edit_redirects",
       message:
-        "Live update_redirect requires edit_redirects (Platform Steward or custom roles); draft mode (variant) requires seo_edit for the page's type. test_redirect requires read_redirects. Metrics Viewer (metrics_view only) cannot use these tools.",
+        "Live update_redirect requires edit_redirects (Platform Steward or custom roles), or edit_page_redirects for the page's content type (add/delete one exact old address on that live page only). Draft mode (variant) requires seo_edit for the page's type. test_redirect requires read_redirects or edit_page_redirects. Metrics Viewer (metrics_view only) cannot use these tools.",
     },
   ];
   if (opts.regex) {
@@ -155,6 +160,31 @@ function mutateWarnings(opts: { wroteCustom: boolean; regex?: boolean }): McpWar
     });
   }
   return warnings;
+}
+
+/** Live update_redirect refused in page scope (edit_page_redirects without edit_redirects). Nothing written. */
+function pageScopeRefused(
+  refusal: PageScopeRefusal,
+  extra: Record<string, unknown>,
+  siteHint: { site?: string },
+) {
+  const url = typeof extra.from === "string" ? extra.from : undefined;
+  return fail(refusal.message, {
+    code: "page_scope_refused",
+    reason: refusal.reason,
+    ...(refusal.option ? { option: refusal.option } : {}),
+    ...extra,
+    warnings: [
+      {
+        code: "page_scope_non_effects",
+        message:
+          "Nothing written. edit_page_redirects only adds/removes one exact old address in a live page's {directory}/{slug}/{locale}.yml or _common.yml meta.redirects. It never edits site_<name>/custom-redirects.yml, pattern rules, order, priority or removed_entry moves, never hides or unhides a live page, and never takes an address another rule uses. Those need edit_redirects (Platform Steward).",
+      },
+    ],
+    next_actions: url
+      ? [{ tool: "test_redirect", priority: "recommended", reason: "See which rule wins for this address.", args_hint: { url, ...siteHint } }]
+      : [],
+  });
 }
 
 function mutateSideEffects(file: string): McpSideEffect[] {
@@ -287,18 +317,22 @@ async function updateDraftRedirect(
   );
 }
 
-export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
+export function registerRedirectTools(mcp: McpServer, mcpToken?: string, grants?: CatalogGrant[]): void {
   mcp.tool(
     "test_redirect",
-    "Inspect one public URL against CMS redirects (read_redirects). Two stores: dest-locale {directory}/{slug}/{locale}.yml meta.redirects and site_<name>/custom-redirects.yml. First-match winner only; extra claims in conflicts[] (duplicate_from | regex_shadowed | overwrites_content). Inspect only — use update_redirect to change a rule. Does not dump the catalog. live_content = contentIndex.isKnownUrl only; locale-home aliases (/ , /en, /es, /us) are never live (301 to canonical homes).",
+    "Inspect one public URL against CMS redirects (read_redirects or edit_page_redirects). Two stores: dest-locale {directory}/{slug}/{locale}.yml meta.redirects and site_<name>/custom-redirects.yml. First-match winner only; extra claims in conflicts[] (duplicate_from | regex_shadowed | overwrites_content). Inspect only — use update_redirect to change a rule. Does not dump the catalog. live_content = contentIndex.isKnownUrl only; locale-home aliases (/ , /en, /es, /us) are never live (301 to canonical homes).",
     {
       url: z.string().describe("Public path or full URL to test, e.g. /us or /en/blog/foo"),
       locale: z.string().optional().describe("Request locale for multi-locale redirect targets (default en)"),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
     async ({ url, locale, site }) => {
-      if (mcpToken && !(await checkCap(mcpToken, "read_redirects"))) {
-        return denyResponse("read_redirects");
+      if (
+        mcpToken &&
+        !(await checkCap(mcpToken, "read_redirects")) &&
+        !(grants && hasCapAnyScope(grants, "edit_page_redirects"))
+      ) {
+        return denyResponse("read_redirects|edit_page_redirects");
       }
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) return siteFailResult(siteResult.error, "test_redirect", { url, locale });
@@ -362,6 +396,7 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
     "update_redirect",
     "Call test_redirect first (live). One rule per call. action add | delete | move. " +
       "LIVE (no variant; edit_redirects — Platform Steward / custom roles; not Metrics Viewer): two stores, dest-locale meta.redirects (never _common.yml / all_languages) or site_<name>/custom-redirects.yml. before_from and action: move fail on page YAML (custom file only). Stacked confirms: one action_required listing every missing flag (confirm_overwrite_content and/or confirm_live_edit); overwrite confirm does not imply live confirm. Write flushes redirect cache, queues redirects validation (slug-scoped run_entry_diagnostics does not). Regex allowed; omit before_from on add = append. " +
+      "LIVE PAGE SCOPE (edit_page_redirects for the page's content type, no edit_redirects): add (to = a page on this site) or delete (source = that page's {locale}.yml / _common.yml) one exact old address. Refused with code page_scope_refused (reason option_not_allowed | pattern_match | not_a_page | custom_file | live_content | already_redirected | self_redirect | locale_home | invalid_path): move, before_from, priority, removed_entry, confirm_overwrite_content, regex, external or non-page to, custom-redirects.yml, or any address already live or redirected. confirm_live_edit still applies. " +
       "DRAFT (variant; seo_edit for content_type): add | delete one of the page's own old addresses on {variant}.{locale}.yml. Pass from + content_type + slug + locale + variant; never to/before_from/removed_entry/priority/confirms. Draft must exist and be at 0% traffic. Exact paths only (no regex). A live page cannot be added, except this page's own current address when the draft renames it in that locale. Delete may remove addresses copied from live. Not indexed: takes effect only on publish, which merges per address with live and skips (with warning draft_redirects_skipped) any added address that conflicts by then. A variant with redirect changes cannot get traffic (variant_has_redirect_changes).",
     {
       action: z.enum(["add", "delete", "move"]).describe("add: create one rule; delete: remove by from+source (live) or from (draft); move: splice custom-redirects.yml above before_from (live only)"),
@@ -391,12 +426,15 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
     },
     async (args) => {
       const validated = validateRedirectUpdateInput(args);
+      // Without edit_redirects, live writes run in page scope: edit_page_redirects for the page's type.
+      let pageScope = false;
       if (validated.ok && validated.draft) {
         if (mcpToken && !(await checkCap(mcpToken, "seo_edit", args.content_type!.trim()))) {
           return denyResponse("seo_edit", args.content_type!.trim());
         }
       } else if (mcpToken && !(await checkCap(mcpToken, "edit_redirects"))) {
-        return denyResponse("edit_redirects");
+        if (validated.ok && validated.action === "move") return denyResponse("edit_redirects");
+        pageScope = true;
       }
       const siteResult = resolveSiteContext(args.site);
       if (!siteResult.ok) {
@@ -414,16 +452,39 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
       const from = args.from!.trim();
       const siteHint = args.site ? { site: args.site } : {};
       const sessOpts = { agentSessionId: args.agent_session_id };
+      const refusePage = (refusal: PageScopeRefusal, extra: Record<string, unknown> = {}) =>
+        pageScopeRefused(refusal, { from, ...extra }, siteHint);
+      if (pageScope) {
+        const inputRefusal = pageScopeInputRefusal(args);
+        if (inputRefusal) return refusePage(inputRefusal);
+      }
       try {
         if (action === "add") {
           const to = args.to!.trim();
           const destMeta = await fetchLocaleUrls(to, domain, mcpToken);
+          if (pageScope) {
+            if (!destMeta.ok) {
+              return refusePage({
+                reason: "not_a_page",
+                message: "The destination is not a page on this site, so the rule would be site-wide (custom-redirects.yml). That needs edit_redirects (Platform Steward).",
+              }, { to });
+            }
+            if (!(await checkCap(mcpToken!, "edit_page_redirects", destMeta.contentType))) {
+              return denyResponse("edit_redirects|edit_page_redirects", destMeta.contentType);
+            }
+          }
           const writingCustom = inferWriteCustom(from, to, destMeta.ok);
           const beforeFail = failBeforeFromOnPageYaml(args.before_from, writingCustom);
           if (beforeFail) return fail(beforeFail.message, beforeFail.details);
 
           const inspected = await fetchInspect(from, args.locale, domain, mcpToken);
           const liveContent = inspected.ok && inspected.data.live_content === true;
+          if (pageScope && liveContent) {
+            return refusePage({
+              reason: "live_content",
+              message: `${from} is a live page. A redirect would hide it. That needs edit_redirects (Platform Steward).`,
+            }, { to });
+          }
           const needsLiveEdit =
             !writingCustom && destMeta.ok && destHasVersioning(contentPath, destMeta.contentType, destMeta.slug);
           const missing = collectMissingConfirms({
@@ -469,6 +530,10 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
           if (args.priority) body.priority = args.priority;
           if (args.before_from) body.before_from = args.before_from;
           if (args.removed_entry) body.removed_entry = args.removed_entry;
+          if (pageScope) {
+            body.page_scope = true;
+            if (args.locale) body.locale = args.locale;
+          }
           // Never allLanguages / _common.yml in v1.
 
           const res = await fetch(
@@ -482,6 +547,9 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
           const data = (await res.json()) as {
             error?: string;
             code?: string;
+            reason?: string;
+            conflict_to?: string;
+            conflict_source?: string;
             file?: string;
             message?: string;
             created?: string[];
@@ -490,6 +558,12 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
             warnings?: McpWarning[];
           };
           if (!res.ok) {
+            if (data.code === "page_scope_refused") {
+              return refusePage(
+                { reason: (data.reason ?? "not_a_page") as PageScopeRefusal["reason"], message: data.error || "Refused in page scope." },
+                { to, status: res.status, ...(data.conflict_to ? { conflict_to: data.conflict_to } : {}), ...(data.conflict_source ? { conflict_source: data.conflict_source } : {}) },
+              );
+            }
             return fail(data.error || `Server error: ${res.status}`, { code: data.code, status: res.status });
           }
           const file = data.file || `${contentFolder}/custom-redirects.yml`;
@@ -546,8 +620,27 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
             });
           }
 
+          if (pageScope) {
+            const sourceType = contentTypeForRedirectSource(source, contentFolder, loadContentTypes(contentPath));
+            if (!sourceType) {
+              return refusePage({
+                reason: "not_a_page",
+                message: "source is not a live page file ({directory}/{slug}/{locale}.yml or _common.yml). That needs edit_redirects (Platform Steward).",
+              }, { source });
+            }
+            if (!(await checkCap(mcpToken!, "edit_page_redirects", sourceType))) {
+              return denyResponse("edit_redirects|edit_page_redirects", sourceType);
+            }
+          }
+
           const inspected = await fetchInspect(from, args.locale, domain, mcpToken);
           const liveContent = inspected.ok && inspected.data.live_content === true;
+          if (pageScope && liveContent) {
+            return refusePage({
+              reason: "live_content",
+              message: `${from} is a live page; removing this rule would unhide it. That needs edit_redirects (Platform Steward).`,
+            }, { source });
+          }
           const needsLiveEdit = !isCustomRedirectSource(source) && sourceHasVersioning(source, contentPath);
           const missing = collectMissingConfirms({
             needsOverwrite: liveContent,
@@ -581,11 +674,19 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string): void {
             {
               method: "DELETE",
               headers: internalHeaders(mcpToken, sessOpts),
-              body: JSON.stringify({ from, source, author: authorName(mcpToken) }),
+              body: JSON.stringify({ from, source, author: authorName(mcpToken), ...(pageScope ? { page_scope: true } : {}) }),
             },
           );
-          const data = (await res.json()) as { error?: string; message?: string };
-          if (!res.ok) return fail(data.error || `Server error: ${res.status}`, { status: res.status });
+          const data = (await res.json()) as { error?: string; message?: string; code?: string; reason?: string };
+          if (!res.ok) {
+            if (data.code === "page_scope_refused") {
+              return refusePage(
+                { reason: (data.reason ?? "not_a_page") as PageScopeRefusal["reason"], message: data.error || "Refused in page scope." },
+                { source, status: res.status },
+              );
+            }
+            return fail(data.error || `Server error: ${res.status}`, { status: res.status });
+          }
           const wroteCustom = isCustomRedirectSource(source);
           return ok(
             {

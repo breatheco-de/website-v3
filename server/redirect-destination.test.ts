@@ -48,8 +48,15 @@ page:
   url_pattern:
     en: /en/:slug
     es: /es/:slug
+landing:
+  directory: landings
+  url_pattern:
+    default: /landing/:slug
 `,
   );
+  write("landings/solo-es/es.yml", yaml.dump({ title: "Solo español", sections: [] }));
+  write("landings/both/en.yml", yaml.dump({ title: "Both", sections: [] }));
+  write("landings/both/es.yml", yaml.dump({ title: "Ambos", sections: [] }));
   write("exercises/template.en.yml", `sections:\n  - type: hero\n    title: "{{ entry.title }}"\n`);
   write("exercises/template.es.yml", `sections:\n  - type: hero\n    title: "{{ entry.title }}"\n`);
   write("exercises/flexbox/en.yml", yaml.dump({ field_overrides: { title: "Flexbox (edited)" } }));
@@ -124,6 +131,51 @@ describe("redirects are saved on the destination page (any source)", () => {
   it("static pages use the same rule", () => {
     const out = writeRedirectOnDestinationPage({ ci, destUrl: "/en/about", from: "/en/about-us", statusCode: 301, allLanguages: false });
     expect(out).toMatchObject({ kind: "page", files: ["site_test/pages/about/en.yml"], created: [] });
+  });
+});
+
+describe("addresses shared by all languages (url_pattern.default)", () => {
+  it("a Spanish-only page saves to es.yml, with or without the viewed language", () => {
+    for (const locale of ["es", undefined]) {
+      fs.rmSync(path.join(contentRoot, "landings/solo-es/es.yml"));
+      write("landings/solo-es/es.yml", yaml.dump({ title: "Solo español", sections: [] }));
+      const out = writeRedirectOnDestinationPage({
+        ci,
+        destUrl: "/landing/solo-es",
+        from: "/viejo",
+        statusCode: 301,
+        allLanguages: false,
+        locale,
+      });
+      expect(out).toMatchObject({ kind: "page", files: ["site_test/landings/solo-es/es.yml"] });
+      expect(readYaml("landings/solo-es/es.yml").meta).toEqual({ redirects: ["/viejo"] });
+    }
+  });
+
+  it("a page in both languages saves to the language staff are viewing", () => {
+    const es = writeRedirectOnDestinationPage({
+      ci,
+      destUrl: "/landing/both",
+      from: "/viejo",
+      statusCode: 301,
+      allLanguages: false,
+      locale: "es",
+    });
+    expect(es).toMatchObject({ kind: "page", files: ["site_test/landings/both/es.yml"] });
+    const en = writeRedirectOnDestinationPage({ ci, destUrl: "/landing/both", from: "/old", statusCode: 301, allLanguages: false });
+    expect(en).toMatchObject({ kind: "page", files: ["site_test/landings/both/en.yml"] });
+  });
+
+  it("the viewed language does not override a URL that names its own language", () => {
+    const out = writeRedirectOnDestinationPage({
+      ci,
+      destUrl: "/en/exercise/flexbox",
+      from: "/en/old",
+      statusCode: 301,
+      allLanguages: false,
+      locale: "es",
+    });
+    expect(out).toMatchObject({ kind: "page", files: ["site_test/exercises/flexbox/en.yml"] });
   });
 });
 

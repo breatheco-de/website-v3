@@ -154,6 +154,14 @@ const REGISTRY = [
     description: "Add, change, or remove URL redirects for pages and the site.",
   },
   {
+    name: "edit_page_redirects",
+    label: "Edit page redirects",
+    scoped: true,
+    scopeKind: "content_types" as const,
+    description:
+      "Add or remove old addresses that send visitors to pages of these content types. Cannot touch site-wide redirect rules or take over an address another page uses (that needs Edit redirects).",
+  },
+  {
     name: "overlays_edit_content",
     label: "Edit overlay copy",
     scoped: false,

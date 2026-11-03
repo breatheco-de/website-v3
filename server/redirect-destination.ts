@@ -31,6 +31,34 @@ function redirectPath(r: unknown): string {
   return "";
 }
 
+function normalizeUrlPath(url: string): string {
+  let p = url.split(/[?#]/)[0]!.toLowerCase();
+  if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
+  return p;
+}
+
+/**
+ * Language of the destination page. A URL pattern shared by all languages
+ * (`url_pattern.default`) parses as "en", so prefer `hint` (the language staff are
+ * viewing) when the page has that address in that language, then any language whose
+ * address it is.
+ */
+export function resolveDestinationLocale(
+  ci: ContentIndex,
+  parsed: { contentType: string; slug: string; locale: string },
+  destUrl: string,
+  hint?: string | null,
+): string {
+  const dest = normalizeUrlPath(destUrl);
+  const urls = ci.getAlternateUrls(parsed.slug, parsed.contentType, { includeEmptyLocales: true });
+  const matching = Object.entries(urls)
+    .filter(([, url]) => url && normalizeUrlPath(url) === dest)
+    .map(([l]) => l);
+  if (hint && matching.includes(hint)) return hint;
+  if (matching.length === 0 || matching.includes(parsed.locale)) return parsed.locale;
+  return matching[0]!;
+}
+
 /**
  * Find the destination page for `destUrl` and add `from` to its `meta.redirects`.
  * One language: that language's `{locale}.yml` (created when the page exists there
@@ -43,12 +71,15 @@ export function writeRedirectOnDestinationPage(opts: {
   from: string;
   statusCode: number;
   allLanguages: boolean;
+  /** Language staff are viewing; disambiguates URLs shared by all languages. */
+  locale?: string | null;
   onWrite?: (absPath: string) => void;
 }): RedirectOnPageResult {
   const { ci } = opts;
   const parsed = ci.parseContentUrl(opts.destUrl);
   if (!parsed) return { kind: "not_page" };
-  const { contentType, locale } = parsed;
+  const { contentType } = parsed;
+  const locale = resolveDestinationLocale(ci, parsed, opts.destUrl, opts.locale);
   const presence = findEntryPresence(ci, contentType, parsed.slug);
   if (!presence) return { kind: "not_page" };
 

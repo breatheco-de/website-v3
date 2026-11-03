@@ -77,6 +77,20 @@ describe("ensureContentViewOnEditorRoles", () => {
     });
   });
 
+  it("adds content_view with the same scope for edit_page_redirects", () => {
+    const roles: Record<string, RoleDefinition> = {
+      ppc_editor: {
+        label: "PPC Content Editor",
+        capabilities: [{ name: "edit_page_redirects", contentTypes: ["landing"] }],
+      },
+    };
+    expect(ensureContentViewOnEditorRoles(roles)).toBe(true);
+    expect(roles.ppc_editor.capabilities[0]).toEqual({
+      name: "content_view",
+      contentTypes: ["landing"],
+    });
+  });
+
   it("skips built-in user_admin", () => {
     const roles: Record<string, RoleDefinition> = {
       user_admin: {

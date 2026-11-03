@@ -384,6 +384,65 @@ export async function requireAnyCapability(
   };
 }
 
+function hasPageRedirectsGrant(username: string): boolean {
+  const grant = userStore.getEffectiveCapabilities(username).find((g) => g.name === "edit_page_redirects");
+  if (!grant) return false;
+  return grant.contentTypes === "*" || (Array.isArray(grant.contentTypes) && grant.contentTypes.length > 0);
+}
+
+/**
+ * Live redirect add/delete: edit_redirects (global), or edit_page_redirects at any scope.
+ * Page-scoped callers still need `canEditPage(type)` for the page the rule lives on
+ * (see authorizeLiveRedirectWrite). MCP loopback / dev have no session: global, unless
+ * the body sets `page_scope: true` (MCP already checked the page's content type).
+ */
+export async function requireRedirectWriteAccess(
+  req: Request,
+  res: Response,
+): Promise<CapAuthResult & { hasGlobal: boolean; canEditPage: (contentType: string) => boolean }> {
+  const base = await resolveStaffCapAuth(req, res);
+  if (!base.authorized) return { ...base, hasGlobal: false, canEditPage: () => false };
+  if (!base.sessionUsername) {
+    return {
+      authorized: true,
+      token: base.token,
+      username: base.username,
+      author: base.author,
+      hasGlobal: req.body?.page_scope !== true,
+      canEditPage: () => true,
+    };
+  }
+  const username = base.sessionUsername;
+  const hasGlobal = userStore.hasCapability(username, "edit_redirects");
+  if (!hasGlobal && !hasPageRedirectsGrant(username)) {
+    res.status(403).json({ error: "Insufficient permissions: edit_redirects or edit_page_redirects required" });
+    return { authorized: false, token: base.token, username, author: null, hasGlobal: false, canEditPage: () => false };
+  }
+  return {
+    authorized: true,
+    token: base.token,
+    username,
+    author: username,
+    hasGlobal,
+    canEditPage: (contentType) => userStore.hasCapability(username, "edit_page_redirects", contentType),
+  };
+}
+
+/** Read-only redirect test / lookups: read_redirects, or edit_page_redirects at any scope. */
+export async function requireRedirectReadAccess(req: Request, res: Response): Promise<CapAuthResult> {
+  const base = await resolveStaffCapAuth(req, res);
+  if (!base.authorized) return base;
+  if (!base.sessionUsername) {
+    return { authorized: true, token: base.token, username: base.username, author: base.author };
+  }
+  const username = base.sessionUsername;
+  if (!userStore.hasCapability(username, "read_redirects") && !hasPageRedirectsGrant(username)) {
+    res.status(403).json({ error: "Insufficient permissions: read_redirects or edit_page_redirects required" });
+    return { authorized: false, token: base.token, username, author: null };
+  }
+  return { authorized: true, token: base.token, username, author: username };
+}
+
 /**
  * Private Databases browse access: Manage databases, View databases, or Edit database data
  * at any scope (`*` or a non-empty slug list). Fail closed if none.

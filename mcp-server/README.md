@@ -68,8 +68,8 @@ Helpers live in `mcp-server/lib/respond.ts` (`ok` / `fail` / `actionRequired`). 
 | `get_paid_traffic` | Paid traffic (`metrics_view`, read-only): summary / campaigns / entries / destinations / diagnostics — Meta spend + GA4 paid visits + site lead ledger |
 | `update_ads_issue` | Ads issues (`metrics_view`, mutating): run checks / re-check / mark fixed (report required, pending until confirmed) / undo — never changes Meta or Google Ads |
 | `get_organic_traffic` | GSC organic clicks/impressions (`metrics_view` or `seo_edit`) |
-| `test_redirect` | Inspect one URL: first-match winner + conflicts (`read_redirects`) |
-| `update_redirect` | Add / delete / move one live CMS redirect (`edit_redirects`; call `test_redirect` first), or add / delete one of a page's own old addresses on its 0%-traffic draft with `variant` (`seo_edit`; takes effect on publish) |
+| `test_redirect` | Inspect one URL: first-match winner + conflicts (`read_redirects` or `edit_page_redirects`) |
+| `update_redirect` | Add / delete / move one live CMS redirect (`edit_redirects`; call `test_redirect` first), add / delete one exact old address on a live page of a granted type (`edit_page_redirects`; no takeover, no custom file), or add / delete one of a page's own old addresses on its 0%-traffic draft with `variant` (`seo_edit`; takes effect on publish) |
 
 See `explain_site` topic `local_databases` before FAQ database mutations.
 

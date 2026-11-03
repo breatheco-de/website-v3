@@ -1978,6 +1978,7 @@ export function SeoModal({
             <TabsContent value="redirects" className="min-w-0 space-y-4 pt-4">
               <SeoRedirectsTab
                 redirects={seoMeta.redirects}
+                contentType={contentInfo.type ?? null}
                 pagePath={liveProbePath}
                 locale={locale}
                 isVariantContext={isVariantContext}
