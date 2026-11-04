@@ -2184,7 +2184,7 @@ export function registerProposalTools(
       "proposals_create only (authors): claim | release | withdraw | attach_variant | set_no_auto_retry | revise_entries | set_review_situations | set_idea_funnel | set_related_entries | set_idea_seo_target | set_applies_after | revert — cannot apply/reject/accept. " +
       "set_related_entries (open ideas, proposer): replace related_entries (target page type + slug); unknown content types refuse (unknown_content_type); refused after accept. " +
       "set_applies_after (open edits, proposer): chain after another edits proposal (empty unlinks). Order only: apply refuses predecessor_not_applied until the predecessor is finished; applying the predecessor returns dependents_ready + one apply next_action per open dependent (nothing auto-applied). Rejecting/withdrawing a predecessor adds a predecessor_closed blocker to each open dependent. " +
-      "1.0 edits: apply promotes the proposal's draft(s); dry_run returns merge_preview without writing — it also runs while blockers are open (warning preview_while_blocked + details.open_blocker_ids; real apply still proposal_blocked; a preview is not approval and does not reset the blocked clock). Stale drafts rebuild on today's live when fields do not overlap; otherwise context_stale (needs_author). " +
+      "1.0 edits: apply promotes the proposal's draft(s); dry_run returns merge_preview without writing — it also runs while blockers are open (warning preview_while_blocked + details.open_blocker_ids; real apply still proposal_blocked; a preview is not approval and does not reset the blocked clock). Only staff (UI, proposals_review) can approve or accept past open blockers, with a reason; agents cannot override. Stale drafts rebuild on today's live when fields do not overlap; otherwise context_stale (needs_author). " +
       "revert (finished/partial 1.0 edits): files a new proposal that puts back pre-apply values; live unchanged until that one is approved; revert_conflicts when fields changed again. " +
       "Legacy (pre-1.0) proposals return legacy_version for anything but withdraw/reject/release — re-file. " +
       "Both (Publisher): full set. " +
@@ -2778,6 +2778,9 @@ export function registerProposalTools(
                   priority: "required",
                   args_hint: { proposal_id: args.proposal_id },
                 },
+              ],
+              warnings: [
+                "Agents cannot approve past open blockers. Only staff with Review proposals can override, from the staff UI with a written reason.",
               ],
             });
           }

@@ -7,7 +7,7 @@ import fs from "fs";
 import path from "path";
 import * as yaml from "js-yaml";
 import { getAllDirectories, getType } from "../content-types";
-import { TEMPLATE_VERSIONING_SLUG } from "../shared-layout-entry";
+import { TEMPLATE_VERSIONING_SLUG, isTemplateVersioningSlug, versioningContentSlug } from "../shared-layout-entry";
 import { isAbCheckPage } from "./state";
 
 export interface ActiveTest {
@@ -106,6 +106,33 @@ export function listActiveTests(contentRoot: string, opts: { fresh?: boolean } =
   }
   cache.set(contentRoot, { at: Date.now(), tests });
   return tests;
+}
+
+export type EntryActiveTest = { started_at: string | null; versions: string[]; shared_template: boolean };
+
+/**
+ * Looks up the running test for an entry's language. Entries on a shared template resolve to the
+ * template's test. Built once per call site from the 60 s cached list.
+ */
+export function makeActiveTestLookup(contentRoot: string): (contentType: string, slug: string, locale: string) => EntryActiveTest | null {
+  const byKey = new Map<string, ActiveTest>();
+  for (const t of listActiveTests(contentRoot)) byKey.set(`${t.contentType}\u0001${t.slug}\u0001${t.locale}`, t);
+  return (contentType, slug, locale) => {
+    if (byKey.size === 0) return null;
+    let vslug = slug;
+    try {
+      vslug = versioningContentSlug(contentType, slug, contentRoot);
+    } catch {
+      /* keep entry slug */
+    }
+    const t = byKey.get(`${contentType}\u0001${vslug}\u0001${locale}`);
+    if (!t) return null;
+    return {
+      started_at: t.started_at,
+      versions: t.variants.filter((v) => v.allocation > 0).map((v) => v.slug),
+      shared_template: isTemplateVersioningSlug(vslug),
+    };
+  };
 }
 
 export function invalidateActiveTestsCache(): void {

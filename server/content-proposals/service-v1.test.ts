@@ -2234,6 +2234,42 @@ describe("proposals v1.0 (draft-first)", () => {
       expect(svc.get(depId)!.applies_after_proposal_id).toBeNull();
     });
 
+    it("staff override approves past a predecessor_closed blocker once unlinked", async () => {
+      const fake = fakeDraftStore(live());
+      const { svc } = makeService({ store: fake.store });
+      const { predId, depId } = await chain(svc);
+      const rej = await svc.update(predId, "reject", {
+        username: "bob",
+        confirm_reject: true,
+        reject_kind: "harmful",
+        close_note: REJECT_NOTE,
+      });
+      expect(rej.ok).toBe(true);
+      expect(svc.get(depId)!.open_blocker_count).toBe(1);
+      const unlink = await svc.update(depId, "set_applies_after", { username: "alice", applies_after_proposal_id: "" });
+      expect(unlink.ok).toBe(true);
+
+      const preview = await svc.update(depId, "apply", {
+        username: "bob",
+        dry_run: true,
+        override_blockers: true,
+        override_reason: "The hub link stands on its own without the rejected page.",
+      });
+      expect(preview.ok).toBe(true);
+      expect(svc.get(depId)!.open_blocker_count).toBe(1);
+
+      const applied = await svc.update(depId, "apply", {
+        username: "bob",
+        override_blockers: true,
+        override_reason: "The hub link stands on its own without the rejected page.",
+      });
+      expect(applied.ok).toBe(true);
+      if (!applied.ok) return;
+      expect(applied.proposal.status).toBe("finished");
+      expect(applied.proposal.open_blocker_count).toBe(0);
+      expect(applied.proposal.blockers[0]!.resolve_note).toContain("Overridden on approve by bob");
+    });
+
     it("set_applies_after refuses cycles and non-proposers", async () => {
       const fake = fakeDraftStore(live());
       const { svc } = makeService({ store: fake.store });

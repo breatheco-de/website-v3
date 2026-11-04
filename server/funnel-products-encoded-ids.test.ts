@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "fs";
+import yaml from "js-yaml";
 import { describe, expect, it } from "vitest";
 import { decodeFunctionMapping } from "@shared/functionEncoding";
 import { funnelProductsQueryValue } from "@shared/tracking-context";
@@ -84,10 +85,14 @@ describe("funnel_products_encoded_ids", () => {
   it("is the function stored on program, landing, and page", () => {
     const ymlPath = "site_4geeks-com/content-types.yml";
     if (!existsSync(ymlPath)) return;
-    const yml = readFileSync(ymlPath, "utf8");
-    const fields = [...yml.matchAll(/^    funnel_products_encoded_ids: "?(function:[^"\n]+)"?$/gm)].map((m) =>
-      decodeFunctionMapping(m[1]),
-    );
+    const types = yaml.load(readFileSync(ymlPath, "utf8")) as Record<
+      string,
+      { field_mapping?: Record<string, unknown> }
+    >;
+    const fields = ["program", "landing", "page"].map((type) => {
+      const value = types[type]?.field_mapping?.funnel_products_encoded_ids;
+      return typeof value === "string" ? decodeFunctionMapping(value) : value;
+    });
     expect(fields).toEqual([PROGRAM_SOURCE, PAGE_SOURCE, PAGE_SOURCE]);
   });
 });

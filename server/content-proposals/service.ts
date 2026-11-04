@@ -212,6 +212,7 @@ export const MIN_SUMMARY = 80;
 export const MIN_BLOCKER_BODY = 80;
 export const MIN_CLOSE_NOTE = 20;
 export const MIN_ACCEPT_NEXT_STEP = 20;
+export const MIN_OVERRIDE_REASON = 20;
 export const MIN_REJECT_NOTE = 80;
 export const ACCEPTED_ENTRY_NOT_CREATABLE = "accepted_entry_not_creatable";
 export const ACCEPTED_ENTRY_NEEDS_LAYOUT = "accepted_entry_needs_layout";
@@ -1020,6 +1021,10 @@ export type ProposalUpdateCaller = {
   staff_summary?: string;
   blocker_id?: number;
   resolve_note?: string;
+  /** apply / accept (staff UI only): go past open blockers; they resolve with `override_reason` once something goes live. */
+  override_blockers?: boolean;
+  /** Required with `override_blockers` (min MIN_OVERRIDE_REASON). */
+  override_reason?: string;
   variant?: string;
   contentType?: string;
   slug?: string;
@@ -1567,6 +1572,37 @@ function stampReviewerAction(
      SET updated_at = ?, reviewer_action_at = ?, reviewer_action_by = ?, reviewer_action_by_actor_json = ?
      WHERE id = ?`,
   ).run(now, now, caller.username, JSON.stringify(caller.actor ?? {}), id);
+}
+
+/** Agents never override blockers, whatever the flag says. */
+function blockerOverrideRequested(caller: ProposalUpdateCaller): boolean {
+  return (
+    caller.override_blockers === true &&
+    caller.caller_is_mcp !== true &&
+    caller.actor?.type !== "mcp"
+  );
+}
+
+/**
+ * Gate for apply / accept with open blockers. `skip` lets the caller past `proposal_blocked`;
+ * the blockers themselves resolve only after something goes live.
+ */
+function blockerOverrideGate(
+  proposal: ProposalRecord,
+  caller: ProposalUpdateCaller,
+): { skip: boolean; error?: { ok: false; code: string; error: string } } {
+  if (proposal.open_blocker_count === 0 || !blockerOverrideRequested(caller)) return { skip: false };
+  if ((caller.override_reason || "").trim().length < MIN_OVERRIDE_REASON) {
+    return {
+      skip: false,
+      error: {
+        ok: false,
+        code: "override_reason_required",
+        error: `Approving past open blockers requires override_reason (min ${MIN_OVERRIDE_REASON} characters): why this is OK to publish anyway.`,
+      },
+    };
+  }
+  return { skip: true };
 }
 
 function persistRollup(
@@ -6585,7 +6621,86 @@ export function createProposalService(deps: ProposalServiceDeps) {
     });
   }
 
+  /** Staff override on apply / accept: resolve every still-open blocker with the reviewer's reason. */
+  function resolveBlockersByOverride(
+    proposal: ProposalRecord,
+    caller: ProposalUpdateCaller,
+  ): number[] {
+    const db = dbFor(site);
+    const open = proposal.blockers.filter((b) => b.status === "open");
+    if (!open.length) return [];
+    const now = Date.now();
+    const note = `Overridden on approve by ${caller.username}: ${(caller.override_reason || "").trim()}`;
+    const actorJson = JSON.stringify({ ...(caller.actor ?? {}), override: true });
+    const stmt = db.prepare(
+      `UPDATE content_proposal_blockers
+       SET status = 'resolved', resolved_at = ?, resolved_by = ?, resolve_note = ?,
+           resolved_by_actor_json = ?
+       WHERE id = ? AND proposal_id = ? AND status = 'open'`,
+    );
+    const resolved: number[] = [];
+    db.transaction(() => {
+      for (const b of open) {
+        if (stmt.run(now, caller.username, note, actorJson, b.id, proposal.id).changes > 0) {
+          resolved.push(b.id);
+        }
+      }
+      if (resolved.length) stampReviewerAction(db, proposal.id, now, caller);
+    })();
+    const openAfter = get(proposal.id)?.open_blocker_count ?? 0;
+    for (const b of open) {
+      if (!resolved.includes(b.id)) continue;
+      emitProposalEvent(
+        site,
+        "proposal_blocker_resolved",
+        proposal.id,
+        caller.username,
+        blockerEventPayload(b, proposal.escalated, {
+          resolve_note: note,
+          override: true,
+          open_blocker_count: openAfter,
+          ...blockerAuthorFields(b),
+        }),
+        caller.actor,
+      );
+    }
+    return resolved;
+  }
+
   async function update(
+    id: string,
+    action: ProposalUpdateAction,
+    caller: ProposalUpdateCaller,
+  ): Promise<Awaited<ReturnType<typeof updateInner>>> {
+    const overriding =
+      (action === "apply" || action === "accept") && !caller.dry_run && blockerOverrideRequested(caller);
+    const before = overriding ? getRaw(id) : null;
+    const result = await updateInner(id, action, caller);
+    if (!before || before.open_blocker_count === 0 || !result.ok || result.dry_run) return result;
+    if (action === "apply") {
+      const doneBefore = before.entries.filter((e) => e.status === "done").length;
+      const doneAfter = result.proposal.entries.filter((e) => e.status === "done").length;
+      if (doneAfter <= doneBefore) return result;
+    }
+    const current = getRaw(id);
+    if (!current) return result;
+    const resolvedIds = resolveBlockersByOverride(current, caller);
+    if (!resolvedIds.length) return result;
+    return {
+      ...result,
+      proposal: get(id)!,
+      warnings: [
+        ...(result.warnings ?? []),
+        {
+          code: "blockers_overridden",
+          message: `${resolvedIds.length} open blocker(s) (${resolvedIds.map((b) => `#${b}`).join(", ")}) were resolved by a staff override on ${action === "accept" ? "accept" : "approve"}. The reason is in each blocker's resolve_note.`,
+          details: { resolved_blocker_ids: resolvedIds },
+        },
+      ],
+    };
+  }
+
+  async function updateInner(
     id: string,
     action: ProposalUpdateAction,
     caller: ProposalUpdateCaller,
@@ -6593,7 +6708,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
     | {
         ok: true;
         proposal: ProposalRecord;
-        warnings?: Array<{ code: string; message: string }>;
+        warnings?: Array<{ code: string; message: string; details?: unknown }>;
         traffic_siblings?: Array<{
           slug: string;
           locale: string;
@@ -7075,7 +7190,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
       }
       const selfAccept = selfApprovalBlocked(policy(), proposal, caller, "accept");
       if (selfAccept) return { ok: false, code: selfAccept.code, error: selfAccept.error };
-      if (proposal.open_blocker_count > 0) {
+      const acceptOverride = blockerOverrideGate(proposal, caller);
+      if (acceptOverride.error) return { ...acceptOverride.error, proposal };
+      if (proposal.open_blocker_count > 0 && !acceptOverride.skip) {
         return {
           ok: false,
           code: "proposal_blocked",
@@ -8680,7 +8797,13 @@ export function createProposalService(deps: ProposalServiceDeps) {
       }
       // Only v1.0 previews write nothing; legacy apply has no dry_run path.
       const previewOnly = Boolean(caller.dry_run && store && proposal.system_version);
-      if (proposal.open_blocker_count > 0 && !previewOnly) {
+      const applyOverride: ReturnType<typeof blockerOverrideGate> = previewOnly
+        ? { skip: false }
+        : blockerOverrideGate(proposal, caller);
+      if (applyOverride.error) {
+        return { ...applyOverride.error, proposal: enrichRecentActivity(proposal) };
+      }
+      if (proposal.open_blocker_count > 0 && !previewOnly && !applyOverride.skip) {
         return {
           ok: false,
           code: "proposal_blocked",

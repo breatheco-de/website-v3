@@ -75,6 +75,56 @@ describe("openrush-keyword-cache", () => {
     expect(second.notes).toMatch(/difficulty kept/i);
   });
 
+  it("keeps the difficulty source with the difficulty it describes on partial merge", async () => {
+    const mod = await loadCacheModule();
+    mod.upsertKeywordEntry(
+      {
+        keyword: "kw",
+        location: "United States",
+        language: "English",
+        monthly_volume: 100,
+        kw_difficulty: 37,
+        kw_difficulty_source: "reported",
+        payload: { keyword_difficulty: 37 },
+      },
+      contentFolder,
+    );
+    const second = mod.upsertKeywordEntry(
+      {
+        keyword: "kw",
+        location: "United States",
+        language: "English",
+        monthly_volume: 200,
+        kw_difficulty: null,
+        kw_difficulty_source: null,
+        competition_level: "LOW",
+        payload: { search_volume: 200, competition: "LOW" },
+      },
+      contentFolder,
+    );
+    expect(second.kw_difficulty).toBe(37);
+    expect(mod.keywordDifficultySourceOf(second)).toBe("reported");
+    expect(mod.competitionLevelOf(second)).toBe("LOW");
+  });
+
+  it("reads the source of legacy entries from their payload only when the number matches", async () => {
+    const mod = await loadCacheModule();
+    const base = {
+      keyword: "kw",
+      location: "United States",
+      language: "English",
+      fetched_at: new Date().toISOString(),
+      monthly_volume: 3600,
+      notes: null,
+    };
+    expect(
+      mod.keywordDifficultySourceOf({ ...base, kw_difficulty: 20, payload: { competition: "LOW" } }),
+    ).toBe("derived_from_competition");
+    expect(
+      mod.keywordDifficultySourceOf({ ...base, kw_difficulty: 55, payload: { competition: "LOW" } }),
+    ).toBeNull();
+  });
+
   it("resolveKeywordMetrics prefers cache when OpenRush configured", async () => {
     vi.stubEnv("OPENRUSH_API_KEY", "test-key");
     const mod = await loadCacheModule();

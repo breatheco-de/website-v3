@@ -231,6 +231,8 @@ import {
   BREATHECODE_HOST,
   extractToken,
   requireCapability,
+  requireRedirectReadAccess,
+  requireRedirectWriteAccess,
   requireStaffSession,
   requireMutatingStaff,
   safeYamlLoad,
@@ -270,7 +272,7 @@ import {
 import { child } from "../logger";
 import { sqlite } from "../db";
 import { errorLogFingerprint } from "../utils/error-log-fingerprint";
-import { writeRedirectOnDestinationPage } from "../redirect-destination";
+import { resolveDestinationLocale, writeRedirectOnDestinationPage } from "../redirect-destination";
 import {
   addDraftRedirect,
   removeDraftRedirect,
@@ -278,6 +280,7 @@ import {
   type DraftRedirectTarget,
 } from "../redirect-draft";
 import { checkSimpleRedirectFrom, redirectsPageUrl } from "../redirect-simple-check";
+import { authorizeLiveRedirectWrite, relToContentRoot } from "../redirect-page-scope";
 import { listInboundRedirects, parseRemovedEntry, removeInboundRedirects } from "../removed-item-redirect";
 import { findEntryPresence } from "../entry-layer";
 import { api } from "../rate-limit/api.js";
@@ -1765,7 +1768,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/debug/redirects/locale-urls", async (req, res) => {
-    const auth = await requireCapability(req, res, "read_redirects");
+    const auth = await requireRedirectReadAccess(req, res);
     if (!auth.authorized) return;
     try {
       const url = req.query.url as string;
@@ -1796,9 +1799,28 @@ export function registerAdminRoutes(app: Express): void {
       await handleDraftRedirect(req, res, "add");
       return;
     }
-    const auth = await requireCapability(req, res, "edit_redirects");
+    const auth = await requireRedirectWriteAccess(req, res);
     if (!auth.authorized) return;
     try {
+      const scopeHosts = [req.get("host") ?? ""];
+      try {
+        if (process.env.SITE_URL) scopeHosts.push(new URL(process.env.SITE_URL).host);
+      } catch {}
+      const pageScope = authorizeLiveRedirectWrite({
+        ci: getCI(res),
+        action: "add",
+        hasGlobal: auth.hasGlobal,
+        canEditPage: auth.canEditPage,
+        body: req.body ?? {},
+        allowedHosts: scopeHosts,
+      });
+      if (!pageScope.ok) {
+        const { ok: _ok, status, ...body } = pageScope;
+        res.status(status).json(body);
+        return;
+      }
+      const pageOnly = pageScope.mode === "page";
+
       const {
         from,
         to,
@@ -1831,8 +1853,12 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       const destUrl = to as string;
+      const localeHint =
+        typeof req.body.locale === "string" && req.body.locale.trim() ? req.body.locale.trim().toLowerCase() : null;
 
-      if (req.body.simple === true) {
+      if (pageOnly && pageScope.normalizedFrom) {
+        normalizedFrom = pageScope.normalizedFrom;
+      } else if (req.body.simple === true) {
         if (isCustomDestination || req.body.before_from || req.body.removed_entry) {
           res.status(400).json({
             code: "simple_redirect_options",
@@ -1845,10 +1871,13 @@ export function registerAdminRoutes(app: Express): void {
         try {
           if (process.env.SITE_URL) allowedHosts.push(new URL(process.env.SITE_URL).host);
         } catch {}
+        const parsedSimpleDest = ciSimple.parseContentUrl(destUrl);
         const check = checkSimpleRedirectFrom({
           from: from as string,
           destUrl,
-          locale: ciSimple.parseContentUrl(destUrl)?.locale ?? getDefaultLocale(),
+          locale: parsedSimpleDest
+            ? resolveDestinationLocale(ciSimple, parsedSimpleDest, destUrl, localeHint)
+            : getDefaultLocale(),
           ci: ciSimple,
           allowedHosts,
         });
@@ -1915,6 +1944,7 @@ export function registerAdminRoutes(app: Express): void {
           from: fromPath,
           statusCode: code,
           allLanguages: allLangs,
+          locale: localeHint,
           onWrite: (abs) => markFileAsModified(abs, authorName, undefined, getContentRoot(res)),
         });
         if (onPage.kind === "error") {
@@ -1922,6 +1952,9 @@ export function registerAdminRoutes(app: Express): void {
         }
         if (onPage.kind === "page") {
           return { ok: true, file: onPage.files[0], created: onPage.created, skippedLocales: onPage.skippedLocales };
+        }
+        if (pageOnly) {
+          return { ok: false, status: 403, body: { code: "page_scope_refused", reason: "not_a_page", error: "The destination is not a page on this site." } };
         }
         // Not a page on this site (listing without an entry, other known URL): site-wide list.
         if (!ci.isKnownUrl(destUrl)) {
@@ -2004,7 +2037,7 @@ export function registerAdminRoutes(app: Express): void {
       await handleDraftRedirect(req, res, "delete");
       return;
     }
-    const auth = await requireCapability(req, res, "edit_redirects");
+    const auth = await requireRedirectWriteAccess(req, res);
     if (!auth.authorized) return;
     try {
       const { from, source, author } = req.body;
@@ -2085,6 +2118,19 @@ export function registerAdminRoutes(app: Express): void {
       }
       if (!sourceFile.endsWith(".yml") && !sourceFile.endsWith(".yaml")) {
         res.status(400).json({ error: "Invalid source file type" });
+        return;
+      }
+
+      const pageScope = authorizeLiveRedirectWrite({
+        ci: getCI(res),
+        action: "delete",
+        hasGlobal: auth.hasGlobal,
+        canEditPage: auth.canEditPage,
+        sourceRelToContentRoot: relToContentRoot(marketingDir, resolvedSource),
+      });
+      if (!pageScope.ok) {
+        const { ok: _ok, status, ...body } = pageScope;
+        res.status(status).json(body);
         return;
       }
 
@@ -2337,7 +2383,7 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   app.get("/api/debug/redirects/test", async (req, res) => {
-    const auth = await requireCapability(req, res, "read_redirects");
+    const auth = await requireRedirectReadAccess(req, res);
     if (!auth.authorized) return;
     const url = req.query.url as string;
     if (!url) {

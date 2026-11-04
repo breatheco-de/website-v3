@@ -66,8 +66,8 @@ export const TOOL_GATES: Record<string, ToolGate> = {
   update_entry_attributes: { kind: "anyCap", caps: ["seo_edit", "content_edit_structure"] },
   ensure_content_type_schema_org: { kind: "anyCap", caps: ["seo_settings"] },
   update_content_type: { kind: "anyCap", caps: ["content_types_manage"] },
-  test_redirect: { kind: "anyCap", caps: ["read_redirects"] },
-  update_redirect: { kind: "anyCap", caps: ["edit_redirects", "seo_edit"] },
+  test_redirect: { kind: "anyCap", caps: ["read_redirects", "edit_page_redirects"] },
+  update_redirect: { kind: "anyCap", caps: ["edit_redirects", "edit_page_redirects", "seo_edit"] },
 
   add_section: { kind: "anyCap", caps: ["content_edit_structure"] },
   remove_section: { kind: "anyCap", caps: ["content_edit_structure"] },

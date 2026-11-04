@@ -127,6 +127,22 @@ describe("PaidPageRow", () => {
     const html = renderToStaticMarkup(<PaidPageRow row={row({ campaigns: [] })} perspective="traffic" />);
     expect(html).not.toContain("button-paid-row-expand");
   });
+
+  it("shows own paid visits and own conversion only when the row has own counts", () => {
+    expect(renderToStaticMarkup(<PaidPageRow row={row()} perspective="traffic" />)).not.toContain("metric-own-visits");
+    const own = { paid_visits: 600, covered_days: 28, total_days: 28 };
+    expect(renderToStaticMarkup(<PaidPageRow row={row({ own_counts: own })} perspective="traffic" />)).toContain("metric-own-visits");
+    const conversion = renderToStaticMarkup(<PaidPageRow row={row({ own_counts: own })} perspective="conversion" />);
+    expect(conversion).toContain("metric-own-cr");
+    expect(conversion).toContain("2.0%");
+  });
+
+  it("hides own conversion rate when own counts cover only part of the range", () => {
+    const html = renderToStaticMarkup(
+      <PaidPageRow row={row({ own_counts: { paid_visits: 600, covered_days: 10, total_days: 28 } })} perspective="conversion" />,
+    );
+    expect(html).toMatch(/data-testid="metric-own-cr"[\s\S]*?—/);
+  });
 });
 
 describe("PaidCampaignRows", () => {

@@ -265,6 +265,7 @@ import { registerOverlaysRoutes } from "./overlays";
 import { registerConsentRoutes } from "./consent";
 import { registerPageReadyRoutes } from "./page-ready";
 import { registerAdsRoutes } from "./ads";
+import { registerIndexNowRoutes } from "./indexnow";
 import { attachPageVersionToJson, attachTrackingToJson } from "./_helpers";
 import { setWorkerRunNow } from "./_worker-state";
 import { getSiteInfo, getSiteContextMap, writeDevSiteFile, clearDevSiteFile } from "../site-manager";
@@ -343,6 +344,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerListingsRoutes(app);
   registerSectionsRoutes(app);
   registerSeoRoutes(app);
+  registerIndexNowRoutes(app);
   registerAdminRoutes(app);
   registerSidequestDashboardRoutes(app);
   registerSidequestAdminRoutes(app);

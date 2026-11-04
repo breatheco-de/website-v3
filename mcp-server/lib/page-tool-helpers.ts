@@ -68,7 +68,7 @@ export function requireMutateWhyHighlights(
   whyRaw: unknown,
   highlightsRaw: unknown,
   opts?: {
-    mode?: "mutate_with_updates" | "mutate_structural";
+    mode?: "mutate_with_updates" | "mutate_structural" | "why_only";
     updates?: FieldUpdateLike[];
   },
 ):

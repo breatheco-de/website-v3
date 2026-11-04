@@ -8,6 +8,7 @@ import path from "path";
 import { CACHE_DIR } from "./db-cache";
 import { getDefaultContentFolder } from "./site-config";
 import { getOpenRushSettings } from "./settings";
+import { readKeywordDifficulty, type KeywordDifficultySource } from "./openrush-keyword-difficulty";
 
 export const KEYWORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -18,6 +19,9 @@ export type OpenRushKeywordEntry = {
   fetched_at: string;
   monthly_volume: number | null;
   kw_difficulty: number | null;
+  /** Absent on entries written before the source was tracked — use keywordDifficultySourceOf. */
+  kw_difficulty_source?: KeywordDifficultySource | null;
+  competition_level?: string | number | null;
   /** Human-readable merge / partial-pull note for UI + MCP. */
   notes: string | null;
   /** Full last OpenRush data payload (best-effort). */
@@ -36,6 +40,7 @@ export type ResolvedKeywordMetrics = {
   source: KeywordMetricsSource;
   kw_monthly_volume: number | null;
   kw_difficulty: number | null;
+  kw_difficulty_source: KeywordDifficultySource | null;
   fetched_at: string | null;
   stale: boolean;
   may_not_be_recent: boolean;
@@ -114,8 +119,30 @@ export type IncomingKeywordMetrics = {
   language: string;
   monthly_volume: number | null;
   kw_difficulty: number | null;
+  kw_difficulty_source?: KeywordDifficultySource | null;
+  competition_level?: string | number | null;
   payload?: Record<string, unknown> | null;
 };
+
+/**
+ * Where an entry's difficulty came from. Legacy entries (no stored source) are re-read from the
+ * payload only when that payload still yields the same number — otherwise the value was kept
+ * from an earlier pull and its origin is unknown.
+ */
+export function keywordDifficultySourceOf(
+  entry: OpenRushKeywordEntry | undefined,
+): KeywordDifficultySource | null {
+  if (!entry || entry.kw_difficulty == null) return null;
+  if (entry.kw_difficulty_source !== undefined) return entry.kw_difficulty_source;
+  const reread = readKeywordDifficulty(entry.payload);
+  return reread.value === entry.kw_difficulty ? reread.source : null;
+}
+
+export function competitionLevelOf(entry: OpenRushKeywordEntry | undefined): string | number | null {
+  if (!entry) return null;
+  if (entry.competition_level !== undefined) return entry.competition_level;
+  return readKeywordDifficulty(entry.payload).competition_level;
+}
 
 /**
  * Partial merge: non-null incoming metrics overwrite; nulls keep prior values.
@@ -134,6 +161,14 @@ export function mergeKeywordEntry(
     incoming.kw_difficulty != null
       ? incoming.kw_difficulty
       : (prior?.kw_difficulty ?? null);
+  const difficultySource =
+    incoming.kw_difficulty != null
+      ? (incoming.kw_difficulty_source ?? null)
+      : keywordDifficultySourceOf(prior);
+  const competitionLevel =
+    incoming.competition_level != null
+      ? incoming.competition_level
+      : competitionLevelOf(prior);
 
   const noteParts: string[] = [];
   if (incoming.monthly_volume != null) {
@@ -158,6 +193,8 @@ export function mergeKeywordEntry(
     fetched_at: fetchedAt,
     monthly_volume: volume,
     kw_difficulty: difficulty,
+    kw_difficulty_source: difficultySource,
+    competition_level: competitionLevel,
     notes: noteParts.join("; ") + ".",
     payload:
       incoming.payload && typeof incoming.payload === "object"
@@ -209,6 +246,7 @@ export function resolveKeywordMetrics(opts: {
     source: "none",
     kw_monthly_volume: null,
     kw_difficulty: null,
+    kw_difficulty_source: null,
     fetched_at: null,
     stale: false,
     may_not_be_recent: false,
@@ -232,6 +270,7 @@ export function resolveKeywordMetrics(opts: {
         source: "openrush_cache",
         kw_monthly_volume: entry.monthly_volume,
         kw_difficulty: entry.kw_difficulty,
+        kw_difficulty_source: keywordDifficultySourceOf(entry),
         fetched_at: entry.fetched_at,
         stale: !keywordEntryFresh(entry, now),
         may_not_be_recent: false,
@@ -246,6 +285,7 @@ export function resolveKeywordMetrics(opts: {
       source: "yaml_fallback",
       kw_monthly_volume: yamlVol,
       kw_difficulty: yamlDiff,
+      kw_difficulty_source: null,
       fetched_at: null,
       stale: false,
       may_not_be_recent: true,

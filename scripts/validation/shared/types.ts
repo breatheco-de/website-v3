@@ -39,6 +39,25 @@ export interface ValidationIssue {
   staleSourceDatabase?: string;
   /** SOURCE_ITEM_REMOVED: suggested redirect for the removed page plus the old addresses that move with it. */
   redirectSuggestion?: RemovedPageRedirectSuggestion;
+  /** EXTERNAL_LINK_GONE / OWN_MEDIA_GONE / EXTERNAL_LINK_UNREACHABLE: the saved check behind the issue. */
+  externalLink?: ExternalLinkIssueDetails;
+}
+
+export interface ExternalLinkIssueDetails {
+  url: string;
+  field_paths: string[];
+  media: "link" | "image";
+  status: "gone" | "unreachable";
+  reason?: "not_found" | "redirected_to_home" | "unreachable";
+  http_status?: number;
+  final_url?: string;
+  checked_at: string;
+  gone_streak: number;
+  unreachable_streak: number;
+  /** Other live entries whose content uses the same URL (link index). */
+  other_entries_using_url: number;
+  /** Wayback Machine address that opens the latest archived copy, when one exists. */
+  archive_lookup: string;
 }
 
 export interface RemovedPageRedirectSuggestion {
@@ -136,6 +155,7 @@ export interface StoredValidationIssue {
   staleSourceAgeMs?: number;
   staleSourceDatabase?: string;
   redirectSuggestion?: RemovedPageRedirectSuggestion;
+  externalLink?: ExternalLinkIssueDetails;
   /** Ads diagnostics issues only (`scopes: ["ads"]`). */
   ads?: AdsStoredIssueData;
 }

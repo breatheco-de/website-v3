@@ -109,6 +109,17 @@ export function testWindow(test: Pick<PageTestInfo, "started_at" | "ended_at">, 
   return { start: minDay(maxDay(start, capStart), end), end, capped: start < capStart };
 }
 
+/** True when "Optimize for ads" was on for any part of the test dates. */
+export function firstPartyCoversTest(
+  windows: TypeWindow[],
+  test: Pick<PageTestInfo, "started_at" | "ended_at">,
+  now: number,
+): boolean {
+  const start = test.started_at ? Date.parse(`${test.started_at.slice(0, 10)}T00:00:00.000Z`) : 0;
+  const end = test.ended_at ? Date.parse(`${test.ended_at.slice(0, 10)}T23:59:59.999Z`) : now;
+  return windows.some((w) => w.enabled_at <= end && (w.disabled_at ?? now) >= start);
+}
+
 /** Gaps in "Optimize for ads" and a late counting start, inside the test dates. */
 export function firstPartyNotices(windows: TypeWindow[], window: { start: string; end: string }, now: number): TestNotice[] {
   const facts = windowFacts(windows, { current: window, prior: { start: window.start, end: addDays(window.start, -1) } }, now);
@@ -222,17 +233,21 @@ export async function getPageTestStats(opts: {
   const test = page.entry ? resolvePageTest({ vm, contentRoot: opts.contentRoot, entry: page.entry }) : null;
   if (!test) throw new PageTestNotFoundError("No A/B test is recorded for this page's language.");
 
-  const { source, contentType, windows } = resolveTrafficSource({
+  const now = opts.now ?? new Date();
+  const resolved = resolveTrafficSource({
     site: opts.site,
     contentRoot: opts.contentRoot,
     entryContentType: page.entry?.content_type ?? null,
     requested: opts.source,
   });
+  const { contentType, windows } = resolved;
+  // No explicit choice: the site's own counts win whenever they cover part of the test, even if the switch is off today.
+  const source: TrafficSource =
+    !opts.source && resolved.source === "ga4" && firstPartyCoversTest(windows, test, now.getTime()) ? "first_party" : resolved.source;
   const key = `test|${opts.site}|${source}|${test.experiment_id}|${test.ended_at ?? "running"}|${page.path}`;
   const hit = cache.get(key);
   if (!opts.refresh && hit && hit.expires > Date.now()) return hit.payload;
 
-  const now = opts.now ?? new Date();
   // The site's own counts are live; GA4 lags until its export day is complete.
   const lastDay = source === "first_party" ? now.toISOString().slice(0, 10) : lastCompleteGa4Date(now);
   const window = testWindow(test, lastDay);

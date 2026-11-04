@@ -23,6 +23,7 @@ import {
 import { describeAbCheckRun, runAbCheck } from "../ab-testing/check";
 import { recoverAbTestingIfNeeded, setupAbTesting } from "../ab-testing/setup";
 import { listActiveTests } from "../ab-testing/active-tests";
+import { isTemplateVersioningSlug } from "../shared-layout-entry";
 import { checkGa4Dimensions, createGa4Dimensions } from "../ab-testing/ga4-dimensions";
 import { child } from "../logger";
 
@@ -55,6 +56,25 @@ export function abTestingStatus(site: SiteContext) {
   const latest = latestRun(site.contentRootName);
   const conclusive = latestConclusiveRun(site.contentRootName);
   const url = page ? site.contentIndex.buildUrl(page.contentType, page.locale, page.slug) : null;
+  const activeTests = listActiveTests(site.contentRoot).map((t) => {
+    let testUrl: string | null = null;
+    if (!isTemplateVersioningSlug(t.slug)) {
+      try {
+        testUrl = site.contentIndex.buildUrl(t.contentType, t.locale, t.slug);
+      } catch {
+        testUrl = null;
+      }
+    }
+    return {
+      contentType: t.contentType,
+      slug: t.slug,
+      locale: t.locale,
+      started_at: t.started_at,
+      template: isTemplateVersioningSlug(t.slug),
+      url: testUrl,
+      variants: t.variants.map((v) => ({ slug: v.slug, allocation: v.allocation })),
+    };
+  });
   return {
     set_up: isAbTestingSetUp(site),
     latest_check_ok: isLatestCheckOk(site.contentRootName),
@@ -63,7 +83,8 @@ export function abTestingStatus(site: SiteContext) {
     check_page: page ? { ...page, url } : null,
     has_token: !!state.check_token,
     running: isAbCheckRunning(site),
-    running_tests: listActiveTests(site.contentRoot).length,
+    running_tests: activeTests.length,
+    active_tests: activeTests,
     latest_run: latest,
     latest_summary: latest ? describeAbCheckRun(latest) : null,
     latest_conclusive_status: conclusive?.status ?? null,

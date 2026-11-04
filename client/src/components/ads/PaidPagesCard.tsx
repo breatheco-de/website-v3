@@ -351,6 +351,7 @@ export function PaidPagesCard({ days, issues = [], initialPlatform = "all" }: { 
                   metaSplitDays={data.meta_split_days}
                   askRejectPct={data.consent.ask_region_reject_pct}
                   primaryHost={primaryHost}
+                  minVisitsForRates={data.thresholds?.min_paid_visits_for_rates}
                 />
               ))}
             </div>

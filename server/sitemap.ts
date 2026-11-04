@@ -94,6 +94,8 @@ type EntryType =
 interface CanonicalSitemapEntry {
   loc: string;
   lastmod?: string;
+  /** Full ISO editorial `updated_at`; never written to the XML. */
+  editorialUpdatedAt?: string;
   label: string;
   type: EntryType;
   locale?: string;
@@ -304,7 +306,11 @@ function formatLocaleLabel(locale: string): string {
  * Editorial lastmod (YYYY-MM-DD) from locale YAML `updated_at` else `published_at`.
  * Empty when neither is set — callers omit `<lastmod>` rather than using today.
  */
-function getYmlFileLastmod(contentType: string, dirSlug: string, locale: string): string {
+function getYmlFileDates(
+  contentType: string,
+  dirSlug: string,
+  locale: string,
+): { lastmod: string; editorialUpdatedAt?: string } {
   const iso = resolveEntryUpdatedAt({
     contentType,
     slug: dirSlug,
@@ -312,7 +318,7 @@ function getYmlFileLastmod(contentType: string, dirSlug: string, locale: string)
     contentRoot: _activeSiteCtx?.contentRootName ?? _contentFolder(),
     isDb: false,
   });
-  return toSitemapLastmod(iso, false);
+  return { lastmod: toSitemapLastmod(iso, false), ...(iso ? { editorialUpdatedAt: iso } : {}) };
 }
 
 /**
@@ -369,7 +375,7 @@ function buildCanonicalSitemapEntries(
 
     addEntry({
       loc: url,
-      lastmod: getYmlFileLastmod("program", program.dirSlug, program.locale),
+      ...getYmlFileDates("program", program.dirSlug, program.locale),
       label: `${program.title} (${formatLocaleLabel(program.locale)})`,
       type: "program",
       locale: program.locale,
@@ -391,7 +397,7 @@ function buildCanonicalSitemapEntries(
 
     addEntry({
       loc: url,
-      lastmod: getYmlFileLastmod("location", location.dirSlug, location.locale),
+      ...getYmlFileDates("location", location.dirSlug, location.locale),
       label: `Location: ${location.name} (${formatLocaleLabel(location.locale)})`,
       type: "location",
       locale: location.locale,
@@ -411,7 +417,7 @@ function buildCanonicalSitemapEntries(
 
     addEntry({
       loc: `${getBaseUrl(ctx)}${ci.buildUrl("page", page.locale, page.slug)}`,
-      lastmod: getYmlFileLastmod("page", page.dirSlug, page.locale),
+      ...getYmlFileDates("page", page.dirSlug, page.locale),
       label: `Page: ${page.title} (${formatLocaleLabel(page.locale)})`,
       type: "template_page",
       locale: page.locale,
@@ -474,6 +480,7 @@ function buildCanonicalSitemapEntries(
         addEntry({
           loc: itemUrl,
           ...(lastmod ? { lastmod } : {}),
+          ...(updatedIso ? { editorialUpdatedAt: updatedIso } : {}),
           label: `${typeLabel}: ${title} (${formatLocaleLabel(locale)})`,
           type: "static",
           locale,
@@ -538,7 +545,7 @@ function buildCanonicalSitemapEntries(
 
           addEntry({
             loc: url,
-            lastmod: getYmlFileLastmod(typeName, slug, locale),
+            ...getYmlFileDates(typeName, slug, locale),
             label: `${typeLabel}: ${title} (${formatLocaleLabel(locale)})`,
             type: typeName,
             locale,
@@ -692,6 +699,40 @@ export function getSitemapUrls(ctx?: ActiveSiteCtx, ignoreSiteBlock = false): Ar
     ? buildCanonicalSitemapEntries(ctx, { ignoreSiteBlock: true })
     : getCanonicalEntries(ctx);
   return entriesToHumanReadable(Array.from(entriesMap.values()));
+}
+
+export type PublicUrlSnapshotEntry = {
+  url: string;
+  entryKey: string | null;
+  contentType: string | null;
+  slug: string | null;
+  locale: string | null;
+  updatedAt: string | null;
+};
+
+/**
+ * Public URLs (sitemap rules applied) with the full editorial `updated_at`.
+ * Always a fresh walk: callers run in background jobs whose content index is
+ * new per run, so caching here would keep stale indexes alive.
+ */
+export function getPublicUrlSnapshot(ctx?: ActiveSiteCtx): PublicUrlSnapshotEntry[] {
+  const entriesMap = buildCanonicalSitemapEntries(ctx);
+  const out: PublicUrlSnapshotEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of entriesMap.values()) {
+    if (seen.has(entry.loc)) continue;
+    seen.add(entry.loc);
+    const { content_type, slug } = splitContentKey(entry.contentKey);
+    out.push({
+      url: entry.loc,
+      entryKey: entry.contentKey && entry.locale ? `${entry.contentKey}:${entry.locale}` : entry.contentKey ?? null,
+      contentType: content_type ?? null,
+      slug: slug ?? null,
+      locale: entry.locale ?? null,
+      updatedAt: entry.editorialUpdatedAt ?? null,
+    });
+  }
+  return out;
 }
 
 export type DebugSitemapUrl = {

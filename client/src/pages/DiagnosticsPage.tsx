@@ -43,6 +43,12 @@ import {
 } from "@/components/ui/pagination";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import {
+  ExternalLinkCoverageLine,
+  ExternalLinkWorksButton,
+  VERIFY_OK_ISSUE_CODES,
+  type ExternalLinkDetails,
+} from "@/components/diagnostics/ExternalLinkChecks";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
 import { formatIssueActorLine } from "@/lib/formatIssueActor";
 import { cn } from "@/lib/utils";
@@ -376,7 +382,9 @@ type CacheIssuesResponse = {
 };
 
 type CachedIssueRow = {
+  id?: string;
   url: string;
+  externalLink?: ExternalLinkDetails;
   severity: "error" | "warning";
   code: string;
   message: string;
@@ -1966,6 +1974,7 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
               {diagnosticsStatusLine}
             </p>
           ) : null}
+          <ExternalLinkCoverageLine />
         </div>
       </div>
 
@@ -2741,6 +2750,18 @@ function GlobalHealthTab({ onOpenLeads }: { onOpenLeads?: () => void }) {
                             validator={issue.validator}
                             startWithConfirm={startWithConfirm}
                             onResolved={() =>
+                              void queryClient.invalidateQueries({
+                                queryKey: ["/api/validation/cache-issues"],
+                                exact: false,
+                              })
+                            }
+                          />
+                        ) : null}
+                        {issue.id && issue.externalLink && VERIFY_OK_ISSUE_CODES.has(issue.code) ? (
+                          <ExternalLinkWorksButton
+                            issueId={issue.id}
+                            link={issue.externalLink}
+                            onDone={() =>
                               void queryClient.invalidateQueries({
                                 queryKey: ["/api/validation/cache-issues"],
                                 exact: false,

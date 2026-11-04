@@ -17,13 +17,16 @@ const PENDING_FILENAME = "link-index-pending.json";
 const DEBOUNCE_MS = 800;
 
 export type LinkIndex = {
+  /** Stays 1: older readers reset the index on any other version; `external` is additive. */
   version: 1;
   updated_at: string;
   outbound: Record<string, string[]>;
+  /** Absolute external URLs (links and images) per entry id, without #fragment. */
+  external?: Record<string, string[]>;
 };
 
 type PendingOp =
-  | { op: "set"; entryKey: string; paths: string[] }
+  | { op: "set"; entryKey: string; paths: string[]; external?: string[] }
   | { op: "remove"; entryKey: string };
 
 type PendingFile = { ops: PendingOp[] };
@@ -97,23 +100,28 @@ function clearPending(contentRoot?: string): void {
   }
 }
 
+function setRow(map: Record<string, string[]>, key: string, values: string[]): void {
+  if (values.length === 0) delete map[key];
+  else map[key] = [...new Set(values)].sort();
+}
+
 function applyPendingOps(data: LinkIndex, ops: PendingOp[]): LinkIndex {
   const outbound = { ...data.outbound };
+  const external = { ...(data.external ?? {}) };
   for (const op of ops) {
     if (op.op === "set") {
-      if (op.paths.length === 0) {
-        delete outbound[op.entryKey];
-      } else {
-        outbound[op.entryKey] = [...new Set(op.paths)].sort();
-      }
+      setRow(outbound, op.entryKey, op.paths);
+      if (op.external) setRow(external, op.entryKey, op.external);
     } else {
       delete outbound[op.entryKey];
+      delete external[op.entryKey];
     }
   }
   return {
     version: 1,
     updated_at: new Date().toISOString(),
     outbound,
+    external,
   };
 }
 
@@ -219,12 +227,19 @@ export function patchLinkIndexOutbound(
   flushLinkIndexPendingSync(contentRoot);
 }
 
+/** `external` omitted leaves the entry's external URLs as they are. */
 export function queueLinkIndexSet(
   entryKey: string,
   paths: string[],
   contentRoot?: string,
+  external?: string[],
 ): void {
-  appendPendingOp(contentRoot, { op: "set", entryKey, paths: [...paths] });
+  appendPendingOp(contentRoot, {
+    op: "set",
+    entryKey,
+    paths: [...paths],
+    ...(external ? { external: [...external] } : {}),
+  });
   scheduleLinkIndexFlush(contentRoot);
 }
 
@@ -288,6 +303,7 @@ export function flushLinkIndexPendingSync(contentRoot?: string): boolean {
 export function rebuildLinkIndex(
   outboundByEntry: Record<string, string[]>,
   contentRoot?: string,
+  externalByEntry: Record<string, string[]> = {},
 ): LinkIndex {
   const root = absRoot(contentRoot);
   const timer = flushTimers.get(root);
@@ -300,13 +316,35 @@ export function rebuildLinkIndex(
     version: 1,
     updated_at: new Date().toISOString(),
     outbound: {},
+    external: {},
   };
-  for (const [id, paths] of Object.entries(outboundByEntry)) {
-    if (paths.length === 0) continue;
-    data.outbound[id] = [...new Set(paths)].sort();
-  }
+  for (const [id, paths] of Object.entries(outboundByEntry)) setRow(data.outbound, id, paths);
+  for (const [id, urls] of Object.entries(externalByEntry)) setRow(data.external!, id, urls);
   saveLinkIndex(data, contentRoot);
   return data;
+}
+
+export function getLinkIndexExternal(entryId: string, contentRoot?: string): string[] | null {
+  const row = loadLinkIndex(contentRoot).external?.[entryId];
+  return Array.isArray(row) ? row : null;
+}
+
+/** External URL → entry ids that use it. */
+export function invertExternalLinks(contentRoot?: string): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const [entryKey, urls] of Object.entries(loadLinkIndex(contentRoot).external ?? {})) {
+    for (const url of urls) {
+      const list = out.get(url) ?? [];
+      list.push(entryKey);
+      out.set(url, list);
+    }
+  }
+  for (const [k, v] of out) out.set(k, [...new Set(v)].sort());
+  return out;
+}
+
+export function getEntriesForExternalUrl(url: string, contentRoot?: string): string[] {
+  return invertExternalLinks(contentRoot).get(url) ?? [];
 }
 
 export function invertLinkIndex(

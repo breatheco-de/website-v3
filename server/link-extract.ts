@@ -9,9 +9,14 @@ import { seoEntryId } from "./seo-index";
 import { getAllConfigs, getFullFieldMapping } from "./content-types";
 import { databaseManager } from "./database";
 import { mappingSourceString, type FieldMappingValue } from "@shared/validateEditorFieldTypes";
-import { extractInternalLinkHits, type InternalLinkHit } from "./internal-link-hits";
+import { extractExternalLinkHits, extractInternalLinkHits, type InternalLinkHit } from "./internal-link-hits";
 
-export { extractInternalLinkHits, type InternalLinkHit } from "./internal-link-hits";
+export {
+  extractExternalLinkHits,
+  extractInternalLinkHits,
+  type ExternalLinkHit,
+  type InternalLinkHit,
+} from "./internal-link-hits";
 
 /** Fields likely to contain hrefs in DB-backed rows. */
 const DB_LINK_FIELD_HINTS = new Set([
@@ -38,6 +43,14 @@ export function collectOutboundPathsFromData(
     out.add(hit.path.replace(/\/$/, "") || "/");
   }
   return [...out].sort();
+}
+
+/** Sorted unique external URLs (links and images) for the link index. */
+export function collectExternalUrlsFromData(
+  data: Record<string, unknown>,
+  ownHosts: string[],
+): string[] {
+  return [...new Set(extractExternalLinkHits(data, { ownHosts }).map((h) => h.url))].sort();
 }
 
 function dbLinkFieldPaths(fieldMapping: Record<string, FieldMappingValue> | undefined): string[] {

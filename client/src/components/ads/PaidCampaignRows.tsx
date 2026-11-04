@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, Info } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { LowSampleBadge } from "./LowSampleBadge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { isClicksVisitsMismatch } from "@shared/ads-diagnostics-rules";
@@ -212,11 +212,13 @@ function CampaignRow({
   row,
   perspective,
   metaSplitDays,
+  minVisitsForRates,
 }: {
   c: AdsCampaignRef;
   row: AdsPageRow;
   perspective: PaidPerspective;
   metaSplitDays?: { covered: number; total: number };
+  minVisitsForRates?: number;
 }) {
   const spendNoVisits = !c.untagged && moneyTotal(c.spend) > 0 && c.paid_visits === 0;
   const key = c.untagged ? "untagged" : `${c.platform ?? ""}-${c.campaign_id ?? c.campaign_name}`;
@@ -232,11 +234,7 @@ function CampaignRow({
         </span>
         {c.untagged && <UntaggedInfo c={c} />}
         {spendNoVisits && <SpendNoVisitsWarning />}
-        {!c.untagged && c.low_sample && !spendNoVisits && (
-          <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">
-            not enough data
-          </Badge>
-        )}
+        {!c.untagged && c.low_sample && !spendNoVisits && <LowSampleBadge subject="campaign" minVisits={minVisitsForRates} testId={`chip-low-sample-${key}`} />}
       </div>
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 md:pr-[76px]">
         {campaignCells(c, row, perspective, metaSplitDays).map((cell) => (
@@ -251,10 +249,12 @@ export function PaidCampaignRows({
   row,
   perspective,
   metaSplitDays,
+  minVisitsForRates,
 }: {
   row: AdsPageRow;
   perspective: PaidPerspective;
   metaSplitDays?: { covered: number; total: number };
+  minVisitsForRates?: number;
 }) {
   const tagged = row.campaigns.filter((c) => !c.untagged);
   const comparable = row.comparable_campaigns ?? tagged.filter((c) => !c.low_sample).length;
@@ -274,6 +274,7 @@ export function PaidCampaignRows({
           row={row}
           perspective={perspective}
           metaSplitDays={metaSplitDays}
+          minVisitsForRates={minVisitsForRates}
         />
       ))}
     </div>

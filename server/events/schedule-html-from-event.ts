@@ -91,11 +91,17 @@ function pageKeys(ci: ContentIndex, dbName: string, config: ContentTypeConfig): 
   return keys;
 }
 
-function refreshedRowPaths(ci: ContentIndex, dbName: string, rows: RefreshedDatabaseRow[]): string[] {
+export function refreshedRowPaths(
+  ci: ContentIndex,
+  dbName: string,
+  rows: RefreshedDatabaseRow[],
+  includeType?: (contentType: string) => boolean,
+): string[] {
   const paths: string[] = [];
   for (const contentType of ci.getContentTypes()) {
     const config = ci.getContentTypeConfig(contentType);
     if (config?.database?.slug !== dbName || !config.url_pattern) continue;
+    if (includeType && !includeType(contentType)) continue;
     const keys = pageKeys(ci, dbName, config);
     const locales = Object.keys(config.url_pattern).filter((locale) => locale !== "default");
     for (const row of rows) {

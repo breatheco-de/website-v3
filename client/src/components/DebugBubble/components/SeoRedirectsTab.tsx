@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
+import { getDebugToken, resolveAuthorName, useDebugAuth } from "@/hooks/useDebugAuth";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import {
   LiveUrlRedirectHijackBanner,
@@ -23,6 +23,8 @@ export interface SeoRedirectsTabProps {
   redirects: string[];
   /** This page's public path in the current language (redirect destination). */
   pagePath: string | null;
+  /** This page's content type (scopes Edit page redirects). */
+  contentType: string | null;
   locale: string;
   isVariantContext: boolean;
   /** Called with the saved list after an add or remove succeeds. */
@@ -70,6 +72,7 @@ function BlockMessage({ block, testId }: { block: Block; testId: string }) {
 export function SeoRedirectsTab({
   redirects,
   pagePath,
+  contentType,
   locale,
   isVariantContext,
   onRedirectsChanged,
@@ -78,6 +81,9 @@ export function SeoRedirectsTab({
   hijackSource,
 }: SeoRedirectsTabProps) {
   const { toast } = useToast();
+  const { hasCapability } = useDebugAuth();
+  const hasRedirectAccess =
+    hasCapability("edit_redirects") || (!!contentType && hasCapability("edit_page_redirects", contentType));
   const queryClient = useQueryClient();
   const [fromInput, setFromInput] = useState("");
   const [allLanguages, setAllLanguages] = useState(false);
@@ -87,7 +93,7 @@ export function SeoRedirectsTab({
   const [addBlock, setAddBlock] = useState<Block | null>(null);
   const [removeBlock, setRemoveBlock] = useState<Block | null>(null);
 
-  const canEdit = !isVariantContext && !!pagePath;
+  const canEdit = !isVariantContext && !!pagePath && hasRedirectAccess;
   const normalizedInput = normalizeRedirectInput(fromInput);
 
   useEffect(() => {
@@ -129,7 +135,7 @@ export function SeoRedirectsTab({
       const res = await fetch("/api/debug/redirects", {
         method: "POST",
         headers: jsonHeaders(),
-        body: JSON.stringify({ from: fromInput.trim(), to: pagePath, allLanguages, simple: true, author }),
+        body: JSON.stringify({ from: fromInput.trim(), to: pagePath, allLanguages, locale, simple: true, author }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -194,7 +200,12 @@ export function SeoRedirectsTab({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(typeof data.error === "string" ? data.error : "Could not remove the redirect.");
+        const message = typeof data.error === "string" ? data.error : "Could not remove the redirect.";
+        if (data.code === "page_scope_refused") {
+          setRemoveBlock({ message, href: privateRedirectsInspectHref(from) });
+          return;
+        }
+        throw new Error(message);
       }
       onRedirectsChanged(redirects.filter((r) => r !== from));
       toast({
@@ -236,6 +247,13 @@ export function SeoRedirectsTab({
         >
           Redirects apply to the LIVE page. Switch to LIVE to add or remove redirects.
         </div>
+      )}
+
+      {!isVariantContext && !hasRedirectAccess && (
+        <p className="text-xs text-muted-foreground" data-testid="text-redirects-read-only">
+          You can see this page's redirects but not change them. Ask an admin for Edit page redirects on this
+          type of page.
+        </p>
       )}
 
       {redirects.length > 0 ? (

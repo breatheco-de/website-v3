@@ -126,11 +126,12 @@ export type ReportHeuristicVerdict =
  * - mutate_with_updates: field write; may require highlights for big fields
  * - mutate_structural: add/remove/reorder section etc. — require ≥1 highlight
  * - complete: issue complete — require ≥1 highlight
+ * - why_only: paid reads with no content delta (e.g. SEO research) — why checks only
  */
 export function evaluateReportHeuristics(opts: {
   why: string | undefined;
   highlights: string[];
-  mode: "mutate_with_updates" | "mutate_structural" | "complete";
+  mode: "mutate_with_updates" | "mutate_structural" | "complete" | "why_only";
   updates?: FieldUpdateLike[];
 }): ReportHeuristicVerdict {
   const missing: string[] = [];

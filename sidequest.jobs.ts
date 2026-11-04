@@ -29,3 +29,5 @@ export { LocalDatabaseRefreshJob } from "./server/jobs/definitions/local-databas
 export { VectorIndexSyncJob } from "./server/jobs/definitions/vector-index-sync";
 export { EvidenceArchiveJob } from "./server/jobs/definitions/evidence-archive";
 export { EvidenceArchiveSweepJob } from "./server/jobs/definitions/evidence-archive-sweep";
+export { PublicUrlChangesScanJob } from "./server/jobs/definitions/public-url-changes-scan";
+export { IndexNowSubmitJob } from "./server/jobs/definitions/indexnow-submit";

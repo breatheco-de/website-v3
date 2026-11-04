@@ -71,6 +71,8 @@ import { campaignIdsByName, loadAdsSetup, matchCampaignByName, type AdsSetupCata
 import { adPageForDay, buildAdLandingByDay, targetUrl, type AdDayChange, type AdLandingByDay, type HostPath } from "./ad-url-history";
 import { ledgerCollectingSince, listLedgerRows, type LedgerRow } from "./lead-ledger";
 import { listConsentDaily, summarizeConsentRates } from "./consent-store";
+import type { EntryActiveTest } from "../ab-testing/active-tests";
+import type { OwnPaidVisits } from "./own-paid-visits";
 import {
   getAdsRefreshStatus,
   hasGa4Data,
@@ -273,6 +275,10 @@ export type AdsPageRow = {
   /** Campaigns (untagged row excluded) with enough paid visits for rates. */
   comparable_campaigns: number;
   versions?: AdsVersionRow[];
+  /** Set by the report routes (not cached rollups) when the entry's language has a running A/B test. */
+  ab_test?: EntryActiveTest;
+  /** Set by the report routes when "Optimize for ads" covered part of the range: paid visits from the site's own counts. */
+  own_counts?: OwnPaidVisits;
   /** Only with `includeGa4Ads`: top GA4 paid-visit tags on this row, by visits. */
   ga4_ads?: AdsGa4AdRef[];
   /** Only with `includeGa4Ads`: paid visits with no ad id (utm_content) tag. */

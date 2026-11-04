@@ -16,6 +16,9 @@ import {
   IconClick,
   IconCurrencyDollar,
   IconDots,
+  IconPencil,
+  IconCheck,
+  IconX,
 } from "@tabler/icons-react";
 import { Link, useParams } from "wouter";
 import { ChevronDown, Plus } from "lucide-react";
@@ -24,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { isActivelySelling } from "@/lib/ecommerceProductMap";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { PrivateHistoryBackButton } from "@/components/private/PrivateHistoryBackButton";
 import {
@@ -773,6 +777,140 @@ function StepCard({
   );
 }
 
+function ProductNameHeading({
+  name,
+  slug,
+  contentType,
+  canEdit,
+  onRenamed,
+}: {
+  name: string;
+  slug: string;
+  contentType: string;
+  canEdit: boolean;
+  onRenamed: () => void;
+}) {
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  const trimmed = draft.trim();
+
+  const renameMutation = useMutation({
+    mutationFn: async (nextName: string) => {
+      const res = await apiFetch(`/api/product/${encodeURIComponent(slug)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content_type: contentType, name: nextName }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((json as { error?: string }).error || `HTTP ${res.status}`);
+      return json;
+    },
+    onSuccess: () => {
+      setEditing(false);
+      onRenamed();
+      toast({
+        title: "Product renamed",
+        description: "The page URL and tracking key are unchanged.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Could not rename product", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const startEditing = () => {
+    setDraft(name);
+    setEditing(true);
+  };
+
+  const save = () => {
+    if (!trimmed) return;
+    if (trimmed === name) {
+      setEditing(false);
+      return;
+    }
+    renameMutation.mutate(trimmed);
+  };
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-1 min-w-0">
+        <h1 className="text-xl font-semibold truncate" data-testid="heading-product-funnel">
+          {name}
+        </h1>
+        {canEdit && (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0"
+            onClick={startEditing}
+            aria-label="Rename product"
+            title="Rename product"
+            data-testid="button-rename-product"
+          >
+            <IconPencil className="h-4 w-4 text-muted-foreground" />
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-1 min-w-0"
+      onSubmit={(e) => {
+        e.preventDefault();
+        save();
+      }}
+    >
+      <div className="flex items-center gap-1">
+        <Input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") setEditing(false);
+          }}
+          disabled={renameMutation.isPending}
+          aria-label="Product name"
+          className="h-8 w-72 text-base font-semibold"
+          data-testid="input-product-name"
+        />
+        <Button
+          type="submit"
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7 shrink-0"
+          disabled={!trimmed || renameMutation.isPending}
+          aria-label="Save name"
+          title="Save name"
+          data-testid="button-save-product-name"
+        >
+          <IconCheck className="h-4 w-4" />
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7 shrink-0"
+          onClick={() => setEditing(false)}
+          disabled={renameMutation.isPending}
+          aria-label="Cancel rename"
+          title="Cancel"
+          data-testid="button-cancel-product-name"
+        >
+          <IconX className="h-4 w-4 text-muted-foreground" />
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Changes the name shown in the store and admin. The page URL and tracking stay the same.
+      </p>
+    </form>
+  );
+}
+
 export default function StoreProductDetailPage() {
   const params = useParams<{ slug: string }>();
   const slug = params.slug ?? "";
@@ -860,9 +998,24 @@ export default function StoreProductDetailPage() {
         <div className="flex items-center gap-3">
           <PrivateHistoryBackButton data-testid="button-back" iconClassName="h-4 w-4 text-muted-foreground" />
           <IconShoppingBag className="h-5 w-5 text-muted-foreground" />
-          <h1 className="text-xl font-semibold" data-testid="heading-product-funnel">
-            {data?.product.name ?? slug}
-          </h1>
+          {data ? (
+            <ProductNameHeading
+              key={data.product.name}
+              name={data.product.name}
+              slug={slug}
+              contentType={data.product.content_type || "program"}
+              canEdit={hasCapability("content_edit_structure")}
+              onRenamed={() => {
+                refreshJourney();
+                void queryClient.invalidateQueries({ queryKey: ["/api/product"] });
+                void queryClient.invalidateQueries({ queryKey: [`/api/product/${slug}`] });
+              }}
+            />
+          ) : (
+            <h1 className="text-xl font-semibold" data-testid="heading-product-funnel">
+              {slug}
+            </h1>
+          )}
         </div>
 
         {isLoading && (

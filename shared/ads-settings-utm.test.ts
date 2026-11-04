@@ -25,6 +25,10 @@ describe("UTM templates", () => {
     expect(metaTemplateSource(single)).toBe("facebook");
     const pair = parseUtmConvention({ sources: { meta: { canonical: ["fb", "ig"] } } }).convention;
     expect(metaTemplateSource(pair)).toBe("{{site_source_name}}");
+    const withFacebook = parseUtmConvention({ sources: { meta: { canonical: ["fb", "ig", "msg", "an", "facebook"] } } }).convention;
+    expect(metaTemplateSource(withFacebook)).toBe("{{site_source_name}}");
+    const fbAndFacebook = parseUtmConvention({ sources: { meta: { canonical: ["fb", "facebook"] } } }).convention;
+    expect(metaTemplateSource(fbAndFacebook)).toBe("fb");
   });
 
   it("templates follow the configured medium", () => {
@@ -76,6 +80,11 @@ describe("parseUtmConvention", () => {
   it("drops aliases that are also canonical", () => {
     const { convention } = parseUtmConvention({ sources: { meta: { canonical: ["fb", "facebook"], aliases: ["facebook", "FB_ads"] } } });
     expect(convention.sources.meta.aliases).toEqual(["fb_ads"]);
+  });
+
+  it("drops default aliases that become canonical when aliases aren't set", () => {
+    const { convention } = parseUtmConvention({ sources: { meta: { canonical: ["fb", "ig", "msg", "an", "facebook"] } } });
+    expect(convention.sources.meta.aliases).toEqual(["instagram"]);
   });
 
   it("parseAdsSettings carries the convention and its rejections", () => {

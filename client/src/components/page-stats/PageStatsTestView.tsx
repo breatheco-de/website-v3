@@ -32,7 +32,7 @@ function splitText(split: Record<string, number>, versions: string[]): string {
     .join(" / ");
 }
 
-function NoticeLine({ notice, onLink }: { notice: TestNotice; onLink: (link: FindingLink) => void }) {
+export function NoticeLine({ notice, onLink }: { notice: TestNotice; onLink: (link: FindingLink) => void }) {
   switch (notice.kind) {
     case "no_ga4_exposure":
       return (

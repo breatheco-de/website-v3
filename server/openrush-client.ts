@@ -12,6 +12,7 @@ import {
   type OpenRushSerpEntry,
 } from "./openrush-serp-cache";
 import { upsertKeywordEntry, type OpenRushKeywordEntry } from "./openrush-keyword-cache";
+import { readKeywordDifficulty, type KeywordDifficultySource } from "./openrush-keyword-difficulty";
 
 const log = child({ module: "openrush-client" });
 
@@ -170,36 +171,10 @@ export type ParsedInspectKeyword = {
   keyword: string;
   monthly_volume: number | null;
   kw_difficulty: number | null;
+  kw_difficulty_source: KeywordDifficultySource | null;
   competition_level: string | number | null;
   intent: string | null;
 };
-
-function clampDifficulty(n: number): number {
-  const scaled = n > 0 && n <= 1 ? n * 100 : n;
-  return Math.round(Math.min(100, Math.max(0, scaled)));
-}
-
-function mapKeywordDifficulty(data: Record<string, unknown>): number | null {
-  for (const key of ["difficulty", "keyword_difficulty", "kd", "competition_score"]) {
-    const v = data[key];
-    if (typeof v === "number" && Number.isFinite(v)) return clampDifficulty(v);
-  }
-  const comp = data.competition_level ?? data.competition;
-  if (typeof comp === "number" && Number.isFinite(comp)) return clampDifficulty(comp);
-  if (typeof comp === "string" && comp.trim()) {
-    const label = comp.trim().toLowerCase().replace(/[\s-]+/g, "_");
-    const map: Record<string, number> = {
-      low: 20,
-      medium: 50,
-      moderate: 50,
-      high: 80,
-      very_high: 90,
-      very_hard: 90,
-    };
-    return map[label] ?? null;
-  }
-  return null;
-}
 
 function mapMonthlyVolume(data: Record<string, unknown>): number | null {
   for (const key of ["monthly_volume", "search_volume", "volume", "avg_monthly_searches"]) {
@@ -214,14 +189,14 @@ export function parseInspectKeywordData(data: unknown, fallbackKeyword: string):
   const keywordRaw = rec.keyword;
   const keyword =
     typeof keywordRaw === "string" && keywordRaw.trim() ? keywordRaw.trim() : fallbackKeyword;
-  const competition = rec.competition_level ?? rec.competition ?? null;
+  const difficulty = readKeywordDifficulty(rec);
   const intentRaw = rec.intent;
   return {
     keyword,
     monthly_volume: mapMonthlyVolume(rec),
-    kw_difficulty: mapKeywordDifficulty(rec),
-    competition_level:
-      typeof competition === "string" || typeof competition === "number" ? competition : null,
+    kw_difficulty: difficulty.value,
+    kw_difficulty_source: difficulty.source,
+    competition_level: difficulty.competition_level,
     intent: typeof intentRaw === "string" && intentRaw.trim() ? intentRaw.trim() : null,
   };
 }
@@ -288,6 +263,8 @@ export async function inspectKeywordQuery(opts: {
         language,
         monthly_volume: metrics.monthly_volume,
         kw_difficulty: metrics.kw_difficulty,
+        kw_difficulty_source: metrics.kw_difficulty_source,
+        competition_level: metrics.competition_level,
         payload: dataRec,
       },
       opts.contentFolder,
@@ -298,6 +275,8 @@ export async function inspectKeywordQuery(opts: {
         ...metrics,
         monthly_volume: entry.monthly_volume,
         kw_difficulty: entry.kw_difficulty,
+        kw_difficulty_source: entry.kw_difficulty_source ?? null,
+        competition_level: entry.competition_level ?? null,
       },
       entry,
       credits_note: `inspect_keyword uses ${OPENRUSH_INSPECT_KEYWORD_CREDITS} OpenRush credits`,

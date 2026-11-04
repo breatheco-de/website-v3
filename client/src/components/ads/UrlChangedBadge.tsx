@@ -1,5 +1,6 @@
-import { Badge } from "@/components/ui/badge";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { badgeVariants } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import type { AdsPageRow, AdsRowUrlChange } from "./ads-types";
 import { formatMoney, moneyTotal } from "./ads-format";
 
@@ -27,33 +28,55 @@ function changeSentence(c: AdsRowUrlChange): string {
     : `${moved} No visits were seen that day, so all of it went to the new page.`;
 }
 
-/** "URL changed" chip on a paid page row: an ad pointing here switched links in this window. */
+/** Outline badge look for a clickable chip on a paid page row. */
+export const CHIP_BUTTON_CLASS = cn(
+  badgeVariants({ variant: "outline" }),
+  "text-[10px] px-1.5 py-0 text-muted-foreground cursor-pointer hover:text-foreground",
+);
+
+/** "URL changed" / "page not confirmed" chip on a paid page row; click explains what it means for this page's spend. */
 export function UrlChangedBadge({ row }: { row: Pick<AdsPageRow, "key" | "url_change_days" | "url_changes" | "unconfirmed_page_spend"> }) {
   const days = row.url_change_days ?? 0;
   const unconfirmed = moneyTotal(row.unconfirmed_page_spend) > 0;
   if (days === 0 && !unconfirmed) return null;
   const changes = row.url_changes ?? [];
+  const label = days > 0 ? "URL changed" : "page not confirmed";
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground cursor-help" data-testid={`chip-url-changed-${row.key}`}>
-          {days > 0 ? "URL changed" : "page not confirmed"}
-        </Badge>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" className="text-xs max-w-[22rem] space-y-1.5">
-        {changes.map((c) => (
-          <p key={`${c.ad_id}-${c.date}`}>{changeSentence(c)}</p>
-        ))}
-        {days > 0 && changes.length === 0 && (
-          <p>An ad pointing here changed its link in this range ({days} day(s)). Spend on those days is split between the old and new page, so it's approximate.</p>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={CHIP_BUTTON_CLASS} aria-label={`What does "${label}" mean?`} data-testid={`chip-url-changed-${row.key}`}>
+          {label}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 space-y-2 text-xs leading-relaxed text-muted-foreground">
+        {days > 0 ? (
+          <>
+            <p className="text-sm font-medium text-foreground">URL changed</p>
+            <p>
+              An ad that sends people here switched its link during this date range. On the day it switched, its spend is split between the old
+              page and the new one, so this page&apos;s spend and cost numbers are approximate for that day.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-medium text-foreground">Page not confirmed</p>
+            <p>
+              Part of this page&apos;s spend comes from older ads we can&apos;t verify. Back then we didn&apos;t save each ad&apos;s link history, and
+              those links didn&apos;t carry the ad&apos;s id, so we assume they pointed here because it&apos;s the earliest link we know for them.
+            </p>
+          </>
         )}
-        {unconfirmed && (
-          <p className="text-muted-foreground">
-            Some older spend from untagged ads ({formatMoney(row.unconfirmed_page_spend)}) is assumed to go to this page: we can't confirm where those ads
-            pointed before link history was saved.
-          </p>
-        )}
-      </TooltipContent>
-    </Tooltip>
+        <p>Visits and leads are still counted from real visits to this page. Only how ad spend is assigned to it is uncertain.</p>
+        <div className="space-y-1.5 border-t border-border pt-2" data-testid={`chip-url-changed-details-${row.key}`}>
+          {changes.map((c) => (
+            <p key={`${c.ad_id}-${c.date}`} className="text-foreground">
+              {changeSentence(c)}
+            </p>
+          ))}
+          {days > 0 && changes.length === 0 && <p>Changed on {days} day(s) in this range.</p>}
+          {unconfirmed && <p>Spend assumed to go to this page without confirmation: {formatMoney(row.unconfirmed_page_spend)}.</p>}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

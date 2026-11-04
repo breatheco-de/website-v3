@@ -19,6 +19,7 @@ import { scheduleRedirectsValidation } from "../services/onSaveValidation";
 import { queueLinkIndexRemove, entryKeysFromDeletedPaths } from "../link-index";
 import { scheduleHtmlFromEvent } from "./schedule-html-from-event";
 import { child } from "../logger";
+import type { RefreshedDatabaseRow } from "../database-refresh-diff";
 
 const log = child({ module: "event-dispatcher" });
 
@@ -155,6 +156,23 @@ async function dispatchEvent(event: ContentEvent): Promise<void> {
       clearSiteSitemapCache(ctx.contentRootName, ctx.contentIndex);
     } catch (err) {
       log.warn({ err, eventType: event.type }, "[Dispatcher] Sitemap cache clear failed");
+    }
+    try {
+      const { enqueuePublicUrlScan, queueDatabaseRowUpdates } = await import("../public-url-changes/trigger");
+      if (event.type === "database_refreshed" && ctx.contentIndex) {
+        queueDatabaseRowUpdates({
+          site: event.site,
+          contentRoot: ctx.contentRoot,
+          domain: ctx.config?.domain,
+          contentIndex: ctx.contentIndex,
+          dbName: String(event.payload.dbName ?? ""),
+          rows: Array.isArray(event.payload.rows) ? (event.payload.rows as RefreshedDatabaseRow[]) : [],
+          causeEventId: event.id,
+        });
+      }
+      await enqueuePublicUrlScan(event.site, ctx.contentRoot);
+    } catch (err) {
+      log.warn({ err, eventType: event.type }, "[Dispatcher] Public URL scan enqueue failed");
     }
   }
 

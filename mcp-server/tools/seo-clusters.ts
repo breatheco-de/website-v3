@@ -301,6 +301,9 @@ export function registerSeoClusterTools(
     "get_or_refresh_seo_research",
     "Get or refresh SEO research (cache-first; paid fetch when stale/missing or force:true). " +
       "Actions: keyword_metrics (volume/difficulty), serp, keyword_ideas, competitors, keyword_gaps. " +
+      "keyword_metrics.kw_difficulty_source: reported | derived_from_competition (rough proxy mapped from competition) | null. " +
+      "Results use the site's configured research market (data.market), not a per-call location. " +
+      "Needs why only (read; no highlights). " +
       "Does NOT write seo.kw_* YAML. Cache hits spend 0 credits. " +
       "Session + daily budgets apply (warn % → confirm_seo_research_budget; 100% → exhausted). " +
       "force skips TTL only — never budget. keyword_gaps requires non-empty competitors[]. " +
@@ -363,7 +366,7 @@ export function registerSeoClusterTools(
           locale,
         });
       }
-      const reportCheck = requireMutateWhyHighlights(why, undefined, { mode: "mutate_structural" });
+      const reportCheck = requireMutateWhyHighlights(why, undefined, { mode: "why_only" });
       if (!reportCheck.ok) return reportCheck.result;
 
       if (action === "keyword_metrics" || action === "serp") {

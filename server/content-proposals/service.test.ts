@@ -1181,6 +1181,136 @@ describe("content proposals", () => {
     }
   });
 
+  it("staff override approves past open blockers with a reason and resolves them once live", async () => {
+    let promoteOk = false;
+    const svc = createProposalService({
+      site: SITE,
+      issueExists: () => true,
+      captureBaseline: () => ({ values: {} }),
+      applyUpdates: async () => ({ ok: true }),
+      readVariantFingerprint: () => ({ fingerprint: "abc123" }),
+      promoteEntry: async () => (promoteOk ? { ok: true } : { ok: false, error: "promote failed" }),
+    });
+    const created = await svc.create(
+      {
+        title: "Go live with override",
+        summary:
+          "Ship the prepared agent-fix draft for the Spanish blog after review and four-eyes approve. ".repeat(2),
+        promote_on_apply: true,
+        agent_session_id: "sess-1",
+        entries: [{ contentType: "blog", slug: "hello", locale: "es", variant: "agent-fix", updates: [] }],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const blocked = await svc.update(created.proposal.id, "add_blocker", {
+      username: "blake",
+      body: "On draft agent-fix (es), hero CTA still goes to Coding Bootcamp. Must use AI Flex because leads go to the wrong funnel.",
+    });
+    expect(blocked.ok).toBe(true);
+    const id = created.proposal.id;
+    const reason = "Funnel owner confirmed the Coding Bootcamp CTA is intended this week.";
+
+    const noReason = await svc.update(id, "apply", { username: "casey", override_blockers: true });
+    expect(noReason.ok).toBe(false);
+    if (!noReason.ok) expect(noReason.code).toBe("override_reason_required");
+
+    const mcp = await svc.update(id, "apply", {
+      username: "casey",
+      override_blockers: true,
+      override_reason: reason,
+      actor: { type: "mcp", role: "seo_specialist", model: "m", client: "c" },
+    });
+    expect(mcp.ok).toBe(false);
+    if (!mcp.ok) expect(mcp.code).toBe("proposal_blocked");
+
+    const mcpHeader = await svc.update(id, "apply", {
+      username: "casey",
+      override_blockers: true,
+      override_reason: reason,
+      caller_is_mcp: true,
+    });
+    expect(mcpHeader.ok).toBe(false);
+    if (!mcpHeader.ok) expect(mcpHeader.code).toBe("proposal_blocked");
+
+    const nothingLive = await svc.update(id, "apply", {
+      username: "casey",
+      override_blockers: true,
+      override_reason: reason,
+    });
+    expect(nothingLive.ok).toBe(true);
+    expect(svc.get(id)!.open_blocker_count).toBe(1);
+    if (nothingLive.ok) {
+      expect(nothingLive.warnings?.map((w) => w.code) ?? []).not.toContain("blockers_overridden");
+    }
+
+    promoteOk = true;
+    const applied = await svc.update(id, "apply", {
+      username: "casey",
+      override_blockers: true,
+      override_reason: reason,
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    expect(applied.proposal.status).toBe("finished");
+    expect(applied.proposal.open_blocker_count).toBe(0);
+    const resolved = applied.proposal.blockers[0]!;
+    expect(resolved.status).toBe("resolved");
+    expect(resolved.resolved_by).toBe("casey");
+    expect(resolved.resolve_note).toBe(`Overridden on approve by casey: ${reason}`);
+    expect(resolved.resolved_by_actor.override).toBe(true);
+    const warning = applied.warnings?.find((w) => w.code === "blockers_overridden");
+    expect(warning?.details).toEqual({ resolved_blocker_ids: [resolved.id] });
+    const ev = listEvents({ site: SITE, limit: 200 }).find(
+      (e) =>
+        e.type === "proposal_blocker_resolved" &&
+        (e.payload as { proposal_id?: string }).proposal_id === id,
+    );
+    expect(ev?.payload).toMatchObject({ blocker_id: resolved.id, override: true, open_blocker_count: 0 });
+  });
+
+  it("staff override accepts an idea past open blockers", async () => {
+    const svc = makeService();
+    const created = await svc.create(
+      {
+        kind: "idea",
+        title: "Override accept brief",
+        summary:
+          "Pitch a new Miami spoke landing for the AI bootcamp with a short brief for later edits work. ".repeat(2),
+        related_entries: [{ contentType: "landing", slug: "miami-ai-override-new" }],
+      },
+      { username: "alice" },
+    );
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const blocked = await svc.update(created.proposal.id, "add_blocker", {
+      username: "blake",
+      body:
+        "Needs clearer acceptance criteria for which locales ship first and why ES is out of scope. ".repeat(2),
+    });
+    expect(blocked.ok).toBe(true);
+    const acceptArgs = {
+      username: "casey",
+      next_step: "Open an edits proposal for landing/miami-ai-override-new after research.",
+      accepted_entry: { contentType: "landing", slug: "miami-ai-override-new", locale: "en" },
+    };
+    const refused = await svc.update(created.proposal.id, "accept", acceptArgs);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.code).toBe("proposal_blocked");
+
+    const accepted = await svc.update(created.proposal.id, "accept", {
+      ...acceptArgs,
+      override_blockers: true,
+      override_reason: "Locale scope is settled in the follow-up edit; accept now.",
+    });
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+    expect(accepted.proposal.open_blocker_count).toBe(0);
+    expect(accepted.proposal.blockers[0]!.resolve_note).toContain("Overridden on approve by casey");
+    expect(accepted.warnings?.map((w) => w.code)).toContain("blockers_overridden");
+  });
+
   it("claimant-only resolve; expired claim hints claim first; soft apply into variant", async () => {
     const live: Record<string, unknown> = { "call_to_action.title": "Old" };
     const fps = new Map([["agent-fix", "fp-stable"]]);

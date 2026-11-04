@@ -8,6 +8,8 @@ import { isClicksVisitsMismatch, type AdsIssue } from "@shared/ads-diagnostics-r
 import { NO_URL_DESTINATION_KINDS, type AdsPageRow } from "./ads-types";
 import { formatMoney, formatNum, formatPct, formatSeconds } from "./ads-format";
 import { PlatformTag } from "./PlatformTag";
+import { LowSampleBadge } from "./LowSampleBadge";
+import { AbTestBadge } from "./AbTestBadge";
 import { UrlChangedBadge } from "./UrlChangedBadge";
 import { conversionColumns, PaidCampaignRows } from "./PaidCampaignRows";
 
@@ -30,14 +32,60 @@ const ORGANIC_RATE_HINT = (
   </>
 );
 
-function metricsFor(row: AdsPageRow, perspective: PaidPerspective, issues: AdsIssue[]): Metric[] {
+function ownCoverageLine(own: NonNullable<AdsPageRow["own_counts"]>): ReactNode {
+  return own.covered_days < own.total_days ? (
+    <p>
+      Optimize for ads was on for {own.covered_days} of {own.total_days} days in this range, so this counts those days only.
+    </p>
+  ) : null;
+}
+
+function ownVisitsHint(own: NonNullable<AdsPageRow["own_counts"]>): ReactNode {
+  return (
+    <>
+      <p className="font-medium text-foreground">Own paid visits</p>
+      <p>
+        Visits from ads to this page counted by the site itself, for content types with Optimize for ads on. Paid visits
+        next to it come from Google Analytics.
+      </p>
+      <p>
+        A big gap usually means Google Analytics is missing visits (consent, ad blockers, export delays). Own counts leave out reloads and
+        suspected low-quality visits.
+      </p>
+      {ownCoverageLine(own)}
+    </>
+  );
+}
+
+function ownRateHint(own: NonNullable<AdsPageRow["own_counts"]>): ReactNode {
+  return (
+    <>
+      <p className="font-medium text-foreground">Own conversion rate</p>
+      <p>Leads ÷ own paid visits. Same leads as Conv. rate, divided by the site&apos;s own visit count instead of Google Analytics.</p>
+      {own.covered_days < own.total_days ? (
+        <p>
+          Shown as "—" because own counts cover only {own.covered_days} of {own.total_days} days, while leads cover the whole range. Pick a
+          range inside the days Optimize for ads was on.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function metricsFor(row: AdsPageRow, perspective: PaidPerspective, issues: AdsIssue[], minVisits?: number): Metric[] {
   const grey = row.low_sample;
   const metaGrey = row.meta_low_sample;
+  const own = row.own_counts;
+  const ownPartial = !!own && own.covered_days < own.total_days;
+  const ownGrey = !!own && (ownPartial || (minVisits != null && own.paid_visits < minVisits));
   switch (perspective) {
     case "traffic":
       return [
         { label: "Spend", value: formatMoney(row.spend), testId: "spend" },
         { label: "Paid visits", value: formatNum(row.paid_visits), testId: "visits" },
+        ...(own
+          ? [{ label: "Own paid visits", value: formatNum(own.paid_visits), muted: ownPartial, testId: "own-visits", hint: ownVisitsHint(own) }]
+          : []),
         { label: "Cost / visit", value: formatMoney(row.cost_per_visit, { decimals: 2 }), muted: grey, testId: "cpv" },
         {
           label: "Clicks → visits",
@@ -56,6 +104,17 @@ function metricsFor(row: AdsPageRow, perspective: PaidPerspective, issues: AdsIs
           testId: "leads",
         },
         { label: "Conv. rate", value: formatPct(row.conversion_rate), muted: grey, testId: "cr" },
+        ...(own
+          ? [
+              {
+                label: "Own conv.",
+                value: ownPartial || own.paid_visits === 0 ? "—" : formatPct(row.unique_leads / own.paid_visits),
+                muted: ownGrey,
+                testId: "own-cr",
+                hint: ownRateHint(own),
+              },
+            ]
+          : []),
         { label: "Cost / lead", value: formatMoney(row.cost_per_lead, { decimals: 2 }), muted: grey, testId: "cpl" },
         ...(conversionColumns(row).meta
           ? [
@@ -107,6 +166,7 @@ export function PaidPageRow({
   metaSplitDays,
   askRejectPct,
   primaryHost,
+  minVisitsForRates,
 }: {
   row: AdsPageRow;
   perspective: PaidPerspective;
@@ -115,11 +175,12 @@ export function PaidPageRow({
   metaSplitDays?: { covered: number; total: number };
   askRejectPct?: number | null;
   primaryHost?: string;
+  minVisitsForRates?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const hasVersions = !!row.versions && row.versions.length > 0;
   const canExpand = row.campaigns.length > 0 || hasVersions;
-  const metrics = metricsFor(row, perspective, issues);
+  const metrics = metricsFor(row, perspective, issues, minVisitsForRates);
   const showHost = row.host && primaryHost && row.host !== primaryHost;
   const clickLeads = row.pixel_leads_click ?? 0;
   const viewOnlyLeads = Math.max(0, row.meta_leads - clickLeads);
@@ -145,11 +206,8 @@ export function PaidPageRow({
                   {row.kind_label}
                 </Badge>
               )}
-              {row.low_sample && (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground" data-testid="chip-low-sample">
-                  not enough data
-                </Badge>
-              )}
+              {row.low_sample && <LowSampleBadge minVisits={minVisitsForRates} />}
+              {row.ab_test && <AbTestBadge row={row} />}
               <UrlChangedBadge row={row} />
               {row.platforms.map((p) => (
                 <PlatformTag key={p} platform={p} row={row} />
@@ -306,7 +364,7 @@ export function PaidPageRow({
       </div>
       {expanded && (
         <div className="bg-muted/30 px-3 pb-2" data-testid="paid-row-expanded">
-          <PaidCampaignRows row={row} perspective={perspective} metaSplitDays={metaSplitDays} />
+          <PaidCampaignRows row={row} perspective={perspective} metaSplitDays={metaSplitDays} minVisitsForRates={minVisitsForRates} />
           {hasVersions && (
             <div data-testid="paid-row-versions">
               <p className="pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Versions</p>

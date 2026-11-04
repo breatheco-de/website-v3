@@ -9,7 +9,7 @@ import {
 } from "../events/types";
 import { sameAgentIdentity, type AgentActorLike } from "../../shared/agent-identity";
 
-export const PIPELINE_SCHEMA_VERSION = 45;
+export const PIPELINE_SCHEMA_VERSION = 46;
 
 export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
   {
@@ -871,6 +871,66 @@ export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
         CREATE INDEX IF NOT EXISTS idx_lead_delivery_attempts_submission
           ON lead_delivery_attempts (submission_id, attempt);
         CREATE INDEX IF NOT EXISTS idx_lead_delivery_attempts_started ON lead_delivery_attempts (started_at);
+      `);
+    },
+  },
+  {
+    version: 46,
+    name: "public_url_change_log",
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS public_url_state (
+          url TEXT PRIMARY KEY,
+          entry_key TEXT,
+          content_type TEXT,
+          slug TEXT,
+          locale TEXT,
+          updated_at TEXT,
+          first_seen_at INTEGER NOT NULL,
+          last_seen_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS public_url_changes (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          url TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          previous_url TEXT,
+          entry_key TEXT,
+          content_type TEXT,
+          slug TEXT,
+          locale TEXT,
+          updated_at TEXT,
+          cause_event_id INTEGER,
+          detected_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_public_url_changes_detected ON public_url_changes (detected_at);
+        CREATE INDEX IF NOT EXISTS idx_public_url_changes_url ON public_url_changes (url);
+        CREATE TABLE IF NOT EXISTS public_url_consumers (
+          consumer TEXT PRIMARY KEY,
+          last_change_id INTEGER NOT NULL DEFAULT 0,
+          last_run_at INTEGER,
+          last_status TEXT,
+          last_error TEXT,
+          last_submitted_count INTEGER NOT NULL DEFAULT 0,
+          verified_at INTEGER,
+          rejected_since INTEGER,
+          next_attempt_at INTEGER,
+          stopped_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS public_url_scan_state (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          last_scan_at INTEGER,
+          paused_reason TEXT,
+          held_reason TEXT,
+          held_removed_count INTEGER NOT NULL DEFAULT 0,
+          held_at INTEGER,
+          release_next_drop INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS public_url_pending_updates (
+          url TEXT PRIMARY KEY,
+          entry_key TEXT,
+          cause_event_id INTEGER,
+          queued_at INTEGER NOT NULL
+        );
       `);
     },
   },

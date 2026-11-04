@@ -249,6 +249,7 @@ export function issueToStored(
     ...(issue.staleSourceAgeMs != null ? { staleSourceAgeMs: issue.staleSourceAgeMs } : {}),
     ...(issue.staleSourceDatabase ? { staleSourceDatabase: issue.staleSourceDatabase } : {}),
     ...(issue.redirectSuggestion ? { redirectSuggestion: issue.redirectSuggestion } : {}),
+    ...(issue.externalLink ? { externalLink: issue.externalLink } : {}),
   };
 }
 
@@ -266,6 +267,7 @@ export function storedToValidationIssue(s: StoredValidationIssue): ValidationIss
     ...(s.staleSourceAgeMs != null ? { staleSourceAgeMs: s.staleSourceAgeMs } : {}),
     ...(s.staleSourceDatabase ? { staleSourceDatabase: s.staleSourceDatabase } : {}),
     ...(s.redirectSuggestion ? { redirectSuggestion: s.redirectSuggestion } : {}),
+    ...(s.externalLink ? { externalLink: s.externalLink } : {}),
   };
 }
 

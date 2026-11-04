@@ -469,6 +469,29 @@ export const DEFAULT_SEARCH_CONSOLE_SETTINGS: SearchConsoleSettings = {
   })),
 };
 
+/** IndexNow notices (Bing and other IndexNow engines). The key is public by design. */
+export interface IndexNowSettings {
+  enabled: boolean;
+  key: string;
+}
+
+export const DEFAULT_INDEXNOW_SETTINGS: IndexNowSettings = { enabled: false, key: "" };
+
+export const INDEXNOW_KEY_RE = /^[A-Za-z0-9-]{8,128}$/;
+
+export function isValidIndexNowKey(key: string): boolean {
+  return INDEXNOW_KEY_RE.test(key);
+}
+
+export function parseIndexNowSettings(raw: unknown): IndexNowSettings {
+  const obj =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const key = typeof obj.key === "string" && isValidIndexNowKey(obj.key.trim()) ? obj.key.trim() : "";
+  return { enabled: obj.enabled === true && key !== "", key };
+}
+
 /** OpenRush SERP inspect (non-secret). API key stays in OPENRUSH_API_KEY. */
 export interface OpenRushSettings {
   enabled: boolean;
@@ -950,6 +973,7 @@ interface SiteSettings {
   tracking: TrackingSettings;
   robots: RobotsSettings;
   search_console: SearchConsoleSettings;
+  indexnow: IndexNowSettings;
   openrush: OpenRushSettings;
   funnel: FunnelSettings;
   proposals: ProposalSettings;
@@ -1080,6 +1104,7 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
     },
     robots: { ...DEFAULT_ROBOTS_SETTINGS },
     search_console: { ...DEFAULT_SEARCH_CONSOLE_SETTINGS },
+    indexnow: { ...DEFAULT_INDEXNOW_SETTINGS },
     openrush: { ...DEFAULT_OPENRUSH_SETTINGS },
     funnel: { ...DEFAULT_FUNNEL_SETTINGS },
     proposals: {
@@ -1305,6 +1330,7 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
       tracking,
       robots,
       search_console: parseSearchConsoleSettings(parsed.search_console),
+      indexnow: parseIndexNowSettings(parsed.indexnow),
       openrush: parseOpenRushSettings(parsed.openrush),
       funnel: parseFunnelSettings(parsed.funnel),
       proposals: parseProposalSettings(parsed.proposals),
@@ -1673,6 +1699,10 @@ export function getRobotsSettings(contentRoot?: string): RobotsSettings {
 
 export function getSearchConsoleSettings(contentRoot?: string): SearchConsoleSettings {
   return loadSettings(contentRoot).search_console;
+}
+
+export function getIndexNowSettings(contentRoot?: string): IndexNowSettings {
+  return loadSettings(contentRoot).indexnow;
 }
 
 export function getOpenRushSettings(contentRoot?: string): OpenRushSettings {
@@ -2069,6 +2099,38 @@ export function updateSearchConsoleSettings(
   fs.writeFileSync(settingsPath, output, "utf-8");
   resetSettings(resolveSettingsRoot(contentRoot));
   log.info(`[Settings] Updated search_console.site_url=${siteUrl}`);
+  return updated;
+}
+
+export function updateIndexNowSettings(
+  input: Partial<IndexNowSettings>,
+  contentRoot?: string,
+): IndexNowSettings {
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {}
+  }
+
+  const current = parseIndexNowSettings(existing.indexnow);
+  const key = input.key !== undefined ? input.key.trim() : current.key;
+  if (key && !isValidIndexNowKey(key)) {
+    throw new Error("IndexNow key must be 8 to 128 characters: letters, numbers and dashes");
+  }
+  const enabled = input.enabled !== undefined ? input.enabled : current.enabled;
+  if (enabled && !key) {
+    throw new Error("Generate a key before turning IndexNow on");
+  }
+  const updated: IndexNowSettings = { enabled, key };
+  existing.indexnow = { enabled: updated.enabled, key: updated.key };
+
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  log.info(`[Settings] Updated indexnow enabled=${updated.enabled} key=${updated.key ? "set" : "empty"}`);
   return updated;
 }
 

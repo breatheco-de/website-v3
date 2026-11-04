@@ -32,6 +32,7 @@ import {
   toActiveSiteCtx,
 } from "../sitemap";
 import { filterSitemapUrlsByLocale } from "../sitemap-locale";
+import { indexNowKeyFileHandler } from "../indexnow-key-route";
 import type { SiteContext } from "../site-manager";
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
@@ -373,6 +374,8 @@ export function registerSeoRoutes(app: Express): void {
     res.set("Cache-Control", "public, max-age=3600");
     res.send(content);
   });
+
+  app.get("/:key.txt", indexNowKeyFileHandler);
 
   // Dynamic sitemap with caching
   app.get("/sitemap.xml", (req, res) => {

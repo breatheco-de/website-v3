@@ -102,6 +102,9 @@ import { getAdsRefreshStatus, hasMetaData, requestAdsRefresh } from "../ads/ads-
 import { isRefreshActive } from "@shared/ads-refresh-status";
 import { AdsPlatformRequiredError, AdsReportRangeError } from "../ads/ads-report";
 import { assembleAdsReportFromRollups } from "../ads/ads-rollups";
+import { makeActiveTestLookup } from "../ab-testing/active-tests";
+import { makeOwnPaidVisitsLookup } from "../ads/own-paid-visits";
+import type { AdsPageRow } from "../ads/ads-report";
 import { loadTrackingParamsCoverage } from "../ads/ads-diagnostics";
 import { adsOverviewSummary, buildAdsDiagnosticsOverview } from "../ads/ads-diagnostics-overview";
 import {
@@ -171,6 +174,25 @@ function findTrackingIssue(site: string, issueId: string): AdsIssue | null {
   if (!issue?.ads || !mode) return null;
   if (mode === "replace" && (issue.ads.platform !== "meta" || (issue.ads.evidence.details?.ads?.length ?? 0) === 0)) return null;
   return { ...issue.ads.evidence, id: issue.id };
+}
+
+/**
+ * Copies rows (the report may be a shared cached object) and tags entries with a running A/B test
+ * and the site's own paid visits. Both are read live, not from rollups.
+ */
+function annotateEntryRows(
+  rows: AdsPageRow[],
+  ctx: { site: string; contentRoot: string; window: { start: string; end: string; days: number } },
+): AdsPageRow[] {
+  const testOf = makeActiveTestLookup(ctx.contentRoot);
+  const ownOf = makeOwnPaidVisitsLookup({ ...ctx, rows });
+  return rows.map((r) => {
+    if (r.kind !== "entry" || !r.content_type) return r;
+    const t = r.slug && r.locale ? testOf(r.content_type, r.slug, r.locale) : null;
+    const own = ownOf(r);
+    if (!t && !own) return r;
+    return { ...r, ...(t ? { ab_test: t } : {}), ...(own ? { own_counts: own } : {}) };
+  });
 }
 
 function isBadReportQuery(err: unknown): err is Error {
@@ -725,8 +747,10 @@ export function registerAdsRoutes(app: Express): void {
     if (!auth.authorized) return;
     try {
       const q = parseReportQuery(req);
-      const report = await assembleAdsReportFromRollups({ site: getSite(res), contentRoot: getContentRoot(res), ...q });
-      res.json(report);
+      const site = getSite(res);
+      const contentRoot = getContentRoot(res);
+      const report = await assembleAdsReportFromRollups({ site, contentRoot, ...q });
+      res.json({ ...report, pages: annotateEntryRows(report.pages, { site, contentRoot, window: report.window }) });
     } catch (err) {
       if (isBadReportQuery(err)) return res.status(400).json(badQueryBody(err));
       log.warn({ err }, "[ads] report failed");
@@ -754,7 +778,7 @@ export function registerAdsRoutes(app: Express): void {
           (!search || (p.slug ?? "").toLowerCase().includes(search) || p.title.toLowerCase().includes(search) || p.path.toLowerCase().includes(search)),
       );
       res.json({
-        entries,
+        entries: annotateEntryRows(entries, { site: getSite(res), contentRoot: getContentRoot(res), window: report.window }),
         window: report.window,
         platform: report.platform,
         attribution: report.attribution,

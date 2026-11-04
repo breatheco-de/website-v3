@@ -37,6 +37,14 @@ export type AdsVersionRow = {
   organic_leads?: number;
 };
 
+/** Running A/B test on an entry row's language (shared-template tests included). */
+export type AdsRowAbTest = {
+  started_at: string | null;
+  /** Versions with traffic, Default excluded. */
+  versions: string[];
+  shared_template: boolean;
+};
+
 export type AdsCampaignRef = {
   platform: AdPlatform | null;
   campaign_id: string | null;
@@ -137,6 +145,9 @@ export type AdsPageRow = {
   /** Campaigns (untagged excluded) with enough paid visits for rates. */
   comparable_campaigns?: number;
   versions?: AdsVersionRow[];
+  ab_test?: AdsRowAbTest;
+  /** Paid visits from the site's own counts; only when "Optimize for ads" covered part of the range. */
+  own_counts?: { paid_visits: number; covered_days: number; total_days: number };
   /** Days in the window when an ad moved to / from this page (that day's numbers are approximate). */
   url_change_days?: number;
   url_change_spend?: MoneyByCurrency;

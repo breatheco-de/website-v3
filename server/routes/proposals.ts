@@ -22,6 +22,7 @@ import {
   parseAttentionPerspective,
 } from "../content-proposals/attention";
 import { checkBulkDeleteRequest } from "../content-proposals/bulk-delete-gate";
+import { checkBlockerOverrideRequest } from "../content-proposals/blocker-override-gate";
 import { child } from "../logger";
 import { resolveAgentSessionId, resolveEventActor } from "./_helpers";
 import { getProposalSettings } from "../settings";
@@ -592,6 +593,22 @@ export function registerProposalRoutes(app: Express): void {
       }
     }
 
+    const overrideBlockers =
+      (action === "apply" || action === "accept") && req.body?.override_blockers === true;
+    if (overrideBlockers) {
+      const gate = checkBlockerOverrideRequest({
+        actorType: actor?.type ?? null,
+        mcpAuthorHeader: typeof req.headers["x-mcp-author"] === "string",
+        hasReviewCapability: Boolean(
+          auth.username && userStore.hasCapability(auth.username, "proposals_review"),
+        ),
+      });
+      if (!gate.ok) {
+        res.status(403).json({ ok: false, code: gate.code, error: gate.error });
+        return;
+      }
+    }
+
     let asStaff = needsWrite && action !== "attach_variant" && action !== "add_blocker";
     if (action === "set_no_auto_retry") {
       // Staff UI may flip without claim; MCP must claim (enforced in service via actor.type).
@@ -695,6 +712,11 @@ export function registerProposalRoutes(app: Express): void {
             ? Number(req.body.blocker_id)
             : undefined,
       resolve_note: typeof req.body?.resolve_note === "string" ? req.body.resolve_note : undefined,
+      override_blockers: overrideBlockers,
+      override_reason:
+        overrideBlockers && typeof req.body?.override_reason === "string"
+          ? req.body.override_reason
+          : undefined,
       variant: typeof req.body?.variant === "string" ? req.body.variant : undefined,
       confirm_end_experiment: req.body?.confirm_end_experiment === true,
       confirm_base_unknown: req.body?.confirm_base_unknown === true,

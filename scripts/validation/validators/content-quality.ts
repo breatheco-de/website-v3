@@ -8,11 +8,13 @@ import { contentIndex } from "../../../server/content-index";
 import { getContentTypeConfig } from "../../../server/content-types";
 import { createPublicUrlResolver } from "../../../server/redirects";
 import {
+  collectExternalUrlsFromData,
   collectOutboundPathsFromData,
   entryIdFromContentFile,
-  findInternalLinks,
+  extractInternalLinkHits,
   type InternalLinkHit,
 } from "../../../server/link-extract";
+import { ownHostsForContentRoot } from "../../../server/link-check/hosts";
 import { queueLinkIndexSet } from "../../../server/link-index";
 import {
   collectOutboundRelationTargets,
@@ -20,6 +22,7 @@ import {
 } from "../../../server/relation-extract";
 import { queueRelationIndexSet } from "../../../server/relation-index";
 import { liveFilesForSeo } from "../shared/seoValidationScope";
+import { entryLinkSource } from "../shared/entryLinkSource";
 import * as path from "path";
 import { CONTENT_QUALITY_ISSUE_CODES } from "./content-quality.issueCodes";
 
@@ -84,6 +87,7 @@ export const contentQualityValidator: Validator = {
 
     const publicUrls = createPublicUrlResolver(context.contentIndex ?? contentIndex);
     const liveFileSet = new Set(liveFilesForSeo(context));
+    const ownHosts = ownHostsForContentRoot(context.contentRoot);
 
     for (const file of context.contentFiles) {
       if (!liveFileSet.has(file)) continue;
@@ -103,13 +107,7 @@ export const contentQualityValidator: Validator = {
       }
 
       const contentRoot = context.contentRoot;
-      const mergedForEmpty = {
-        ...parsed,
-        ...(file.entryFields || {}),
-      } as Record<string, unknown>;
-      // Prefer locale file sections/content when present; entryFields may hold mapping fields.
-      if (Array.isArray(parsed.sections)) mergedForEmpty.sections = parsed.sections;
-      if (typeof parsed.content === "string") mergedForEmpty.content = parsed.content;
+      const mergedForEmpty = entryLinkSource(file, parsed);
 
       const detached = isEntryDetached(file.type, file.slug, contentRoot);
       const emptyContent = isEmptyLocaleContent(mergedForEmpty);
@@ -195,8 +193,7 @@ export const contentQualityValidator: Validator = {
         });
       }
 
-      const internalLinks: InternalLinkHit[] = [];
-      findInternalLinks(parsed, internalLinks);
+      const internalLinks: InternalLinkHit[] = extractInternalLinkHits(parsed, { absolute: ownHosts });
       const locale = file.locale === "_common" ? "en" : file.locale;
       for (const hit of internalLinks) {
         if (!publicUrls.isLive(hit.path, locale)) {
@@ -220,6 +217,7 @@ export const contentQualityValidator: Validator = {
           entryIdFromContentFile(file.type, file.slug, locale),
           outboundPaths,
           contentRoot,
+          collectExternalUrlsFromData(mergedForEmpty, ownHosts),
         );
       } catch {
         /* derived index is best-effort */

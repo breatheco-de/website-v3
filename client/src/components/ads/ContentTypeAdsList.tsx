@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { ArrowDown, ArrowUp, ExternalLink, Loader2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
@@ -12,6 +11,7 @@ import type { AttributionModel } from "@shared/paid-attribution";
 import { isRefreshActive } from "@shared/ads-refresh-status";
 import type { AdsEntriesResponse, AdsPageRow } from "./ads-types";
 import { AdsRefreshNotice } from "./AdsRefreshNotice";
+import { LowSampleBadge } from "./LowSampleBadge";
 import { UrlChangedBadge } from "./UrlChangedBadge";
 import { formatMoney, formatNum, formatPct, formatWhen, moneyTotal, PLATFORM_LABELS } from "./ads-format";
 
@@ -166,11 +166,7 @@ export function ContentTypeAdsList({ contentType, locale, q }: { contentType: st
                     <div className="flex items-center gap-2 min-w-0">
                       {r.locale && <LocaleFlag locale={r.locale} className="h-3 w-4 rounded-sm shrink-0" />}
                       <span className="truncate text-foreground">{r.title}</span>
-                      {r.low_sample && (
-                        <Badge variant="outline" className="text-[10px]">
-                          not enough data
-                        </Badge>
-                      )}
+                      {r.low_sample && <LowSampleBadge testId={`chip-low-sample-${r.key}`} />}
                       <UrlChangedBadge row={r} />
                       <a href={r.url} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" aria-label="Open page">
                         <ExternalLink className="h-3.5 w-3.5" />

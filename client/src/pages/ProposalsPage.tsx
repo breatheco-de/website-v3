@@ -35,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { getDebugUserName, useDebugAuth } from "@/hooks/useDebugAuth";
+import { BlockerOverrideField, blockerOverrideReasonOk } from "@/components/agents/BlockerOverrideField";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1416,8 +1417,10 @@ export function ProposalDetailPanel({
   const isDrawer = layout === "drawer";
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { roles } = useDebugAuth();
+  const { roles, hasCapability } = useDebugAuth();
   const isSteward = roles.includes("platform_steward");
+  const canOverrideBlockers = hasCapability("proposals_review");
+  const [overrideReason, setOverrideReason] = useState("");
   const searchString = useSearch();
   const outcomesBack = outcomesBackHref(searchString);
   const backHref = outcomesBack ?? proposalsListHref(searchString);
@@ -1754,6 +1757,13 @@ export function ProposalDetailPanel({
     p != null &&
     (p.status === "finished" || p.status === "rejected" || p.status === "withdrawn");
   const blockersOpen = (p?.open_blocker_count ?? 0) > 0;
+  const overridingBlockers = blockersOpen && canOverrideBlockers;
+  const approveBlocked = blockersOpen && !canOverrideBlockers;
+  const openBlockers = (p?.blockers ?? []).filter((b) => b.status === "open");
+  const overrideReasonOk = !overridingBlockers || blockerOverrideReasonOk(overrideReason);
+  const overrideBody = overridingBlockers
+    ? { override_blockers: true, override_reason: overrideReason.trim() }
+    : {};
   const showPrimaryEdits = Boolean(p && p.kind === "edits" && !isTerminal);
   const showPrimaryNotes = Boolean(p && p.kind === "notes" && p.status === "open");
   const showPrimaryIdeas = Boolean(p && p.kind === "idea" && p.status === "open");
@@ -2251,12 +2261,13 @@ export function ProposalDetailPanel({
                   <Button
                     onClick={() => {
                       setActivityAck(false);
+                      setOverrideReason("");
                       setApplyOpen(true);
                     }}
                     disabled={
                       mut.isPending ||
                       rejectPending ||
-                      blockersOpen ||
+                      approveBlocked ||
                       Boolean(p.recent_activity_error) ||
                       drawerStale
                     }
@@ -2287,9 +2298,10 @@ export function ProposalDetailPanel({
                       setAcceptUrlSlug("");
                       setAcceptSlugAck(false);
                       setAcceptNextStep("");
+                      setOverrideReason("");
                       setAcceptOpen(true);
                     }}
-                    disabled={mut.isPending || rejectPending || blockersOpen}
+                    disabled={mut.isPending || rejectPending || approveBlocked}
                     data-testid="button-accept-idea"
                   >
                     <IconCheck className="h-4 w-4" aria-hidden />
@@ -2404,7 +2416,12 @@ export function ProposalDetailPanel({
                     Withdraw
                   </Button>
                 ) : null}
-                {blockersOpen && showReject ? (
+                {overridingBlockers && (showPrimaryEdits || showPrimaryIdeas) ? (
+                  <span className="text-xs text-muted-foreground" data-testid="text-override-blockers-hint">
+                    {p.open_blocker_count} needs-changes item{p.open_blocker_count === 1 ? " is" : "s are"}{" "}
+                    open. You can still {p.kind === "idea" ? "accept" : "approve"}; you&apos;ll be asked why.
+                  </span>
+                ) : blockersOpen && showReject ? (
                   <span className="text-xs text-muted-foreground">
                     {p.kind === "idea" ? "Accept" : "Approve"} is disabled while needs-changes items
                     are open. Reject Completely remains available.
@@ -3280,6 +3297,15 @@ export function ProposalDetailPanel({
                         </p>
                       </>
                     )}
+                    {overridingBlockers ? (
+                      <BlockerOverrideField
+                        blockers={openBlockers}
+                        reason={overrideReason}
+                        onReasonChange={setOverrideReason}
+                        verb="approve"
+                        testIdPrefix="apply"
+                      />
+                    ) : null}
                     {p.affected_entries ? (
                       <label
                         className="flex items-start gap-2 rounded-md border border-card-border bg-muted/40 p-3 text-sm text-foreground cursor-pointer"
@@ -3331,14 +3357,15 @@ export function ProposalDetailPanel({
                   type="button"
                   disabled={
                     mut.isPending ||
-                    blockersOpen ||
+                    approveBlocked ||
+                    !overrideReasonOk ||
                     Boolean(p.recent_activity_error) ||
                     (needsActivityAck && !activityAck) ||
                     (Boolean(p.affected_entries) && !affectedAck) ||
                     Boolean(robotsEntries?.some((entry) => !robotsChoices[String(entry.entry_id)]))
                   }
                   onClick={() => {
-                    const body: Record<string, unknown> = {};
+                    const body: Record<string, unknown> = { ...overrideBody };
                     if (confirmExperiment) body.confirm_end_experiment = true;
                     if (needsActivityAck) body.confirm_recent_activity = true;
                     if (confirmBaseUnknown) body.confirm_base_unknown = true;
@@ -3358,6 +3385,7 @@ export function ProposalDetailPanel({
                           setTextLimitViolations(null);
                           setRobotsEntries(null);
                           setRobotsChoices({});
+                          setOverrideReason("");
                         },
                       },
                     );
@@ -3365,7 +3393,11 @@ export function ProposalDetailPanel({
                   data-testid="button-confirm-apply-proposal"
                 >
                   <IconCheck className="h-4 w-4" aria-hidden />
-                  {textLimitViolations ? "Publish anyway" : primaryActionLabel}
+                  {textLimitViolations
+                    ? "Publish anyway"
+                    : overridingBlockers
+                      ? "Approve anyway"
+                      : primaryActionLabel}
                 </Button>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -4015,6 +4047,15 @@ export function ProposalDetailPanel({
                   </p>
                 ) : null}
               </div>
+              {overridingBlockers ? (
+                <BlockerOverrideField
+                  blockers={openBlockers}
+                  reason={overrideReason}
+                  onReasonChange={setOverrideReason}
+                  verb="accept"
+                  testIdPrefix="accept"
+                />
+              ) : null}
               <DialogFooter>
                 <Button type="button" variant="ghost" onClick={() => setAcceptOpen(false)}>
                   Cancel
@@ -4023,7 +4064,8 @@ export function ProposalDetailPanel({
                   type="button"
                   disabled={
                     mut.isPending ||
-                    blockersOpen ||
+                    approveBlocked ||
+                    !overrideReasonOk ||
                     !acceptNextStepOk ||
                     !acceptEntryOk ||
                     (acceptAddressHint !== null && !acceptSlugAck)
@@ -4033,6 +4075,7 @@ export function ProposalDetailPanel({
                       {
                         action: "accept",
                         body: {
+                          ...overrideBody,
                           next_step: acceptNextStep.trim(),
                           accepted_entry: {
                             contentType: acceptContentType.trim(),
@@ -4052,6 +4095,7 @@ export function ProposalDetailPanel({
                           setAcceptLocale("");
                           setAcceptUrlSlug("");
                           setAcceptSlugAck(false);
+                          setOverrideReason("");
                         },
                       },
                     );
@@ -4059,7 +4103,7 @@ export function ProposalDetailPanel({
                   data-testid="button-confirm-accept-idea"
                 >
                   <IconCheck className="h-4 w-4" aria-hidden />
-                  Accept idea
+                  {overridingBlockers ? "Accept anyway" : "Accept idea"}
                 </Button>
               </DialogFooter>
             </DialogContent>

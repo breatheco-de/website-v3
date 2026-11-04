@@ -1,7 +1,8 @@
 /**
  * Shared validation for update_redirect (MCP). Pure helpers — unit-tested without loopback.
- * Without `variant`: live redirects (edit_redirects). With `variant`: the page's own old
- * addresses on its draft (seo_edit for the page's type).
+ * Without `variant`: live redirects (edit_redirects, or edit_page_redirects for one exact old
+ * address on a page of that type). With `variant`: the page's own old addresses on its draft
+ * (seo_edit for the page's type).
  */
 
 export type RedirectUpdateAction = "add" | "delete" | "move";
@@ -198,6 +199,74 @@ export function validateRedirectUpdateInput(input: RedirectUpdateInput): Validat
   }
 
   return { ok: true, action, draft: false };
+}
+
+export type PageScopeRefusal = {
+  reason: "option_not_allowed" | "pattern_match" | "not_a_page" | "custom_file" | "live_content";
+  message: string;
+  option?: string;
+};
+
+const PAGE_SCOPE_STEWARD = "That needs edit_redirects (Platform Steward).";
+
+/**
+ * Live update_redirect in page scope (edit_page_redirects, no edit_redirects): refuse anything
+ * beyond adding/removing one exact old address on a page. Content type and conflicts are checked later.
+ */
+export function pageScopeInputRefusal(input: RedirectUpdateInput): PageScopeRefusal | null {
+  const globalOnly: Array<[string, boolean]> = [
+    ["before_from", !!input.before_from?.trim()],
+    ["priority", !!input.priority],
+    ["removed_entry", !!input.removed_entry],
+    ["confirm_overwrite_content", input.confirm_overwrite_content === true],
+  ];
+  const option = globalOnly.find(([, set]) => set)?.[0];
+  if (option) {
+    return {
+      reason: "option_not_allowed",
+      option,
+      message: `${option} is not available with edit_page_redirects (page access adds or removes one exact old address on a page). ${PAGE_SCOPE_STEWARD}`,
+    };
+  }
+  if (input.from && isRegexFrom(input.from)) {
+    return {
+      reason: "pattern_match",
+      message: `Pattern (regex) rules live in custom-redirects.yml. ${PAGE_SCOPE_STEWARD}`,
+    };
+  }
+  if (input.action === "add" && input.to && isExternalDest(input.to)) {
+    return {
+      reason: "not_a_page",
+      message: `External destinations are site-wide rules in custom-redirects.yml. ${PAGE_SCOPE_STEWARD}`,
+    };
+  }
+  if (input.action === "delete" && isCustomRedirectSource(input.source)) {
+    return {
+      reason: "custom_file",
+      message: `custom-redirects.yml rules are site-wide. ${PAGE_SCOPE_STEWARD}`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Content type that owns a page redirect source (`{site}/{directory}/{slug}/{locale|_common}.yml`,
+ * site prefix optional). Null for custom-redirects.yml, drafts and unknown directories.
+ */
+export function contentTypeForRedirectSource(
+  source: string,
+  contentFolder: string,
+  configs: Record<string, { directory?: string }>,
+): string | null {
+  const parts = source.replace(/\\/g, "/").split("/").filter(Boolean);
+  const rel = parts[0] === contentFolder ? parts.slice(1) : parts;
+  if (rel.length !== 3) return null;
+  const stem = rel[2]!.replace(/\.ya?ml$/, "");
+  if (stem === rel[2] || (stem !== "_common" && (stem.startsWith("_") || stem.includes(".")))) return null;
+  for (const [type, cfg] of Object.entries(configs)) {
+    if ((cfg?.directory || type) === rel[0]) return type;
+  }
+  return null;
 }
 
 /** field_path that writes a page's old addresses (`meta.redirects`), directly or via a whole `meta` value. */
