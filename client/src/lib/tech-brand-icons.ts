@@ -44,7 +44,7 @@ import { FaAws, FaGitAlt } from "react-icons/fa";
 import { IoLogoVercel } from "react-icons/io5";
 import Matplotlib from "@/components/custom-icons/Matplotlib";
 
-type TechIconComponent = ComponentType<{ className?: string }>;
+type TechIconComponent = ComponentType<{ className?: string; title?: string }>;
 
 export const techIconMap: Record<string, TechIconComponent> = {
   git: SiGit,

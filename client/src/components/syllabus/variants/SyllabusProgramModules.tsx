@@ -222,18 +222,19 @@ export function SyllabusLandingContent({ data }: { data: SyllabusLanding }) {
   );
 }
 
-function getTechIcon(iconName: string, className?: string) {
+function getTechIcon(iconName: string, className?: string, title?: string) {
   const lowerName = iconName.toLowerCase();
   const cls = className || "w-6 h-6";
+  const accessibleTitle = title || iconName;
 
   if (lowerName === "matplotlib") {
-    return <Matplotlib className={cls} />;
+    return <Matplotlib className={cls} title={accessibleTitle} />;
   }
 
   const IconComponent = getTechBrandIcon(iconName);
   if (IconComponent && IconComponent !== Matplotlib) {
-    const Comp = IconComponent as ComponentType<{ className?: string }>;
-    return <Comp className={cls} />;
+    const Comp = IconComponent as ComponentType<{ className?: string; title?: string }>;
+    return <Comp className={cls} title={accessibleTitle} />;
   }
   return null;
 }
@@ -474,7 +475,7 @@ function SyllabusProgramModulesVariant({ data }: { data: SyllabusProgramModules 
                             className="group text-muted-foreground hover:text-primary transition-colors duration-brand cursor-pointer"
                             data-testid={`icon-tech-${index}`}
                           >
-                            {getTechIcon(logo.icon, "w-8 h-8")}
+                            {getTechIcon(logo.icon, "w-8 h-8", logo.name)}
                           </div>
                         </TooltipTrigger>
                         <TooltipContent>

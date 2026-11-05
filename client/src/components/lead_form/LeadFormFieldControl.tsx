@@ -203,6 +203,7 @@ function ChoiceSelect({
   disabled,
   testId,
   groupSelectByGroup,
+  ariaLabel,
 }: {
   options: LeadFormOption[];
   value: string;
@@ -211,6 +212,7 @@ function ChoiceSelect({
   disabled?: boolean;
   testId?: string;
   groupSelectByGroup?: boolean;
+  ariaLabel: string;
 }) {
   if (groupSelectByGroup) {
     const groups = new Map<string, LeadFormOption[]>();
@@ -224,7 +226,7 @@ function ChoiceSelect({
     const selectValue = value && options.some((o) => o.value === value) ? value : undefined;
     return (
       <Select onValueChange={onChange} value={selectValue} disabled={disabled}>
-        <SelectTrigger data-testid={testId}>
+        <SelectTrigger data-testid={testId} aria-label={ariaLabel}>
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -260,7 +262,7 @@ function ChoiceSelect({
   const selectValue = value && options.some((o) => o.value === value) ? value : undefined;
   return (
     <Select onValueChange={onChange} value={selectValue} disabled={disabled}>
-      <SelectTrigger data-testid={testId}>
+      <SelectTrigger data-testid={testId} aria-label={ariaLabel}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>
@@ -306,6 +308,7 @@ function ChoiceModal({
   dialogTitle,
   dialogDescription,
   layout,
+  ariaLabel,
 }: {
   renderer: RichMenuRenderer;
   options: LeadFormOption[];
@@ -317,6 +320,7 @@ function ChoiceModal({
   dialogTitle?: string;
   dialogDescription?: string;
   layout?: LeadFormCardsLayout;
+  ariaLabel: string;
 }) {
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value);
@@ -329,6 +333,7 @@ function ChoiceModal({
         disabled={disabled}
         onClick={() => setOpen(true)}
         data-testid={testId}
+        aria-label={ariaLabel}
         className={cn(
           // Match SelectTrigger so rich pickers look identical when closed
           "flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
@@ -419,6 +424,11 @@ export function LeadFormFieldControl({
   inputType,
   selectEmptyFallback,
 }: LeadFormFieldControlProps) {
+  // Accessible name for pickers: YAML/UI label (via dialogTitle) → placeholder → field name.
+  // Callers already put `fields.*.label || locale fallback` into dialogTitle.
+  const pickerAriaLabel =
+    dialogTitle?.trim() || placeholder?.trim() || field.name;
+
   if (renderer === "select" || isRichMenuRenderer(renderer)) {
     if (renderer === "select" && options.length === 0 && selectEmptyFallback) {
       return <>{selectEmptyFallback}</>;
@@ -433,6 +443,7 @@ export function LeadFormFieldControl({
           disabled={disabled}
           testId={testId}
           groupSelectByGroup={groupSelectByGroup}
+          ariaLabel={pickerAriaLabel}
         />
       );
     }
@@ -448,6 +459,7 @@ export function LeadFormFieldControl({
         dialogTitle={dialogTitle}
         dialogDescription={dialogDescription}
         layout={layout}
+        ariaLabel={pickerAriaLabel}
       />
     );
   }

@@ -156,7 +156,7 @@ export function PricingSection({ data }: PricingSectionProps) {
                             className="flex items-center justify-center px-3 py-2 text-muted-foreground"
                             data-testid={`icon-tech-${index}`}
                           >
-                            <IconComponent className="w-5 h-5" />
+                            <IconComponent className="w-5 h-5" title={iconName} />
                           </div>
                         ) : null;
                       })}
@@ -171,7 +171,7 @@ export function PricingSection({ data }: PricingSectionProps) {
                             className="flex items-center justify-center px-3 py-2 text-muted-foreground"
                             data-testid={`icon-tech-${index}`}
                           >
-                            <IconComponent className="w-5 h-5" />
+                            <IconComponent className="w-5 h-5" title={iconName} />
                           </div>
                         ) : null;
                       })}
@@ -397,7 +397,7 @@ export function PricingSection({ data }: PricingSectionProps) {
                           className="flex items-center justify-center px-3 py-2 text-muted-foreground"
                           data-testid={`icon-tech-${index}`}
                         >
-                          <IconComponent className="w-5 h-5" />
+                          <IconComponent className="w-5 h-5" title={iconName} />
                         </div>
                       ) : null;
                     })}
@@ -412,7 +412,7 @@ export function PricingSection({ data }: PricingSectionProps) {
                           className="flex items-center justify-center px-3 py-2 text-muted-foreground"
                           data-testid={`icon-tech-${index}`}
                         >
-                          <IconComponent className="w-5 h-5" />
+                          <IconComponent className="w-5 h-5" title={iconName} />
                         </div>
                       ) : null;
                     })}

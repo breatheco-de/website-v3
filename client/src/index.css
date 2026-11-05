@@ -6,6 +6,12 @@
    Radius: 12px, Shadow: subtle single shadow
    ============================================================================= */
 
+/* @import must come before other rules or Vite/PostCSS drops them without inlining. */
+/* Above-fold article typography on critical path (avoids CLS when article chunk loads). */
+@import "./components/article/article-prose.css";
+/* Hero RTE mobile overrides on critical path (avoids CLS when hero chunk loads). */
+@import "./components/ui/responsive-rich-text.css";
+
 /* Metric-compatible system fallbacks reduce CLS while webfonts load. */
 @font-face {
   font-family: 'Archivo Fallback';
@@ -118,9 +124,6 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Above-fold article typography on critical path (avoids CLS when article chunk loads). */
-@import "./components/article/article-prose.css";
 
 @keyframes blink {
   0%, 100% { opacity: 1; }
