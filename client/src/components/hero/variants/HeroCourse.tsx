@@ -331,6 +331,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
                     loop={data.video.loop !== false}
                     preview_image_url={data.video.preview_image_url}
                     open_modal_on_click={data.video.open_modal_on_click}
+                    show_controls_on_autoplay={data.video.show_controls_on_autoplay === true}
                     overlay_on_muted={data.video.overlay_on_muted}
                   />
                 ) : data.media?.type === "video" ? (

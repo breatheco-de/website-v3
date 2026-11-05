@@ -9,8 +9,6 @@ when_to_use: |
   - showcase: 3-column layout with images on sides (best for landing pages)
   - productShowcase: Text on left with video on right (best for product/service introductions)
   - simpleTwoColumn: Image on left or right (media_at_right), text with CTAs (best for promotions, announcements)
-layout:
-  edge: top_of_page
 behaviors:
   ecommerce:
     role: funnel
@@ -34,6 +32,8 @@ behaviors:
     notes: >-
       Course variant only: requires ≥1 merged schema_org section with schema_type Course. Hero does not emit Course
       JSON-LD itself.
+layout:
+  edge: top_of_page
 image_sizes:
   singleColumn.image.src: "(min-width: 768px) 800px, 100vw"
   singleColumn.trust_bar.avatars: 32px
@@ -588,6 +588,12 @@ variant_props:
                     - cards
                     - simple-list
                     - grouped-list
+                layout:
+                  type: string
+                  required: false
+                  options:
+                    - grid
+                    - showcase
                 options:
                   type: array
                   required: false
@@ -663,6 +669,12 @@ variant_props:
                     - cards
                     - simple-list
                     - grouped-list
+                layout:
+                  type: string
+                  required: false
+                  options:
+                    - grid
+                    - showcase
                 options:
                   type: array
                   required: false
@@ -738,6 +750,12 @@ variant_props:
                     - cards
                     - simple-list
                     - grouped-list
+                layout:
+                  type: string
+                  required: false
+                  options:
+                    - grid
+                    - showcase
                 options:
                   type: array
                   required: false
@@ -813,6 +831,12 @@ variant_props:
                     - cards
                     - simple-list
                     - grouped-list
+                layout:
+                  type: string
+                  required: false
+                  options:
+                    - grid
+                    - showcase
                 options:
                   type: array
                   required: false
@@ -888,6 +912,12 @@ variant_props:
                     - cards
                     - simple-list
                     - grouped-list
+                layout:
+                  type: string
+                  required: false
+                  options:
+                    - grid
+                    - showcase
                 options:
                   type: array
                   required: false
@@ -963,6 +993,12 @@ variant_props:
                     - cards
                     - simple-list
                     - grouped-list
+                layout:
+                  type: string
+                  required: false
+                  options:
+                    - grid
+                    - showcase
                 options:
                   type: array
                   required: false
@@ -1038,6 +1074,12 @@ variant_props:
                     - cards
                     - simple-list
                     - grouped-list
+                layout:
+                  type: string
+                  required: false
+                  options:
+                    - grid
+                    - showcase
                 options:
                   type: array
                   required: false
@@ -1113,6 +1155,12 @@ variant_props:
                     - cards
                     - simple-list
                     - grouped-list
+                layout:
+                  type: string
+                  required: false
+                  options:
+                    - grid
+                    - showcase
                 options:
                   type: array
                   required: false
@@ -1188,6 +1236,12 @@ variant_props:
                     - cards
                     - simple-list
                     - grouped-list
+                layout:
+                  type: string
+                  required: false
+                  options:
+                    - grid
+                    - showcase
                 options:
                   type: array
                   required: false
@@ -1263,6 +1317,12 @@ variant_props:
                     - cards
                     - simple-list
                     - grouped-list
+                layout:
+                  type: string
+                  required: false
+                  options:
+                    - grid
+                    - showcase
                 options:
                   type: array
                   required: false
@@ -1541,6 +1601,9 @@ variant_props:
         open_modal_on_click:
           type: boolean
           required: false
+        show_controls_on_autoplay:
+          type: boolean
+          required: false
         overlay_on_muted:
           type: object
           required: false
@@ -1776,6 +1839,9 @@ variant_props:
         open_modal_on_click:
           type: boolean
           required: false
+        show_controls_on_autoplay:
+          type: boolean
+          required: false
         overlay_on_muted:
           type: object
           required: false
@@ -1947,6 +2013,12 @@ variant_props:
                         - cards
                         - simple-list
                         - grouped-list
+                    layout:
+                      type: string
+                      required: false
+                      options:
+                        - grid
+                        - showcase
                     options:
                       type: array
                       required: false
@@ -2022,6 +2094,12 @@ variant_props:
                         - cards
                         - simple-list
                         - grouped-list
+                    layout:
+                      type: string
+                      required: false
+                      options:
+                        - grid
+                        - showcase
                     options:
                       type: array
                       required: false
@@ -2097,6 +2175,12 @@ variant_props:
                         - cards
                         - simple-list
                         - grouped-list
+                    layout:
+                      type: string
+                      required: false
+                      options:
+                        - grid
+                        - showcase
                     options:
                       type: array
                       required: false
@@ -2172,6 +2256,12 @@ variant_props:
                         - cards
                         - simple-list
                         - grouped-list
+                    layout:
+                      type: string
+                      required: false
+                      options:
+                        - grid
+                        - showcase
                     options:
                       type: array
                       required: false
@@ -2247,6 +2337,12 @@ variant_props:
                         - cards
                         - simple-list
                         - grouped-list
+                    layout:
+                      type: string
+                      required: false
+                      options:
+                        - grid
+                        - showcase
                     options:
                       type: array
                       required: false
@@ -2322,6 +2418,12 @@ variant_props:
                         - cards
                         - simple-list
                         - grouped-list
+                    layout:
+                      type: string
+                      required: false
+                      options:
+                        - grid
+                        - showcase
                     options:
                       type: array
                       required: false
@@ -2397,6 +2499,12 @@ variant_props:
                         - cards
                         - simple-list
                         - grouped-list
+                    layout:
+                      type: string
+                      required: false
+                      options:
+                        - grid
+                        - showcase
                     options:
                       type: array
                       required: false
@@ -2472,6 +2580,12 @@ variant_props:
                         - cards
                         - simple-list
                         - grouped-list
+                    layout:
+                      type: string
+                      required: false
+                      options:
+                        - grid
+                        - showcase
                     options:
                       type: array
                       required: false
@@ -2547,6 +2661,12 @@ variant_props:
                         - cards
                         - simple-list
                         - grouped-list
+                    layout:
+                      type: string
+                      required: false
+                      options:
+                        - grid
+                        - showcase
                     options:
                       type: array
                       required: false
@@ -2622,6 +2742,12 @@ variant_props:
                         - cards
                         - simple-list
                         - grouped-list
+                    layout:
+                      type: string
+                      required: false
+                      options:
+                        - grid
+                        - showcase
                     options:
                       type: array
                       required: false
@@ -3280,6 +3406,9 @@ variant_props:
         open_modal_on_click:
           type: boolean
           required: false
+        show_controls_on_autoplay:
+          type: boolean
+          required: false
         overlay_on_muted:
           type: object
           required: false
@@ -3588,6 +3717,9 @@ variant_props:
         open_modal_on_click:
           type: boolean
           required: false
+        show_controls_on_autoplay:
+          type: boolean
+          required: false
         overlay_on_muted:
           type: object
           required: false
@@ -3747,6 +3879,9 @@ variant_props:
           type: boolean
           required: false
         open_modal_on_click:
+          type: boolean
+          required: false
+        show_controls_on_autoplay:
           type: boolean
           required: false
         overlay_on_muted:

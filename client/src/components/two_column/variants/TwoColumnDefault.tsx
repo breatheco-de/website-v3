@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
-import type { TwoColumnSection as TwoColumnSectionType, TwoColumnColumn, BenefitItem } from "@shared/schema";
+import type { TwoColumnSection as TwoColumnSectionType, TwoColumnColumn, BenefitItem, VideoConfig } from "@shared/schema";
 import type { CSSProperties } from "react";
 import { getIcon } from "@/lib/icons";
 import { UniversalVideo } from "@/components/UniversalVideo";
@@ -12,6 +12,77 @@ import { useInternalNav } from "@/hooks/useInternalNav";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 
 export type { TwoColumnSectionType };
+
+type ColumnVideoInput = string | VideoConfig | undefined;
+
+/** Accepts legacy string URL + flat column fields, or full video config object. */
+function normalizeColumnVideo(
+  video: ColumnVideoInput,
+  videoRatio?: string,
+  videoPreviewImage?: string,
+  videoWidth?: string,
+): VideoConfig | null {
+  if (!video) return null;
+  if (typeof video === "string") {
+    const url = video.trim();
+    if (!url || url === "null" || url === "undefined" || /\{\{.*\}\}/.test(url)) return null;
+    return {
+      url,
+      ratio: videoRatio,
+      preview_image_url: videoPreviewImage,
+      width: videoWidth,
+    };
+  }
+  const url = video.url?.trim();
+  if (!url || url === "null" || url === "undefined" || /\{\{.*\}\}/.test(url)) return null;
+  return {
+    ...video,
+    url,
+    ratio: video.ratio || videoRatio,
+    preview_image_url: video.preview_image_url || videoPreviewImage,
+    width: video.width || videoWidth,
+  };
+}
+
+function ColumnVideo({
+  video,
+  videoRatio,
+  videoPreviewImage,
+  videoWidth,
+  justify,
+  wrapperClassName,
+  innerClassName,
+}: {
+  video: ColumnVideoInput;
+  videoRatio?: string;
+  videoPreviewImage?: string;
+  videoWidth?: string;
+  justify?: "start" | "center" | "end";
+  wrapperClassName?: string;
+  innerClassName?: string;
+}) {
+  const config = normalizeColumnVideo(video, videoRatio, videoPreviewImage, videoWidth);
+  if (!config?.url) return null;
+  const width = config.width || "100%";
+  return (
+    <div className={wrapperClassName ?? `w-full flex ${getJustifyClass(justify)}`}>
+      <div className={innerClassName} style={{ width, maxWidth: "100%" }}>
+        <UniversalVideo
+          url={config.url}
+          ratio={config.ratio || "16:9"}
+          mobileRatio={config.mobile_ratio}
+          preview_image_url={config.preview_image_url}
+          autoplay={config.autoplay === true}
+          muted={config.muted !== false}
+          loop={config.loop !== false}
+          open_modal_on_click={config.open_modal_on_click}
+          show_controls_on_autoplay={config.show_controls_on_autoplay === true}
+          overlay_on_muted={config.overlay_on_muted}
+        />
+      </div>
+    </div>
+  );
+}
 
 interface TwoColumnProps {
   data: TwoColumnSectionType;
@@ -478,25 +549,13 @@ function ColumnContent({ column, defaultBulletIcon, hideHeadingOnTablet, columnK
           </div>
         );
       })()}
-      {column.video && (() => {
-        const videoIsObj = typeof column.video === "object" && column.video !== null;
-        const videoUrl = videoIsObj ? (column.video as { url: string }).url : (column.video as string);
-        if (!videoUrl?.trim() || videoUrl === "null" || videoUrl === "undefined" || /\{\{.*\}\}/.test(videoUrl)) return null;
-        const videoRatio = videoIsObj ? ((column.video as { ratio?: string }).ratio || "16:9") : (column.video_ratio || "16:9");
-        const videoPreviewImage = videoIsObj ? (column.video as { preview_image_url?: string }).preview_image_url : column.video_preview_image;
-        const videoWidth = videoIsObj ? ((column.video as { width?: string }).width || "100%") : (column.video_width || "100%");
-        return (
-          <div className={`w-full flex ${getJustifyClass(column.justify)}`}>
-            <div style={{ width: videoWidth, maxWidth: "100%" }}>
-              <UniversalVideo
-                url={videoUrl}
-                ratio={videoRatio}
-                preview_image_url={videoPreviewImage}
-              />
-            </div>
-          </div>
-        );
-      })()}
+      <ColumnVideo
+        video={column.video}
+        videoRatio={column.video_ratio}
+        videoPreviewImage={column.video_preview_image}
+        videoWidth={column.video_width}
+        justify={column.justify}
+      />
     </div>
   );
 }
@@ -584,23 +643,13 @@ function BenefitCardsVariant({ data }: TwoColumnProps) {
           {(data.right?.video || data.right?.image) && (
             <div className="flex items-center justify-center">
               {data.right?.video ? (
-                <div className="w-full max-w-md">
-                  {(() => {
-                    const rv = data.right!.video;
-                    const rvIsObj = typeof rv === "object" && rv !== null;
-                    const rvUrl = rvIsObj ? (rv as { url: string }).url : (rv as string);
-                    if (!rvUrl?.trim() || rvUrl === "null" || rvUrl === "undefined" || /\{\{.*\}\}/.test(rvUrl)) return null;
-                    const rvRatio = rvIsObj ? ((rv as { ratio?: string }).ratio || "16:9") : (data.right!.video_ratio || "16:9");
-                    const rvPreview = rvIsObj ? (rv as { preview_image_url?: string }).preview_image_url : data.right!.video_preview_image;
-                    return (
-                      <UniversalVideo
-                        url={rvUrl}
-                        ratio={rvRatio}
-                        preview_image_url={rvPreview}
-                      />
-                    );
-                  })()}
-                </div>
+                <ColumnVideo
+                  video={data.right.video}
+                  videoRatio={data.right.video_ratio}
+                  videoPreviewImage={data.right.video_preview_image}
+                  videoWidth={data.right.video_width}
+                  wrapperClassName="w-full max-w-md"
+                />
               ) : data.right?.image ? (
                 <UniversalImage
                   id={data.right.image}

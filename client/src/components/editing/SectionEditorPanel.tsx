@@ -3999,6 +3999,8 @@ export function SectionEditorPanel({
                 const currentPreviewImage = (getVideoSiblingValue("preview_image_url") as string) || "";
                 const currentOpenModalOnClick = getVideoSiblingValue("open_modal_on_click");
                 const openModalChecked = currentOpenModalOnClick !== false;
+                const currentShowControlsOnAutoplay =
+                  getVideoSiblingValue("show_controls_on_autoplay") === true;
                 const currentOverlayOnMuted = getVideoSiblingValue("overlay_on_muted");
                 const overlayEnabled =
                   currentOverlayOnMuted != null && typeof currentOverlayOnMuted === "object";
@@ -4224,6 +4226,7 @@ export function SectionEditorPanel({
                                       updatePropertiesWithValues({
                                         [parentPrefix + "autoplay"]: undefined,
                                         [parentPrefix + "overlay_on_muted"]: undefined,
+                                        [parentPrefix + "show_controls_on_autoplay"]: undefined,
                                       });
                                     }
                                   }}
@@ -4232,6 +4235,25 @@ export function SectionEditorPanel({
                               </div>
                               {currentAutoplay === true && (
                                 <div className="space-y-3 rounded-md border border-border bg-muted/40 p-3">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <Label className="text-sm">Show controls on autoplay</Label>
+                                      <Switch
+                                        checked={currentShowControlsOnAutoplay}
+                                        onCheckedChange={(checked) =>
+                                          updatePropertyWithValue(
+                                            parentPrefix + "show_controls_on_autoplay",
+                                            checked ? true : undefined,
+                                          )
+                                        }
+                                        data-testid={`props-video-${fieldLabel}-show-controls-autoplay`}
+                                      />
+                                    </div>
+                                    <p className="text-xs text-muted-foreground pr-12">
+                                      Local files only (.mp4, .webm, …). Shows the native player bar
+                                      while autoplaying. Does not apply to YouTube.
+                                    </p>
+                                  </div>
                                   <div className="flex items-center justify-between gap-2">
                                     <div className="min-w-0 space-y-0.5">
                                       <Label className="text-sm">Muted overlay</Label>
@@ -7687,6 +7709,9 @@ export function SectionEditorPanel({
                             parentPrefix + "open_modal_on_click",
                           );
                           const openModalChecked = currentOpenModalOnClick !== false;
+                          const currentShowControlsOnAutoplay =
+                            resolveNestedValue(item, parentPrefix + "show_controls_on_autoplay") ===
+                            true;
                           const currentOverlayOnMuted = resolveNestedValue(
                             item,
                             parentPrefix + "overlay_on_muted",
@@ -7927,6 +7952,8 @@ export function SectionEditorPanel({
                                                 updateArrayItemFieldsRaw(arrayPath, index, {
                                                   [parentPrefix + "autoplay"]: undefined,
                                                   [parentPrefix + "overlay_on_muted"]: undefined,
+                                                  [parentPrefix + "show_controls_on_autoplay"]:
+                                                    undefined,
                                                 });
                                               }
                                             }}
@@ -7935,6 +7962,30 @@ export function SectionEditorPanel({
                                         </div>
                                         {currentAutoplay === true && (
                                           <div className="space-y-3 rounded-md border border-border bg-muted/40 p-3">
+                                            <div className="space-y-1">
+                                              <div className="flex items-center justify-between gap-2">
+                                                <Label className="text-sm">
+                                                  Show controls on autoplay
+                                                </Label>
+                                                <Switch
+                                                  checked={currentShowControlsOnAutoplay}
+                                                  onCheckedChange={(checked) =>
+                                                    updateArrayItemField(
+                                                      arrayPath,
+                                                      index,
+                                                      parentPrefix + "show_controls_on_autoplay",
+                                                      checked ? true : undefined,
+                                                    )
+                                                  }
+                                                  data-testid={`props-video-${arrayFieldLabel}-${index}-show-controls-autoplay`}
+                                                />
+                                              </div>
+                                              <p className="text-xs text-muted-foreground pr-12">
+                                                Local files only (.mp4, .webm, …). Shows the native
+                                                player bar while autoplaying. Does not apply to
+                                                YouTube.
+                                              </p>
+                                            </div>
                                             <div className="flex items-center justify-between gap-2">
                                               <div className="min-w-0 space-y-0.5">
                                                 <Label className="text-sm">Muted overlay</Label>

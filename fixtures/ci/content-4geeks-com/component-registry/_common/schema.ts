@@ -68,6 +68,12 @@ export const videoConfigSchema = z.object({
     .describe(
       "Desktop: open the video Dialog on play/unmute click (default true). Set false to play inline. Mobile preview always plays inline",
     ),
+  show_controls_on_autoplay: z
+    .boolean()
+    .optional()
+    .describe(
+      "Local files only: show native player controls while autoplaying (default false). Ignored for YouTube/embeds",
+    ),
   overlay_on_muted: videoOverlayOnMutedSchema
     .optional()
     .describe(

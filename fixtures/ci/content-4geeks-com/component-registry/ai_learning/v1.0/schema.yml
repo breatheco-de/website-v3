@@ -14,9 +14,36 @@ variants:
   feature-tabs:
     description: 3 interactive hover cards with expandable content panel showing video/image and bullets
     best_for: Program pages, detailed feature showcases
+    content_shape:
+      items:
+        features:
+          min: 3
+          max: 3
+          typical: 3
+      text:
+        title:
+          min: 25
+          max: 58
+          typical: 42
+        description:
+          min: 94
+          max: 231
+          typical: 114
+      image: required
+      icon: required
+      sample_pages: 10
+      measured_at: "2026-10-02"
+    avoid_when: >-
+      Avoid when you need a simple text+video layout, have more or less than 3 features, or lack supporting images and
+      icons.
+    metadata_status: draft
   highlight:
     description: Simple two-column layout with text content and video side-by-side
     best_for: Landing pages, quick value propositions
+    avoid_when: >-
+      Avoid when the page needs to showcase 3+ feature cards, multiple learning tools, or when item counts and detailed
+      mentorship benefits must be displayed.
+    metadata_status: draft
 variant_props:
   feature-tabs:
     features:
@@ -81,6 +108,9 @@ variant_props:
               type: boolean
               required: false
             open_modal_on_click:
+              type: boolean
+              required: false
+            show_controls_on_autoplay:
               type: boolean
               required: false
             overlay_on_muted:
@@ -222,6 +252,9 @@ props:
         type: boolean
         required: false
       open_modal_on_click:
+        type: boolean
+        required: false
+      show_controls_on_autoplay:
         type: boolean
         required: false
       overlay_on_muted:
