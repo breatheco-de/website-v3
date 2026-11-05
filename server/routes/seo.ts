@@ -1398,20 +1398,38 @@ export function registerSeoRoutes(app: Express): void {
         }> = [];
 
         if (Array.isArray(dbSections)) {
+          const contentRoot = getContentRoot(res);
           const withDynamic = (await resolveDynamicEntries(dbSections, locale, {
-            contentRoot: getContentRoot(res),
+            contentRoot,
             contentIndex: getCI(res),
             singleEntry,
           })) as Array<Record<string, unknown>>;
           const collected = collectSectionSchemasDetailed(withDynamic, {
             locale,
-            contentRoot: getContentRoot(res),
-            baseUrl: getSiteBaseUrl(getContentRoot(res)),
+            contentRoot,
+            baseUrl: getSiteBaseUrl(contentRoot),
             contentType,
             pageUrl: typeof resolvedMeta.canonical_url === "string" ? resolvedMeta.canonical_url : undefined,
             title: typeof resolvedMeta.page_title === "string" ? resolvedMeta.page_title : undefined,
             description: typeof resolvedMeta.description === "string" ? resolvedMeta.description : undefined,
             image: typeof resolvedMeta.og_image === "string" ? resolvedMeta.og_image : undefined,
+            publishedAt:
+              (typeof singleEntry.published_at === "string" ? singleEntry.published_at : undefined) ||
+              (typeof resolvedMeta.published_at === "string" ? resolvedMeta.published_at : undefined),
+            updatedAt:
+              resolveEntryUpdatedAt({
+                contentType,
+                slug: (typeof singleEntry.slug === "string" && singleEntry.slug) || slug,
+                locale,
+                record: singleEntry,
+                contentRoot,
+              }) || undefined,
+            authorName: typeof singleEntry.author === "string" ? singleEntry.author : undefined,
+            authors:
+              Array.isArray(singleEntry.authors) && singleEntry.authors.length > 0
+                ? (singleEntry.authors as Array<Record<string, unknown> | string>)
+                : undefined,
+            singleEntry,
           });
           schemaOrg = collected.documents;
           schemaOrgDocuments = collected.preview;
@@ -1539,6 +1557,12 @@ export function registerSeoRoutes(app: Express): void {
           slug,
           _slug: slug,
         };
+        // Dates/authors from entry layer (common+locale), not the shared template shell.
+        const entryRecord: Record<string, unknown> = {
+          ...(pageData as Record<string, unknown>),
+          slug,
+          _slug: slug,
+        };
         const withDynamic = (await resolveDynamicEntries(sections, locale, {
           contentRoot,
           contentIndex: ci,
@@ -1570,6 +1594,23 @@ export function registerSeoRoutes(app: Express): void {
             typeof displayMeta.og_image === "string"
               ? displayMeta.og_image
               : undefined,
+          publishedAt:
+            (typeof entryRecord.published_at === "string" ? entryRecord.published_at : undefined) ||
+            (typeof displayMeta.published_at === "string" ? displayMeta.published_at : undefined),
+          updatedAt:
+            resolveEntryUpdatedAt({
+              contentType,
+              slug,
+              locale,
+              record: entryRecord,
+              contentRoot,
+            }) || undefined,
+          authorName: typeof entryRecord.author === "string" ? entryRecord.author : undefined,
+          authors:
+            Array.isArray(entryRecord.authors) && entryRecord.authors.length > 0
+              ? (entryRecord.authors as Array<Record<string, unknown> | string>)
+              : undefined,
+          singleEntry,
         });
         schemaOrg = collected.documents;
         schemaOrgDocuments = collected.preview;
