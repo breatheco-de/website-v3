@@ -1866,17 +1866,19 @@ function ConversionsPageInner() {
                     setEditingEvent({ ...editingEvent, successEditing: val })
                   }
                   onChange={(field, value) => {
+                    if (field === "reload_entry_fields") return;
+                    const text = String(value);
                     if (field === "message") {
                       setEditingEvent({
                         ...editingEvent,
-                        successMessage: value,
-                        ...(value.trim() ? { successUrl: "" } : {}),
+                        successMessage: text,
+                        ...(text.trim() ? { successUrl: "" } : {}),
                       });
                     } else {
                       setEditingEvent({
                         ...editingEvent,
-                        successUrl: value,
-                        ...(value.trim() ? { successMessage: "" } : {}),
+                        successUrl: text,
+                        ...(text.trim() ? { successMessage: "" } : {}),
                       });
                     }
                   }}

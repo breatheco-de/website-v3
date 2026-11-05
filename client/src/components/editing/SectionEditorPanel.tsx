@@ -8529,6 +8529,9 @@ export function SectionEditorPanel({
                 const successUrl = String(
                   getValueAtFieldPath(parsedSection, formProp("success.url")) ?? ""
                 );
+                const reloadEntryFields =
+                  getValueAtFieldPath(parsedSection, formProp("success.reload_entry_fields")) ===
+                  true;
                 const convName = String(
                   getValueAtFieldPath(parsedSection, formProp("conversion_name")) ?? ""
                 );
@@ -8545,11 +8548,20 @@ export function SectionEditorPanel({
                     allSections={allSections}
                     inheritedMessage={convEvent?.success?.message}
                     inheritedUrl={convEvent?.success?.url}
+                    showReloadEntryFields
+                    reloadEntryFields={reloadEntryFields}
                     onChange={(field, value) => {
+                      if (field === "reload_entry_fields") {
+                        updatePropertyWithValue(
+                          formProp("success.reload_entry_fields"),
+                          value === true ? true : undefined,
+                        );
+                        return;
+                      }
                       // updateProperty deletes the key on empty values and prunes
                       // empty parents, so clearing both removes `success` entirely
                       // and falls back to the conversion event default.
-                      updateProperty(formProp(`success.${field}`), value);
+                      updateProperty(formProp(`success.${field}`), value as string);
                     }}
                   />
                 );
@@ -8565,8 +8577,31 @@ export function SectionEditorPanel({
                 return (
                   <FormFieldsCard
                     fields={fields}
+                    onFieldAdd={(name) => {
+                      updatePropertyWithValue(formProp(`fields.${name}`), {
+                        visible: true,
+                        required: false,
+                      });
+                    }}
+                    onFieldRemove={(name) => {
+                      updatePropertyWithValue(formProp(`fields.${name}`), undefined);
+                    }}
+                    onFieldRename={(from, to) => {
+                      const cfg = fields[from] ?? { visible: true };
+                      updatePropertiesWithValues({
+                        [formProp(`fields.${to}`)]: cfg,
+                        [formProp(`fields.${from}`)]: undefined,
+                      });
+                    }}
                     onFieldChange={(fieldName, key, value) => {
-                      if (key === "visible" || key === "required") {
+                      if (key === "source" || key === "options") {
+                        updatePropertyWithValue(
+                          formProp(`fields.${fieldName}.${key}`),
+                          value === undefined || value === "" ? undefined : value,
+                        );
+                        return;
+                      }
+                      if (key === "visible" || key === "required" || typeof value === "boolean") {
                         updatePropertyWithValue(
                           formProp(`fields.${fieldName}.${key}`),
                           value as boolean,
@@ -8575,7 +8610,7 @@ export function SectionEditorPanel({
                       }
                       updateProperty(
                         formProp(`fields.${fieldName}.${key}`),
-                        String(value),
+                        value == null ? "" : String(value),
                       );
                     }}
                   />
@@ -8835,6 +8870,8 @@ export function SectionEditorPanel({
                         ...extraValues,
                       }}
                       inheritedValues={inheritedValues}
+                      inheritedFromLabel={convName || undefined}
+                      locale={locale}
                       specificFields={specificFields}
                       isOverridden={isConsentOverridden}
                       onChange={(field, value) => {

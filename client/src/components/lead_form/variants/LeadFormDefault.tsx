@@ -740,7 +740,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [pendingAutoSubmit, setPendingAutoSubmit] = useState(false);
 
-  const turnstileEnabled = false; // TEMP-TURNSTILE-BYPASS was: data.turnstile?.enabled ?? true
+  const turnstileEnabled = data.turnstile?.enabled ?? true;
 
   const { data: turnstileSiteKey, isLoading: turnstileSiteKeyLoading } = useQuery<{ siteKey: string }>({
     queryKey: ["/api/turnstile/site-key"],
