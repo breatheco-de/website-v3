@@ -2297,11 +2297,12 @@ export class ContentIndex {
       }
 
       const folder = this.getFolderName(contentType);
+      const resolvedSlug = this.resolveBaseSlug(slug, contentType);
       const singleCommonPath = resolveCommonTemplatePath(path.join(this.contentRoot, folder));
       const typeCommonPath = path.join(this.contentRoot, folder, "_common.yml");
       const useSingleTemplate =
         !!getContentTypeConfig(contentType, this.contentRoot)?.single_template &&
-        !isEntryDetached(contentType, slug, this.contentRoot);
+        !isEntryDetached(contentType, resolvedSlug, this.contentRoot);
 
       let baseData: Record<string, unknown> = {};
       if (fs.existsSync(singleCommonPath)) {

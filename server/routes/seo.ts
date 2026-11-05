@@ -1400,6 +1400,7 @@ export function registerSeoRoutes(app: Express): void {
         if (Array.isArray(dbSections)) {
           const contentRoot = getContentRoot(res);
           const withDynamic = (await resolveDynamicEntries(dbSections, locale, {
+            db: getDB(res),
             contentRoot,
             contentIndex: getCI(res),
             singleEntry,
@@ -1564,6 +1565,7 @@ export function registerSeoRoutes(app: Express): void {
           _slug: slug,
         };
         const withDynamic = (await resolveDynamicEntries(sections, locale, {
+          db: getDB(res),
           contentRoot,
           contentIndex: ci,
           singleEntry,
