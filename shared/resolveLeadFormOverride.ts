@@ -2,24 +2,31 @@
  * Resolve LeadForm `form_overrides`: first entry whose `conditions` all match
  * (AND) overlays form props for UI + submit. No match → null (caller keeps root).
  *
- * Condition left-hand side (XOR per condition):
- * - `form_field_slug` → submitted/watched form field value
- * - `entry_field_slug` → bare entry field path on `options.entry` (e.g. event_started).
- *   Looked up at match time — do not use {{ entry.* }} here (section resolveDeep
- *   would replace the template before LeadForm runs).
+ * Condition left-hand side (preferred):
+ * - `field_property_slug` → template string resolved at match time
+ *   (e.g. `{{ form.program }}`, `{{ entry.event_started }}`, `{{ visitor.id }}`)
+ *
+ * Legacy (compat, UI writes the new shape):
+ * - `form_field_slug` → treated as `{{ form.<slug> }}` when resolveValue is set,
+ *   else looked up on submitted/watched form values
+ * - `entry_field_slug` → treated as `{{ entry.<slug> }}` when resolveValue is set,
+ *   else looked up on `options.entry`
  *
  * Condition `value` goes through resolveValue when provided (e.g. "{{ visitor.id }}").
+ * Section resolveDeep must not expand condition operands before LeadForm runs.
  */
 
 export type LeadFormOverrideMatchMethod = "equals" | "contains";
 
 export interface LeadFormOverrideCondition {
-  /** Form field key — actual value comes from submitted/watched form values. */
-  form_field_slug?: string;
   /**
-   * Bare entry field path (e.g. "event_started", "registered_attendee_ids").
-   * Resolved from `options.entry` at match time — not a resolveDeep template.
+   * Template for the left operand, resolved at match time
+   * (e.g. "{{ form.program }}", "{{ entry.event_started }}").
    */
+  field_property_slug?: string;
+  /** @deprecated Prefer field_property_slug with {{ form.* }} */
+  form_field_slug?: string;
+  /** @deprecated Prefer field_property_slug with {{ entry.* }} */
   entry_field_slug?: string;
   /**
    * How to compare actual vs value. Default `equals`.
@@ -65,11 +72,14 @@ export interface LeadFormOverride extends LeadFormOverrideOutcome {
 }
 
 export interface ResolveLeadFormOverrideOptions {
-  /** Current page/content-type entry (singleEntry). Required for entry_field_slug. */
+  /**
+   * Current page/content-type entry (singleEntry). Used only for legacy
+   * entry_field_slug when resolveValue is omitted.
+   */
   entry?: Record<string, unknown> | null;
   /**
-   * Resolve template tokens in condition.value (e.g. client resolveDeep).
-   * Omit for literal compare (tests).
+   * Resolve template tokens in field_property_slug / value (and legacy slug
+   * rewrite). Prefer client resolveDeep with form + visitor + entry bags.
    */
   resolveValue?: (raw: string) => unknown;
 }
@@ -147,16 +157,36 @@ function resolveExpectedValue(
   return resolveValue(raw);
 }
 
+/** True when resolveValue left a template untouched (or returned another template). */
+function looksUnresolvedTemplate(value: unknown, attempted: string): boolean {
+  if (typeof value !== "string") return false;
+  if (value === attempted) return true;
+  return value.includes("{{");
+}
+
 function resolveActualValue(
   condition: LeadFormOverrideCondition,
   values: Record<string, unknown>,
   options?: ResolveLeadFormOverrideOptions,
 ): unknown {
+  const fieldProp =
+    typeof condition.field_property_slug === "string"
+      ? condition.field_property_slug.trim()
+      : "";
+  if (fieldProp) {
+    return resolveExpectedValue(fieldProp, options);
+  }
+
   const formSlug =
     typeof condition.form_field_slug === "string"
       ? condition.form_field_slug.trim()
       : "";
   if (formSlug) {
+    if (options?.resolveValue) {
+      const attempted = `{{ form.${formSlug} }}`;
+      const resolved = resolveExpectedValue(attempted, options);
+      if (!looksUnresolvedTemplate(resolved, attempted)) return resolved;
+    }
     return formSlug.includes(".")
       ? getNested(values, formSlug)
       : values[formSlug];
@@ -167,6 +197,12 @@ function resolveActualValue(
       ? condition.entry_field_slug.trim()
       : "";
   if (!entrySlug) return undefined;
+
+  if (options?.resolveValue) {
+    const attempted = `{{ entry.${entrySlug} }}`;
+    const resolved = resolveExpectedValue(attempted, options);
+    if (!looksUnresolvedTemplate(resolved, attempted)) return resolved;
+  }
 
   const entry = options?.entry;
   if (!entry || typeof entry !== "object") return undefined;
@@ -183,6 +219,10 @@ function conditionMatches(
   const matchMethod: LeadFormOverrideMatchMethod =
     condition.match_method === "contains" ? "contains" : "equals";
 
+  const fieldProp =
+    typeof condition.field_property_slug === "string"
+      ? condition.field_property_slug.trim()
+      : "";
   const formSlug =
     typeof condition.form_field_slug === "string"
       ? condition.form_field_slug.trim()
@@ -191,7 +231,7 @@ function conditionMatches(
     typeof condition.entry_field_slug === "string"
       ? condition.entry_field_slug.trim()
       : "";
-  if (!formSlug && !entrySlug) return false;
+  if (!fieldProp && !formSlug && !entrySlug) return false;
 
   return valuesMatch(
     resolveActualValue(condition, values, options),

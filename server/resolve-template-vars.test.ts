@@ -245,6 +245,36 @@ describe("resolveAllTemplateVars", () => {
     });
   });
 
+  it("does not bake form_overrides condition operands (match-time only)", () => {
+    const data = {
+      tags: "{{ entry.tag }}",
+      form_overrides: [
+        {
+          conditions: [
+            {
+              field_property_slug: "{{ form.program }}",
+              value: "{{ entry.event_started }}",
+            },
+          ],
+          tags: "{{ entry.tag }}",
+        },
+      ],
+    };
+
+    const result = resolveAllTemplateVars(data, {
+      singleEntry: { tag: "from-entry", event_started: "true" },
+    }) as typeof data;
+
+    expect(result.tags).toBe("from-entry");
+    expect(result.form_overrides[0].conditions[0].field_property_slug).toBe(
+      "{{ form.program }}",
+    );
+    expect(result.form_overrides[0].conditions[0].value).toBe(
+      "{{ entry.event_started }}",
+    );
+    expect(result.form_overrides[0].tags).toBe("from-entry");
+  });
+
   it("exposes slug/locale/image under plain and underscore keys", () => {
     const result = resolveAllTemplateVars(
       {

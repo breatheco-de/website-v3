@@ -116,6 +116,13 @@ import { ConsentCard } from "./ConsentCard";
 import type { ConsentValues } from "./ConsentCard";
 import { WebhookCard, type WebhookSource } from "./WebhookCard";
 import { SuccessCard } from "./SuccessCard";
+import {
+  ConditionalRulesCard,
+  countRulesChangingAnyKey,
+  countRulesChangingKey,
+  type FormOverrideRule,
+} from "./ConditionalRulesCard";
+import { OverrideRulesBadge } from "./OverrideRulesBadge";
 import { RequireSignupCard } from "./RequireSignupCard";
 import { applyRawValuesAtPaths } from "./applyRawValueAtPath";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -2470,6 +2477,23 @@ export function SectionEditorPanel({
 
   // Join helper: "" means form settings at section root (lead_form).
   const formProp = (relative: string) => joinFormSettingsPath(formSettingsPath, relative);
+
+  const formOverridesRules: FormOverrideRule[] = (() => {
+    if (formSettingsPath == null || !parsedSection) return [];
+    const formNode =
+      formSettingsPath === ""
+        ? parsedSection
+        : getValueAtFieldPath(parsedSection, formSettingsPath);
+    if (!formNode || typeof formNode !== "object" || Array.isArray(formNode)) return [];
+    const overrides = (formNode as Record<string, unknown>).form_overrides;
+    return Array.isArray(overrides) ? (overrides as FormOverrideRule[]) : [];
+  })();
+
+  const scrollToFormRules = () => {
+    document
+      .getElementById("card-conditional-rules-anchor")
+      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
 
   /** Nested form-settings may be absent (CTA-only). Root bind always has a form object (the section). */
   const boundFormObjectPresent = (() => {
@@ -8301,6 +8325,9 @@ export function SectionEditorPanel({
                   >
                     <p className="text-sm text-amber-800 dark:text-amber-200">
                       This form looks incomplete (conversion name or form data without fields). Clear orphaned form data, or add fields.
+                      {formOverridesRules.length > 0
+                        ? ` This will also remove ${formOverridesRules.length} form rule(s).`
+                        : ""}
                     </p>
                     <Button
                       type="button"
@@ -8308,6 +8335,15 @@ export function SectionEditorPanel({
                       variant="outline"
                       data-testid="button-clear-form"
                       onClick={() => {
+                        const ruleCount = formOverridesRules.length;
+                        if (
+                          ruleCount > 0 &&
+                          !window.confirm(
+                            `Clear this form and remove ${ruleCount} rule(s) that change it?`,
+                          )
+                        ) {
+                          return;
+                        }
                         if (formSettingsPath === "" || formSettingsPath == null) {
                           updatePropertiesWithValues({
                             conversion_name: undefined,
@@ -8391,6 +8427,10 @@ export function SectionEditorPanel({
                       : isOff
                         ? "Conversion tracking is off for this form."
                         : "GTM event fired on form submission. Must match a configured conversion event.";
+                const conversionRuleCount = countRulesChangingKey(
+                  formOverridesRules,
+                  "conversion_name",
+                );
                 return (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between gap-2">
@@ -8401,30 +8441,37 @@ export function SectionEditorPanel({
                       >
                         Conversion goal
                       </Label>
-                      {(storedConversionName || isOff) && !showPicker && (
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          onClick={() => setConversionNameEditing(true)}
-                          data-testid="button-edit-conversion-name"
-                        >
-                          <IconPencil className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                      {showPicker && (storedConversionName || isOff) && (
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          onClick={() => setConversionNameEditing(false)}
-                          data-testid="button-cancel-edit-conversion-name"
-                        >
-                          <IconX className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
+                      <div className="flex items-center gap-1 shrink-0">
+                        <OverrideRulesBadge
+                          count={conversionRuleCount}
+                          onClick={scrollToFormRules}
+                          testId="badge-conversion-changed-by-rules"
+                        />
+                        {(storedConversionName || isOff) && !showPicker && (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={() => setConversionNameEditing(true)}
+                            data-testid="button-edit-conversion-name"
+                          >
+                            <IconPencil className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        {showPicker && (storedConversionName || isOff) && (
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            onClick={() => setConversionNameEditing(false)}
+                            data-testid="button-cancel-edit-conversion-name"
+                          >
+                            <IconX className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
 
                     {!showPicker ? (
@@ -8589,32 +8636,37 @@ export function SectionEditorPanel({
                 const convEvent = convName
                   ? trackingSettings?.conversion_events?.find((e) => e.name === convName)
                   : undefined;
+                const successRuleCount = countRulesChangingKey(formOverridesRules, "success");
                 return (
-                  <SuccessCard
-                    message={successMessage}
-                    url={successUrl}
-                    editing={successEditing}
-                    onEditingChange={setSuccessEditing}
-                    locale={locale}
-                    allSections={allSections}
-                    inheritedMessage={convEvent?.success?.message}
-                    inheritedUrl={convEvent?.success?.url}
-                    showReloadEntryFields
-                    reloadEntryFields={reloadEntryFields}
-                    onChange={(field, value) => {
-                      if (field === "reload_entry_fields") {
-                        updatePropertyWithValue(
-                          formProp("success.reload_entry_fields"),
-                          value === true ? true : undefined,
-                        );
-                        return;
-                      }
-                      // updateProperty deletes the key on empty values and prunes
-                      // empty parents, so clearing both removes `success` entirely
-                      // and falls back to the conversion event default.
-                      updateProperty(formProp(`success.${field}`), value as string);
-                    }}
-                  />
+                  <div className="space-y-2">
+                    <SuccessCard
+                      message={successMessage}
+                      url={successUrl}
+                      editing={successEditing}
+                      onEditingChange={setSuccessEditing}
+                      locale={locale}
+                      allSections={allSections}
+                      inheritedMessage={convEvent?.success?.message}
+                      inheritedUrl={convEvent?.success?.url}
+                      showReloadEntryFields
+                      reloadEntryFields={reloadEntryFields}
+                      overrideRulesCount={successRuleCount}
+                      onOverrideRulesClick={scrollToFormRules}
+                      onChange={(field, value) => {
+                        if (field === "reload_entry_fields") {
+                          updatePropertyWithValue(
+                            formProp("success.reload_entry_fields"),
+                            value === true ? true : undefined,
+                          );
+                          return;
+                        }
+                        // updateProperty deletes the key on empty values and prunes
+                        // empty parents, so clearing both removes `success` entirely
+                        // and falls back to the conversion event default.
+                        updateProperty(formProp(`success.${field}`), value as string);
+                      }}
+                    />
+                  </div>
                 );
               })()}
 
@@ -8682,64 +8734,72 @@ export function SectionEditorPanel({
                 const automationOverridden = rawAutomationVal !== undefined;
                 const rawTagsVal = getValueAtFieldPath(parsedSection, formProp("tags"));
                 const tagsOverridden = rawTagsVal !== undefined;
+                const automationsTagsRuleCount = countRulesChangingAnyKey(formOverridesRules, [
+                  "tags",
+                  "automations",
+                ]);
                 return (
-                  <AutomationsTagsCard
-                    automation={
-                      rawAutomationVal && !Array.isArray(rawAutomationVal)
-                        ? String(rawAutomationVal)
-                        : ""
-                    }
-                    tags={(() => {
-                      if (Array.isArray(rawTagsVal)) return rawTagsVal as string[];
-                      return rawTagsVal && !Array.isArray(rawTagsVal)
-                        ? String(rawTagsVal).split(",").map((t) => t.trim()).filter(Boolean)
-                        : [];
-                    })()}
-                    onAutomationChange={(val) => {
-                      if (automationOverridden && !val) {
-                        updatePropertyWithValue(formProp("automations"), []);
-                      } else {
-                        updateProperty(formProp("automations"), val);
+                  <div className="space-y-2">
+                    <AutomationsTagsCard
+                      overrideRulesCount={automationsTagsRuleCount}
+                      onOverrideRulesClick={scrollToFormRules}
+                      automation={
+                        rawAutomationVal && !Array.isArray(rawAutomationVal)
+                          ? String(rawAutomationVal)
+                          : ""
                       }
-                    }}
-                    onTagsChange={(vals) => {
-                      if (vals.length > 0) {
-                        updatePropertyWithValue(formProp("tags"), vals);
-                      } else if (tagsOverridden) {
-                        updatePropertyWithValue(formProp("tags"), []);
-                      } else {
-                        updatePropertyWithValue(formProp("tags"), undefined);
-                      }
-                    }}
-                    automationSuggestions={formStateSuggestions?.automations ?? []}
-                    tagSuggestions={formStateSuggestions?.tags ?? []}
-                    inheritedAutomation={inheritedAutomation}
-                    inheritedTags={inheritedTags}
-                    automationOverridden={automationOverridden}
-                    tagsOverridden={tagsOverridden}
-                    onAutomationOverrideChange={(override) => {
-                      if (override) {
-                        if (inheritedAutomation) {
-                          updateProperty(formProp("automations"), inheritedAutomation);
-                        } else {
+                      tags={(() => {
+                        if (Array.isArray(rawTagsVal)) return rawTagsVal as string[];
+                        return rawTagsVal && !Array.isArray(rawTagsVal)
+                          ? String(rawTagsVal).split(",").map((t) => t.trim()).filter(Boolean)
+                          : [];
+                      })()}
+                      onAutomationChange={(val) => {
+                        if (automationOverridden && !val) {
                           updatePropertyWithValue(formProp("automations"), []);
-                        }
-                      } else {
-                        updatePropertyWithValue(formProp("automations"), undefined);
-                      }
-                    }}
-                    onTagsOverrideChange={(override) => {
-                      if (override) {
-                        if (inheritedTags && inheritedTags.length > 0) {
-                          updatePropertyWithValue(formProp("tags"), inheritedTags);
                         } else {
-                          updatePropertyWithValue(formProp("tags"), []);
+                          updateProperty(formProp("automations"), val);
                         }
-                      } else {
-                        updatePropertyWithValue(formProp("tags"), undefined);
-                      }
-                    }}
-                  />
+                      }}
+                      onTagsChange={(vals) => {
+                        if (vals.length > 0) {
+                          updatePropertyWithValue(formProp("tags"), vals);
+                        } else if (tagsOverridden) {
+                          updatePropertyWithValue(formProp("tags"), []);
+                        } else {
+                          updatePropertyWithValue(formProp("tags"), undefined);
+                        }
+                      }}
+                      automationSuggestions={formStateSuggestions?.automations ?? []}
+                      tagSuggestions={formStateSuggestions?.tags ?? []}
+                      inheritedAutomation={inheritedAutomation}
+                      inheritedTags={inheritedTags}
+                      automationOverridden={automationOverridden}
+                      tagsOverridden={tagsOverridden}
+                      onAutomationOverrideChange={(override) => {
+                        if (override) {
+                          if (inheritedAutomation) {
+                            updateProperty(formProp("automations"), inheritedAutomation);
+                          } else {
+                            updatePropertyWithValue(formProp("automations"), []);
+                          }
+                        } else {
+                          updatePropertyWithValue(formProp("automations"), undefined);
+                        }
+                      }}
+                      onTagsOverrideChange={(override) => {
+                        if (override) {
+                          if (inheritedTags && inheritedTags.length > 0) {
+                            updatePropertyWithValue(formProp("tags"), inheritedTags);
+                          } else {
+                            updatePropertyWithValue(formProp("tags"), []);
+                          }
+                        } else {
+                          updatePropertyWithValue(formProp("tags"), undefined);
+                        }
+                      }}
+                    />
+                  </div>
                 );
               })()}
 
@@ -9122,72 +9182,199 @@ export function SectionEditorPanel({
                   session,
                   { singleEntry },
                 );
+                const webhookRuleCount = countRulesChangingKey(formOverridesRules, "webhook");
                 return (
-                  <WebhookCard
-                    url={rawSectionWebhookUrl}
-                    method={
-                      (getValueAtFieldPath(
-                        parsedSection,
-                        formProp("webhook.method")
-                      ) as "POST" | "GET") ?? "POST"
-                    }
-                    headers={sectionHeaders}
-                    failSilently={sectionFailSilently}
-                    editing={webhookEditing}
-                    onEditingChange={setWebhookEditing}
-                    onChange={(field, value) => {
-                      if (field === "url") {
-                        if (!value) {
-                          updatePropertyWithValue(formProp("webhook"), undefined);
-                        } else {
-                          updateProperty(formProp("webhook.url"), value as string);
-                        }
-                      } else if (field === "method") {
-                        updateProperty(formProp("webhook.method"), value as string);
-                      } else if (field === "headers") {
-                        const next = value as Record<string, string>;
-                        if (!next || Object.keys(next).length === 0) {
-                          updatePropertyWithValue(formProp("webhook.headers"), undefined);
-                        } else {
-                          updatePropertyWithValue(formProp("webhook.headers"), next);
-                        }
-                      } else if (field === "failSilently") {
-                        if (value === true) {
-                          updateProperty(formProp("webhook.fail_silently"), true);
-                        } else {
+                  <div className="space-y-2">
+                    <WebhookCard
+                      url={rawSectionWebhookUrl}
+                      method={
+                        (getValueAtFieldPath(
+                          parsedSection,
+                          formProp("webhook.method")
+                        ) as "POST" | "GET") ?? "POST"
+                      }
+                      headers={sectionHeaders}
+                      failSilently={sectionFailSilently}
+                      editing={webhookEditing}
+                      onEditingChange={setWebhookEditing}
+                      overrideRulesCount={webhookRuleCount}
+                      onOverrideRulesClick={scrollToFormRules}
+                      onChange={(field, value) => {
+                        if (field === "url") {
+                          if (!value) {
+                            updatePropertyWithValue(formProp("webhook"), undefined);
+                          } else {
+                            updateProperty(formProp("webhook.url"), value as string);
+                          }
+                        } else if (field === "method") {
+                          updateProperty(formProp("webhook.method"), value as string);
+                        } else if (field === "headers") {
+                          const next = value as Record<string, string>;
+                          if (!next || Object.keys(next).length === 0) {
+                            updatePropertyWithValue(formProp("webhook.headers"), undefined);
+                          } else {
+                            updatePropertyWithValue(formProp("webhook.headers"), next);
+                          }
+                        } else if (field === "failSilently") {
                           updatePropertyWithValue(
                             formProp("webhook.fail_silently"),
-                            undefined,
+                            value === true ? true : undefined,
                           );
                         }
+                      }}
+                      hint={webhookHint}
+                      source={webhookSource}
+                      inheritedUrl={
+                        webhookSource === "event"
+                          ? eventWebhookUrl
+                          : webhookSource === "global"
+                          ? globalWebhookUrl
+                          : undefined
                       }
-                    }}
-                    hint={webhookHint}
-                    source={webhookSource}
-                    inheritedUrl={
-                      webhookSource === "event"
-                        ? eventWebhookUrl
-                        : webhookSource === "global"
-                        ? globalWebhookUrl
-                        : undefined
-                    }
-                    samplePayload={webhookSamplePayload}
-                    onTest={async () => {
-                      try {
-                        const res = await apiRequest("POST", "/api/tracking/webhook/test", {
-                          payload: webhookSamplePayload,
-                        });
-                        const data = await res.json().catch(() => ({}));
-                        if (!res.ok || !(data as any).ok) {
-                          return { ok: false, error: (data as any).error || `HTTP ${res.status}` };
+                      samplePayload={webhookSamplePayload}
+                      onTest={async () => {
+                        try {
+                          const res = await apiRequest("POST", "/api/tracking/webhook/test", {
+                            payload: webhookSamplePayload,
+                          });
+                          const data = await res.json().catch(() => ({}));
+                          if (!res.ok || !(data as any).ok) {
+                            return { ok: false, error: (data as any).error || `HTTP ${res.status}` };
+                          }
+                          return { ok: true, status: (data as any).status };
+                        } catch (e: any) {
+                          return { ok: false, error: e.message };
                         }
-                        return { ok: true, status: (data as any).status };
-                      } catch (e: any) {
-                        return { ok: false, error: e.message };
-                      }
-                    }}
-                    testIdPrefix="section-webhook"
-                  />
+                      }}
+                      testIdPrefix="section-webhook"
+                    />
+                  </div>
+                );
+              })()}
+
+              {/* Rules that change this form (form_overrides) */}
+              {(() => {
+                const rawTags = getValueAtFieldPath(parsedSection, formProp("tags"));
+                const tagsDefault = Array.isArray(rawTags)
+                  ? (rawTags as string[]).join(",")
+                  : rawTags != null
+                    ? String(rawTags)
+                    : "";
+                const rawAutomation = getValueAtFieldPath(
+                  parsedSection,
+                  formProp("automations"),
+                );
+                const automationsDefault =
+                  rawAutomation != null && !Array.isArray(rawAutomation)
+                    ? String(rawAutomation)
+                    : "";
+                const successDefault = {
+                  message: String(
+                    getValueAtFieldPath(parsedSection, formProp("success.message")) ?? "",
+                  ),
+                  url: String(
+                    getValueAtFieldPath(parsedSection, formProp("success.url")) ?? "",
+                  ),
+                  reload_entry_fields:
+                    getValueAtFieldPath(
+                      parsedSection,
+                      formProp("success.reload_entry_fields"),
+                    ) === true
+                      ? true
+                      : undefined,
+                };
+                const webhookHeadersRaw = getValueAtFieldPath(
+                  parsedSection,
+                  formProp("webhook.headers"),
+                );
+                const webhookDefault = {
+                  url: String(
+                    getValueAtFieldPath(parsedSection, formProp("webhook.url")) ?? "",
+                  ),
+                  method:
+                    (getValueAtFieldPath(
+                      parsedSection,
+                      formProp("webhook.method"),
+                    ) as "POST" | "GET") ?? "POST",
+                  headers:
+                    webhookHeadersRaw &&
+                    typeof webhookHeadersRaw === "object" &&
+                    !Array.isArray(webhookHeadersRaw)
+                      ? (webhookHeadersRaw as Record<string, string>)
+                      : undefined,
+                  fail_silently:
+                    getValueAtFieldPath(
+                      parsedSection,
+                      formProp("webhook.fail_silently"),
+                    ) === true
+                      ? true
+                      : undefined,
+                };
+                const messagesRaw = getValueAtFieldPath(
+                  parsedSection,
+                  formProp("messages"),
+                );
+                const conversionRaw = getValueAtFieldPath(
+                  parsedSection,
+                  formProp("conversion_name"),
+                );
+                return (
+                  <div id="card-conditional-rules-anchor">
+                    <ConditionalRulesCard
+                      rules={formOverridesRules}
+                      onChange={(next) => {
+                        const hasIncomplete = next.some(
+                          (r) =>
+                            !(r.conditions ?? []).some((c) => {
+                              const left =
+                                typeof c.field_property_slug === "string"
+                                  ? c.field_property_slug.trim()
+                                  : "";
+                              return Boolean(left);
+                            }),
+                        );
+                        if (hasIncomplete) {
+                          // Keep drafts in the editor; still write so staff can iterate
+                          updatePropertyWithValue(
+                            formProp("form_overrides"),
+                            next.length > 0 ? next : undefined,
+                          );
+                          return;
+                        }
+                        updatePropertyWithValue(
+                          formProp("form_overrides"),
+                          next.length > 0 ? next : undefined,
+                        );
+                      }}
+                      formDefaults={{
+                        conversion_name:
+                          conversionRaw === null
+                            ? null
+                            : typeof conversionRaw === "string"
+                              ? conversionRaw
+                              : "",
+                        success: successDefault,
+                        tags: tagsDefault,
+                        automations: automationsDefault,
+                        webhook: webhookDefault,
+                        messages:
+                          messagesRaw &&
+                          typeof messagesRaw === "object" &&
+                          !Array.isArray(messagesRaw)
+                            ? (messagesRaw as Record<string, unknown>)
+                            : undefined,
+                      }}
+                      conversionEventNames={(trackingSettings?.conversion_events ?? []).map(
+                        (e) => e.name,
+                      )}
+                      automationSuggestions={formStateSuggestions?.automations ?? []}
+                      tagSuggestions={formStateSuggestions?.tags ?? []}
+                      contentType={contentType || ""}
+                      singleEntry={singleEntry as Record<string, unknown> | undefined}
+                      allSections={allSections}
+                      locale={locale}
+                    />
+                  </div>
                 );
               })()}
             </div>

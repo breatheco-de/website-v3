@@ -2,13 +2,13 @@ name: "Stacked with form_override conditions"
 description: >-
   Stacked lead form with form_overrides and a program field using simple-list
   modal (menu layout + onSelect). Each form_override uses conditions
-  (form_field_slug or entry_field_slug + value, AND). First match overlays
-  conversion_name, success, tags, webhook, and messages for both UI and submit;
-  if none match, root form values apply. Optional match_method: contains
-  (substring or array membership). Condition values may use {{ visitor.* }}.
-  entry_field_slug is a bare entry path (not a {{ entry.* }} template). Program
-  values use bc_slug. Optional fields.*.options merge by value over the programs
-  pool for marketing copy.
+  (field_property_slug + value, AND; legacy form_field_slug / entry_field_slug
+  still work). First match overlays conversion_name, success, tags, webhook,
+  and messages for both UI and submit; if none match, root form values apply.
+  Optional match_method: contains (substring or array membership). Condition
+  operands resolve in LeadForm at match time ({{ form.* }} / {{ entry.* }} /
+  {{ visitor.* }}). Program values use bc_slug. Optional fields.*.options merge
+  by value over the programs pool for marketing copy.
 yaml: |
   - type: lead_form
     version: "1.0"
@@ -48,7 +48,7 @@ yaml: |
       message: "Thanks! We'll contact you within 24 hours."
     form_overrides:
       - conditions:
-          - form_field_slug: program
+          - field_property_slug: "{{ form.program }}"
             value: ai-engineering
         conversion_name: student_application
         ecommerce_product_field: program
@@ -57,9 +57,9 @@ yaml: |
           message: "Thanks! An AI admissions advisor will follow up."
         tags: ai-lead
       - conditions:
-          - form_field_slug: program
+          - field_property_slug: "{{ form.program }}"
             value: full-stack
-          - form_field_slug: plan
+          - field_property_slug: "{{ form.plan }}"
             value: part-time
         conversion_name: student_application
         ecommerce_product_field: program
@@ -67,7 +67,7 @@ yaml: |
           url: /en/thank-you-fullstack-part-time
         tags: fullstack-lead,part-time
       - conditions:
-          - form_field_slug: program
+          - field_property_slug: "{{ form.program }}"
             value: full-stack
         conversion_name: student_application
         ecommerce_product_field: program

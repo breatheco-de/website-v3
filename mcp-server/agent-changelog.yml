@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-05"
+    summary: "form_overrides conditions use field_property_slug + match-time form/entry/visitor bags"
+    agent_impact:
+      - "Prefer conditions[].field_property_slug templates such as {{ form.program }}, {{ entry.event_started }}, {{ visitor.id }}. Legacy form_field_slug / entry_field_slug still match."
+      - "Section/SSR resolveDeep does not expand form_overrides[].conditions operand strings; LeadForm resolves them at match time with a form bag (watched values) plus entry and visitor."
+      - "Outcomes remain partial overlays — omit keys that equal the form defaults. Staff Forms tab: Rules that change this form. explain_site topic lead-forms → Continuous form_overrides."
+    tools_changed: false
+    paths:
+      - shared/resolveLeadFormOverride.ts
+      - client/src/lib/variable-manager.ts
+      - mcp-server/explain/lead-forms.md
+      - fixtures/ci/content-4geeks-com/component-registry/lead_form/v1.0/examples/stacked_with_routes.yml
   - date: "2026-11-03"
     summary: "Staff with proposals_review can approve or accept past open blockers from the staff UI; agents still cannot"
     agent_impact:

@@ -126,17 +126,19 @@ Live submit builds the body from the map only (no legacy payload merge). `conver
 
 No magic aliases: `payload.course` ← `form.program` only if that mapping row exists.
 
-## Continuous `form_overrides` + `{{ visitor.* }}`
+## Continuous `form_overrides` + match-time templates
 
-First matching override overlays the form root for **UI and submit** (not submit-only). Plain objects (`messages`, `success`, `webhook`) deep-merge.
+First matching override overlays the form root for **UI and submit** (not submit-only). Plain objects (`messages`, `success`, `webhook`) deep-merge. Outcomes only need keys that **differ** from the form defaults (staff UI strips equals-default).
+
+Prefer **`field_property_slug`** (template resolved in LeadForm at match time with bags `{ form, entry, visitor }`). Section / SSR `resolveDeep` **does not** expand condition operands (`field_property_slug`, `value`, legacy slugs)—same reason bare `entry_field_slug` existed.
 
 ```yaml
 form_overrides:
   - conditions:
-      - entry_field_slug: registered_attendee_ids
+      - field_property_slug: "{{ entry.registered_attendee_ids }}"
         match_method: contains   # equals (default) | contains
         value: "{{ visitor.id }}"
-      - entry_field_slug: event_started
+      - field_property_slug: "{{ entry.event_started }}"
         value: "true"
     messages:
       ready:
@@ -146,7 +148,11 @@ form_overrides:
     success:
       url: "https://…/join?token={{ visitor.token }}"
   - conditions:
-      - entry_field_slug: event_started
+      - field_property_slug: "{{ form.program }}"
+        value: ai-engineering
+    tags: ai-lead
+  - conditions:
+      - field_property_slug: "{{ entry.event_started }}"
         value: "false"
     webhook:
       url: "https://…/checkin"
@@ -158,10 +164,10 @@ form_overrides:
       reload_entry_fields: true
 ```
 
-- **`form_field_slug`:** compare against a submitted form field (e.g. `program`).
-- **`entry_field_slug`:** bare entry field path looked up on `singleEntry` at match time (e.g. `event_started`). Do **not** use `{{ entry.* }}` here — section `resolveDeep` would replace the template before LeadForm runs. Listing `item_property_slug` is unrelated.
+- **`field_property_slug`:** left operand template — `{{ form.program }}`, `{{ entry.event_started }}`, `{{ visitor.id }}`, etc.
+- **Legacy:** `form_field_slug` / `entry_field_slug` still match (compat → `{{ form.* }}` / `{{ entry.* }}`). Staff UI writes `field_property_slug` only.
 - **`match_method: contains`:** substring on strings; membership on arrays of scalars/ids. Not deep object search.
-- **Condition `value`:** `resolveDeep` — literals or `{{ visitor.* }}` (logged-in auth profile + `visitor.token`). Logged out → unresolved → contains fails → normal form.
+- **Condition `value`:** match-time resolve — literals or `{{ form.* }}` / `{{ visitor.* }}` / `{{ entry.* }}`. Logged out visitor → unresolved → contains fails → normal form.
 - **Order matters:** put already-registered overrides before generic live/upcoming.
 - **Webhook default is strict** (await upstream; 502 → no success UI). `webhook.fail_silently: true` = fire-and-forget.
 - **`webhook.headers`:** outbound headers; use `Authorization: "Token {{ visitor.token }}"` instead of removed `use_visitor_token`.

@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { LinkPicker } from "./LinkPicker";
 import type { Section } from "@shared/schema";
+import { OverrideRulesBadge } from "./OverrideRulesBadge";
 
 export type SuccessMode = "message" | "redirect";
 
@@ -40,6 +41,9 @@ export interface SuccessCardProps {
   reloadEntryFields?: boolean;
   showReloadEntryFields?: boolean;
   testIdPrefix?: string;
+  /** Rules that override success — shown left of the edit control. */
+  overrideRulesCount?: number;
+  onOverrideRulesClick?: () => void;
 }
 
 export function SuccessCard({
@@ -56,6 +60,8 @@ export function SuccessCard({
   reloadEntryFields = false,
   showReloadEntryFields = false,
   testIdPrefix = "form-success",
+  overrideRulesCount = 0,
+  onOverrideRulesClick,
 }: SuccessCardProps) {
   const localeFallback =
     locale === "es"
@@ -129,20 +135,29 @@ export function SuccessCard({
           )}
         </div>
 
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="h-6 w-6 flex-shrink-0"
-          onClick={() => onEditingChange(!editing)}
-          data-testid={`button-edit-${testIdPrefix}`}
-        >
-          {editing ? (
-            <IconX className="h-3.5 w-3.5" />
-          ) : (
-            <IconPencil className="h-3.5 w-3.5" />
+        <div className="flex items-center gap-1 shrink-0">
+          {onOverrideRulesClick && (
+            <OverrideRulesBadge
+              count={overrideRulesCount}
+              onClick={onOverrideRulesClick}
+              testId={`badge-${testIdPrefix}-changed-by-rules`}
+            />
           )}
-        </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-6 w-6 flex-shrink-0"
+            onClick={() => onEditingChange(!editing)}
+            data-testid={`button-edit-${testIdPrefix}`}
+          >
+            {editing ? (
+              <IconX className="h-3.5 w-3.5" />
+            ) : (
+              <IconPencil className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
       </div>
 
       {editing ? (

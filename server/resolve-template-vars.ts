@@ -21,6 +21,7 @@ import {
   extractUrlPatternParams,
 } from "./content-types";
 import { parsePipeFallback } from "@shared/json-field";
+import { reapplyFormOverrideConditionOperands } from "@shared/preserveFormOverrideOperands";
 
 function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown {
   const parts = dotPath.split(".");
@@ -320,5 +321,6 @@ export function resolveAllTemplateVars(
     result = siteResolved;
   }
 
-  return result;
+  // Match-time condition operands — restore after bag walks (see shared/preserveFormOverrideOperands).
+  return reapplyFormOverrideConditionOperands(data, result);
 }

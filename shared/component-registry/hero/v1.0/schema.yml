@@ -1351,6 +1351,9 @@ variant_props:
               type: array
               required: true
               items:
+                field_property_slug:
+                  type: string
+                  required: false
                 form_field_slug:
                   type: string
                   required: false
@@ -2776,6 +2779,9 @@ variant_props:
                   type: array
                   required: true
                   items:
+                    field_property_slug:
+                      type: string
+                      required: false
                     form_field_slug:
                       type: string
                       required: false

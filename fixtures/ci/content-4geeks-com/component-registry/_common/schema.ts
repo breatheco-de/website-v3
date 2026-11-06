@@ -209,15 +209,21 @@ export const webhookConfigSchema = z.object({
 
 export type WebhookConfig = z.infer<typeof webhookConfigSchema>;
 
-/** Override condition: form_field_slug XOR entry_field_slug. See shared/resolveLeadFormOverride.ts */
+/**
+ * Override condition: prefer field_property_slug (template resolved at match time).
+ * Legacy form_field_slug / entry_field_slug still accepted. See shared/resolveLeadFormOverride.ts
+ */
 export const leadFormOverrideConditionSchema = z
   .object({
+    /** Template left operand, e.g. "{{ form.program }}" / "{{ entry.event_started }}". */
+    field_property_slug: z.string().optional(),
+    /** @deprecated Prefer field_property_slug with {{ form.* }} */
     form_field_slug: z.string().optional(),
-    /** Bare entry field path (e.g. event_started); looked up on singleEntry at match time. */
+    /** @deprecated Prefer field_property_slug with {{ entry.* }} */
     entry_field_slug: z.string().optional(),
     /** Default equals. contains = substring on strings; membership on arrays of scalars. */
     match_method: z.enum(["equals", "contains"]).optional(),
-    /** Compared value; {{ visitor.* }} / templates via resolveDeep may keep numbers. */
+    /** Compared value; {{ form.* }} / {{ visitor.* }} / templates via match-time resolve. */
     value: z.unknown(),
   })
   .passthrough();
@@ -299,7 +305,8 @@ export const leadFormDataSchema = z.object({
   }).optional(),
   /**
    * Continuous form_overrides: first match overlays form props for UI + submit.
-   * Conditions use form_field_slug or entry_field_slug; values may use {{ visitor.* }}.
+   * Conditions prefer field_property_slug templates ({{ form.* }} / {{ entry.* }} / {{ visitor.* }});
+   * legacy form_field_slug / entry_field_slug still work.
    */
   form_overrides: z.array(leadFormOverrideSchema).optional(),
   /** Phase copy for signup forms (guest/login/incomplete/ready). Override messages deep-merge here. */
