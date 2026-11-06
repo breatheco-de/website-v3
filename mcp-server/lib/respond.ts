@@ -44,6 +44,7 @@ export type DiscoveryPathToolItem = {
   available: boolean;
   /** When available === false: ask human to enable access, then refresh MCP. */
   hint?: string;
+  args_hint?: Record<string, unknown>;
 };
 
 export type DiscoveryPathItem = DiscoveryPathThinkItem | DiscoveryPathToolItem;

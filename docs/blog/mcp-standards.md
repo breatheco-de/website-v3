@@ -17,7 +17,7 @@ This is the quality bar we use when we build or change an MCP server. It is writ
 
 The Model Context Protocol defines how agents connect and call tools. It does **not** define how those tools should teach blast radius, non-effects, or the next correct call. That gap is ours to fill.
 
-Use this document when you add a tool, change a mutate response, or review an MCP PR. The principles apply to any domain (content, commerce, ops, data) — not to one product or site. For the narrative case study behind these ideas, see [MCP Has No Quality Standards…](./mcp-has-no-quality-standards-we-wrote-ours-so-agents-can-run-our-website.md). For code-enforced rules, see `.cursor/rules/mcp-server-responses.mdc`.
+Use this document when you add a tool, change a mutate response, or review an MCP PR. The principles apply to any domain (content, commerce, ops, data) — not to one product or site. For the narrative case study behind these ideas, see [MCP Has No Quality Standards…](./mcp-has-no-quality-standards-we-wrote-ours-so-agents-can-run-our-website.md). For code-enforced rules, see `.cursor/rules/mcp-server-responses.mdc`. To see what these rules produce, [MCP response examples](../mcp-response-examples.md) walks through six real responses.
 
 ---
 
@@ -145,17 +145,17 @@ Any MCP response may include **`discovery_path`** when the server wants to recom
 Shape (shared type in `respond.ts`):
 
 - `goal` — deepen context before acting; not `next_actions`; skip does not block
-- `items[]` — ordered; **`kind: "think"`** first (judgment / host-agnostic research; no fake MCP tools), then **`kind: "tool"`** (registered catalog name + `available` + optional hint when capped)
+- `items[]` — ordered; **`kind: "think"`** first (judgment / host-agnostic research; no fake MCP tools), then **`kind: "tool"`** (registered catalog name + `available` + optional hint when capped + optional `args_hint`)
 - `non_effects` — e.g. skip does not block apply
 
 Rules:
 
 - Not required on every `ok()`
-- Think items capped (≤5), short `why` / `look_for`
+- Think items capped (≤6), short `why` / `look_for`
 - Tool names must be real catalog tools; never invent tools
 - Unavailable-but-useful tools stay visible (`available: false` + ask-human / refresh-connector hint)
 - Do **not** fold discovery items into `next_actions`
-- No resource-specific `args_hint` on discovery tool items — the agent chooses args from the rest of the payload
+- `args_hint` on a tool item only pre-fills the resource the response is already about (the entry under review, the variable names it uses); it is a convenience, not an instruction to call
 
 ---
 
@@ -236,6 +236,7 @@ This repo's MCP is a **content CMS for agents** (YAML entries, sections, SEO/met
 | Artifact | Role |
 |----------|------|
 | This file (`docs/blog/mcp-standards.md`) | Human-friendly standards |
+| [`docs/mcp-response-examples.md`](../mcp-response-examples.md) | Real responses for six situations (generated from the helpers; `npm test` checks them) |
 | `.cursor/rules/mcp-server-responses.mdc` | PR / agent gate for `mcp-server/**` |
 | `.cursor/rules/education-layer-planning.mdc` | Staff vs agent education in plans |
 | `mcp-server/lib/respond.ts` | Envelope helpers + `DiscoveryPath` types |

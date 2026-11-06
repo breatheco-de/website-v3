@@ -5,6 +5,22 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-06"
+    summary: "Reviewer agents approve requested page-level changes; apply refuses agents only for unrequested page-level fields or dropped live values; detached is never proposable"
+    agent_impact:
+      - "There is no rule that reviewer agents must not apply proposals writing _common.yml. Requested funnel.* / authors / published_at publish to _common.yml for every language on apply — approve them like any other field; no STAFF FIX handoff."
+      - "Agent (MCP) apply now refuses, nothing published: agent_apply_unrequested_page_fields (draft changes page-level fields no requested op covers) and agent_apply_drops_live_values (publish would drop a live value; was the display_values_change warning). details.entries[] { entry_key, locale, variant, fields }; dry_run lists them as warnings. Fix = add_blocker so the author revise_entries (drop the fields, or add the live values as requested updates). Staff UI apply is unaffected."
+      - "propose_change / revise_entries / apply refuse any detached update with detached_not_supported (any caller; nothing written). Detach outside proposals with set_entry_attachment. Old-rule STAFF FIX blockers are cleared by staff data migration 011_clear_page_wide_rule_blockers — re-review those proposals."
+    tools_changed: false
+    paths:
+      - server/content-proposals/service.ts
+      - server/content-proposals/page-wide-apply-codes.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/agent-conventions.md
+      - mcp-server/explain/proposals.md
+      - mcp-server/explain/funnel-classification-proposals.md
+      - mcp-server/explain/content_system.md
+      - scripts/migrations/011_clear_page_wide_rule_blockers.ts
   - date: "2026-11-03"
     summary: "Staff with proposals_review can approve or accept past open blockers from the staff UI; agents still cannot"
     agent_impact:

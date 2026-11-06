@@ -37,6 +37,7 @@
     "variant-metadata:backfill": "tsx scripts/backfill-variant-metadata.ts",
     "ensure:pipeline-db": "tsx scripts/ensure-pipeline-db.ts",
     "generate:icon-map": "tsx scripts/generate-icon-map.ts",
+    "docs:mcp-examples": "tsx scripts/docs/mcp-response-examples.ts",
     "predev": "npm run check:sites && npm run ensure:registry && npm run ensure:schema-yml && npm run generate:icon-map",
     "prebuild": "npm run check:sites-yml && npm run ensure:registry && npm run ensure:schema-yml && npm run check:section-spacing && npm run generate:icon-map",
     "prepack": "node scripts/prepare-site-schemas-for-pack.mjs",

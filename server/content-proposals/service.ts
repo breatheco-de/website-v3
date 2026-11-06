@@ -28,6 +28,12 @@ import {
 import path from "path";
 import { sameValue, type FieldChange } from "../versioning/draft-base";
 import { fieldScope } from "@shared/field-scope";
+import {
+  AGENT_APPLY_DROPS_LIVE_VALUES_CODE,
+  AGENT_APPLY_UNREQUESTED_PAGE_FIELDS_CODE,
+  DETACHED_NOT_SUPPORTED_CODE,
+  isDetachedFieldPath,
+} from "./page-wide-apply-codes";
 import { onVariantWrite, readDraftMeta } from "../versioning/draft-meta";
 import {
   draftStoreForSite,
@@ -2261,6 +2267,10 @@ export const PROPOSAL_SYSTEM_VERSION = "1.0";
 /** Apply dry_run on a proposal with open blockers: preview ran, real apply still refused. */
 export const PREVIEW_WHILE_BLOCKED_CODE = "preview_while_blocked";
 
+const DETACHED_NOT_SUPPORTED_ERROR =
+  "Proposals can't change whether a page uses the shared layout yet, because that changes every language of the page at once. " +
+  "Nothing was saved or published. Leave it out of the proposal and change it from the page's layout setting instead.";
+
 const LEGACY_ALLOWED_ACTIONS = new Set<ProposalUpdateAction>([
   "withdraw",
   "reject",
@@ -4025,6 +4035,24 @@ export function createProposalService(deps: ProposalServiceDeps) {
     return { ok: true, createsEntry: true };
   }
 
+  /** Detaching from the shared template is not supported in proposals (other languages would lose their layout). */
+  function checkDetachedUpdates(entries: ProposalEntryInput[]):
+    | { ok: true }
+    | { ok: false; code: string; error: string; details: Record<string, unknown> } {
+    const hits = entries.flatMap((e) =>
+      (e.updates ?? [])
+        .filter((u) => isDetachedFieldPath(u.field_path))
+        .map(() => ({ contentType: e.contentType, slug: e.slug, locale: e.locale })),
+    );
+    if (!hits.length) return { ok: true };
+    return {
+      ok: false,
+      code: DETACHED_NOT_SUPPORTED_CODE,
+      error: DETACHED_NOT_SUPPORTED_ERROR,
+      details: { entries: hits, field_path: "detached" },
+    };
+  }
+
   /** Registry check for every full `sections` update (new pages, new languages, full rewrites). */
   function checkSectionUpdates(entries: ProposalEntryInput[]):
     | { ok: true }
@@ -5204,6 +5232,63 @@ export function createProposalService(deps: ProposalServiceDeps) {
     }
     const failed = checks.filter((c) => !c.ok);
 
+    const pageScope = work.map((entry) => {
+      const changes =
+        entry.author_diff ?? (entry.variant ? store!.authorDiff(refOf(entry))?.changes : undefined) ?? [];
+      const requested = entry.requested_ops ?? entry.ops;
+      return {
+        ref: { entry_key: entry.entry_key, locale: entry.locale, variant: entry.variant },
+        detached: changes.some((c) => isDetachedFieldPath(c.field_path)),
+        unrequestedCommon: unrequestedFields(requested, changes).filter((p) => fieldScope(p) === "common"),
+      };
+    });
+    const gateWarnings: Array<{ code: string; message: string; details: Record<string, unknown> }> = [];
+    const detachedEntries = pageScope.filter((p) => p.detached).map((p) => p.ref);
+    if (detachedEntries.length) {
+      if (!caller.dry_run) {
+        return {
+          ok: false as const,
+          code: DETACHED_NOT_SUPPORTED_CODE,
+          error: DETACHED_NOT_SUPPORTED_ERROR,
+          proposal,
+          details: { entries: detachedEntries, field_path: "detached" },
+        };
+      }
+      gateWarnings.push({
+        code: DETACHED_NOT_SUPPORTED_CODE,
+        message: DETACHED_NOT_SUPPORTED_ERROR,
+        details: { entries: detachedEntries, field_path: "detached" },
+      });
+    }
+    if (caller.caller_is_mcp) {
+      const unrequested = pageScope
+        .filter((p) => p.unrequestedCommon.length)
+        .map((p) => ({ ...p.ref, fields: p.unrequestedCommon }));
+      if (unrequested.length) {
+        gateWarnings.push({
+          code: AGENT_APPLY_UNREQUESTED_PAGE_FIELDS_CODE,
+          message:
+            "The draft also changes page-wide settings (shared by every language) that the author did not ask for. " +
+            "Agents cannot approve this; staff can. Block it so the author drops those fields with revise_entries.",
+          details: { entries: unrequested },
+        });
+      }
+      const drops = checks.flatMap((c) =>
+        (c.warnings ?? [])
+          .filter((w) => w.code === "display_values_change")
+          .map((w) => ({ entry_key: c.entry_key, locale: c.locale, variant: c.variant, fields: w.fields ?? [] })),
+      );
+      if (drops.length) {
+        gateWarnings.push({
+          code: AGENT_APPLY_DROPS_LIVE_VALUES_CODE,
+          message:
+            "Publishing would remove page-wide values visitors see today (they are stored only in a language file). " +
+            "Agents cannot approve this; staff can. Block it so the author adds those values as requested updates with revise_entries, so publishing keeps them.",
+          details: { entries: drops },
+        });
+      }
+    }
+
     const endExperiment = failed.find((c) => c.code === "confirm_end_experiment");
     if (endExperiment && !caller.dry_run) {
       return {
@@ -5272,6 +5357,20 @@ export function createProposalService(deps: ProposalServiceDeps) {
         },
       };
     }
+    const agentRefusal = gateWarnings.find((w) => w.code !== DETACHED_NOT_SUPPORTED_CODE);
+    if (agentRefusal && !caller.dry_run) {
+      const others = gateWarnings.filter((w) => w !== agentRefusal);
+      return {
+        ok: false as const,
+        code: agentRefusal.code,
+        error: `Nothing was published. ${gateWarnings.map((w) => w.message).join(" ")}`,
+        proposal,
+        details: {
+          ...agentRefusal.details,
+          ...(others.length ? { also: others.map((w) => ({ code: w.code, ...w.details })) } : {}),
+        },
+      };
+    }
     const placeholderGaps = affected ? templatePlaceholderWarnings(work) : [];
     if (caller.dry_run) {
       const chainGate = predecessorGate(db, proposal);
@@ -5287,6 +5386,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
             ]
           : []),
         ...(chainGate.ok ? [] : [{ code: chainGate.code, message: chainGate.error, details: chainGate.details }]),
+        ...gateWarnings,
         ...failed.map((c) => ({ code: c.code ?? "apply_check_failed", message: `${c.entry_key} (${c.locale}): ${c.error}` })),
         ...checks.flatMap((c) =>
           (c.warnings ?? []).map((w) => ({
@@ -6085,6 +6185,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
             "This proposal mixes different risk levels (for example outcome figures and a blog metadata fix). Split into separate proposals — one risk class each.",
         };
       }
+      const detachedCheck = checkDetachedUpdates(entriesIn);
+      if (!detachedCheck.ok) return detachedCheck;
       const sectionsCheck = checkSectionUpdates(entriesIn);
       if (!sectionsCheck.ok) return sectionsCheck;
     }
@@ -6662,6 +6764,52 @@ export function createProposalService(deps: ProposalServiceDeps) {
           ...blockerAuthorFields(b),
         }),
         caller.actor,
+      );
+    }
+    return resolved;
+  }
+
+  /** Data-migration resolve: no claim, proposal timestamps untouched (inactivity clocks unchanged). */
+  function resolveBlockersBySystem(
+    proposalId: string,
+    blockerIds: number[],
+    opts: { author: string; note: string },
+  ): number[] {
+    const db = dbFor(site);
+    const proposal = loadProposal(db, proposalId);
+    if (!proposal) return [];
+    const targets = proposal.blockers.filter((b) => b.status === "open" && blockerIds.includes(b.id));
+    if (!targets.length) return [];
+    const now = Date.now();
+    const actor: EventActor = { type: "system", source: opts.author };
+    const stmt = db.prepare(
+      `UPDATE content_proposal_blockers
+       SET status = 'resolved', resolved_at = ?, resolved_by = ?, resolve_note = ?,
+           resolved_by_actor_json = ?
+       WHERE id = ? AND proposal_id = ? AND status = 'open'`,
+    );
+    const resolved: number[] = [];
+    db.transaction(() => {
+      for (const b of targets) {
+        if (stmt.run(now, opts.author, opts.note, JSON.stringify(actor), b.id, proposalId).changes > 0) {
+          resolved.push(b.id);
+        }
+      }
+    })();
+    const openAfter = loadProposal(db, proposalId)?.blockers.filter((b) => b.status === "open").length ?? 0;
+    for (const b of targets) {
+      if (!resolved.includes(b.id)) continue;
+      emitProposalEvent(
+        site,
+        "proposal_blocker_resolved",
+        proposalId,
+        opts.author,
+        blockerEventPayload(b, proposal.escalated, {
+          resolve_note: opts.note,
+          open_blocker_count: openAfter,
+          ...blockerAuthorFields(b),
+        }),
+        actor,
       );
     }
     return resolved;
@@ -8179,6 +8327,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
             "This revise mixes different risk levels. Keep one risk class per proposal.",
         };
       }
+      const detachedCheck = checkDetachedUpdates(entriesIn);
+      if (!detachedCheck.ok) return detachedCheck;
       const sectionsCheck = checkSectionUpdates(entriesIn);
       if (!sectionsCheck.ok) return sectionsCheck;
 
@@ -9843,6 +9993,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
     exportAll,
     create,
     update,
+    resolveBlockersBySystem,
     classifyLive,
     contentTypeStrategiesFor,
     dismissEvidenceName,

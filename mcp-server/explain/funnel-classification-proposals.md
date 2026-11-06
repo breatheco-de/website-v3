@@ -138,7 +138,7 @@ When an op binds `{ product, persona }`, `propose_change` and `revise_entries` r
 ### 2c. Where the funnel lives (drafts, `_common.yml`, language files)
 
 - The page funnel lives only in `_common.yml`. Language files (`en.yml`, `es.yml`) never carry `funnel:`; live saves that add or change it fail with `funnel_in_language_file`.
-- Proposals stage `funnel.*` in the **draft** (`draft.{locale}.yml`). That is not a `_common.yml` write: nothing changes for visitors until a person publishes, and publishing moves the draft funnel to `_common.yml` and strips `funnel:` from every language file. A rule like "bots must not write `_common.yml`" does not forbid proposing a funnel in a draft — send the `funnel.*` ops.
+- Proposals stage `funnel.*` in the **draft** (`draft.{locale}.yml`). That is not a `_common.yml` write: nothing changes for visitors until the proposal is approved (by staff or a reviewer agent), and that apply moves the draft funnel to `_common.yml` and strips `funnel:` from every language file. Always send the `funnel.*` ops; page-level does not mean staff-only.
 - Warning **`funnel_carried_from_language_file`** (on `propose_change` / `revise_entries` when the draft is created or reset, and on create-variant): the live language file still had a legacy `funnel:` that differs from `_common.yml`, so the draft keeps it (as visitors see it) instead of dropping it. Publishing makes it the page funnel for **every** language. Keep it if it is right; otherwise send `funnel.*` ops with the correct cascade. Do not ask staff to hand-edit `_common.yml` for this.
 - Legacy copies are moved by data migration `010_funnel_to_common` (staff run it): invalid product/persona copies never win, a persona on every product (or `all`) beats bare products, then the newest copy wins; drafts keep a valid persona funnel until published.
 
@@ -163,6 +163,7 @@ If body or SERP is also pending: mixed packet. Score each pack; do not apply the
 | Situation | Action |
 |---|---|
 | Cascade pass on every row; no same-field funnel churn | Claim → apply |
+| Requested `funnel.*` publishes to `_common.yml` (every language) | Normal — apply. Page-level is not a staff handoff. Apply refuses agents only for unrequested page-level fields (`agent_apply_unrequested_page_fields`) or dropped live values (`agent_apply_drops_live_values`) → `add_blocker` for the author |
 | Wrong persona / product / stage | `add_blocker` (cite step + fixed binding). Default is not reject |
 | Breadth-only “should be all / Flex” with cascade otherwise sound | Leave live or block; do **not** reject |
 | Incomplete audience; honest product-only bind | Apply with warn — do not invent persona |
