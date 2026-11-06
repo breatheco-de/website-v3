@@ -894,6 +894,9 @@ props:
         type: array
         required: true
         items:
+          field_property_slug:
+            type: string
+            required: false
           form_field_slug:
             type: string
             required: false
@@ -959,9 +962,9 @@ props:
     description: >-
       Continuous form_overrides: the first entry whose conditions all match (AND) overlays this form for both UI copy
       and submit (messages, webhook, success, tags, conversion_name). Partial message/success/webhook objects are
-      deep-merged onto the form root. No match → root form props. Conditions use form_field_slug or entry_field_slug
-      (bare entry path). Condition values may use {{ visitor.* }} templates (visitor = logged-in profile). match_method
-      equals (default) or contains (substring on strings; membership on arrays).
+      deep-merged onto the form root. No match → root form props. Prefer field_property_slug templates
+      ({{ form.* }} / {{ entry.* }} / {{ visitor.* }}); legacy form_field_slug / entry_field_slug still work.
+      Condition operands resolve in LeadForm at match time. match_method equals (default) or contains.
   messages:
     type: object
     required: false

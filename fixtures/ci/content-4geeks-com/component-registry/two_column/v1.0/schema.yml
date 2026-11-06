@@ -51,8 +51,58 @@ props:
     required: false
     properties:
       video:
-        type: string
+        type: object
         required: false
+        properties:
+          url:
+            type: string
+            required: false
+          ratio:
+            type: string
+            required: false
+          mobile_ratio:
+            type: string
+            required: false
+          width:
+            type: string
+            required: false
+          muted:
+            type: boolean
+            required: false
+          autoplay:
+            type: boolean
+            required: false
+          loop:
+            type: boolean
+            required: false
+          preview_image_url:
+            type: string
+            required: false
+          with_shadow_border:
+            type: boolean
+            required: false
+          open_modal_on_click:
+            type: boolean
+            required: false
+          show_controls_on_autoplay:
+            type: boolean
+            required: false
+          overlay_on_muted:
+            type: object
+            required: false
+            properties:
+              title:
+                type: string
+                required: false
+              subtitle:
+                type: string
+                required: false
+              icon:
+                type: string
+                required: false
+              restart_video_on_click:
+                type: boolean
+                required: false
       video_ratio:
         type: string
         required: false
@@ -136,7 +186,7 @@ props:
             options:
               - none
               - add_to_cart
-              - begin_checkout
+              - click_begin_checkout
           button_variant:
             type: string
             required: false
@@ -240,8 +290,58 @@ props:
     required: false
     properties:
       video:
-        type: string
+        type: object
         required: false
+        properties:
+          url:
+            type: string
+            required: false
+          ratio:
+            type: string
+            required: false
+          mobile_ratio:
+            type: string
+            required: false
+          width:
+            type: string
+            required: false
+          muted:
+            type: boolean
+            required: false
+          autoplay:
+            type: boolean
+            required: false
+          loop:
+            type: boolean
+            required: false
+          preview_image_url:
+            type: string
+            required: false
+          with_shadow_border:
+            type: boolean
+            required: false
+          open_modal_on_click:
+            type: boolean
+            required: false
+          show_controls_on_autoplay:
+            type: boolean
+            required: false
+          overlay_on_muted:
+            type: object
+            required: false
+            properties:
+              title:
+                type: string
+                required: false
+              subtitle:
+                type: string
+                required: false
+              icon:
+                type: string
+                required: false
+              restart_video_on_click:
+                type: boolean
+                required: false
       video_ratio:
         type: string
         required: false
@@ -325,7 +425,7 @@ props:
             options:
               - none
               - add_to_cart
-              - begin_checkout
+              - click_begin_checkout
           button_variant:
             type: string
             required: false
@@ -499,7 +599,7 @@ props:
         options:
           - none
           - add_to_cart
-          - begin_checkout
+          - click_begin_checkout
       button_variant:
         type: string
         required: false
@@ -519,5 +619,36 @@ props:
       url: /financing
       variant: primary
 variants:
-  benefitCards: {}
-  default: {}
+  benefitCards:
+    content_shape:
+      items:
+        benefit_items:
+          min: 4
+          max: 4
+          typical: 4
+      text:
+        title:
+          min: 25
+          max: 25
+          typical: 25
+      image: unused
+      icon: required
+      sample_pages: 1
+      measured_at: "2026-10-02"
+    best_for: Landing pages explaining 4 key benefits using icon + short title per card in a two-column layout.
+    avoid_when: Pages needing images, videos, more or less than 4 items, or content without clear benefit-style cards.
+    metadata_status: draft
+  default:
+    content_shape:
+      items:
+        proportions:
+          min: 2
+          max: 2
+          typical: 2
+      image: unused
+      icon: unused
+      sample_pages: 61
+      measured_at: "2026-10-02"
+    best_for: Side-by-side feature explanations or eligibility criteria with exactly 2 columns of text, bullets, icons and CTAs.
+    avoid_when: Pages needing images, videos, more or less than 2 columns, or single-column long-form content.
+    metadata_status: draft

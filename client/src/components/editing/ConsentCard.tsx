@@ -1,18 +1,27 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { IconAlertCircle, IconInfoCircle, IconPencil, IconShieldCheck, IconX } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconChevronDown,
+  IconInfoCircle,
+  IconPencil,
+  IconShieldCheck,
+  IconX,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
 import {
   collectExtraConsentYamlFields,
   consentCardChannels,
   consentKeyFromYamlField,
   consentLabelFromKey,
   parseConsentSettingsResponse,
+  resolveConsentCopy,
   resolveConsentRequirement,
   type ConsentCardValues,
   type ConsentChannelDef,
@@ -27,6 +36,9 @@ interface ConsentCardProps {
   specificFields?: Partial<Record<string, boolean>>;
   isOverridden?: boolean;
   onOverrideChange?: (v: boolean) => void;
+  /** Conversion event name when consents inherit from the event. */
+  inheritedFromLabel?: string;
+  locale?: string;
 }
 
 function ConsentVariableInfo({ variable }: { variable: string }) {
@@ -87,6 +99,92 @@ function FallbackBadge({ settingsKey }: { settingsKey: string }) {
   );
 }
 
+function consentPlainCopy(
+  settingsKey: string,
+  messages: Record<string, Record<string, string> | string | undefined> | undefined,
+  locale: string,
+): string {
+  const html = resolveConsentCopy(settingsKey, messages?.[settingsKey], locale);
+  if (!html.trim()) return "";
+  return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function ConsentChannelEditor({
+  yamlField,
+  label,
+  settingsKey,
+  messages,
+  locale,
+  checked,
+  onCheckedChange,
+  disabled,
+  inheritedBadge,
+  trailing,
+  showInfo,
+}: {
+  yamlField: string;
+  label: string;
+  settingsKey: string;
+  messages: Record<string, Record<string, string> | string | undefined> | undefined;
+  locale: string;
+  checked: boolean;
+  onCheckedChange?: (v: boolean) => void;
+  disabled?: boolean;
+  inheritedBadge?: ReactNode;
+  trailing?: ReactNode;
+  showInfo?: boolean;
+}) {
+  const [copyOpen, setCopyOpen] = useState(false);
+  const plain = consentPlainCopy(settingsKey, messages, locale);
+  const hasCopy = plain.length > 0;
+
+  return (
+    <div className="space-y-1.5" data-testid={`consent-channel-row-${yamlField}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 min-w-0">
+          <Label className="text-xs">{label}</Label>
+          {hasCopy && (
+            <button
+              type="button"
+              className="p-0.5 rounded text-muted-foreground hover:bg-muted shrink-0"
+              onClick={() => setCopyOpen((v) => !v)}
+              aria-expanded={copyOpen}
+              aria-label={copyOpen ? `Hide ${label} text` : `Show ${label} text`}
+              data-testid={`button-toggle-consent-copy-${settingsKey}`}
+            >
+              <IconChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform",
+                  !copyOpen && "-rotate-90",
+                )}
+              />
+            </button>
+          )}
+          {showInfo && checked && <ConsentVariableInfo variable={`reserved.${settingsKey}`} />}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {checked ? inheritedBadge : null}
+          <Switch
+            checked={checked}
+            onCheckedChange={onCheckedChange}
+            disabled={disabled}
+            data-testid={`switch-consent-${yamlField}`}
+          />
+        </div>
+      </div>
+      {copyOpen && hasCopy && (
+        <div
+          className="text-[11px] text-muted-foreground pl-0.5"
+          data-testid={`consent-copy-preview-${settingsKey}`}
+        >
+          <p>{plain}</p>
+        </div>
+      )}
+      {trailing}
+    </div>
+  );
+}
+
 export function ConsentCard({
   values,
   onChange,
@@ -94,6 +192,8 @@ export function ConsentCard({
   specificFields,
   isOverridden = false,
   onOverrideChange,
+  inheritedFromLabel,
+  locale = "en",
 }: ConsentCardProps) {
   const [editing, setEditing] = useState(false);
   const { data: consentSettingsRaw } = useQuery({
@@ -229,11 +329,14 @@ export function ConsentCard({
                   </Badge>
                 ))}
                 {inheritedChannels.length > 0 && specificChannels.length === 0 && (
-                  <span className="text-[10px] text-muted-foreground italic">(inherited)</span>
+                  <span className="text-[10px] text-muted-foreground italic">
+                    (inherited{inheritedFromLabel ? ` from ${inheritedFromLabel}` : ""})
+                  </span>
                 )}
                 {inheritedChannels.length > 0 && specificChannels.length > 0 && (
                   <span className="text-[10px] text-muted-foreground italic">
-                    ({inheritedChannels.map((c) => c.label).join(", ")} inherited)
+                    ({inheritedChannels.map((c) => c.label).join(", ")} inherited
+                    {inheritedFromLabel ? ` from ${inheritedFromLabel}` : ""})
                   </span>
                 )}
               </div>
@@ -279,65 +382,118 @@ export function ConsentCard({
       ) : (
         <div className="space-y-3">
           {hasInheritanceSource && onOverrideChange && (
-            <div className="flex items-center justify-between gap-2 pb-2 border-b">
-              <span className="text-xs text-muted-foreground">Customize for this form</span>
-              <Switch
-                checked={isOverridden}
-                onCheckedChange={onOverrideChange}
-                data-testid="switch-override-consents"
-              />
+            <div className="space-y-1.5 pb-2 border-b">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium text-foreground">Customize for this form</span>
+                <Switch
+                  checked={isOverridden}
+                  onCheckedChange={onOverrideChange}
+                  data-testid="switch-override-consents"
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                {isOverridden
+                  ? "When on, this form uses its own consent checkboxes below."
+                  : (
+                    <>
+                      When off, consents are inherited from the selected conversion event
+                      {inheritedFromLabel ? (
+                        <>
+                          {" "}
+                          (<span className="font-mono text-foreground/80">{inheritedFromLabel}</span>)
+                        </>
+                      ) : null}
+                      .
+                    </>
+                  )}
+              </p>
             </div>
           )}
 
           {!isOverridden && hasInheritanceSource ? (
-            <div className="space-y-3 opacity-60 pointer-events-none select-none">
-              {channelDefs.map(({ yamlField, label }) => (
-                <div key={yamlField} className="flex items-center justify-between gap-2">
-                  <Label className="text-xs">{label}</Label>
-                  <Switch checked={channelOn(inheritedValues, yamlField)} disabled />
-                </div>
-              ))}
-              <div className="space-y-2 pt-1 border-t">
+            <div className="space-y-3 opacity-60">
+              <div className="space-y-3">
+                {channelDefs.map(({ yamlField, label, settingsKey }) => (
+                  <ConsentChannelEditor
+                    key={yamlField}
+                    yamlField={yamlField}
+                    label={label}
+                    settingsKey={settingsKey}
+                    messages={consentSettings}
+                    locale={locale}
+                    checked={channelOn(inheritedValues, yamlField)}
+                    disabled
+                    inheritedBadge={
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 leading-4 font-normal">
+                        Inherited
+                      </Badge>
+                    }
+                  />
+                ))}
+              </div>
+              <div className="space-y-2 pt-2 border-t">
+                <p className="text-xs font-medium text-foreground">Legal links</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Shows terms and privacy links under the form—not a consent checkbox.
+                </p>
                 <div className="flex items-center justify-between gap-2">
                   <Label className="text-xs">Show terms &amp; privacy</Label>
-                  <Switch checked={inheritedValues?.showTerms ?? false} disabled />
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {(inheritedValues?.showTerms ?? false) && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 leading-4 font-normal">
+                        Inherited
+                      </Badge>
+                    )}
+                    <Switch checked={inheritedValues?.showTerms ?? false} disabled />
+                  </div>
                 </div>
+                {(inheritedValues?.showTerms ?? false) && (
+                  <p className="text-[11px] text-muted-foreground font-mono truncate">
+                    {[inheritedValues?.termsUrl, inheritedValues?.privacyUrl]
+                      .filter(Boolean)
+                      .join(" · ") || "URLs from event / defaults"}
+                  </p>
+                )}
               </div>
               <p className="text-[11px] text-muted-foreground italic">
-                Enable "Customize for this form" to override these values.
+                Enable “Customize for this form” to change these values.
               </p>
             </div>
           ) : (
             <>
-              {channelDefs.map(({ yamlField, label, settingsKey }) => (
-                <div key={yamlField} className={yamlField === "sms" ? "space-y-2" : undefined}>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1">
-                      <Label className="text-xs">{label}</Label>
-                      {channelOn(values, yamlField) && (
-                        <ConsentVariableInfo variable={`reserved.${settingsKey}`} />
-                      )}
-                    </div>
-                    <Switch
-                      checked={channelOn(values, yamlField)}
-                      onCheckedChange={(v) => onChange(yamlField, !!v)}
-                      data-testid={`switch-consent-${yamlField}`}
-                    />
-                  </div>
-                  {yamlField === "sms" && values.sms && (
-                    <div className="flex items-center justify-between gap-2">
-                      <Label className="text-xs text-muted-foreground">US-only</Label>
-                      <Checkbox
-                        checked={values.smsUsaOnly}
-                        onCheckedChange={(v) => onChange("smsUsaOnly", !!v)}
-                        data-testid="checkbox-consent-sms-usa-only"
-                      />
-                    </div>
-                  )}
-                </div>
-              ))}
+              <div className="space-y-3">
+                {channelDefs.map(({ yamlField, label, settingsKey }) => (
+                  <ConsentChannelEditor
+                    key={yamlField}
+                    yamlField={yamlField}
+                    label={label}
+                    settingsKey={settingsKey}
+                    messages={consentSettings}
+                    locale={locale}
+                    checked={channelOn(values, yamlField)}
+                    onCheckedChange={(v) => onChange(yamlField, !!v)}
+                    showInfo
+                    trailing={
+                      yamlField === "sms" && values.sms ? (
+                        <div className="flex items-center justify-between gap-2">
+                          <Label className="text-xs text-muted-foreground">US-only</Label>
+                          <Checkbox
+                            checked={values.smsUsaOnly}
+                            onCheckedChange={(v) => onChange("smsUsaOnly", !!v)}
+                            data-testid="checkbox-consent-sms-usa-only"
+                          />
+                        </div>
+                      ) : null
+                    }
+                  />
+                ))}
+              </div>
 
-              <div className="space-y-2 pt-1 border-t">
+              <div className="space-y-2 pt-2 border-t">
+                <p className="text-xs font-medium text-foreground">Legal links</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Shows terms and privacy links under the form—not a consent checkbox.
+                </p>
                 <div className="flex items-center justify-between gap-2">
                   <Label className="text-xs">Show terms &amp; privacy</Label>
                   <Switch
@@ -347,28 +503,34 @@ export function ConsentCard({
                   />
                 </div>
                 {values.showTerms && (
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Terms URL</Label>
-                      <Input
-                        value={values.termsUrl}
-                        onChange={(e) => onChange("termsUrl", e.target.value)}
-                        placeholder="/terms-and-conditions"
-                        className="text-xs h-8"
-                        data-testid="input-consent-terms-url"
-                      />
+                  <>
+                    <p className="text-[11px] text-muted-foreground font-mono truncate">
+                      Preview:{" "}
+                      {[values.termsUrl || "/terms…", values.privacyUrl || "/privacy…"].join(" · ")}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Terms URL</Label>
+                        <Input
+                          value={values.termsUrl}
+                          onChange={(e) => onChange("termsUrl", e.target.value)}
+                          placeholder="/terms-and-conditions"
+                          className="text-xs h-8"
+                          data-testid="input-consent-terms-url"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Privacy URL</Label>
+                        <Input
+                          value={values.privacyUrl}
+                          onChange={(e) => onChange("privacyUrl", e.target.value)}
+                          placeholder="/privacy-policy"
+                          className="text-xs h-8"
+                          data-testid="input-consent-privacy-url"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Privacy URL</Label>
-                      <Input
-                        value={values.privacyUrl}
-                        onChange={(e) => onChange("privacyUrl", e.target.value)}
-                        placeholder="/privacy-policy"
-                        className="text-xs h-8"
-                        data-testid="input-consent-privacy-url"
-                      />
-                    </div>
-                  </div>
+                  </>
                 )}
               </div>
             </>

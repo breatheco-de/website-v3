@@ -2,6 +2,9 @@
  * Single-DOM RTE: below the breakpoint, neutralize inline font metrics so
  * parent Tailwind sizes win. Above the breakpoint, leave RTE styles intact.
  * Breakpoints match Tailwind: md = 768px, lg = 1024px.
+ *
+ * Loaded on the critical CSS path (index.css) so SSR hero titles do not shift
+ * when the lazy hero JS chunk arrives.
  */
 
 @media (max-width: 767px) {

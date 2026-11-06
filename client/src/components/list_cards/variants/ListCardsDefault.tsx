@@ -693,64 +693,84 @@ export default function ListingCards({ data }: { data: ListingCardsData }) {
           {perPage > 0 && totalPages > 1 && (
             <>
               <nav className="flex items-center justify-center gap-1 mt-10" aria-label="Pagination" data-testid="nav-pagination">
-                <a
-                  href={currentPage > 1 ? buildPageUrl(currentPage - 1) : undefined}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (currentPage > 1) handlePageChange(currentPage - 1);
-                  }}
-                  aria-disabled={currentPage <= 1}
-                >
+                {currentPage <= 1 ? (
                   <Button
                     variant="outline"
                     size="icon"
-                    disabled={currentPage <= 1}
+                    disabled
+                    aria-label="Previous page"
                     data-testid="button-page-prev"
                   >
-                    <ChevronLeft className="w-4 h-4" />
+                    <ChevronLeft className="w-4 h-4" aria-hidden="true" />
                   </Button>
-                </a>
+                ) : (
+                  <Button asChild variant="outline" size="icon">
+                    <a
+                      href={buildPageUrl(currentPage - 1)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handlePageChange(currentPage - 1);
+                      }}
+                      rel="prev"
+                      aria-label="Previous page"
+                      data-testid="button-page-prev"
+                    >
+                      <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+                    </a>
+                  </Button>
+                )}
                 {pageNumbers.map((p, i) =>
                   p === "..." ? (
                     <span key={`ellipsis-${i}`} className="px-2 text-muted-foreground select-none">
                       ...
                     </span>
                   ) : (
-                    <a
+                    <Button
                       key={p}
-                      href={buildPageUrl(p as number)}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handlePageChange(p as number);
-                      }}
+                      asChild
+                      variant={p === safePage ? "default" : "outline"}
+                      size="icon"
                     >
-                      <Button
-                        variant={p === safePage ? "default" : "outline"}
-                        size="icon"
+                      <a
+                        href={buildPageUrl(p as number)}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handlePageChange(p as number);
+                        }}
+                        aria-current={p === safePage ? "page" : undefined}
                         data-testid={`button-page-${p}`}
                       >
                         {p}
-                      </Button>
-                    </a>
+                      </a>
+                    </Button>
                   )
                 )}
-                <a
-                  href={currentPage < totalPages ? buildPageUrl(currentPage + 1) : undefined}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    if (currentPage < totalPages) handlePageChange(currentPage + 1);
-                  }}
-                  aria-disabled={currentPage >= totalPages}
-                >
+                {currentPage >= totalPages ? (
                   <Button
                     variant="outline"
                     size="icon"
-                    disabled={currentPage >= totalPages}
+                    disabled
+                    aria-label="Next page"
                     data-testid="button-page-next"
                   >
-                    <ChevronRight className="w-4 h-4" />
+                    <ChevronRight className="w-4 h-4" aria-hidden="true" />
                   </Button>
-                </a>
+                ) : (
+                  <Button asChild variant="outline" size="icon">
+                    <a
+                      href={buildPageUrl(currentPage + 1)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handlePageChange(currentPage + 1);
+                      }}
+                      rel="next"
+                      aria-label="Next page"
+                      data-testid="button-page-next"
+                    >
+                      <ChevronRight className="w-4 h-4" aria-hidden="true" />
+                    </a>
+                  </Button>
+                )}
               </nav>
               <div className="text-center mt-4 text-sm text-muted-foreground" data-testid="text-page-info">
                 {data.page_info_template

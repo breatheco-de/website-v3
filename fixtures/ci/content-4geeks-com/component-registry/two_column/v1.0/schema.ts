@@ -2,7 +2,7 @@
  * TwoColumn Component Schemas - v1.0
  */
 import { z } from "zod";
-import { ctaButtonSchema } from "../../_common/schema";
+import { ctaButtonSchema, videoConfigSchema } from "../../_common/schema";
 
 export const twoColumnBulletSchema = z.object({
   text: z.string(),
@@ -23,9 +23,19 @@ export const benefitItemSchema = z.object({
 });
 
 export const twoColumnColumnSchema = z.object({
-  video: z.string().optional(),
+  /**
+   * UniversalVideo config. Legacy YAML may still use a plain URL string;
+   * preprocess normalizes it to `{ url }` so old pages keep working.
+   */
+  video: z.preprocess(
+    (val) => (typeof val === "string" ? { url: val } : val),
+    videoConfigSchema.optional(),
+  ),
+  /** @deprecated Prefer video.ratio */
   video_ratio: z.string().optional(),
+  /** @deprecated Prefer video.preview_image_url */
   video_preview_image: z.string().optional(),
+  /** @deprecated Prefer video.width */
   video_width: z.string().optional(),
   image: z.string().optional(),
   image_alt: z.string().optional(),

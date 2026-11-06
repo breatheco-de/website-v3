@@ -258,9 +258,10 @@ export interface LeadFormData {
   };
   /**
    * Continuous form_overrides: first matching conditions (AND) overlays form props for UI + submit
-   * (messages, webhook, success, tags, …). Condition values support {{ entry.* }} / {{ visitor.* }}
-   * via resolveTemplateString. match_method: equals (default) | contains.
-   * No match → root form props. See shared/resolveLeadFormOverride.ts.
+   * (messages, webhook, success, tags, …). Condition operands support {{ form.* }} / {{ entry.* }} /
+   * {{ visitor.* }} via field_property_slug (legacy form_field_slug / entry_field_slug still work).
+   * match_method: equals (default) | contains. No match → root form props.
+   * See shared/resolveLeadFormOverride.ts.
    */
   form_overrides?: LeadFormOverride[];
   /** Phase copy for signup forms. Locale defaults apply when a stage is omitted. */
@@ -740,7 +741,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [pendingAutoSubmit, setPendingAutoSubmit] = useState(false);
 
-  const turnstileEnabled = false; // TEMP-TURNSTILE-BYPASS was: data.turnstile?.enabled ?? true
+  const turnstileEnabled = data.turnstile?.enabled ?? true;
 
   const { data: turnstileSiteKey, isLoading: turnstileSiteKeyLoading } = useQuery<{ siteKey: string }>({
     queryKey: ["/api/turnstile/site-key"],
@@ -1768,6 +1769,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           {
             singleEntry: (singleEntry as Record<string, unknown> | undefined) ?? undefined,
             visitor: Object.keys(visitor).length > 0 ? visitor : undefined,
+            form: fields as Record<string, unknown>,
           },
         ).text;
       };
@@ -2053,19 +2055,22 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       resolveTemplateString(raw, defs, variableContext, {
         singleEntry: entry,
         visitor: visitorBag,
+        form: watchedValues as Record<string, unknown>,
       }).text;
-  }, [variableDefinitions, variableContext, singleEntry, visitorBag]);
+  }, [variableDefinitions, variableContext, singleEntry, visitorBag, watchedValues]);
 
-  /** Condition values: resolveDeep so exact {{ entry.* }} / {{ visitor.* }} keep arrays/numbers. */
+  /** Condition operands: resolveDeep so exact {{ form.* }} / {{ entry.* }} / {{ visitor.* }} keep arrays/numbers. */
   const resolveConditionValue = useMemo(() => {
     const defs = variableDefinitions ?? {};
     const entry = (singleEntry as Record<string, unknown> | undefined) ?? undefined;
+    const formValues = watchedValues as Record<string, unknown>;
     return (raw: string): unknown =>
       resolveDeep(raw, defs, variableContext, {
         singleEntry: entry,
         visitor: visitorBag,
+        form: formValues,
       }).data;
-  }, [variableDefinitions, variableContext, singleEntry, visitorBag]);
+  }, [variableDefinitions, variableContext, singleEntry, visitorBag, watchedValues]);
 
   const effectiveData = useMemo(() => {
     const override = resolveLeadFormOverride(

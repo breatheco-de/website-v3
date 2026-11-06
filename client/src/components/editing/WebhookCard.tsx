@@ -32,6 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { OverrideRulesBadge } from "./OverrideRulesBadge";
 
 export type WebhookSource = "section" | "event" | "global" | "none";
 
@@ -53,6 +54,9 @@ export interface WebhookCardProps {
   inheritedUrl?: string;
   onTest?: () => Promise<{ ok: boolean; status?: number; error?: string }>;
   samplePayload?: Record<string, unknown>;
+  /** Rules that override webhook — shown left of the edit control. */
+  overrideRulesCount?: number;
+  onOverrideRulesClick?: () => void;
 }
 
 const SOURCE_LABELS: Record<WebhookSource, string> = {
@@ -156,6 +160,8 @@ export function WebhookCard({
   inheritedUrl,
   onTest,
   samplePayload,
+  overrideRulesCount = 0,
+  onOverrideRulesClick,
 }: WebhookCardProps) {
   const [copied, setCopied] = useState(false);
   const [testState, setTestState] = useState<"idle" | "loading" | "ok" | "error">("idle");
@@ -217,6 +223,13 @@ export function WebhookCard({
           </div>
 
           <div className="flex items-center gap-0.5 flex-shrink-0">
+            {onOverrideRulesClick && (
+              <OverrideRulesBadge
+                count={overrideRulesCount}
+                onClick={onOverrideRulesClick}
+                testId={`badge-${testIdPrefix}-changed-by-rules`}
+              />
+            )}
             {samplePayload && !editing && (
               <Button
                 type="button"

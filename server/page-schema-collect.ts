@@ -157,6 +157,7 @@ export async function collectDatabaseRecordSchemas(
     }) as Array<Record<string, unknown>>;
 
     const withDynamic = (await resolveDynamicEntries(resolvedSections, locale, {
+      db: ci.getDatabase(),
       contentRoot,
       contentIndex: ci,
       singleEntry: record,
@@ -227,6 +228,7 @@ export async function collectStaticPageSchemas(
     };
 
     const withDynamic = (await resolveDynamicEntries(sections, route.locale, {
+      db: ci.getDatabase(),
       contentRoot,
       contentIndex: ci,
       singleEntry,

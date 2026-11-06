@@ -499,6 +499,7 @@ export default function HeroProductShowcase({
                 preview_image_url={video.preview_image_url}
                 withShadowBorder={video.with_shadow_border}
                 open_modal_on_click={video.open_modal_on_click}
+                show_controls_on_autoplay={video.show_controls_on_autoplay === true}
                 overlay_on_muted={video.overlay_on_muted}
                 className="w-[280px] md:w-full md:max-w-[400px]"
               />

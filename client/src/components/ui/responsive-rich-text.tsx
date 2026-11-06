@@ -1,5 +1,4 @@
 import { cn } from "@/lib/utils";
-import "./responsive-rich-text.css";
 
 export type ResponsiveRichTextMobileMax = "md" | "lg";
 

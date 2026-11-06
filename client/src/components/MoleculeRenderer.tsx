@@ -255,6 +255,7 @@ export function MoleculeRenderer({ molecule }: MoleculeRendererProps) {
           preview_image_url={molecule.props.preview_image_url}
           withShadowBorder={molecule.props.with_shadow_border}
           open_modal_on_click={molecule.props.open_modal_on_click}
+          show_controls_on_autoplay={molecule.props.show_controls_on_autoplay}
           overlay_on_muted={molecule.props.overlay_on_muted}
         />
       );

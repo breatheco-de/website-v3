@@ -21,6 +21,14 @@ interface VideoConfig {
   autoplay?: boolean;
   loop?: boolean;
   muted?: boolean;
+  open_modal_on_click?: boolean;
+  show_controls_on_autoplay?: boolean;
+  overlay_on_muted?: {
+    title?: string;
+    subtitle?: string;
+    icon?: string;
+    restart_video_on_click?: boolean;
+  };
 }
 
 interface TwoColumnAccordionCardImageBackgroundData {
@@ -195,6 +203,7 @@ export default function TwoColumnAccordionCardImageBackground({ data }: TwoColum
                             muted={video!.muted ?? true}
                             preview_image_url={image}
                             open_modal_on_click={video!.open_modal_on_click}
+                            show_controls_on_autoplay={video!.show_controls_on_autoplay === true}
                             overlay_on_muted={video!.overlay_on_muted}
                             className="w-full"
                           />

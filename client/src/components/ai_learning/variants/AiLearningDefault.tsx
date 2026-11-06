@@ -231,6 +231,7 @@ function AILearningFeatureTabs({ data }: { data: AiLearningFeatureTabsSection })
                         ratio={displayedFeature.video?.ratio}
                         preview_image_url={displayedFeature.video?.preview_image_url}
                         open_modal_on_click={displayedFeature.video?.open_modal_on_click}
+                        show_controls_on_autoplay={displayedFeature.video?.show_controls_on_autoplay === true}
                         overlay_on_muted={displayedFeature.video?.overlay_on_muted}
                       />
                     </div>
@@ -245,6 +246,7 @@ function AILearningFeatureTabs({ data }: { data: AiLearningFeatureTabsSection })
                         ratio={data.video?.ratio}
                         preview_image_url={data.video?.preview_image_url}
                         open_modal_on_click={data.video?.open_modal_on_click}
+                        show_controls_on_autoplay={data.video?.show_controls_on_autoplay === true}
                         overlay_on_muted={data.video?.overlay_on_muted}
                       />
                     </div>
@@ -396,6 +398,7 @@ function AILearningHighlight({ data }: { data: AiLearningHighlightSection }) {
                 ratio={data.video?.ratio}
                 preview_image_url={data.video?.preview_image_url}
                 open_modal_on_click={data.video?.open_modal_on_click}
+                show_controls_on_autoplay={data.video?.show_controls_on_autoplay === true}
                 overlay_on_muted={data.video?.overlay_on_muted}
               />
             </div>

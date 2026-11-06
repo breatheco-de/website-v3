@@ -90,6 +90,9 @@ props:
       open_modal_on_click:
         type: boolean
         required: false
+      show_controls_on_autoplay:
+        type: boolean
+        required: false
       overlay_on_muted:
         type: object
         required: false
@@ -110,5 +113,38 @@ props:
     type: boolean
     required: false
 variants:
-  default: {}
-  image_background: {}
+  default:
+    best_for: >-
+      Pages needing to explain 3-6 detailed features or FAQs alongside a supporting image, where content depth benefits
+      from expandable accordions while keeping the layout compact.
+    avoid_when: >-
+      Pages with short text, high image counts, video content, or when users need to see all details at once without
+      clicking.
+    metadata_status: draft
+  image_background:
+    content_shape:
+      items:
+        bullets:
+          min: 3
+          max: 4
+          typical: 4
+      text:
+        title:
+          min: 20
+          max: 62
+          typical: 55
+        description:
+          min: 84
+          max: 271
+          typical: 119
+      image: required
+      icon: unused
+      sample_pages: 41
+      measured_at: "2026-10-02"
+    best_for: >-
+      Best for location or program pages with 3-4 detailed FAQ or feature items, a 55-character title, ~120-character
+      description, and a full-bleed branded background image or video.
+    avoid_when: >-
+      Avoid when you have fewer than 3 accordion items, need icons instead of images, or the page goal is a short
+      landing with minimal text content.
+    metadata_status: draft

@@ -358,11 +358,13 @@ export default function ListPressMentionsFeaturedShowcase({ data }: ListPressMen
             {totalPages > 1 && (
               <div className="flex items-center justify-center gap-3">
                 <button
+                  type="button"
                   className="h-9 w-9 flex items-center justify-center rounded-full hover:bg-muted text-foreground"
                   onClick={() => setCurrentPage((p) => (p - 1 + totalPages) % totalPages)}
                   data-testid="button-press-carousel-prev"
+                  aria-label="Previous"
                 >
-                  <ChevronLeft className="w-4 h-4" />
+                  <ChevronLeft className="w-4 h-4" aria-hidden="true" />
                 </button>
                 <DotsIndicator
                   count={totalPages}
@@ -370,11 +372,13 @@ export default function ListPressMentionsFeaturedShowcase({ data }: ListPressMen
                   onDotClick={setCurrentPage}
                 />
                 <button
+                  type="button"
                   className="h-9 w-9 flex items-center justify-center rounded-full text-foreground"
                   onClick={() => setCurrentPage((p) => (p + 1) % totalPages)}
                   data-testid="button-press-carousel-next"
+                  aria-label="Next"
                 >
-                  <ChevronRight className="w-4 h-4" />
+                  <ChevronRight className="w-4 h-4" aria-hidden="true" />
                 </button>
               </div>
             )}

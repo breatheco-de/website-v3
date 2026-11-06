@@ -172,8 +172,9 @@ export function ProjectsSection({ data }: ProjectsSectionProps) {
               onClick={goToPrevious}
               className="rounded-full border"
               data-testid="button-projects-prev"
+              aria-label="Previous project"
             >
-              <ChevronLeft size={24} />
+              <ChevronLeft size={24} aria-hidden="true" />
             </Button>
 
             <div className="flex items-center gap-2">
@@ -198,8 +199,9 @@ export function ProjectsSection({ data }: ProjectsSectionProps) {
               onClick={goToNext}
               className="rounded-full border"
               data-testid="button-projects-next"
+              aria-label="Next project"
             >
-              <ChevronRight size={24} />
+              <ChevronRight size={24} aria-hidden="true" />
             </Button>
           </div>
         </div>

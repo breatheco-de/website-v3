@@ -21,6 +21,29 @@ entries:
       - mcp-server/explain/funnel-classification-proposals.md
       - mcp-server/explain/content_system.md
       - scripts/migrations/011_clear_page_wide_rule_blockers.ts
+  - date: "2026-11-06"
+    summary: "MCP proxy no longer 413s large bytes_base64 uploads (stream-pipe + 30mb JSON limit)"
+    agent_impact:
+      - "get_or_set_media_to_gallery bytes_base64 (≤15 MB decoded) no longer fails with HTTP 413 from the /mcp proxy Express 100kb default."
+      - "Prefer bytes_base64 for gated Drive/Dropbox; url + import:true still ≤50 MB for public URLs. Prefer url import when the file is already on a public CDN."
+      - "Reconnect is not required for this transport fix; tool args are unchanged."
+    tools_changed: false
+    paths:
+      - server/index.ts
+      - mcp-server/index.ts
+      - mcp-server/explain/images.md
+  - date: "2026-11-05"
+    summary: "form_overrides conditions use field_property_slug + match-time form/entry/visitor bags"
+    agent_impact:
+      - "Prefer conditions[].field_property_slug templates such as {{ form.program }}, {{ entry.event_started }}, {{ visitor.id }}. Legacy form_field_slug / entry_field_slug still match."
+      - "Section/SSR resolveDeep does not expand form_overrides[].conditions operand strings; LeadForm resolves them at match time with a form bag (watched values) plus entry and visitor."
+      - "Outcomes remain partial overlays — omit keys that equal the form defaults. Staff Forms tab: Rules that change this form. explain_site topic lead-forms → Continuous form_overrides."
+    tools_changed: false
+    paths:
+      - shared/resolveLeadFormOverride.ts
+      - client/src/lib/variable-manager.ts
+      - mcp-server/explain/lead-forms.md
+      - fixtures/ci/content-4geeks-com/component-registry/lead_form/v1.0/examples/stacked_with_routes.yml
   - date: "2026-11-03"
     summary: "Staff with proposals_review can approve or accept past open blockers from the staff UI; agents still cannot"
     agent_impact:

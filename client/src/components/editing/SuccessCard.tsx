@@ -9,10 +9,12 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { LinkPicker } from "./LinkPicker";
 import type { Section } from "@shared/schema";
+import { OverrideRulesBadge } from "./OverrideRulesBadge";
 
 export type SuccessMode = "message" | "redirect";
 
@@ -27,7 +29,7 @@ export interface SuccessCardProps {
   url: string;
   editing: boolean;
   onEditingChange: (editing: boolean) => void;
-  onChange: (field: "message" | "url", value: string) => void;
+  onChange: (field: "message" | "url" | "reload_entry_fields", value: string | boolean) => void;
   /** Event-level defaults shown when the section has no override. */
   inheritedMessage?: string;
   inheritedUrl?: string;
@@ -35,7 +37,13 @@ export interface SuccessCardProps {
   allSections?: Section[];
   /** When true, hide redirect mode (e.g. event defaults can still set both). */
   allowRedirect?: boolean;
+  /** Lead-form only: refresh entry page data after success. */
+  reloadEntryFields?: boolean;
+  showReloadEntryFields?: boolean;
   testIdPrefix?: string;
+  /** Rules that override success — shown left of the edit control. */
+  overrideRulesCount?: number;
+  onOverrideRulesClick?: () => void;
 }
 
 export function SuccessCard({
@@ -49,7 +57,11 @@ export function SuccessCard({
   locale = "en",
   allSections,
   allowRedirect = true,
+  reloadEntryFields = false,
+  showReloadEntryFields = false,
   testIdPrefix = "form-success",
+  overrideRulesCount = 0,
+  onOverrideRulesClick,
 }: SuccessCardProps) {
   const localeFallback =
     locale === "es"
@@ -112,22 +124,40 @@ export function SuccessCard({
           >
             {badgeLabel}
           </Badge>
+          {showReloadEntryFields && reloadEntryFields && (
+            <Badge
+              variant="secondary"
+              className="text-[11px] px-1.5 py-0 leading-4 font-normal"
+              data-testid={`badge-${testIdPrefix}-reload-entry`}
+            >
+              Refresh page data
+            </Badge>
+          )}
         </div>
 
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="h-6 w-6 flex-shrink-0"
-          onClick={() => onEditingChange(!editing)}
-          data-testid={`button-edit-${testIdPrefix}`}
-        >
-          {editing ? (
-            <IconX className="h-3.5 w-3.5" />
-          ) : (
-            <IconPencil className="h-3.5 w-3.5" />
+        <div className="flex items-center gap-1 shrink-0">
+          {onOverrideRulesClick && (
+            <OverrideRulesBadge
+              count={overrideRulesCount}
+              onClick={onOverrideRulesClick}
+              testId={`badge-${testIdPrefix}-changed-by-rules`}
+            />
           )}
-        </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-6 w-6 flex-shrink-0"
+            onClick={() => onEditingChange(!editing)}
+            data-testid={`button-edit-${testIdPrefix}`}
+          >
+            {editing ? (
+              <IconX className="h-3.5 w-3.5" />
+            ) : (
+              <IconPencil className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
       </div>
 
       {editing ? (
@@ -222,6 +252,29 @@ export function SuccessCard({
               <p className="text-[11px] text-muted-foreground">
                 Pick a page from the sitemap or enter a custom URL. Visitors
                 are sent there after submitting; no inline message is shown.
+              </p>
+            </div>
+          )}
+
+          {showReloadEntryFields && (
+            <div className="space-y-1.5 pt-1 border-t">
+              <div className="flex items-center justify-between gap-2">
+                <Label
+                  htmlFor={`${testIdPrefix}-reload-entry`}
+                  className="text-xs text-muted-foreground"
+                >
+                  Refresh page data after success
+                </Label>
+                <Switch
+                  id={`${testIdPrefix}-reload-entry`}
+                  checked={reloadEntryFields}
+                  onCheckedChange={(v) => onChange("reload_entry_fields", v)}
+                  data-testid={`switch-${testIdPrefix}-reload-entry`}
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                After a successful submit, reload this page’s data so the form can
+                show an updated state (without a full browser refresh).
               </p>
             </div>
           )}

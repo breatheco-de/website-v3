@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { TagInput } from "./TagInput";
+import { OverrideRulesBadge } from "./OverrideRulesBadge";
 
 interface AutomationsTagsCardProps {
   automation: string;
@@ -19,6 +20,12 @@ interface AutomationsTagsCardProps {
   tagsOverridden?: boolean;
   onAutomationOverrideChange?: (v: boolean) => void;
   onTagsOverrideChange?: (v: boolean) => void;
+  /** When set with onEditingChange, editing is controlled (e.g. form rules). */
+  editing?: boolean;
+  onEditingChange?: (editing: boolean) => void;
+  /** Rules that override tags and/or automations — left of the edit control. */
+  overrideRulesCount?: number;
+  onOverrideRulesClick?: () => void;
 }
 
 export function AutomationsTagsCard({
@@ -34,8 +41,18 @@ export function AutomationsTagsCard({
   tagsOverridden = false,
   onAutomationOverrideChange,
   onTagsOverrideChange,
+  editing: editingProp,
+  onEditingChange,
+  overrideRulesCount = 0,
+  onOverrideRulesClick,
 }: AutomationsTagsCardProps) {
-  const [editing, setEditing] = useState(false);
+  const [uncontrolledEditing, setUncontrolledEditing] = useState(false);
+  const controlled = typeof editingProp === "boolean";
+  const editing = controlled ? editingProp : uncontrolledEditing;
+  const setEditing = (next: boolean) => {
+    if (controlled) onEditingChange?.(next);
+    else setUncontrolledEditing(next);
+  };
   const automationArr = automation ? [automation] : [];
 
   const effectiveAutomation = automationOverridden
@@ -52,16 +69,25 @@ export function AutomationsTagsCard({
     <div className="rounded-md border bg-muted/20 p-3 space-y-3" data-testid="card-automations-tags">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium">Automations &amp; Tags</span>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="h-6 w-6"
-          onClick={() => setEditing((v) => !v)}
-          data-testid="button-edit-automations-tags"
-        >
-          {editing ? <IconX className="h-3.5 w-3.5" /> : <IconPencil className="h-3.5 w-3.5" />}
-        </Button>
+        <div className="flex items-center gap-1 shrink-0">
+          {onOverrideRulesClick && (
+            <OverrideRulesBadge
+              count={overrideRulesCount}
+              onClick={onOverrideRulesClick}
+              testId="badge-automations-tags-changed-by-rules"
+            />
+          )}
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-6 w-6"
+            onClick={() => setEditing(!editing)}
+            data-testid="button-edit-automations-tags"
+          >
+            {editing ? <IconX className="h-3.5 w-3.5" /> : <IconPencil className="h-3.5 w-3.5" />}
+          </Button>
+        </div>
       </div>
 
       {editing ? (

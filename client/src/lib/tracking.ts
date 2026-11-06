@@ -73,6 +73,8 @@ function seedInitialContextFromSsr(): void {
   }
 }
 
+seedInitialContextFromSsr();
+
 let seededFromServer = false;
 
 /** The server writes the first page's values before GTM; don't push them a second time. */
@@ -821,6 +823,3 @@ export async function trackFormSubmission(
 
   trackConversion(conversionName, payload);
 }
-
-// Runs last: seeding pushes to the dataLayer, which reads module state declared above.
-seedInitialContextFromSsr();

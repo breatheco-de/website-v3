@@ -11,10 +11,12 @@ const TEMPLATE_REGEX = /\{\{\s*([^|}]+?)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
 const META_PREFIX = "meta.";
 const PARAM_PREFIX = "param.";
 const VISITOR_PREFIX = "visitor.";
+const FORM_PREFIX = "form.";
 const FUNNEL_PREFIX = "funnel.";
 const EXACT_META_VAR_PATTERN = /^\{\{\s*meta\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 const EXACT_PARAM_VAR_PATTERN = /^\{\{\s*param\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 const EXACT_VISITOR_VAR_PATTERN = /^\{\{\s*visitor\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
+const EXACT_FORM_VAR_PATTERN = /^\{\{\s*form\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 const EXACT_FUNNEL_VAR_PATTERN = /^\{\{\s*funnel\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?:\|\s*([\s\S]*?))?\s*\}\}$/;
 
 export interface VariableCondition {
@@ -46,7 +48,7 @@ export interface ResolvedVariable {
   original: string;
   variableName: string;
   resolvedValue: string;
-  source: "condition" | "location" | "region" | "locale" | "default" | "inline" | "single" | "meta" | "param" | "visitor" | "funnel";
+  source: "condition" | "location" | "region" | "locale" | "default" | "inline" | "single" | "meta" | "param" | "visitor" | "form" | "funnel";
   defaultValue: string;
 }
 
@@ -59,6 +61,8 @@ export interface ResolveOptions {
   param?: Record<string, unknown>;
   /** Logged-in consumer profile (AuthUserProfile-shaped) for {{ visitor.* }} */
   visitor?: Record<string, unknown>;
+  /** Watched/submitted lead-form values for {{ form.* }} (match-time only). */
+  form?: Record<string, unknown>;
   /** Page funnel block for {{ funnel.* }} (stored values, same lookup as meta). */
   funnel?: Record<string, unknown>;
 }
@@ -153,6 +157,17 @@ function resolveVisitorVariable(
   return null;
 }
 
+function resolveFormVariable(
+  fieldPath: string,
+  form: Record<string, unknown>,
+): { value: unknown; source: "form" } | null {
+  const value = getNestedValue(form, fieldPath);
+  if (value !== undefined && value !== null) {
+    return { value, source: "form" };
+  }
+  return null;
+}
+
 function bagValueToDisplay(value: unknown): string {
   return String(typeof value === "object" ? JSON.stringify(value) : value);
 }
@@ -171,6 +186,7 @@ export function resolveTemplateString(
   const meta = options?.meta;
   const param = options?.param;
   const visitor = options?.visitor;
+  const form = options?.form;
   const funnel = options?.funnel;
 
   const resolved = text.replace(regex, (match, expression: string, inlineDefault: string) => {
@@ -342,6 +358,39 @@ export function resolveTemplateString(
       return visitorValue;
     }
 
+    if (name.startsWith(FORM_PREFIX)) {
+      if (!form) {
+        return match;
+      }
+      const fieldPath = name.slice(FORM_PREFIX.length);
+      const formResult = resolveFormVariable(fieldPath, form);
+
+      if (preserveTemplate) {
+        if (!formResult && !defVal) {
+          return match;
+        }
+        const displayValue = formResult ? bagValueToDisplay(formResult.value) : defVal;
+        variables.push({
+          original: match,
+          variableName: name,
+          resolvedValue: displayValue,
+          source: formResult ? "form" : "inline",
+          defaultValue: defVal,
+        });
+        return `{{ ${name} | ${displayValue} }}`;
+      }
+
+      const formValue = formResult ? bagValueToDisplay(formResult.value) : defVal || name;
+      variables.push({
+        original: match,
+        variableName: name,
+        resolvedValue: formValue,
+        source: formResult ? "form" : "inline",
+        defaultValue: defVal,
+      });
+      return formValue;
+    }
+
     const result = resolveVariable(name, definitions, context);
     const value = result?.value || defVal || name;
     const source = result?.source || "inline";
@@ -377,6 +426,7 @@ export function resolveDeep(
   const meta = options?.meta;
   const param = options?.param;
   const visitor = options?.visitor;
+  const form = options?.form;
 
   function walk(value: unknown): unknown {
     if (typeof value === "string") {
@@ -509,6 +559,33 @@ export function resolveDeep(
               variableName: `visitor.${fieldPath}`,
               resolvedValue: displayValue,
               source: resolved !== undefined && resolved !== null ? "visitor" : "inline",
+              defaultValue: fallback || "",
+            });
+
+            return resolvedValue;
+          }
+        }
+
+        if (form) {
+          const exactForm = value.match(EXACT_FORM_VAR_PATTERN);
+          if (exactForm) {
+            const fieldPath = exactForm[1];
+            const hasFallback = exactForm[2] !== undefined;
+            const fallback = exactForm[2]?.trim();
+            const resolved = getNestedValue(form, fieldPath);
+            const resolvedValue =
+              resolved !== undefined && resolved !== null
+                ? resolved
+                : hasFallback
+                  ? parsePipeFallback(fallback ?? "")
+                  : value;
+            const displayValue = typeof resolvedValue === "object" ? JSON.stringify(resolvedValue) : String(resolvedValue);
+
+            allVariables.push({
+              original: value,
+              variableName: `form.${fieldPath}`,
+              resolvedValue: displayValue,
+              source: resolved !== undefined && resolved !== null ? "form" : "inline",
               defaultValue: fallback || "",
             });
 

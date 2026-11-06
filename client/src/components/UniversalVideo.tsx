@@ -23,6 +23,8 @@ export interface VideoConfig {
   preview_image_url?: string;
   with_shadow_border?: boolean;
   open_modal_on_click?: boolean;
+  /** Local files only; ignored for YouTube/embeds. Default false. */
+  show_controls_on_autoplay?: boolean;
   overlay_on_muted?: VideoOverlayOnMuted;
 }
 
@@ -272,6 +274,7 @@ export function UniversalVideo({
   bordered = false,
   compactPlayButton = false,
   open_modal_on_click = true,
+  show_controls_on_autoplay = false,
   overlay_on_muted,
 }: UniversalVideoProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -725,10 +728,11 @@ export function UniversalVideo({
   const renderAutoplayInlineVideo = () => {
     // Force muted while overlay is visible (browser autoplay policy + UX).
     const effectivelyMuted = showMutedOverlay ? true : muted;
+    // Native controls during autoplay: opt-in for local files only (YouTube ignored).
     const showControls =
-      overlayDismissed &&
       isLocalVideo(url) &&
-      (!openInModal || usesMobileLayout());
+      (show_controls_on_autoplay === true ||
+        (overlayDismissed && (!openInModal || usesMobileLayout())));
     // No listen card: muted autoplay is the play Tag Manager counts.
     // With a card: the preview stays on nocookie. After the click, only the
     // inline player the visitor is watching is hooked.
