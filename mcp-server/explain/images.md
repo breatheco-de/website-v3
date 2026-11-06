@@ -98,7 +98,7 @@ Tool: **`get_or_set_media_to_gallery`** (formerly `get_or_set_image_to_gallery`)
 | `media_id` | `content_view` | Returns the registry entry as `media` + `media_id`. No writes. |
 | `url` (no `import`) | `content_view` | Lookup by `src` / `source_url`. Miss → `url_not_in_gallery` with next_actions to retry with `import: true`. |
 | `url` + `import: true` | `media_upload` | Reuse if already in gallery; else fetch public URL (≤50 MB), strict type check, register (`origin=import`, stores `source_url`). No auth cookies — gated Drive/Dropbox fail. SSRF checked on every redirect hop. |
-| `bytes_base64` + `filename` | `media_upload` | Decode and register (`origin=upload`). Decoded size ≤15 MB. Extension must be image/video/PDF. |
+| `bytes_base64` + `filename` | `media_upload` | Decode and register (`origin=upload`). Decoded size ≤15 MB (HTTP JSON body limit 30 MB for base64 + JSON-RPC). Extension must be image/video/PDF. |
 | `prompt` | `media_upload` | OpenRouter image gen with **n=1**, immediately registers as `origin=ai` (no confirm). Enqueues AI unused-image GC. |
 
 Success payloads use **`media_id`** (not `image_id`) and nested **`media`**. Registry storage keys are unchanged.

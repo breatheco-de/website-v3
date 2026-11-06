@@ -434,9 +434,12 @@ async function createMcpServer(
 
 // ─── Express server ───────────────────────────────────────────────────────────
 
+/** Headroom for get_or_set_media_to_gallery bytes_base64 (≤15 MB decoded ≈ ~20 MB base64 + JSON-RPC). */
+const MCP_JSON_BODY_LIMIT = "30mb";
+
 const app = express();
 app.use(cors({ exposedHeaders: ["WWW-Authenticate"] }));
-app.use(express.json());
+app.use(express.json({ limit: MCP_JSON_BODY_LIMIT }));
 app.use(express.urlencoded({ extended: true }));
 
 function requestPublicBase(req: express.Request): string {

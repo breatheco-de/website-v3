@@ -5,6 +5,17 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-06"
+    summary: "MCP proxy no longer 413s large bytes_base64 uploads (stream-pipe + 30mb JSON limit)"
+    agent_impact:
+      - "get_or_set_media_to_gallery bytes_base64 (≤15 MB decoded) no longer fails with HTTP 413 from the /mcp proxy Express 100kb default."
+      - "Prefer bytes_base64 for gated Drive/Dropbox; url + import:true still ≤50 MB for public URLs. Prefer url import when the file is already on a public CDN."
+      - "Reconnect is not required for this transport fix; tool args are unchanged."
+    tools_changed: false
+    paths:
+      - server/index.ts
+      - mcp-server/index.ts
+      - mcp-server/explain/images.md
   - date: "2026-11-05"
     summary: "form_overrides conditions use field_property_slug + match-time form/entry/visitor bags"
     agent_impact:

@@ -202,18 +202,40 @@ declare module 'http' {
     rawBody: unknown
   }
 }
-app.use(express.json({
+
+/** MCP/OAuth are proxied as raw streams — do not parse (Express default 100kb would 413 large tool uploads). */
+function isMcpProxyPath(pathname: string): boolean {
+  return (
+    pathname === "/mcp"
+    || pathname.startsWith("/mcp/")
+    || pathname === "/oauth"
+    || pathname.startsWith("/oauth/")
+    || pathname === "/.well-known/oauth-authorization-server"
+    || pathname === "/.well-known/oauth-protected-resource"
+    || pathname.startsWith("/.well-known/oauth-protected-resource/")
+  );
+}
+
+const jsonBodyParser = express.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf;
-  }
-}));
-app.use(express.urlencoded({
+  },
+});
+const urlencodedBodyParser = express.urlencoded({
   extended: false,
   verify: (req, _res, buf) => {
-    // Capture raw bytes for proxy forwarding (same pattern as express.json above)
+    // Capture raw bytes for IPN / webhook / proxy consumers that need the original payload
     if (!req.rawBody) req.rawBody = buf;
   },
-}));
+});
+app.use((req, res, next) => {
+  if (isMcpProxyPath(req.path)) return next();
+  return jsonBodyParser(req, res, next);
+});
+app.use((req, res, next) => {
+  if (isMcpProxyPath(req.path)) return next();
+  return urlencodedBodyParser(req, res, next);
+});
 
 /** Cap JSON bodies in API request logs — full payloads (events feed, variables, redirects) flood dev stdout. */
 const API_LOG_BODY_MAX_CHARS = 280;
@@ -244,15 +266,7 @@ function shouldTrackRoute(req: Request): boolean {
   if (!req.route) return false;
   const path = req.path || "";
   if (path === "/apply" || path.startsWith("/apply/")) return false;
-  if (
-    path === "/mcp"
-    || path.startsWith("/mcp/")
-    || path === "/oauth"
-    || path.startsWith("/oauth/")
-    || path === "/.well-known/oauth-authorization-server"
-    || path === "/.well-known/oauth-protected-resource"
-    || path.startsWith("/.well-known/oauth-protected-resource/")
-  ) return false;
+  if (isMcpProxyPath(path)) return false;
   return true;
 }
 
@@ -351,25 +365,7 @@ app.use((req, res, next) => {
   const MCP_PORT = process.env.MCP_PORT || "3001";
 
   function pipeToMcp(req: Request, res: Response) {
-    // Express body-parser may have already consumed the stream, so we detect
-    // that and re-serialize the parsed body rather than piping a dead stream.
-    const bodyAlreadyParsed =
-      req.body !== undefined &&
-      ["POST", "PUT", "PATCH"].includes(req.method);
-
-    // Forward the original raw body bytes so the MCP server's own parsers
-    // receive exactly what the client sent (avoids re-encoding mismatches).
-    let bodyBuf: Buffer | null = null;
-    if (bodyAlreadyParsed) {
-      const raw = req.rawBody;
-      if (Buffer.isBuffer(raw) && raw.length > 0) {
-        bodyBuf = raw;
-      } else {
-        // Fallback: re-encode the parsed body (JSON requests only reach here)
-        bodyBuf = Buffer.from(JSON.stringify(req.body));
-      }
-    }
-
+    // Body parsers skip MCP proxy paths so the request stream is intact here.
     const firstHeaderValue = (v: string | string[] | undefined) =>
       (Array.isArray(v) ? v[0] : v)?.split(",")[0]?.trim() || undefined;
     const forwardedHost = firstHeaderValue(req.headers["x-forwarded-host"]) ?? req.get("host");
@@ -380,14 +376,7 @@ app.use((req, res, next) => {
       ...(forwardedHost ? { "x-forwarded-host": forwardedHost } : {}),
       "x-forwarded-proto": forwardedProto,
     };
-    // Remove hop-by-hop headers that conflict with our re-serialized body
-    delete headers["transfer-encoding"];
     delete headers["connection"];
-    if (bodyBuf) {
-      headers["content-length"] = bodyBuf.length;
-      // Only set a content-type fallback if none was forwarded
-      headers["content-type"] = (headers["content-type"] as string) ?? "application/json";
-    }
 
     const options: http.RequestOptions = {
       hostname: "127.0.0.1",
@@ -406,11 +395,7 @@ app.use((req, res, next) => {
       if (!res.headersSent) res.status(502).json({ error: "MCP server unavailable" });
     });
 
-    if (bodyBuf) {
-      proxy.end(bodyBuf);
-    } else {
-      req.pipe(proxy, { end: true });
-    }
+    req.pipe(proxy, { end: true });
   }
 
   app.all("/mcp", pipeToMcp as any);
