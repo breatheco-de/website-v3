@@ -350,6 +350,19 @@ interface FormValues {
   [key: string]: string | boolean;
 }
 
+/** Marketing checkbox is stored as consent_email; CRM + GTM both get email+whatsapp from it. */
+function effectiveFormConsents(
+  formValues: Pick<FormValues, "consent_email" | "consent_sms" | "consent_whatsapp">,
+  consent: { marketing?: boolean } | null | undefined,
+) {
+  const consent_email = formValues.consent_email || false;
+  return {
+    consent_email,
+    consent_sms: formValues.consent_sms || false,
+    consent_whatsapp: consent?.marketing ? consent_email : formValues.consent_whatsapp || false,
+  };
+}
+
 interface ConsentSectionProps {
   consent: NonNullable<LeadFormData["consent"]>;
   form: ReturnType<typeof useForm<FormValues>>;
@@ -1563,6 +1576,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   ) => {
     const resolvedProduct = await resolveSubmitProduct(fields);
     const leadTracking = await resolveLeadTracking(fields);
+    const consents = effectiveFormConsents(formValues, consent);
     const tracking: FormSubmissionTrackingData = {
       email: formValues.email,
       first_name: formValues.first_name,
@@ -1580,9 +1594,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       client_comments: formValues.client_comments,
       current_download:
         typeof fields.current_download === "string" ? fields.current_download : undefined,
-      consent_email: formValues.consent_email,
-      consent_sms: formValues.consent_sms,
-      consent_whatsapp: formValues.consent_whatsapp,
+      consent_email: consents.consent_email,
+      consent_sms: consents.consent_sms,
+      consent_whatsapp: consents.consent_whatsapp,
       consent_general: formValues.consent_general,
       ...Object.fromEntries(
         extraConsentFields.map((field) => [
@@ -1614,8 +1628,10 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       );
       
       // When marketing consent is enabled, derive both email and whatsapp from consent_email checkbox
-      const effectiveEmailConsent = consent_email || false;
-      const effectiveWhatsappConsent = consent.marketing ? effectiveEmailConsent : (consent_whatsapp || false);
+      const consents = effectiveFormConsents(
+        { consent_email, consent_sms, consent_whatsapp },
+        consent,
+      );
       const fieldScalars = Object.fromEntries(
         Object.entries(fields).filter(([, value]) =>
           isNonEmptyLeadFormWireScalar(value),
@@ -1628,9 +1644,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         ...restValues,
         ...fieldScalars,
         // Consent fields mapped to backend names
-        consent_email: effectiveEmailConsent,
-        sms_consent: consent_sms || false,
-        consent_whatsapp: effectiveWhatsappConsent,
+        consent_email: consents.consent_email,
+        sms_consent: consents.consent_sms,
+        consent_whatsapp: consents.consent_whatsapp,
         location: fields.location,
         region: fields.region,
         coupon: fields.coupon,
@@ -1674,9 +1690,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         const formCtx: Record<string, unknown> = {
           ...values,
           ...fields,
-          consent_email: effectiveEmailConsent,
-          consent_sms: consent_sms || false,
-          consent_whatsapp: effectiveWhatsappConsent,
+          consent_email: consents.consent_email,
+          consent_sms: consents.consent_sms,
+          consent_whatsapp: consents.consent_whatsapp,
         };
         const sessionCtx: Record<string, unknown> = {
           language: session.language,
