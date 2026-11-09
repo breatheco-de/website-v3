@@ -71,4 +71,27 @@ describe("buildLeadPayload", () => {
     expect(out.ref).toBeUndefined();
     expect(out.event_id).toBeUndefined();
   });
+
+  it("mirrors granted consents as GTM keys in custom_fields for CDP", () => {
+    const out = buildLeadPayload({
+      email: "a@b.com",
+      consent_email: true,
+      consent_whatsapp: true,
+      sms_consent: false,
+    });
+    expect(out.custom_fields).toEqual({
+      consent_email: true,
+      consent_whatsapp: true,
+    });
+  });
+
+  it("omits custom_fields when nothing was granted", () => {
+    const out = buildLeadPayload({
+      email: "a@b.com",
+      consent_email: false,
+      consent_whatsapp: false,
+      sms_consent: false,
+    });
+    expect(out.custom_fields).toBeUndefined();
+  });
 });
