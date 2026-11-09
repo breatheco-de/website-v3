@@ -17,15 +17,22 @@ function fakeDocument() {
       const age = attrs.find((a) => a.toLowerCase().startsWith("max-age="));
       if (age) maxAge.set(pair.slice(0, eq), Number(age.split("=")[1]));
     },
+    getElementById: (): HTMLElement | null => null,
   };
 }
 
 type Push = Record<string, unknown>;
 
+/** Fresh module whose current page has already set its (empty) context, so `track()` does not wait. */
 async function load() {
   vi.resetModules();
-  return import("./tracking");
+  const mod = await import("./tracking");
+  mod.setPageTrackingContext(null);
+  return mod;
 }
+
+/** `track()` pushes after an await; let pending pushes land. */
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("visit experiment (first test seen this visit)", () => {
   let doc: ReturnType<typeof fakeDocument>;
@@ -46,6 +53,7 @@ describe("visit experiment (first test seen this visit)", () => {
     const t = await load();
     t.trackPageVersion({ experiment_id: "landing:promo:en@2026-10-01", variant: "default" });
     t.trackPageVersion({ experiment_id: "landing:promo:en@2026-10-01", variant: "default" });
+    await flush();
     const exposures = pushes().filter((p) => p.event === "experiment_exposure");
     expect(exposures).toHaveLength(1);
     expect(exposures[0]).toMatchObject({ experiment_id: "landing:promo:en@2026-10-01", variant: "default" });
@@ -80,7 +88,7 @@ describe("visit experiment (first test seen this visit)", () => {
     const t = await load();
     t.trackPageVersion({ experiment_id: "landing:promo:en@2026-10-01", variant: "b" });
     doc.maxAge.set("4g_visit_exp", 0);
-    t.track("cta_click", { label: "Apply" });
+    await t.track("cta_click", { label: "Apply" });
     expect(doc.maxAge.get("4g_visit_exp")).toBe(1800);
   });
 
