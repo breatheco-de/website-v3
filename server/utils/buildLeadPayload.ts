@@ -110,6 +110,14 @@ export function buildLeadPayload(
     out[key] = value;
   }
 
+  // BC drops top-level consent_*; mirror GTM keys in custom_fields for CDP (API maps to consent_granted).
+  const custom_fields: Record<string, true> = {
+    ...(payload.consent_email ? { consent_email: true } : {}),
+    ...(payload.consent ? { consent_whatsapp: true } : {}),
+    ...(payload.sms_consent ? { consent_sms: true } : {}),
+  };
+  if (Object.keys(custom_fields).length) out.custom_fields = custom_fields;
+
   return Object.fromEntries(
     Object.entries(out).filter(
       ([_, value]) => value !== null && value !== undefined && value !== "",
