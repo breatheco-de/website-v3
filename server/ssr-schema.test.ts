@@ -14,6 +14,7 @@ import {
 } from "./ssr-schema";
 import { applyIgnoredEntries } from "@shared/faq-listing";
 import { contentIndex } from "./content-index";
+import { databaseManager } from "./database";
 import { validateFaqListingSections } from "@shared/validateFaqListing";
 import { faqSectionSchema } from "../shared/component-registry/faq/v1.0/schema";
 
@@ -210,6 +211,7 @@ function makeFakeCi(
     loadCommonData: () => null,
     getLocaleUrls: () => ({}),
     resolveBaseSlug: (slug: string) => slug,
+    getDatabase: () => databaseManager,
   } as unknown as typeof contentIndex;
 }
 
