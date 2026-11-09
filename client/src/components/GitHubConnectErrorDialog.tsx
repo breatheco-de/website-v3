@@ -62,7 +62,7 @@ function WriteAccessChecklist({
           {appSlug ? (
             <span className="font-medium text-foreground">{appSlug}</span>
           ) : (
-            "(Weblify)"
+            "(Caxton)"
           )}{" "}
           and set repository permission{" "}
           <span className="font-medium text-foreground">

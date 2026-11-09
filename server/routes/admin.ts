@@ -2134,6 +2134,24 @@ export function registerAdminRoutes(app: Express): void {
         return;
       }
 
+      if (req.body?.confirmAdsImpact !== true) {
+        const { adsForSitePath } = await import("../url-removal-check");
+        const { adFacts, adsByPlatformLabel } = await import("@shared/url-removal");
+        const ads = adsForSitePath(normalizedFrom, getCI(res));
+        if (ads.live.length > 0) {
+          res.status(409).json({
+            error:
+              `${ads.live.length} live ad(s) (${adsByPlatformLabel(ads.live)}) still use ${normalizedFrom}. ` +
+              "Removing the redirect sends them to a missing page. Confirm to remove it anyway, or update the ads first.",
+            code: "redirect_used_by_live_ads",
+            from: normalizedFrom,
+            ads: adFacts(ads.live),
+            paused_ads: adFacts(ads.paused),
+          });
+          return;
+        }
+      }
+
       if (
         sourceFile === `${contentRootName}/custom-redirects.yml` ||
         sourceFile === "custom-redirects.yml"

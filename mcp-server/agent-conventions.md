@@ -166,6 +166,7 @@ Your job is to stop harm — invented claims, lost query fit, false scope, unjus
 
 - One failing checklist does not sink the rest: blocker on those ops; the author drops or fixes them; apply is all-at-once.
 - Cleared blockers ≠ approved — re-read, then apply.
+- Page-level fields (`funnel.*`, `authors`, `published_at`) the author requested are yours to approve, even though apply writes `_common.yml` for every language — no staff handoff. Apply refuses agents only when the draft changes page-level fields nobody requested (`agent_apply_unrequested_page_fields`) or publishing would drop a live value (`agent_apply_drops_live_values`): `add_blocker` so the author fixes it with `revise_entries`. Proposals never carry `detached` (`detached_not_supported`).
 - Queue: default `sort=attention` ranks for your seat (reviewer: `escalated` → `awaiting_rereview` → `no_feedback` → `blocked`). `needs_review: true` = edits waiting for a reviewer.
 - No `proposals_create` (Proposal Reviewer): hand park items to a role that has it; never turn them into blockers.
 

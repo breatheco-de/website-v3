@@ -1,6 +1,13 @@
 import fs from "fs";
 import path from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AdsOnUrlResult } from "@shared/url-removal";
+
+const ads = vi.hoisted(() => ({
+  result: { live: [], paused: [], checked: true, sources: [] } as AdsOnUrlResult,
+}));
+vi.mock("./url-removal-check", () => ({ adsForSitePath: () => ads.result }));
+
 import { checkSlugRename, renameContentSlug } from "./content-editor";
 import { contentIndex } from "./content-index";
 import { getFolder } from "./content-types";
@@ -21,6 +28,7 @@ function makeEntryRoot(extraYaml = ""): { root: string; folderSlug: string } {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  ads.result = { live: [], paused: [], checked: true, sources: [] };
   for (const dir of tmpDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -96,6 +104,34 @@ describe("renameContentSlug ownership and routing checks", () => {
     expect(result.data.routed).toBe(true);
     expect(result.data.newUrl).toBe("/es/tutoriales-interactivos");
     expect(result.data.clusterRewireQueued).toBe(false);
+  });
+
+  it("refuses a rename without redirect while live ads point at the old URL, and allows it with one", async () => {
+    const { root, folderSlug } = makeEntryRoot();
+    stubIndex(folderSlug, root);
+    vi.spyOn(contentIndex, "resolveUrl").mockReturnValue(null);
+    vi.spyOn(contentIndex, "refresh").mockImplementation(() => {});
+    vi.spyOn(seoIndexMod, "clusterHasPillarPathPointers").mockReturnValue(false);
+    ads.result = {
+      live: [{ platform: "meta", site: "s", ad_id: "1", ad_name: "A", campaign_id: "c", campaign_name: "C", status: "ACTIVE", url: null, matched_by: "link" }],
+      paused: [],
+      checked: true,
+      sources: [],
+    };
+    const base = { contentType: "page", folderSlug, locale: "es", newSlug: "tutoriales-interactivos", contentRootName: path.relative(process.cwd(), root) };
+
+    const refused = await renameContentSlug(base);
+    expect(refused.success).toBe(false);
+    if (refused.success) return;
+    expect(refused.statusCode).toBe(409);
+    expect(refused.code).toBe("live_ads_point_to_old_url");
+    expect(refused.details).toMatchObject({ old_url: "/es/interactive-exercises", ads: [expect.objectContaining({ ad_id: "1" })] });
+    expect(fs.readFileSync(path.join(root, getFolder("page"), folderSlug, "es.yml"), "utf-8")).toContain("slug: interactive-exercises");
+
+    const ok = await renameContentSlug({ ...base, createRedirect: true });
+    expect(ok.success).toBe(true);
+    if (!ok.success) return;
+    expect(ok.data.ads_on_old_url.live).toHaveLength(1);
   });
 
   it("emits cluster rewire when seo-index still points at old URL", async () => {

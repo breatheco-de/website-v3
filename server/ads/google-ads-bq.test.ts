@@ -114,6 +114,12 @@ describe("parseFinalUrls", () => {
     expect(parseFinalUrls("https://a.com/z")).toEqual(["https://a.com/z"]);
     expect(parseFinalUrls(null)).toEqual([]);
   });
+
+  it("unwraps double-encoded arrays from TO_JSON_STRING over a JSON string column", () => {
+    expect(parseFinalUrls('"[\\"https://a.com/es/x\\"]"')).toEqual(["https://a.com/es/x"]);
+    expect(parseFinalUrls(JSON.stringify(['["https://a.com/x","https://a.com/y"]']))).toEqual(["https://a.com/x", "https://a.com/y"]);
+    expect(parseFinalUrls('["not a url"]')).toEqual([]);
+  });
 });
 
 describe("makeLeadActionMatcher", () => {

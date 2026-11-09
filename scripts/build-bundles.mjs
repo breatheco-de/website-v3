@@ -10,7 +10,7 @@ import siteSchemaStubPlugin from "./esbuild-site-schema-stub-plugin.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const shared = path.join(root, "shared");
 
-/** Bundle into CLI so npx weblify does not need these on the user's machine. */
+/** Bundle into CLI so npx caxton-cms does not need these on the user's machine. */
 const CLI_BUNDLE_PACKAGES = ["@clack/prompts", "picocolors"];
 
 const common = {

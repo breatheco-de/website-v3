@@ -1,6 +1,6 @@
-# Contributing to Weblify
+# Contributing to Caxton
 
-Thanks for your interest in Weblify — the agentic CMS. Contributions that improve the CMS, components, docs, or deploy story are welcome.
+Thanks for your interest in Caxton — the agentic CMS. Contributions that improve the CMS, components, docs, or deploy story are welcome.
 
 ## Development setup
 
@@ -16,7 +16,7 @@ npm run dev
 
 Open http://localhost:5000. See [INSTALL.md](INSTALL.md) for environment variables and content folder bootstrap.
 
-Contributor shortcut for the published CLI surface: `npm run weblify` (same as `npx tsx cli/src/index.ts`). Production cutover notes: [docs/migrate-to-npx-weblify.md](docs/migrate-to-npx-weblify.md).
+Contributor shortcut for the published CLI surface: `npm run caxton` (same as `npx tsx cli/src/index.ts`). Production cutover notes: [docs/migrate-to-npx-caxton.md](docs/migrate-to-npx-caxton.md).
 
 ## Before you open a PR
 

@@ -12,14 +12,14 @@ when_to_use: |
   on every location; Person on author hubs. WebSite/Organization sections are prefilled from site
   schema-org.yml and stay page-local (they do not write back to the site file).
   Multiple schema_org sections are allowed; they always sort to the top of the page.
-layout:
-  flow: out
 behaviors:
   schema_org:
     handler: schema_org
     notes: >-
       Emits one JSON-LD document from schema_type + properties. Resolves @organization refs with dual-emit (nested +
       standalone Organization).
+layout:
+  flow: out
 props:
   schema_type:
     type: string

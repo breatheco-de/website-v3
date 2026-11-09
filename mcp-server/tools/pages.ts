@@ -100,6 +100,7 @@ import {
 import type { ContentTypeEditorHint } from "../../server/content-types.js";
 import { promoteWarnings, promoteFailureNextActions, ROBOTS_CHANGE_ON_PUBLISH_CODE, robotsChangeOnPublishResult, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, diagnosticsJobNextActions, overrideMasksSourceWarning, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import { touchesMetaRedirects } from "../lib/redirect-update.js";
+import { deleteVariantPreflight, variantRowFields, type VariantInfoPayload } from "../lib/variant-info-mcp.js";
 import {
   isSignupFieldMapError,
   signupFieldMapActionRequired,
@@ -215,6 +216,7 @@ import {
 } from "../lib/translate-entry.js";
 import { applyPurchasableToRecord, ecommerceManager, PURCHASABLE_FIELD } from "../../server/ecommerce/ecommerce-manager.js";
 import { FUNNEL_STAGES } from "@shared/funnel";
+import { adsOnUrlWarnings, type AdsOnUrlPayload } from "../lib/ads-on-url-mcp.js";
 import { COMMON_META_KEYS, isCommonField } from "@shared/field-scope";
 import {
   applyFunnelFieldUpdates,
@@ -742,6 +744,44 @@ async function callRenameSlugApi(
     const data = await res.json() as Record<string, unknown>;
     if (!res.ok) {
       const { error, ...details } = data;
+      if (data.code === "live_ads_point_to_old_url") {
+        return {
+          ok: false,
+          error: actionRequired(
+            {
+              success: false,
+              action_required: "create_redirect_required",
+              code: "live_ads_point_to_old_url",
+              message: (error as string) || "Live ads point to the old URL; rename only with a redirect.",
+              old_url: data.old_url,
+              ads: data.ads ?? [],
+              paused_ads: data.paused_ads ?? [],
+              warnings: [
+                {
+                  code: "live_ads_point_to_old_url",
+                  message:
+                    "Nothing was written. Renaming without a redirect would send paid traffic to a missing page. There is no override: rename with create_redirect: true, or staff pause/move the ads in Meta/Google first.",
+                },
+              ],
+            },
+            [
+              {
+                tool: "update_fields",
+                priority: "required",
+                reason: "Retry the live slug rename with a redirect so the ads keep working.",
+                args_hint: {
+                  contentType: params.contentType,
+                  slug: params.folderSlug,
+                  locale: params.locale,
+                  confirm_live_edit: true,
+                  create_redirect: true,
+                  updates: [{ field_path: "slug", value: params.newSlug }],
+                },
+              },
+            ],
+          ),
+        };
+      }
       return {
         ok: false,
         error: fail(
@@ -3413,7 +3453,7 @@ export function registerPageTools(
             "Rejected when OpenRush is on (use get_or_refresh_seo_research action keyword_metrics). Rejected: openrush, estimated, model, empty.",
         ),
       create_redirect: z.boolean().optional().describe(
-        "When renaming live slug (field_path slug): required if published_at is >= 24h ago. Adds old URL to meta.redirects.",
+        "When renaming live slug (field_path slug): required if published_at is >= 24h ago, or when live ads (Meta/Google) still use the old URL (refused with live_ads_point_to_old_url, no override). Adds old URL to meta.redirects.",
       ),
       why: z.string().describe(AGENT_WHY_DESC),
       highlights: z.array(z.string()).optional().describe(AGENT_HIGHLIGHTS_DESC),
@@ -4342,6 +4382,12 @@ export function registerPageTools(
           warnings,
           String(renamed.data.newSlug || slugRenameValue),
           locale,
+        );
+        warnings.push(
+          ...adsOnUrlWarnings(renamed.data.ads_on_old_url as AdsOnUrlPayload | undefined, "rename", {
+            url: typeof renamed.data.oldUrl === "string" ? renamed.data.oldUrl : null,
+            redirected: renamed.data.redirectCreated === true,
+          }),
         );
       }
 
@@ -5394,7 +5440,10 @@ export function registerPageTools(
     "Live-only pages have no versioning.yml: hasVersioning is false, variants is [], live_locales lists published locales — that is not unpublished. " +
     "versioning.yml is created by create_variant, not by hand; extra versions start at 0% traffic. " +
     "unregistered_variants lists variant files versioning.yml is missing (no traffic until staff register them). " +
-    "started_at gives each locale's test run date. Warnings cover page tests: ab_testing_not_setup, ab_check_failing, " +
+    "started_at gives each locale's test run date. " +
+    "Each variant row also has created_at, updated_at, age_state (new | active | stale | unknown; stale = created and last edited more than 30 days ago), " +
+    "verdict (cannot_delete | check_first | probably_safe) with reasons[{code,message}], behind_live, changes_vs_live (null when no live file) and sibling_locales (same slug in other languages; delete is per locale). " +
+    "Warnings cover page tests: ab_testing_not_setup, ab_check_failing, " +
     "variant_assignment_sticky (visitors keep their version; allocation is staff-only), split_mismatch (results unreliable). " +
     "Use before create_variant or editing an existing draft. Requires content_view.",
     {
@@ -5417,12 +5466,13 @@ export function registerPageTools(
 
       try {
         const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}?include=variant_info`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken, { site: domain }) });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
           return fail((data.error as string) || `Server error: ${res.status}`);
         }
+        const variantInfo = (data.variantInfo as Record<string, Record<string, VariantInfoPayload>> | undefined) ?? {};
         const liveByLocale = (data.liveByLocale as Record<string, boolean> | undefined) ?? {};
         const live_locales = Object.entries(liveByLocale)
           .filter(([, isLive]) => isLive)
@@ -5493,8 +5543,32 @@ export function registerPageTools(
           { variants?: Array<{ slug: string; allocation: number }>; started_at?: string }
         >;
         const variants = Object.entries(versioning).flatMap(([locale, localeData]) =>
-          (localeData.variants || []).map(v => ({ locale, slug: v.slug, allocation: v.allocation }))
+          (localeData.variants || []).map(v => ({
+            locale,
+            slug: v.slug,
+            allocation: v.allocation,
+            ...(variantRowFields(variantInfo[locale]?.[v.slug]) ?? {}),
+          }))
         );
+        const inUse = variants.filter((v) => "verdict" in v && v.verdict === "check_first");
+        const behind = variants.filter((v) => "behind_live" in v && v.behind_live === true);
+        const verdictWarnings: McpWarning[] = [
+          ...(inUse.length
+            ? [{
+                code: "variants_in_use",
+                message:
+                  `${inUse.map((v) => `${v.slug}.${v.locale}`).join(", ")}: verdict check_first (see reasons). ` +
+                  "delete_variant stops with confirm_variant_in_use for these; an open proposal (proposal_open) can't be overridden.",
+              }]
+            : []),
+          ...(behind.length
+            ? [{
+                code: "variants_behind_live",
+                message:
+                  `${behind.map((v) => `${v.slug}.${v.locale}`).join(", ")}: live changed since the variant was made; promoting it would undo those live changes.`,
+              }]
+            : []),
+        ];
         const started_at = Object.fromEntries(
           Object.entries(versioning)
             .filter(([, localeData]) => typeof localeData.started_at === "string")
@@ -5517,7 +5591,7 @@ export function registerPageTools(
             ...(Object.keys(started_at).length ? { started_at } : {}),
             unregistered_variants,
           },
-          { warnings: [...unregisteredWarnings, ...abWarnings], next_actions: [] },
+          { warnings: [...unregisteredWarnings, ...abWarnings, ...verdictWarnings], next_actions: [] },
         );
       } catch (e) {
         return fail(`Failed to list variants: ${(e as Error).message}`);
@@ -6394,6 +6468,9 @@ export function registerPageTools(
     "Blocked when the variant has traffic allocated (VARIANT_HAS_TRAFFIC); staff must remove allocation first. " +
     "Shared-layout template variants (versioning slug template/single) require confirm_template_delete: true. " +
     "When the variant file is already gone but versioning.yml still lists the slug, pass cleanup_orphan: true. " +
+    "Preflight reads the variant verdict (same as list_variants rows): linked to an open proposal → fail variant_open_proposal (no override; withdraw/reject the proposal or staff unlink it). " +
+    "Other in-use reasons (created/edited within 30 days, running or recently ended test, unverified proposal, changes not on live, last draft of an unpublished page, unknown test history) → action_required confirm_variant_in_use; " +
+    "tell the user the reasons, then re-call with confirm_variant_in_use: true. Overridden reasons are returned in warnings and saved with your report. " +
     "Confirm with the user before calling. Requires confirm: true and report (min 80 chars). Cap: content_delete_variant.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
@@ -6402,6 +6479,12 @@ export function registerPageTools(
       locale: z.string().default("en").describe("Locale of the variant file to delete, e.g. 'en' or 'es'"),
       confirm: z.boolean().describe("Must be true to perform delete."),
       report: z.string().describe(AGENT_REPORT_MUTATE_DESC),
+      confirm_variant_in_use: z
+        .boolean()
+        .optional()
+        .describe(
+          "Set only after the user confirmed deleting a variant whose verdict is check_first (reasons from the confirm_variant_in_use response or list_variants). Does not override an open proposal or traffic.",
+        ),
       confirm_template_delete: z
         .boolean()
         .optional()
@@ -6426,6 +6509,7 @@ export function registerPageTools(
       locale,
       confirm,
       report,
+      confirm_variant_in_use,
       confirm_template_delete,
       cleanup_orphan,
       agent_session_id,
@@ -6500,17 +6584,78 @@ export function registerPageTools(
         );
       }
 
+      const variantBase =
+        `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/` +
+        `${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/${encodeURIComponent(variantSlug)}`;
+
+      let variantInfo: VariantInfoPayload | null = null;
+      let variantInfoUnavailable = false;
+      try {
+        const infoRes = await fetch(`${variantBase}/info`, {
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }),
+        });
+        if (infoRes.ok) variantInfo = (await infoRes.json()) as VariantInfoPayload;
+        else if (infoRes.status !== 404) variantInfoUnavailable = true;
+      } catch {
+        variantInfoUnavailable = true;
+      }
+      const preflight = deleteVariantPreflight(variantInfo, confirm_variant_in_use === true);
+      if (preflight.kind === "blocked_open_proposal") {
+        return fail(
+          "This variant belongs to an open proposal, so agents can't delete it (confirm_variant_in_use does not override this).",
+          {
+            code: "variant_open_proposal",
+            contentType,
+            slug,
+            locale,
+            variantSlug,
+            reasons: preflight.reasons,
+            warnings: [
+              {
+                code: "variant_open_proposal",
+                message:
+                  "Someone is reviewing this draft. The proposer withdraws or a reviewer rejects the proposal (update_proposal), or staff unlink it in the Versions panel; only then can it be deleted. Live content is unchanged.",
+              },
+            ],
+            next_actions: [],
+          },
+        );
+      }
+      if (preflight.kind === "confirm_required") {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "confirm_variant_in_use",
+            code: "confirm_variant_in_use",
+            message:
+              "This variant may still be in use. Tell the user these reasons; if they still want it deleted, re-call delete_variant with confirm_variant_in_use: true.",
+            contentType,
+            slug,
+            locale,
+            variantSlug,
+            verdict: variantInfo?.health.verdict,
+            reasons: preflight.reasons,
+            warnings: [
+              {
+                code: "per_locale_delete",
+                message: `Deletes only ${variantSlug}.${locale}.yml. Same-slug variants in other languages stay (sibling_locales in list_variants). Live ${locale}.yml is not modified.`,
+              },
+            ],
+          },
+          [],
+        );
+      }
+
       try {
         const q = new URLSearchParams();
         if (cleanup_orphan === true) q.set("cleanup_orphan", "true");
         const qs = q.toString();
-        const url =
-          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/` +
-          `${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/${encodeURIComponent(variantSlug)}` +
-          (qs ? `?${qs}` : "");
+        const url = variantBase + (qs ? `?${qs}` : "");
+        const overriddenCodes = preflight.kind === "proceed" ? preflight.overridden.map((r) => r.code) : [];
         const res = await fetch(url, {
           method: "DELETE",
           headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }),
+          body: JSON.stringify({ report: trimmedReport, overridden_reasons: overriddenCodes }),
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
@@ -6592,6 +6737,20 @@ export function registerPageTools(
             code: "shared_layout_template_delete",
             message:
               "Deleted a template variant file. Attached entries still inherit the live template shell; sibling entries were not auto-updated.",
+          });
+        }
+        if (preflight.kind === "proceed" && preflight.overridden.length > 0) {
+          warnings.push({
+            code: "variant_in_use_overridden",
+            message:
+              `Deleted despite: ${preflight.overridden.map((r) => `${r.code} (${r.message})`).join("; ")}. ` +
+              "These reasons were saved with your report on the delete event.",
+          });
+        }
+        if (variantInfoUnavailable) {
+          warnings.push({
+            code: "variant_info_unavailable",
+            message: "Could not read the variant's age/activity before deleting, so no in-use check ran.",
           });
         }
         const apiWarnings = data.warnings as Array<{ code?: string; message?: string; proposal_id?: string }> | undefined;
@@ -6765,10 +6924,12 @@ const next_actions: NextAction[] = entryDeleted
             contentType,
             slug,
             locale,
+            ...(data.code ? { code: data.code } : {}),
             next_actions: [],
           });
         }
 
+        const adsOnUrl = data.ads_on_url as (AdsOnUrlPayload & { url?: string | null }) | undefined;
         const lastLiveLocale = data.lastLiveLocale === true;
         const liveRelPath = (data.liveRelPath as string) || `${contentType}/${slug}/${locale}.yml`;
         const draftRelPath = (data.draftRelPath as string) || `${contentType}/${slug}/draft.${locale}.yml`;
@@ -6787,9 +6948,11 @@ const next_actions: NextAction[] = entryDeleted
             liveRelPath,
             draftRelPath,
             versioningRelPath,
+            ...(adsOnUrl ? { ads_on_url: adsOnUrl } : {}),
           },
           {
             warnings: [
+              ...adsOnUrlWarnings(adsOnUrl, "unpublish", { url: adsOnUrl?.url ?? null }),
               {
                 code: "locale_unpublished",
                 message: `This locale 404s publicly and is not in the sitemap until publish_draft. Live file was renamed (${liveRelPath} → ${draftRelPath}), not deleted.`,
@@ -9585,7 +9748,9 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
     "Best-effort bulk delete of static content-type entries. Without confirm:true returns preview " +
     "(dependents, needs_reassignment, blocked protected slugs). For authors, removing the last " +
     "pointer from blog.authors requires reassignments (map blogSlug → authorSlug[]); defaults to " +
-    "4geeks-academy. Deleted author URLs 404. Does not soft-redirect. " +
+    "4geeks-academy. Deleted URLs 404 unless redirect_to is set. Preview lists ads (Meta/Google) per slug " +
+    "(preview.ads_by_slug) and slugs live 24h or more (preview.redirect_required_slugs): those need redirect_to / " +
+    "redirect_to_by_slug or no_redirect_reason, else redirect_destination_required (nothing deleted). " +
     MULTI_SITE_TOOL_BLURB,
     {
       contentType: z.string().describe("Content type key, e.g. authors"),
@@ -9595,6 +9760,20 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         .record(z.array(z.string()))
         .optional()
         .describe("When last author would be cleared: blogSlug → replacement author slug[]"),
+      redirect_to: z
+        .object({ content_type: z.string().optional(), slug: z.string() })
+        .optional()
+        .describe(
+          "Page to send visitors of every deleted slug to. Each deleted locale's URL (and that locale's own meta.redirects) is added to the destination's same-locale file meta.redirects; refused (nothing deleted) when the destination lacks a locale (redirect_destination_missing_locale) or an address already redirects elsewhere (redirect_conflict). content_type defaults to contentType.",
+        ),
+      redirect_to_by_slug: z
+        .record(z.object({ content_type: z.string().optional(), slug: z.string() }))
+        .optional()
+        .describe("Per-slug destination (overrides redirect_to for that slug)."),
+      no_redirect_reason: z
+        .string()
+        .optional()
+        .describe("Why pages live 24h or more get no redirect (min 10 chars). Use only when no page fits; their URLs will 404."),
       report: z
         .string()
         .describe(AGENT_REPORT_MUTATE_DESC),
@@ -9603,8 +9782,16 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         .describe("Required. From agent_session start."),
       site: z.string().optional().describe(SITE_PARAM_DESC),
     },
-    async ({ contentType, slugs, confirm, reassignments, report, agent_session_id, site }) => {
+    async ({ contentType, slugs, confirm, reassignments, redirect_to, redirect_to_by_slug, no_redirect_reason, report, agent_session_id, site }) => {
       const trimmedReport = typeof report === "string" ? report.trim() : "";
+      const toServerDest = (d: { content_type?: string; slug: string }) => ({ contentType: d.content_type || contentType, slug: d.slug });
+      const redirectBody = {
+        ...(redirect_to ? { redirectTo: toServerDest(redirect_to) } : {}),
+        ...(redirect_to_by_slug
+          ? { redirectToBySlug: Object.fromEntries(Object.entries(redirect_to_by_slug).map(([s, d]) => [s, toServerDest(d)])) }
+          : {}),
+        ...(no_redirect_reason ? { noRedirectReason: no_redirect_reason } : {}),
+      };
 
       const siteResult = resolveSiteContext(site);
       if (!siteResult.ok) {
@@ -9651,15 +9838,61 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
             slugs,
             confirm: confirm === true,
             reassignments,
+            ...redirectBody,
             ...(trimmedReport ? { report: trimmedReport } : {}),
           }),
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
+          if (data.code === "redirect_destination_required") {
+            const needSlugs = Array.isArray(data.slugs) ? (data.slugs as string[]) : slugs;
+            return actionRequired(
+              {
+                success: false,
+                action_required: "redirect_destination_required",
+                code: "redirect_destination_required",
+                message: (data.error as string) || "Pages live 24h or more need a destination or a reason.",
+                slugs: needSlugs,
+                ads_by_slug: data.ads_by_slug,
+                warnings: [
+                  {
+                    code: "redirect_destination_required",
+                    message:
+                      "Nothing was deleted. Prefer redirect_to (a live page on this site that covers the same intent, same locales) so visitors and ads keep landing somewhere; no_redirect_reason (min 10 chars) only when no page fits.",
+                  },
+                ],
+              },
+              [
+                {
+                  tool: "delete_entries",
+                  priority: "required",
+                  reason: "Re-call with a destination page for these slugs.",
+                  args_hint: { contentType, slugs, confirm: true, redirect_to: { slug: "<destination-slug>" }, site },
+                },
+                {
+                  tool: "delete_entries",
+                  priority: "optional",
+                  reason: "Only if no page fits: delete with an explicit reason (URLs will 404).",
+                  args_hint: { contentType, slugs, confirm: true, no_redirect_reason: "<why no destination fits>", site },
+                },
+              ],
+            );
+          }
           return fail((data.error as string) || `delete_entries failed: ${res.status}`, {
             details: data,
           });
         }
+        const adsBySlug = ((data.preview as Record<string, unknown> | undefined)?.ads_by_slug ?? {}) as Record<
+          string,
+          AdsOnUrlPayload & { urls?: string[] }
+        >;
+        const adsWarningsFor = (redirectedSlugs: Set<string>) =>
+          Object.entries(adsBySlug).flatMap(([s, a]) =>
+            adsOnUrlWarnings(a, "delete", { url: a.urls?.[0] ?? s, redirected: redirectedSlugs.has(s) }).map((w) => ({
+              ...w,
+              message: `${s}: ${w.message}`,
+            })),
+          );
         if (confirm !== true) {
           const previewObj = data.preview as Record<string, unknown> | undefined;
           const linkBySlug = previewObj?.link_preview_by_slug as
@@ -9693,16 +9926,17 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
               referrers: referrersFlat,
               suggestions,
               tool: "delete_entries",
-              ...(referrersFlat.length > 0
-                ? {
-                    warnings: [
+              warnings: [
+                ...(referrersFlat.length > 0
+                  ? [
                       {
                         code: "delete_referrer_links",
                         message: `${referrersFlat.length} CMS entry link(s) may break after delete — update sources or add redirects.`,
                       },
-                    ],
-                  }
-                : {}),
+                    ]
+                  : []),
+                ...adsWarningsFor(new Set()),
+              ],
             },
             [
               {
@@ -9745,10 +9979,17 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
           },
           {
             warnings: [
-{
+              {
                 code: "best_effort_bulk",
                 message: "Best-effort bulk: check results[] per slug.",
               },
+              ...adsWarningsFor(
+                new Set(
+                  (Array.isArray(data.results) ? (data.results as Array<{ slug: string; redirects_added?: unknown[] }>) : [])
+                    .filter((r) => (r.redirects_added?.length ?? 0) > 0)
+                    .map((r) => r.slug),
+                ),
+              ),
               {
                 code: "listing_vs_page",
                 message:
@@ -9776,8 +10017,28 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
             side_effects: [
               {
                 kind: "delete_entry_folder",
-                summary: `${contentType}/<slug>/ removed; URL 404s`,
+                summary: redirect_to || redirect_to_by_slug
+                  ? `${contentType}/<slug>/ removed; its URLs redirect to the destination (see results[].redirects_added)`
+                  : `${contentType}/<slug>/ removed; URL 404s`,
               },
+              ...((Array.isArray(data.results) ? (data.results as Array<{ redirects_added?: Array<{ file?: string }> }>) : [])
+                .flatMap((r) => r.redirects_added ?? [])
+                .some((a) => a.file)
+                ? [
+                    {
+                      kind: "redirects_added_to_destination",
+                      summary: "Old URLs appended to the destination's same-locale meta.redirects",
+                      paths: Array.from(
+                        new Set(
+                          (data.results as Array<{ redirects_added?: Array<{ file?: string }> }>)
+                            .flatMap((r) => r.redirects_added ?? [])
+                            .map((a) => a.file!)
+                            .filter(Boolean),
+                        ),
+                      ),
+                    },
+                  ]
+                : []),
               ...(contentType === "authors"
                 ? [
                     {

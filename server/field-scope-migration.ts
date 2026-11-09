@@ -838,7 +838,7 @@ export async function runFieldScopeMigration(opts: {
           changed.add(r);
         }
         for (const d of restamp) {
-          if (d.base) recordDraftBase(d.ref, { author, skipMark: true });
+          if (d.base) recordDraftBase(d.ref, { author, skipMark: true, stampCreated: false });
           if (d.source) recordTranslationSource(d.ref, d.source, { author, skipMark: true });
           if (d.base || d.source) {
             deps.markModified(d.abs, s.contentRoot);

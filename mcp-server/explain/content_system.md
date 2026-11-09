@@ -77,6 +77,7 @@ Type-wide defaults for `meta.robots` / `meta.priority` / `meta.change_frequency`
 
 Resolution: exact path, then the longest listed prefix, then `locale`. URL pattern params are always `locale`.
 
+- **`detached` is not proposable:** `propose_change` / `revise_entries` / proposal apply refuse it with `detached_not_supported` (nothing written). Detach outside proposals with `set_entry_attachment`.
 - **Writes to a draft** stage `common` fields inside the draft; publish/promote moves them to `_common.yml` (warning `common_fields_all_languages`). Live writes of `common` fields go straight to `_common.yml`. New drafts never copy `common` keys from the live locale file — only fields the author sets are staged.
 - **Publish changes what a locale shows:** when the live locale file still holds a legacy copy of a `common` field that differs from what publish leaves (`_common.yml` or the draft's staged value), promote returns `display_values_change` (`details.fields[]` with `field_path`, `before`, `after`); retry with `confirm_display_change: true` after telling the user.
 - **Removing a field:** `{ field_path, op: "remove" }` (or `value: null`). On a draft the field is stored as `null` until publish (warning `common_field_removal_staged`), then deleted from `_common.yml` in every locale. `null` in a live `_common.yml` is a validation error (`FIELD_SCOPE_NULL_OUTSIDE_DRAFT`).

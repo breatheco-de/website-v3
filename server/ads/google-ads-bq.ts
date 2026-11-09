@@ -14,6 +14,7 @@ import type { BigQuery } from "@google-cloud/bigquery";
 import { createBigQueryClientForProject } from "../ecommerce/bigquery-client";
 import { googleNetworkOf, type GoogleAdNetwork } from "@shared/paid-traffic";
 import type { SpendDestinationHint } from "./providers/types";
+import { parseFinalUrls } from "./final-urls";
 
 const MAX_BYTES_BILLED = "2000000000";
 
@@ -289,18 +290,7 @@ function s(v: unknown): string | null {
   return t ? t : null;
 }
 
-export function parseFinalUrls(raw: unknown): string[] {
-  const t = s(raw);
-  if (!t) return [];
-  try {
-    const parsed = JSON.parse(t) as unknown;
-    if (Array.isArray(parsed)) return parsed.filter((u): u is string => typeof u === "string" && !!u.trim());
-    if (typeof parsed === "string") return parsed ? [parsed] : [];
-  } catch {
-    /* plain string */
-  }
-  return /^https?:\/\//i.test(t) ? [t] : [];
-}
+export { parseFinalUrls };
 
 // ── Normalized rows ────────────────────────────────────────────────────────
 

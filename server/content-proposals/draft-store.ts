@@ -492,7 +492,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
     },
 
     recordBase(ref, author) {
-      recordDraftBase(withRoot(ref), { author });
+      recordDraftBase(withRoot(ref), { author, stampCreated: false });
     },
 
     recordSource(ref, sourceLocale, author) {

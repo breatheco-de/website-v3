@@ -40,6 +40,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { EntryActivityDialog } from "@/components/pipeline/EntryActivityBadge";
 import { Link2, Loader2, Unlink } from "lucide-react";
+import { AdsOnUrlNotice, adsNoticeFromCheck } from "@/components/editing/AdsOnUrlNotice";
+import { useUrlRemovalCheck } from "@/hooks/useUrlRemovalCheck";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { apiFetch } from "@/lib/queryClient";
@@ -55,6 +57,7 @@ import { STORAGE_KEY, OPEN_STORAGE_KEY } from "../types";
 import { PageHealthIndicators } from "./PageHealthIndicators";
 import { LayoutApprovalControl } from "./LayoutApprovalControl";
 import { VariantProposalBadge } from "./VariantProposalBadge";
+import { VariantInfoPopover, VariantVerdictSummary, useVariantInfo } from "./VariantInfoPopover";
 import { PendingProposalsDialog } from "./PendingProposalsDialog";
 import { LocaleFlag } from "./LocaleFlag";
 import {
@@ -477,6 +480,13 @@ export function VersioningView({
   const [isPromoting, setIsPromoting] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<{ locale: string; slug: string; allocation: number } | null>(null);
+  const deleteInfoQuery = useVariantInfo({
+    contentType: contentInfo.type,
+    versioningSlug: versioningWriteSlug,
+    locale: deleteTarget?.locale ?? "",
+    variantSlug: deleteTarget?.slug ?? "",
+    enabled: Boolean(deleteTarget) && !(deleteTarget!.allocation > 0),
+  });
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [convertTarget, setConvertTarget] = useState<string | null>(null);
@@ -896,6 +906,23 @@ export function VersioningView({
       return;
     }
     setConvertTarget(locale);
+  };
+
+  const convertAds = useUrlRemovalCheck({
+    action: "unpublish",
+    contentType: contentInfo.type,
+    slug: versioningWriteSlug || contentInfo.slug,
+    locales: convertTarget ? [convertTarget] : [],
+    enabled: convertTarget !== null,
+  });
+  const [convertAdsNote, setConvertAdsNote] = useState<string | null>(null);
+  const onRefreshConvertAds = async () => {
+    try {
+      await convertAds.refreshAds();
+      setConvertAdsNote("Meta ads re-read just now. Google ads update with the next daily sync.");
+    } catch (err) {
+      setConvertAdsNote(err instanceof Error ? err.message : "Couldn't refresh ad data.");
+    }
   };
 
   const handleConvertToDraft = async () => {
@@ -2102,6 +2129,12 @@ export function VersioningView({
                                 </button>
                               )}
                             </div>
+                            <VariantInfoPopover
+                              contentType={contentInfo.type}
+                              versioningSlug={versioningWriteSlug}
+                              locale={locale}
+                              variantSlug={variant.slug}
+                            />
                             {isActive && (
                               <Badge variant="default" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0" data-testid={`badge-active-variant-${locale}`}>
                                 active
@@ -2581,6 +2614,21 @@ export function VersioningView({
                   ({deleteTarget?.locale}) and remove it from the versioning list. This action cannot be undone.
                 </DialogDescription>
               </DialogHeader>
+              {deleteInfoQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="delete-variant-info-loading">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Checking whether anyone is using this version…
+                </div>
+              ) : deleteInfoQuery.data ? (
+                <VariantVerdictSummary info={deleteInfoQuery.data} />
+              ) : deleteInfoQuery.isError ? (
+                <p
+                  className="rounded-md border border-status-away/40 bg-status-away/10 px-2.5 py-2 text-xs text-foreground"
+                  data-testid="delete-variant-info-error"
+                >
+                  Couldn't load details for this version. Check that nobody is using it before deleting.
+                </p>
+              ) : null}
               <DialogFooter>
                 <Button
                   variant="outline"
@@ -2656,7 +2704,7 @@ export function VersioningView({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={convertTarget !== null} onOpenChange={(open) => { if (!open && !isConverting) setConvertTarget(null); }}>
+      <Dialog open={convertTarget !== null} onOpenChange={(open) => { if (!open && !isConverting) { setConvertTarget(null); setConvertAdsNote(null); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Convert live {convertTarget?.toUpperCase()} to draft?</DialogTitle>
@@ -2672,6 +2720,16 @@ export function VersioningView({
               </span>
             </DialogDescription>
           </DialogHeader>
+          <AdsOnUrlNotice
+            context="unpublish"
+            data={adsNoticeFromCheck(convertAds.check)}
+            loading={convertAds.loading}
+            error={convertAds.error}
+            onRefresh={onRefreshConvertAds}
+            refreshing={convertAds.refreshing}
+            refreshNote={convertAdsNote}
+            testIdPrefix="convert-ads"
+          />
           <DialogFooter className="flex-col gap-2 sm:flex-col">
             <Button
               variant="destructive"

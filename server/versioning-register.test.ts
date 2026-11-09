@@ -21,6 +21,7 @@ import { ContentIndex } from "./content-index";
 import { resetRegistry } from "./content-types";
 import { VersioningManager } from "./versioning/VersioningManager";
 import { registerVersioningRoutes } from "./routes/versioning";
+import { readDraftMeta, readVariantData } from "./versioning/draft-meta";
 
 let tempDir: string;
 let contentRoot: string;
@@ -104,6 +105,16 @@ describe("unregistered variant files", () => {
     expect(again.status).toBe(409);
   });
 
+  it("POST register stamps _draft.created_at with the registration date", async () => {
+    const before = Date.now();
+    const { status } = await call("POST", "/api/versioning/landing/promo/register", { variantSlug: "rewrite", locale: "en" });
+    expect(status).toBe(200);
+    const meta = readDraftMeta(path.join(entryDir, "rewrite.en.yml"));
+    expect(meta?.created_at).toBeTruthy();
+    expect(Date.parse(meta!.created_at!)).toBeGreaterThanOrEqual(before - 1000);
+    expect(readVariantData(path.join(entryDir, "rewrite.en.yml"))).toEqual({ title: "Rewrite", sections: [] });
+  });
+
   it("POST register 404s when the variant file does not exist", async () => {
     const { status } = await call("POST", "/api/versioning/landing/promo/register", {
       variantSlug: "missing",
@@ -111,6 +122,30 @@ describe("unregistered variant files", () => {
     });
     expect(status).toBe(404);
     expect(fs.existsSync(path.join(entryDir, "versioning.yml"))).toBe(false);
+  });
+});
+
+describe("variant info", () => {
+  it("GET info returns the verdict for one variant, 404 for a missing one", async () => {
+    await call("POST", "/api/versioning/landing/promo/register", { variantSlug: "rewrite", locale: "en" });
+    const { status, body } = await call("GET", "/api/versioning/landing/promo/en/rewrite/info");
+    expect(status).toBe(200);
+    expect(body.file).toBe("rewrite.en.yml");
+    expect(body.health.verdict).toBe("check_first");
+    expect(body.health.reasons.map((r: { code: string }) => r.code)).toContain("recently_created");
+    expect(body.details.changed_fields).toEqual(["title"]);
+
+    const missing = await call("GET", "/api/versioning/landing/promo/en/nope/info");
+    expect(missing.status).toBe(404);
+  });
+
+  it("GET ?include=variant_info adds cheap info per listed variant", async () => {
+    await call("POST", "/api/versioning/landing/promo/register", { variantSlug: "rewrite", locale: "en" });
+    const plain = await call("GET", "/api/versioning/landing/promo");
+    expect(plain.body.variantInfo).toBeUndefined();
+    const { body } = await call("GET", "/api/versioning/landing/promo?include=variant_info");
+    expect(body.variantInfo.en.rewrite.health.verdict).toBe("check_first");
+    expect(body.variantInfo.en.rewrite.details).toBeUndefined();
   });
 });
 
@@ -123,5 +158,6 @@ describe("create variant", () => {
       markFileAsModified.mock.calls.find(([p]) => String(p).endsWith(suffix))?.[1];
     expect(authorFor("test-b.en.yml")).toBe("alice");
     expect(authorFor("versioning.yml")).toBe("alice");
+    expect(readDraftMeta(path.join(entryDir, "test-b.en.yml"))?.created_at).toBeTruthy();
   });
 });

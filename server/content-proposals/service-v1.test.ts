@@ -2313,4 +2313,191 @@ describe("proposals v1.0 (draft-first)", () => {
       expect(svc.get(depId)!.applies_after_proposal_id).toBe(predId);
     });
   });
+
+  describe("page-wide fields: requested approvable, agent gates, detached refused", () => {
+    const ES = { contentType: "blog", slug: "hello", locale: "es", variant: "draft" };
+    const syncFingerprint = (proposalId: string, fake: ReturnType<typeof fakeDraftStore>) =>
+      getSiteSqlite(SITE)
+        .prepare(`UPDATE content_proposal_entries SET variant_fingerprint = ? WHERE proposal_id = ?`)
+        .run(fake.store.fingerprint(ES), proposalId);
+    const publishes = (calls: Array<{ opts: PromoteEntryOpts }>) => calls.filter((c) => !c.opts.dry_run).length;
+
+    it("create and revise refuse any detached update (set or remove) and write nothing", async () => {
+      const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" } });
+      const { svc } = makeService({ store: fake.store });
+      for (const update of [{ field_path: "detached", value: true }, { field_path: "detached", op: "remove" as const }]) {
+        const res = await svc.create(
+          { title: "Detach", summary: SUMMARY, entries: [entry({ updates: [update] })] },
+          { username: "alice" },
+        );
+        expect(res.ok).toBe(false);
+        if (!res.ok) expect(res.code).toBe("detached_not_supported");
+      }
+      expect(fake.drafts.size).toBe(0);
+
+      const created = await svc.create({ title: "Title fix", summary: SUMMARY, entries: [entry()] }, { username: "alice" });
+      if (!created.ok) throw new Error(created.error);
+      const revised = await svc.update(created.proposal.id, "revise_entries", {
+        username: "alice",
+        entries: [entry({ updates: [{ field_path: "title", value: "New" }, { field_path: "detached", value: true }] })],
+      });
+      expect(revised.ok).toBe(false);
+      if (!revised.ok) expect(revised.code).toBe("detached_not_supported");
+      expect(fake.drafts.get("blog/hello/es/draft")!.data.detached).toBeUndefined();
+    });
+
+    it("apply refuses a draft that carries detached for staff and agents; dry_run only warns", async () => {
+      const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" } });
+      const { svc, promoteCalls } = makeService({
+        store: fake.store,
+        promote: (_e, o) => (o.dry_run ? { ok: true, dry_run: true } : { ok: true }),
+      });
+      const created = await svc.create({ title: "Title fix", summary: SUMMARY, entries: [entry()] }, { username: "alice" });
+      if (!created.ok) throw new Error(created.error);
+      fake.drafts.get("blog/hello/es/draft")!.data.detached = true;
+      syncFingerprint(created.proposal.id, fake);
+
+      for (const caller_is_mcp of [false, true]) {
+        const res = await svc.update(created.proposal.id, "apply", { username: "bob", caller_is_mcp });
+        expect(res.ok).toBe(false);
+        if (!res.ok) expect(res.code).toBe("detached_not_supported");
+      }
+      const dry = await svc.update(created.proposal.id, "apply", { username: "bob", dry_run: true });
+      expect(dry.ok).toBe(true);
+      if (dry.ok) expect(dry.warnings?.map((w) => w.code)).toContain("detached_not_supported");
+      expect(publishes(promoteCalls)).toBe(0);
+      expect(svc.get(created.proposal.id)!.status).toBe("open");
+    });
+
+    it("an agent may apply a requested funnel change (page-level is not a staff handoff)", async () => {
+      const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" } });
+      const { svc, promoteCalls } = makeService({ store: fake.store });
+      const created = await svc.create(
+        {
+          title: "Funnel",
+          summary: SUMMARY,
+          entries: [entry({ updates: [{ field_path: "funnel.stage", value: "awareness" }] })],
+        },
+        { username: "alice" },
+      );
+      if (!created.ok) throw new Error(created.error);
+      const res = await svc.update(created.proposal.id, "apply", { username: "bob", caller_is_mcp: true });
+      expect(res.ok ? "ok" : `${res.code}: ${res.error}`).toBe("ok");
+      expect(publishes(promoteCalls)).toBe(1);
+    });
+
+    it("agents cannot apply unrequested page-level fields; staff can; dry_run warns", async () => {
+      const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" } });
+      const { svc, promoteCalls } = makeService({ store: fake.store });
+      const created = await svc.create({ title: "Title fix", summary: SUMMARY, entries: [entry()] }, { username: "alice" });
+      if (!created.ok) throw new Error(created.error);
+      const draft = fake.drafts.get("blog/hello/es/draft")!;
+      draft.data = { ...draft.data, funnel: { stage: "awareness", products: "all" } };
+      syncFingerprint(created.proposal.id, fake);
+
+      const agent = await svc.update(created.proposal.id, "apply", { username: "bob", caller_is_mcp: true });
+      expect(agent.ok).toBe(false);
+      if (!agent.ok) {
+        expect(agent.code).toBe("agent_apply_unrequested_page_fields");
+        expect((agent as { details?: { entries?: unknown[] } }).details?.entries?.[0]).toMatchObject({
+          entry_key: "blog/hello",
+          locale: "es",
+          fields: ["funnel"],
+        });
+      }
+      expect(publishes(promoteCalls)).toBe(0);
+
+      const dry = await svc.update(created.proposal.id, "apply", { username: "bob", caller_is_mcp: true, dry_run: true });
+      expect(dry.ok).toBe(true);
+      if (dry.ok) expect(dry.warnings?.map((w) => w.code)).toContain("agent_apply_unrequested_page_fields");
+
+      const staff = await svc.update(created.proposal.id, "apply", { username: "bob" });
+      expect(staff.ok).toBe(true);
+      expect(publishes(promoteCalls)).toBe(1);
+    });
+
+    it("agents cannot apply when publish would drop live values; staff can", async () => {
+      const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" } });
+      const { svc, promoteCalls } = makeService({
+        store: fake.store,
+        promote: (_e, o) =>
+          o.dry_run
+            ? {
+                ok: true,
+                dry_run: true,
+                warnings: [{ code: "display_values_change", message: "authors dropped", fields: ["authors"] }],
+              }
+            : { ok: true },
+      });
+      const created = await svc.create({ title: "Title fix", summary: SUMMARY, entries: [entry()] }, { username: "alice" });
+      if (!created.ok) throw new Error(created.error);
+
+      const agent = await svc.update(created.proposal.id, "apply", { username: "bob", caller_is_mcp: true });
+      expect(agent.ok).toBe(false);
+      if (!agent.ok) {
+        expect(agent.code).toBe("agent_apply_drops_live_values");
+        expect((agent as { details?: { entries?: unknown[] } }).details?.entries?.[0]).toMatchObject({ fields: ["authors"] });
+      }
+      expect(publishes(promoteCalls)).toBe(0);
+      expect(svc.get(created.proposal.id)!.entries[0]!.status).toBe("pending");
+
+      const staff = await svc.update(created.proposal.id, "apply", { username: "bob" });
+      expect(staff.ok).toBe(true);
+      expect(publishes(promoteCalls)).toBe(1);
+    });
+
+    it("migration 011 resolves only old-rule blockers on requested-only proposals, once", async () => {
+      const { selectOldRuleBlockers, onlyRequestedPageFields, OLD_RULE_RESOLVER, OLD_RULE_RESOLVE_NOTE } = await import(
+        "./page-wide-rule-blockers"
+      );
+      const fake = fakeDraftStore({ "blog/hello/es": { title: "Old" }, "blog/other/es": { title: "Other" } });
+      const { svc } = makeService({ store: fake.store });
+      const funnel = await svc.create(
+        { title: "Funnel", summary: SUMMARY, entries: [entry({ updates: [{ field_path: "funnel.stage", value: "awareness" }] })] },
+        { username: "alice" },
+      );
+      if (!funnel.ok) throw new Error(funnel.error);
+      const oldRule =
+        "STAFF FIX: writes _common.yml. The targeting is correct, but the reviewer agent is not allowed to apply page-level funnel writes. Standing rule from Alejandro.";
+      const lostValues =
+        "STAFF FIX: writes _common.yml. Apply dry run warns display_values_change for authors; reviewers must not make page-wide writes.";
+      for (const body of [oldRule, lostValues]) {
+        const b = await svc.update(funnel.proposal.id, "add_blocker", { username: "blake", body });
+        if (!b.ok) throw new Error(b.error);
+      }
+
+      const mixed = await svc.create(
+        { title: "Title fix", summary: SUMMARY, entries: [entry({ slug: "other" })] },
+        { username: "alice" },
+      );
+      if (!mixed.ok) throw new Error(mixed.error);
+      const otherDraft = fake.drafts.get("blog/other/es/draft")!;
+      otherDraft.data = { ...otherDraft.data, funnel: { stage: "awareness", products: "all" } };
+      const b2 = await svc.update(mixed.proposal.id, "add_blocker", { username: "blake", body: oldRule });
+      if (!b2.ok) throw new Error(b2.error);
+
+      const db = getSiteSqlite(SITE);
+      const rows = selectOldRuleBlockers(db, SITE);
+      expect(rows.map((r) => r.proposal_id).sort()).toEqual([funnel.proposal.id, mixed.proposal.id].sort());
+      expect(onlyRequestedPageFields(svc.get(funnel.proposal.id)!.entries)).toBe(true);
+      expect(onlyRequestedPageFields(svc.get(mixed.proposal.id)!.entries)).toBe(false);
+
+      const target = rows.find((r) => r.proposal_id === funnel.proposal.id)!;
+      const before = svc.get(funnel.proposal.id)!;
+      expect(
+        svc.resolveBlockersBySystem(funnel.proposal.id, [target.blocker_id], {
+          author: OLD_RULE_RESOLVER,
+          note: OLD_RULE_RESOLVE_NOTE,
+        }),
+      ).toEqual([target.blocker_id]);
+      const after = svc.get(funnel.proposal.id)!;
+      expect(after.blockers.find((b) => b.id === target.blocker_id)).toMatchObject({
+        status: "resolved",
+        resolved_by: OLD_RULE_RESOLVER,
+      });
+      expect(after.blockers.filter((b) => b.status === "open")).toHaveLength(1);
+      expect(after.updated_at).toBe(before.updated_at);
+      expect(selectOldRuleBlockers(db, SITE).map((r) => r.proposal_id)).toEqual([mixed.proposal.id]);
+    });
+  });
 });

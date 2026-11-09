@@ -28,6 +28,11 @@ import {
   resolveStrategyForContentType,
 } from "../lib/proposal-discovery-path.js";
 import { BLOCKER_STAFF_SUMMARY_HINT } from "../../server/content-proposals/blocker-staff-summary.js";
+import {
+  AGENT_APPLY_DROPS_LIVE_VALUES_CODE,
+  AGENT_APPLY_UNREQUESTED_PAGE_FIELDS_CODE,
+  DETACHED_NOT_SUPPORTED_CODE,
+} from "../../server/content-proposals/page-wide-apply-codes.js";
 
 function stripDecisionDebugFromProposal(proposal: unknown): unknown {
   if (!proposal || typeof proposal !== "object") return proposal;
@@ -686,6 +691,63 @@ function draftFirstFailure(
             reason: "Attached posts take field updates only (structure lives on the shared template). Drop sections/layout updates, or detach the page first.",
             priority: "required",
             args_hint: ctx.tool === "update_proposal" ? { proposal_id: ctx.proposal_id, action: "revise_entries", ...siteArg } : { ...siteArg },
+          },
+        ],
+      });
+    case DETACHED_NOT_SUPPORTED_CODE: {
+      const onApply = ctx.tool === "update_proposal" && !!ctx.proposal_id && data.proposal != null;
+      return fail(String(data.error ?? code), {
+        code,
+        details,
+        warnings: [
+          {
+            code: "nothing_written",
+            message:
+              "Proposals never change `detached` (stored in {slug}/_common.yml, every language). Nothing was saved or published. " +
+              "Supported detach path outside proposals: set_entry_attachment action detach + confirm (cap content_edit_structure) — it bakes the template into every live language first.",
+          },
+        ],
+        next_actions: onApply
+          ? [
+              {
+                tool: "update_proposal",
+                reason: "The draft carries a detached change, which proposals cannot publish. Reject it (not implementable) so the author re-files without it.",
+                priority: "required",
+                args_hint: {
+                  proposal_id: ctx.proposal_id,
+                  action: "reject",
+                  confirm_reject: true,
+                  reject_kind: "not_implementable",
+                  ...siteArg,
+                },
+              },
+            ]
+          : [],
+      });
+    }
+    case AGENT_APPLY_UNREQUESTED_PAGE_FIELDS_CODE:
+    case AGENT_APPLY_DROPS_LIVE_VALUES_CODE:
+      return fail(String(data.error ?? code), {
+        code,
+        details,
+        warnings: [
+          {
+            code: "nothing_published",
+            message:
+              code === AGENT_APPLY_UNREQUESTED_PAGE_FIELDS_CODE
+                ? "Agent apply refused: details.entries[].fields are page-level ({slug}/_common.yml, every language) and no requested op covers them. Staff can still approve in the UI. Requested funnel.* / authors / published_at changes are approvable by agents."
+                : "Agent apply refused: publishing would drop live page-level values (display_values_change; details.entries[].fields live only in a language file). Staff can still approve in the UI.",
+          },
+        ],
+        next_actions: [
+          {
+            tool: "update_proposal",
+            reason:
+              code === AGENT_APPLY_UNREQUESTED_PAGE_FIELDS_CODE
+                ? "add_blocker asking the author to revise_entries without the unrequested page-level fields (details.entries[].fields). This is an author fix, not a staff handoff."
+                : "add_blocker asking the author to revise_entries adding the current live values of details.entries[].fields as requested updates, so publishing keeps them. This is an author fix, not a staff handoff.",
+            priority: "required",
+            args_hint: { proposal_id: ctx.proposal_id, action: "add_blocker", ...siteArg },
           },
         ],
       });

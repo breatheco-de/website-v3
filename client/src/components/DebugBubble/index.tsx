@@ -48,6 +48,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useDebugAuth, getDebugToken, getDebugUserName, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { useSlugRenameCheck } from "@/hooks/useSlugRenameCheck";
+import { renameAdsToastNote, renameFailureToast } from "@/lib/slugRenameCheck";
+import { deleteResultDescription } from "@/lib/urlRemoval";
 import { useSystemAlerts } from "@/hooks/useSystemAlerts";
 import { useGitHubUserConnection } from "@/hooks/useGitHubUserConnection";
 import { queryClient } from "@/lib/queryClient";
@@ -1348,12 +1350,13 @@ export function DebugBubble() {
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "Failed to rename");
+        toast({ ...renameFailureToast(errData), variant: "destructive" });
+        return;
       }
       const result = await res.json();
       toast({
         title: "Slug renamed",
-        description: `${result.oldSlug} → ${result.newSlug}${createRedirect ? " (redirect created)" : ""}${
+        description: `${result.oldSlug} → ${result.newSlug}${createRedirect ? " (redirect created)" : ""}${renameAdsToastNote(result)}${
           result.clusterRewireQueued
             ? ". Cluster membership for pages that pointed at the old URL updates in the background."
             : ""
@@ -1988,7 +1991,10 @@ export function DebugBubble() {
     }
   };
 
-  const confirmDeletePage = async (localesToDelete: string[]) => {
+  const confirmDeletePage = async (
+    localesToDelete: string[],
+    opts?: { redirectTo?: { contentType: string; slug: string } | null },
+  ) => {
     if (!deletingPage || deleteConfirmInput !== deletingPage.slug) return;
     setIsDeletingPage(true);
     try {
@@ -2005,11 +2011,12 @@ export function DebugBubble() {
           confirmSlug: deleteConfirmInput,
           author,
           ...(localesToDelete.length > 0 ? { localesToDelete } : {}),
+          ...(opts?.redirectTo ? { redirectTo: { contentType: opts.redirectTo.contentType, slug: opts.redirectTo.slug } } : {}),
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        toast({ title: "Page deleted", description: data.message });
+        toast({ title: "Page deleted", description: deleteResultDescription(data) });
         setDeletePageModalOpen(false);
         setDeletingPage(null);
         setDeleteConfirmInput("");

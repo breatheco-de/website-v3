@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Bot, Brain, Braces, Check, ChevronDown, ChevronRight, ClipboardList, Cookie, Database, Github, Globe, Home, Image, Languages, LogOut, Map, Megaphone, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, BarChart2, Blocks, Book, Bot, Brain, Braces, Check, ChevronDown, ChevronRight, ClipboardList, Cookie, Copy, Database, Github, Globe, Home, Image, Languages, LogOut, Map, Megaphone, Menu, MessageCircle, Moon, Palette, Pencil, Plus, RefreshCw, Route, Search, Settings, Stethoscope, Sun, Unlink, Link2, Users, X } from "lucide-react";
 import { IconServer, IconShoppingBag, IconTargetArrow, IconShield, IconAlertTriangle, IconLayersIntersect, IconInfoCircle, IconSwitchHorizontal } from "@tabler/icons-react";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useTranslation } from "react-i18next";
@@ -328,7 +328,7 @@ type StaffConnectorsResponse = {
   connectionTokenStaffAllowed?: boolean;
 };
 
-const TOKEN_CMD = "npx weblify token";
+const TOKEN_CMD = "npx caxton-cms token";
 
 function StaffSignInPanel(props: {
   tokenInput: string;
@@ -340,6 +340,16 @@ function StaffSignInPanel(props: {
   authError?: string | null;
 }) {
   const [activateOpen, setActivateOpen] = useState(false);
+  const [tokenCmdCopied, setTokenCmdCopied] = useState(false);
+  const copyTokenCmd = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(TOKEN_CMD);
+      setTokenCmdCopied(true);
+      setTimeout(() => setTokenCmdCopied(false), 1500);
+    } catch {
+      setTokenCmdCopied(false);
+    }
+  }, []);
   const { data: connectors } = useQuery<StaffConnectorsResponse>({
     queryKey: ["/api/staff/auth/connectors"],
     queryFn: async () => {
@@ -357,8 +367,8 @@ function StaffSignInPanel(props: {
   const suspicious = connectors?.siteUrlLookSuspicious === true;
 
   const tokenHint = connectionTokenAllowed
-    ? "Paste a Weblify connection token or a staff session token from another signed-in browser (not a GitHub or Breathecode token)."
-    : "Paste a staff session token from another signed-in browser (not a GitHub, Breathecode, or Weblify connection token).";
+    ? "Paste a Caxton connection token or a staff session token from another signed-in browser (not a GitHub or Breathecode token)."
+    : "Paste a staff session token from another signed-in browser (not a GitHub, Breathecode, or Caxton connection token).";
 
   const tokenPlaceholder = connectionTokenAllowed
     ? "Connection token or staff session..."
@@ -379,7 +389,7 @@ function StaffSignInPanel(props: {
           ) : (
             <div className="mb-3 space-y-1.5">
               <p className="text-xs text-amber-800 dark:text-amber-200">
-                GitHub sign-in is not active on this site. Use a connection token from Weblify until you activate GitHub.
+                GitHub sign-in is not active on this site. Use a connection token from Caxton until you activate GitHub.
               </p>
               <button
                 type="button"
@@ -469,11 +479,29 @@ function StaffSignInPanel(props: {
               className="w-80 dark:bg-popover text-sm space-y-2"
             >
               <p className="text-foreground">
-                Stop Weblify if it is running, then in your project folder run:
+                Stop Caxton if it is running, then in your project folder run:
               </p>
-              <code className="block rounded bg-muted px-2 py-1.5 text-xs font-mono break-all">
-                {TOKEN_CMD}
-              </code>
+              <div className="flex items-center gap-1 rounded bg-muted pl-2 pr-1 py-1">
+                <code className="flex-1 min-w-0 text-xs font-mono break-all">
+                  {TOKEN_CMD}
+                </code>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6 shrink-0"
+                  onClick={() => void copyTokenCmd()}
+                  aria-label={tokenCmdCopied ? "Copied" : "Copy command"}
+                  title={tokenCmdCopied ? "Copied" : "Copy command"}
+                  data-testid="button-copy-token-cmd"
+                >
+                  {tokenCmdCopied ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">
                 The terminal prints a new <span className="font-mono">wfy_…</span> token. Paste it here to sign in as staff, or use the same token for MCP (Cursor / Claude). Minting a new token invalidates the previous one.
               </p>

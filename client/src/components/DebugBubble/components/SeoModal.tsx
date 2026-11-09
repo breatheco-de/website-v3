@@ -17,6 +17,8 @@ import {
   type RedirectTestLike,
 } from "@/components/DebugBubble/components/seoRedirectHijack";
 import { SeoRedirectsTab } from "@/components/DebugBubble/components/SeoRedirectsTab";
+import { AdsOnUrlNotice, adsNoticeFromCheck } from "@/components/editing/AdsOnUrlNotice";
+import { useUrlRemovalCheck } from "@/hooks/useUrlRemovalCheck";
 import { OG_IMAGE_ENSURE_TAGS } from "@shared/standardMediaTags";
 import type { SaveVisibilityOpts, SeoModalSavingFlags } from "@/hooks/useSeoModalSaves";
 import { useFormatSitePath } from "@/hooks/useFormatSitePath";
@@ -587,6 +589,25 @@ export function SeoModal({
     : `${fieldsLocale}.yml`;
   const slugRenameDisabled = isVariantContext;
 
+  const slugAds = useUrlRemovalCheck({
+    action: "rename",
+    contentType: contentInfo.type,
+    slug: contentInfo.slug,
+    locales: [locale],
+    enabled: open && slugEditing && !slugRenameDisabled,
+  });
+  const slugAdsNotice = adsNoticeFromCheck(slugAds.check);
+  const slugLiveAds = slugAdsNotice?.live.length ?? 0;
+  const [slugAdsRefreshNote, setSlugAdsRefreshNote] = useState<string | null>(null);
+  const onRefreshSlugAds = async () => {
+    try {
+      await slugAds.refreshAds();
+      setSlugAdsRefreshNote("Meta ads re-read just now. Google ads update with the next daily sync.");
+    } catch (err) {
+      setSlugAdsRefreshNote(err instanceof Error ? err.message : "Couldn't refresh ad data.");
+    }
+  };
+
   const locationsTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const locationsSkipFirstRef = useRef(true);
 
@@ -768,6 +789,16 @@ export function SeoModal({
                         {slugLocaleHint} Confirm when you apply, or change the slug.
                       </p>
                     )}
+                  <AdsOnUrlNotice
+                    context="rename"
+                    data={slugAdsNotice}
+                    loading={slugAds.loading}
+                    error={slugAds.error}
+                    onRefresh={onRefreshSlugAds}
+                    refreshing={slugAds.refreshing}
+                    refreshNote={slugAdsRefreshNote}
+                    testIdPrefix="slug-ads"
+                  />
                 </div>
               )}
               {slugRenameDisabled && !slugEditing && (
@@ -840,7 +871,8 @@ export function SeoModal({
                       size="sm"
                       variant="outline"
                       onClick={() => handleSlugRename(false)}
-                      disabled={slugRenaming}
+                      disabled={slugRenaming || slugLiveAds > 0}
+                      title={slugLiveAds > 0 ? "Live ads point to the old URL, so a redirect is required." : undefined}
                       data-testid="button-rename-without-redirect"
                     >
                       No, just rename
@@ -855,6 +887,11 @@ export function SeoModal({
                       Cancel
                     </Button>
                   </div>
+                  {slugLiveAds > 0 && (
+                    <p className="text-xs text-muted-foreground" data-testid="text-slug-redirect-required-ads">
+                      Live ads point to the old URL, so this change needs a redirect.
+                    </p>
+                  )}
                 </div>
               )}
 

@@ -408,6 +408,10 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string, grants?
       before_from: z.string().optional().describe("Insert/move immediately above this custom from. Custom-redirects.yml only. Omit on add = append at end."),
       confirm_overwrite_content: z.boolean().optional().describe("Required to hide or unhide a live content URL (contentIndex.isKnownUrl). Locale-home aliases (/ , /en, /es, /us) are not live."),
       confirm_live_edit: z.boolean().optional().describe("Required when writing a dest-locale file that has versioning.yml. Does not replace confirm_overwrite_content."),
+      confirm_ads_impact: z
+        .boolean()
+        .optional()
+        .describe("Live delete only: required when live ads (Meta/Google; matched by link or by tagged visits in the last 14 days) still use `from` — refused first with code redirect_used_by_live_ads listing them."),
       variant: z
         .string()
         .optional()
@@ -674,11 +678,53 @@ export function registerRedirectTools(mcp: McpServer, mcpToken?: string, grants?
             {
               method: "DELETE",
               headers: internalHeaders(mcpToken, sessOpts),
-              body: JSON.stringify({ from, source, author: authorName(mcpToken), ...(pageScope ? { page_scope: true } : {}) }),
+              body: JSON.stringify({
+                from,
+                source,
+                author: authorName(mcpToken),
+                ...(pageScope ? { page_scope: true } : {}),
+                ...(args.confirm_ads_impact === true ? { confirmAdsImpact: true } : {}),
+              }),
             },
           );
-          const data = (await res.json()) as { error?: string; message?: string; code?: string; reason?: string };
+          const data = (await res.json()) as {
+            error?: string;
+            message?: string;
+            code?: string;
+            reason?: string;
+            ads?: unknown[];
+            paused_ads?: unknown[];
+          };
           if (!res.ok) {
+            if (data.code === "redirect_used_by_live_ads") {
+              return actionRequired(
+                {
+                  success: false,
+                  action_required: "confirm_ads_impact",
+                  code: "redirect_used_by_live_ads",
+                  message: data.error || "Live ads still use this address.",
+                  from,
+                  source,
+                  ads: data.ads ?? [],
+                  paused_ads: data.paused_ads ?? [],
+                  warnings: [
+                    {
+                      code: "redirect_used_by_live_ads",
+                      message:
+                        "Removing this redirect sends paid traffic to a missing page. Nothing was written. Ads are never edited in Meta/Google by this tool.",
+                    },
+                  ],
+                },
+                [
+                  {
+                    tool: "update_redirect",
+                    priority: "required",
+                    reason: "Only if the user accepts breaking these ads (or they were moved): re-call with confirm_ads_impact: true.",
+                    args_hint: { action: "delete", from, source, confirm_ads_impact: true, ...siteHint },
+                  },
+                ],
+              );
+            }
             if (data.code === "page_scope_refused") {
               return refusePage(
                 { reason: (data.reason ?? "not_a_page") as PageScopeRefusal["reason"], message: data.error || "Refused in page scope." },

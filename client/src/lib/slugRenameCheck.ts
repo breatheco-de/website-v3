@@ -57,6 +57,24 @@ export function mapSlugCheckResponse(httpStatus: number, body: CheckResponseBody
   return { status: "error", reason: "Couldn't check this slug." };
 }
 
+/** Extra success-toast text when live ads now reach the page through the new redirect. */
+export function renameAdsToastNote(result: { redirectCreated?: boolean; ads_on_old_url?: { live?: unknown[] } }): string {
+  const n = result.ads_on_old_url?.live?.length ?? 0;
+  if (!result.redirectCreated || n === 0) return "";
+  return `. ${n} live ad${n === 1 ? "" : "s"} keep working through the redirect`;
+}
+
+/** Error toast for a failed rename; live ads on the old URL get a clearer title. */
+export function renameFailureToast(body: { error?: string; code?: string }): { title: string; description: string } {
+  if (body.code === "live_ads_point_to_old_url") {
+    return {
+      title: "This URL change needs a redirect",
+      description: `${body.error || "Live ads point to the old URL."} Choose "Yes, create redirect".`,
+    };
+  }
+  return { title: "Failed to rename slug", description: body.error || "Could not rename content slug." };
+}
+
 export interface SlugRenameCheckerOptions {
   onResult: (result: SlugRenameCheckResult) => void;
   getHeaders?: () => Record<string, string>;

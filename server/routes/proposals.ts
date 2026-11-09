@@ -819,7 +819,9 @@ export function registerProposalRoutes(app: Express): void {
                 result.code === "applies_after_cycle" ||
                 result.code === "implements_edit_open" ||
                 result.code === "idea_already_implemented" ||
-                result.code === "robots_change_on_publish"
+                result.code === "robots_change_on_publish" ||
+                result.code === "agent_apply_unrequested_page_fields" ||
+                result.code === "agent_apply_drops_live_values"
               ? 409
               : result.code === "text_limits_exceeded"
                 ? 422

@@ -85,7 +85,7 @@ export async function resolveConfig(flags: CliFlags): Promise<ResolvedConfig> {
   const skipInteractive =
     isProduction || (!canPrompt() && detect.kind === "project");
 
-  // Agent prompts only for bare `npx weblify` (start site). Skip for commands like `token`.
+  // Agent prompts only for bare `npx caxton-cms` (start site). Skip for commands like `token`.
   if (!isProduction && detect.kind !== "dirty" && !flags.command) {
     if (flags.agenticInstallation) {
       wantAgent = true;

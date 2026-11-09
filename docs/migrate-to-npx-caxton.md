@@ -1,8 +1,8 @@
-# Migrating from `npm run build` / `start-production.sh` to `npx weblify`
+# Migrating from `npm run build` / `start-production.sh` to `npx caxton-cms`
 
-Operators who today deploy a full release with [`scripts/deploy.sh`](../scripts/deploy.sh) and [`scripts/start-production.sh`](../scripts/start-production.sh) (see [`docs/vps.md`](vps.md)) can move to a **pinned** `npx weblify --production` without a big-bang rewrite.
+Operators who today deploy a full release with [`scripts/deploy.sh`](../scripts/deploy.sh) and [`scripts/start-production.sh`](../scripts/start-production.sh) (see [`docs/vps.md`](vps.md)) can move to a **pinned** `npx caxton-cms --production` without a big-bang rewrite.
 
-Greenfield sites can use `npx weblify` from day one. 4Geeks-style VPS stays on the release tree until optional Stage C.
+Greenfield sites can use `npx caxton-cms` from day one. 4Geeks-style VPS stays on the release tree until optional Stage C.
 
 ## What stays the same
 
@@ -15,8 +15,8 @@ Greenfield sites can use `npx weblify` from day one. 4Geeks-style VPS stays on t
 
 ## What changes
 
-- Process command name: prefer `weblify --production` (or `node dist/cli.js --production`) instead of calling `start-production.sh` directly
-- npm package name: `weblify` (engine version printed on start)
+- Process command name: prefer `caxton-cms --production` (or `node dist/cli.js --production`) instead of calling `start-production.sh` directly
+- npm package name: `caxton-cms` (engine version printed on start)
 - Later (Stage C only): engine may live in the npm install path while the project folder holds only config/content/state
 
 ## Stage A — Same machine, new entrypoint (no layout change)
@@ -25,8 +25,8 @@ Still build and ship a full release (`npm ci` → content pull → `npm run buil
 
 | Today | After Stage A |
 |---|---|
-| systemd `ExecStart` → `bash scripts/start-production.sh` | `ExecStart` → `npx weblify@<pinned> --production` **from `current/`**, or `node /path/to/current/dist/cli.js --production` |
-| Turnstile checks, MCP child, Qdrant in start script | `weblify --production` **wraps the same** `scripts/start-production.sh` when present |
+| systemd `ExecStart` → `bash scripts/start-production.sh` | `ExecStart` → `npx caxton-cms@<pinned> --production` **from `current/`**, or `node /path/to/current/dist/cli.js --production` |
+| Turnstile checks, MCP child, Qdrant in start script | `caxton-cms --production` **wraps the same** `scripts/start-production.sh` when present |
 
 **Env checklist**
 
@@ -34,7 +34,7 @@ Still build and ship a full release (`npm ci` → content pull → `npm run buil
 - `SITE_URL` (required; fail hard if missing)
 - Existing Turnstile and other secrets — no agentic or tunnel prompts
 
-**Pinning:** use `npx weblify@1.x.y` or the release’s own `dist/cli.js`. Do **not** use unpinned `@latest` on the droplet. Record the engine version in deploy logs.
+**Pinning:** use `npx caxton-cms@1.x.y` or the release’s own `dist/cli.js`. Do **not** use unpinned `@latest` on the droplet. Record the engine version in deploy logs.
 
 **Exit criteria:** One successful deploy where health, staff login, public pages, and `/mcp` work. Rollback = point systemd back at `start-production.sh`.
 
@@ -47,9 +47,9 @@ Use this file as the operator mapping. Link from the root README.
 Only after Stage A is proven:
 
 1. `PROJECT_ROOT` = durable site dir (`sites.yml`, `site_*`, `.env`, `data` / `.cache` from today’s `persistent/`)
-2. Engine = pinned `weblify` from npm (`PACKAGE_ROOT` under npx cache / `node_modules`)
+2. Engine = pinned `caxton-cms` from npm (`PACKAGE_ROOT` under npx cache / `node_modules`)
 3. Content pull / GitHub sync still against `PROJECT_ROOT`
-4. Deploy publishes the **weblify version** separately from content updates
+4. Deploy publishes the **caxton-cms version** separately from content updates
 
 Stage C is **out of the critical path** for the first cutover.
 
