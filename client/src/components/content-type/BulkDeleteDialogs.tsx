@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { apiFetch } from "@/lib/queryClient";
+import { platformLabel } from "@shared/url-removal";
 
 export type BulkDeletePreview = {
   index_ready: boolean;
@@ -21,7 +22,16 @@ export type BulkDeletePreview = {
   deletable: string[];
   rebuild_hint?: string;
   link_preview_by_slug?: Record<string, { referrers?: { entryKey: string }[] }>;
+  ads_by_slug?: Record<string, { live: Array<{ platform: string }>; paused: Array<{ platform: string }>; checked: boolean; urls: string[] }>;
 };
+
+function adsLabel(ads: Array<{ platform: string }>): string {
+  const counts = new Map<string, number>();
+  for (const a of ads) counts.set(a.platform, (counts.get(a.platform) ?? 0) + 1);
+  return Array.from(counts.entries())
+    .map(([p, n]) => `${platformLabel(p)} ${n}`)
+    .join(", ");
+}
 
 export function BulkDeleteStaticDialog({
   open,
@@ -131,6 +141,14 @@ export function BulkDeleteStaticDialog({
       ).length
     : 0;
 
+  const adsRows = preview
+    ? Object.entries(preview.ads_by_slug || {})
+        .filter(([s, a]) => preview.deletable.includes(s) && (a.live.length > 0 || a.paused.length > 0))
+        .sort((a, b) => b[1].live.length - a[1].live.length)
+    : [];
+  const pagesWithLiveAds = adsRows.filter(([, a]) => a.live.length > 0).length;
+  const adsUnchecked = preview ? Object.values(preview.ads_by_slug || {}).some((a) => !a.checked) : false;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="dialog-bulk-delete-static">
@@ -222,6 +240,31 @@ export function BulkDeleteStaticDialog({
                   ))}
                 </ul>
               </div>
+            )}
+
+            {adsRows.length > 0 && (
+              <div
+                className={`rounded-md border p-2.5 space-y-1.5 text-xs ${pagesWithLiveAds > 0 ? "border-destructive/40 bg-destructive/10" : "border-status-away/40 bg-status-away/10"}`}
+                data-testid="bulk-delete-ads"
+              >
+                <p className="text-foreground">
+                  {pagesWithLiveAds > 0
+                    ? `${pagesWithLiveAds} page(s) have live ads sending people to them. Deleting sends that paid traffic to a missing page. Pause or move those ads first, or delete those pages one by one and pick a page to send visitors to.`
+                    : "Some pages are used by paused ads. If those ads are turned back on, they'll land on a missing page."}
+                </p>
+                <ul className="max-h-28 overflow-y-auto space-y-0.5">
+                  {adsRows.map(([s, a]) => (
+                    <li key={s}>
+                      <span className="font-mono">{s}</span>
+                      {a.live.length > 0 ? ` — ${a.live.length} live (${adsLabel(a.live)})` : ""}
+                      {a.paused.length > 0 ? ` — ${a.paused.length} paused` : ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {adsUnchecked && adsRows.length === 0 && (
+              <p className="text-xs text-muted-foreground">Couldn't check ads: ad data hasn't been read for this site yet.</p>
             )}
 
             {linkWarningCount > 0 && (

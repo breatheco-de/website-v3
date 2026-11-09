@@ -68,6 +68,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, resolveAuthorName } from "@/hooks/useDebugAuth";
 import { DeletePageModal } from "@/components/DebugBubble/components/DeletePageModal";
+import { deleteResultDescription } from "@/lib/urlRemoval";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import { BulkUpdateFunnelDialog } from "@/components/content-type/BulkUpdateFunnelDialog";
 import {
@@ -7619,7 +7620,11 @@ export default function ContentTypeManagePage() {
     ? (dbItemsMetaLoading ? null : dbItemsMeta?.count ?? metaItems.length)
     : null;
 
-  const handleDeleteEntry = async (localesToDelete: string[]) => {
+  const handleDeleteEntry = async (
+    localesToDelete: string[],
+    opts?: { redirectTo?: { contentType: string; slug: string } | null },
+  ) => {
+    const redirectTo = opts?.redirectTo ? { contentType: opts.redirectTo.contentType, slug: opts.redirectTo.slug } : null;
     if (!deletingEntry || deleteConfirmInput !== deletingEntry.slug) return;
     setIsDeletingEntry(true);
     try {
@@ -7688,6 +7693,7 @@ export default function ContentTypeManagePage() {
             slugs: [deletingEntry.slug],
             confirm: true,
             author,
+            ...(redirectTo ? { redirectTo } : {}),
           }),
         });
         const data = await response.json();
@@ -7727,11 +7733,12 @@ export default function ContentTypeManagePage() {
           confirmSlug: deleteConfirmInput,
           author,
           ...(localesToDelete.length > 0 ? { localesToDelete } : {}),
+          ...(redirectTo ? { redirectTo } : {}),
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        toast({ title: "Entry deleted", description: data.message });
+        toast({ title: "Entry deleted", description: deleteResultDescription(data) });
         setDeleteModalOpen(false);
         setDeletingEntry(null);
         setDeleteConfirmInput("");

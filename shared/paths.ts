@@ -3,7 +3,7 @@
  * PROJECT_ROOT = site project (sites.yml, site_*, .env, data, .cache, .local).
  *
  * When developing or deploying a full monorepo/release checkout, both resolve
- * to the same directory (cwd). When running as `npx weblify`, PACKAGE_ROOT is
+ * to the same directory (cwd). When running as `npx caxton-cms`, PACKAGE_ROOT is
  * the installed package and PROJECT_ROOT is the user's cwd.
  */
 

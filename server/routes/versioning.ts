@@ -1450,6 +1450,28 @@ export function registerVersioningRoutes(app: Express): void {
         return;
       }
 
+      const lock = abCheckPageLock(contentType, resolved.slug, getContentRoot(res));
+      if (lock) {
+        res.status(403).json({ error: lock.error, code: lock.code });
+        return;
+      }
+
+      // Read before the locale leaves the live index: which ads send people to its URL.
+      let adsOnUrl: { url: string | null; live: unknown[]; paused: unknown[]; checked: boolean } | null = null;
+      try {
+        const { assessUrlRemoval, liveAdsOf, pausedAdsOf } = await import("../url-removal-check");
+        const { adFacts } = await import("@shared/url-removal");
+        const removal = await assessUrlRemoval({ contentType, slug: resolved.slug, locales: [locale], action: "unpublish", ci: getCI(res) });
+        adsOnUrl = {
+          url: removal.locales[0]?.url ?? null,
+          live: adFacts(liveAdsOf(removal)),
+          paused: adFacts(pausedAdsOf(removal)),
+          checked: removal.ads_checked,
+        };
+      } catch {
+        /* ads check is advisory */
+      }
+
       const root = getContentRoot(res);
       const { convertLiveLocaleToDraft } = await import("../convert-live-locale-to-draft");
       const result = convertLiveLocaleToDraft({
@@ -1516,6 +1538,7 @@ export function registerVersioningRoutes(app: Express): void {
         liveRelPath: result.liveRelPath,
         draftRelPath: result.draftRelPath,
         versioningRelPath: result.versioningRelPath,
+        ...(adsOnUrl ? { ads_on_url: adsOnUrl } : {}),
       });
     },
   );

@@ -16,6 +16,7 @@ import {
   previewRedirectBlock,
   type RedirectPreviewResult,
 } from "@/components/DebugBubble/components/seoRedirectsPreview";
+import { AdsOnUrlNotice, type AdsNoticeData } from "@/components/editing/AdsOnUrlNotice";
 
 type Block = { message: string; href: string };
 
@@ -92,6 +93,7 @@ export function SeoRedirectsTab({
   const [preview, setPreview] = useState<{ input: string; block: Block | null } | null>(null);
   const [addBlock, setAddBlock] = useState<Block | null>(null);
   const [removeBlock, setRemoveBlock] = useState<Block | null>(null);
+  const [adsConfirm, setAdsConfirm] = useState<{ from: string; live: AdsNoticeData["live"]; paused: AdsNoticeData["paused"] } | null>(null);
 
   const canEdit = !isVariantContext && !!pagePath && hasRedirectAccess;
   const normalizedInput = normalizeRedirectInput(fromInput);
@@ -178,10 +180,11 @@ export function SeoRedirectsTab({
     }
   };
 
-  const handleRemove = async (from: string) => {
+  const handleRemove = async (from: string, opts?: { confirmAdsImpact?: boolean }) => {
     if (!canEdit || removing) return;
     setRemoving(from);
     setRemoveBlock(null);
+    setAdsConfirm(null);
     try {
       const result = await testUrl(from, locale);
       const winnerTo = result?.resolvedTo ? normalizeRedirectInput(result.resolvedTo) : "";
@@ -196,13 +199,26 @@ export function SeoRedirectsTab({
       const res = await fetch("/api/debug/redirects", {
         method: "DELETE",
         headers: jsonHeaders(),
-        body: JSON.stringify({ from: result.from ?? from, source: result.source, author }),
+        body: JSON.stringify({
+          from: result.from ?? from,
+          source: result.source,
+          author,
+          ...(opts?.confirmAdsImpact ? { confirmAdsImpact: true } : {}),
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         const message = typeof data.error === "string" ? data.error : "Could not remove the redirect.";
         if (data.code === "page_scope_refused") {
           setRemoveBlock({ message, href: privateRedirectsInspectHref(from) });
+          return;
+        }
+        if (data.code === "redirect_used_by_live_ads") {
+          setAdsConfirm({
+            from,
+            live: Array.isArray(data.ads) ? data.ads : [],
+            paused: Array.isArray(data.paused_ads) ? data.paused_ads : [],
+          });
           return;
         }
         throw new Error(message);
@@ -291,6 +307,30 @@ export function SeoRedirectsTab({
       )}
 
       {removeBlock && <BlockMessage block={removeBlock} testId="block-remove-redirect" />}
+
+      {adsConfirm && (
+        <div className="space-y-2" data-testid="panel-remove-redirect-ads">
+          <AdsOnUrlNotice
+            context="redirect"
+            data={{ live: adsConfirm.live, paused: adsConfirm.paused, checked: true, sources: [] }}
+            testIdPrefix="remove-redirect-ads"
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => void handleRemove(adsConfirm.from, { confirmAdsImpact: true })}
+              disabled={removing !== null}
+              data-testid="button-remove-redirect-anyway"
+            >
+              Remove anyway
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setAdsConfirm(null)} data-testid="button-keep-redirect">
+              Keep redirect
+            </Button>
+          </div>
+        </div>
+      )}
 
       {canEdit && (
         <div className="space-y-2" data-testid="form-add-redirect">

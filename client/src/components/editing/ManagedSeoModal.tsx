@@ -4,6 +4,7 @@ import type { ContentInfo, SeoMeta, SeoLocation } from "@/components/DebugBubble
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { useSlugRenameCheck } from "@/hooks/useSlugRenameCheck";
+import { renameAdsToastNote, renameFailureToast } from "@/lib/slugRenameCheck";
 import { useSeoModalSaves } from "@/hooks/useSeoModalSaves";
 import { VISIBILITY_META_KEYS } from "@/lib/seoSaveApi";
 import { useContentTypes } from "@/hooks/useContentTypes";
@@ -247,12 +248,13 @@ export function ManagedSeoModal({ open, onOpenChange, target, onSaved }: Managed
       });
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "Failed to rename");
+        toast({ ...renameFailureToast(errData), variant: "destructive" });
+        return;
       }
       const result = await res.json();
       toast({
         title: "Slug renamed",
-        description: `${result.oldSlug} → ${result.newSlug}${createRedirect ? " (redirect created)" : ""}${
+        description: `${result.oldSlug} → ${result.newSlug}${createRedirect ? " (redirect created)" : ""}${renameAdsToastNote(result)}${
           result.clusterRewireQueued
             ? ". Cluster membership for pages that pointed at the old URL updates in the background."
             : ""

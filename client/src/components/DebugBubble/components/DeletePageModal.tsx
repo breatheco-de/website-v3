@@ -10,8 +10,13 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ChevronDown, Info } from "lucide-react";
+import { ChevronDown, Info, X } from "lucide-react";
 import { apiFetch } from "@/lib/queryClient";
+import { AdsOnUrlNotice, adsNoticeFromCheck } from "@/components/editing/AdsOnUrlNotice";
+import { SitemapSearch } from "@/components/menus/SitemapSearch";
+import { useUrlRemovalCheck } from "@/hooks/useUrlRemovalCheck";
+
+export type DeleteRedirectTarget = { contentType: string; slug: string; path: string };
 
 function urlToPath(url: string): string {
   try {
@@ -43,7 +48,7 @@ interface DeletePageModalProps {
   deleteConfirmInput: string;
   setDeleteConfirmInput: (v: string) => void;
   isDeletingPage: boolean;
-  onConfirm: (localesToDelete: string[]) => void;
+  onConfirm: (localesToDelete: string[], opts?: { redirectTo?: DeleteRedirectTarget | null }) => void;
   availableLocales?: string[];
   currentLocale?: string;
   isPartialOverride?: boolean;
@@ -67,10 +72,15 @@ export function DeletePageModal(props: DeletePageModalProps) {
 
   const [selectedLocales, setSelectedLocales] = useState<Set<string>>(new Set());
   const [showOverrideDetails, setShowOverrideDetails] = useState(false);
+  const [redirectTo, setRedirectTo] = useState<DeleteRedirectTarget | null>(null);
+  const [dialogEl, setDialogEl] = useState<HTMLElement | null>(null);
+  const [adsRefreshNote, setAdsRefreshNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
       setShowOverrideDetails(false);
+      setRedirectTo(null);
+      setAdsRefreshNote(null);
     }
   }, [open]);
 
@@ -118,6 +128,23 @@ export function DeletePageModal(props: DeletePageModalProps) {
     enabled: open && !!deletingPage && !isPartialOverride,
   });
 
+  const adsCheck = useUrlRemovalCheck({
+    action: "delete",
+    contentType: deletingPage?.contentType,
+    slug: deletingPage?.slug,
+    locales: previewLocales,
+    enabled: open && !!deletingPage && !isPartialOverride && (!hasLocaleSelection || selectedList.length > 0),
+  });
+  const adsNotice = adsNoticeFromCheck(adsCheck.check);
+  const onRefreshAds = async () => {
+    try {
+      await adsCheck.refreshAds();
+      setAdsRefreshNote("Meta ads re-read just now. Google ads update with the next daily sync.");
+    } catch (err) {
+      setAdsRefreshNote(err instanceof Error ? err.message : "Couldn't refresh ad data.");
+    }
+  };
+
   const toggleLocale = (locale: string) => {
     setSelectedLocales(prev => {
       const next = new Set(prev);
@@ -132,7 +159,7 @@ export function DeletePageModal(props: DeletePageModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent ref={setDialogEl} className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-destructive">
             {isPartialOverride ? "Delete partial override" : "Delete page"}
@@ -236,6 +263,55 @@ export function DeletePageModal(props: DeletePageModalProps) {
             </p>
           )}
 
+          {!isPartialOverride && (
+            <AdsOnUrlNotice
+              context="delete"
+              data={adsNotice}
+              loading={adsCheck.loading}
+              error={adsCheck.error}
+              onRefresh={onRefreshAds}
+              refreshing={adsCheck.refreshing}
+              refreshNote={adsRefreshNote}
+              testIdPrefix="delete-ads"
+            />
+          )}
+
+          {!isPartialOverride && deletingPage && (
+            <div className="space-y-1.5" data-testid="section-delete-redirect-to">
+              <p className="text-sm text-foreground">Send visitors to another page (optional)</p>
+              <p className="text-xs text-muted-foreground">
+                People who open the deleted address are sent to the page you pick, in the same language.
+              </p>
+              <div className="flex items-center gap-2 min-w-0">
+                <SitemapSearch
+                  value={redirectTo?.path ?? ""}
+                  onChange={() => {}}
+                  onSelectEntry={(entry, p) => {
+                    if (entry.content_type && entry.slug) setRedirectTo({ contentType: entry.content_type, slug: entry.slug, path: p });
+                  }}
+                  placeholder="Pick a page"
+                  hideCustomUrl
+                  showLocaleFilter
+                  portalContainer={dialogEl}
+                  testId="picker-delete-redirect-to"
+                />
+                {redirectTo && (
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 shrink-0"
+                    onClick={() => setRedirectTo(null)}
+                    aria-label="Clear page to send visitors to"
+                    data-testid="button-clear-delete-redirect-to"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
           <label className="text-sm text-muted-foreground">
             Type <span className="font-mono font-bold text-foreground">{deletingPage?.slug}</span> to complete this action:
           </label>
@@ -287,7 +363,7 @@ export function DeletePageModal(props: DeletePageModalProps) {
           <Button
             variant="destructive"
             disabled={deleteConfirmInput !== deletingPage?.slug || isDeletingPage || (hasLocaleSelection && selectedLocales.size === 0)}
-            onClick={() => onConfirm(selectedList)}
+            onClick={() => onConfirm(selectedList, { redirectTo })}
             data-testid="button-delete-confirm"
           >
             {isDeletingPage ? "Deleting..." : "Confirm deletion"}

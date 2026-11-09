@@ -5,6 +5,23 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-09"
+    summary: "Ads-aware URL removal: slug rename, delete_entries, convert_to_draft and update_redirect delete check Meta/Google ads on the URL"
+    agent_impact:
+      - "update_fields slug rename refuses without create_redirect when live ads use the old URL (actionRequired code live_ads_point_to_old_url; ads[] = platform, site, campaign_name, ad_name, status, matched_by, url; no override). Success adds warnings ads_rely_on_redirect / paused_ads_point_to_url / ads_check_unavailable. Live = active and spent or created in the last 7 days; matched by ad link or tagged visits in the last 14 days, across every site by domain."
+      - "delete_entries: new args redirect_to {content_type?, slug}, redirect_to_by_slug, no_redirect_reason (min 10). Pages live 24h or more need one of them or the call is refused with redirect_destination_required (nothing deleted). redirect_to appends each deleted locale's URL + its own old addresses to the destination's same-locale meta.redirects (redirect_destination_missing_locale / redirect_conflict refuse first). Preview adds ads_by_slug + redirect_required_slugs."
+      - "convert_to_draft returns ads_on_url + live_ads_point_to_url warning (never adds a redirect) and is refused on the A/B check page. update_redirect delete: new confirm_ads_impact; without it, removing an address live ads still use returns actionRequired redirect_used_by_live_ads. Ads are never edited in Meta/Google."
+    tools_changed: false
+    paths:
+      - server/ads/ads-by-landing-page.ts
+      - server/url-removal-check.ts
+      - server/content-editor.ts
+      - server/routes/sections.ts
+      - server/routes/versioning.ts
+      - server/routes/admin.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/tools/redirects.ts
+      - mcp-server/lib/ads-on-url-mcp.ts
   - date: "2026-11-06"
     summary: "Reviewer agents approve requested page-level changes; apply refuses agents only for unrequested page-level fields or dropped live values; detached is never proposable"
     agent_impact:

@@ -59,10 +59,25 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { AdsOnUrlNotice, type AdsNoticeData } from "@/components/editing/AdsOnUrlNotice";
 
 const CustomRedirectsYmlEditorPanel = lazy(
   () => import("@/components/editing/CustomRedirectsYmlEditorPanel"),
 );
+
+type AdsBlock = { live: AdsNoticeData["live"]; paused: AdsNoticeData["paused"] };
+
+/** 409 `redirect_used_by_live_ads` body from an apiRequest error, else null. */
+function adsBlockFromError(err: unknown): AdsBlock | null {
+  if (!(err instanceof Error) || !err.message.startsWith("409: ")) return null;
+  try {
+    const body = JSON.parse(err.message.slice(5)) as { code?: string; ads?: AdsBlock["live"]; paused_ads?: AdsBlock["paused"] };
+    if (body.code !== "redirect_used_by_live_ads") return null;
+    return { live: body.ads ?? [], paused: body.paused_ads ?? [] };
+  } catch {
+    return null;
+  }
+}
 
 const SKIP_DELETE_CONFIRM_KEY = "private-redirects-skip-delete-confirm-until";
 const SKIP_DELETE_CONFIRM_MS = 5 * 60 * 1000;
@@ -275,6 +290,8 @@ export default function PrivateRedirects() {
   const testRedirectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [adsConfirm, setAdsConfirm] = useState<(AdsBlock & { from: string; retry: () => Promise<void> }) | null>(null);
+  const [adsConfirmBusy, setAdsConfirmBusy] = useState(false);
   const [deletingRedirect, setDeletingRedirect] = useState<Redirect | null>(
     null,
   );
@@ -419,7 +436,7 @@ export default function PrivateRedirects() {
     });
   };
 
-  const handleDeleteRedirect = async (redirect?: Redirect | null) => {
+  const handleDeleteRedirect = async (redirect?: Redirect | null, confirmAdsImpact = false) => {
     const target = redirect ?? deletingRedirect;
     if (!target) return;
 
@@ -429,6 +446,7 @@ export default function PrivateRedirects() {
         from: target.from,
         source: target.source,
         author: getDebugUserName(),
+        ...(confirmAdsImpact ? { confirmAdsImpact: true } : {}),
       });
       const result = (await res.json()) as {
         success?: boolean;
@@ -454,6 +472,12 @@ export default function PrivateRedirects() {
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
       removeIssueFromValidation(target.from);
     } catch (err) {
+      const block = adsBlockFromError(err);
+      if (block) {
+        setDeletingRedirect(null);
+        setAdsConfirm({ from: target.from, ...block, retry: () => handleDeleteRedirect(target, true) });
+        return;
+      }
       toast({
         title: "Failed to delete redirect",
         description: getApiErrorMessage(err),
@@ -473,7 +497,7 @@ export default function PrivateRedirects() {
     setDeletingRedirect(redirect);
   };
 
-  const handleRemoveFromFile = async (redirectUrl: string, source: string) => {
+  const handleRemoveFromFile = async (redirectUrl: string, source: string, confirmAdsImpact = false) => {
     const key = `${redirectUrl}::${source}`;
     setRemovingFrom(key);
     try {
@@ -481,6 +505,7 @@ export default function PrivateRedirects() {
         from: redirectUrl,
         source: ensureContentApiSourcePath(source, contentPathOptions),
         author: getDebugUserName(),
+        ...(confirmAdsImpact ? { confirmAdsImpact: true } : {}),
       });
       const data = await res.json();
       toast({
@@ -490,6 +515,11 @@ export default function PrivateRedirects() {
       removeIssueFromValidation(redirectUrl);
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
     } catch (err) {
+      const block = adsBlockFromError(err);
+      if (block) {
+        setAdsConfirm({ from: redirectUrl, ...block, retry: () => handleRemoveFromFile(redirectUrl, source, true) });
+        return;
+      }
       toast({
         title: "Failed to remove",
         description: getApiErrorMessage(err),
@@ -500,7 +530,7 @@ export default function PrivateRedirects() {
     }
   };
 
-  const handleRemoveFromBoth = async (redirectUrl: string, files: string[]) => {
+  const handleRemoveFromBoth = async (redirectUrl: string, files: string[], confirmAdsImpact = false) => {
     const key = `${redirectUrl}::both`;
     setRemovingFrom(key);
     try {
@@ -509,12 +539,18 @@ export default function PrivateRedirects() {
           from: redirectUrl,
           source: ensureContentApiSourcePath(source, contentPathOptions),
           author: getDebugUserName(),
+          ...(confirmAdsImpact ? { confirmAdsImpact: true } : {}),
         });
       }
       toast({ title: "Removed from both", description: `Removed "${redirectUrl}" from all sources` });
       removeIssueFromValidation(redirectUrl);
       queryClient.invalidateQueries({ queryKey: ["/api/debug/redirects"] });
     } catch (err) {
+      const block = adsBlockFromError(err);
+      if (block) {
+        setAdsConfirm({ from: redirectUrl, ...block, retry: () => handleRemoveFromBoth(redirectUrl, files, true) });
+        return;
+      }
       toast({
         title: "Failed to remove",
         description: getApiErrorMessage(err),
@@ -1619,6 +1655,45 @@ export default function PrivateRedirects() {
         open={showAddDialog}
         onOpenChange={setShowAddDialog}
       />
+      <Dialog open={!!adsConfirm} onOpenChange={(open) => { if (!open && !adsConfirmBusy) setAdsConfirm(null); }}>
+        <DialogContent className="sm:max-w-lg" data-testid="dialog-remove-redirect-ads">
+          <DialogHeader>
+            <DialogTitle>Ads still use this address</DialogTitle>
+            <DialogDescription className="break-all">
+              <code className="text-xs">{adsConfirm?.from}</code>
+            </DialogDescription>
+          </DialogHeader>
+          {adsConfirm && (
+            <AdsOnUrlNotice
+              context="redirect"
+              data={{ live: adsConfirm.live, paused: adsConfirm.paused, checked: true, sources: [] }}
+              testIdPrefix="private-redirect-ads"
+            />
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAdsConfirm(null)} disabled={adsConfirmBusy} data-testid="button-keep-redirect-ads">
+              Keep redirect
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={adsConfirmBusy}
+              onClick={async () => {
+                if (!adsConfirm) return;
+                setAdsConfirmBusy(true);
+                try {
+                  await adsConfirm.retry();
+                } finally {
+                  setAdsConfirmBusy(false);
+                  setAdsConfirm(null);
+                }
+              }}
+              data-testid="button-remove-redirect-anyway-ads"
+            >
+              Remove anyway
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={!!deletingRedirect}
         onOpenChange={(open) => {

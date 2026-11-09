@@ -46,11 +46,11 @@ export function parseArgs(argv: string[]): CliFlags {
 
 export function printHelp(): void {
   console.log(`
-weblify — agentic CMS runtime
+caxton-cms — agentic CMS runtime
 
 Usage:
-  npx weblify [options]
-  npx weblify token
+  npx caxton-cms [options]
+  npx caxton-cms token
 
 Quiet by default. Use --debug or DEBUG=true for full engine logs.
 
@@ -69,7 +69,7 @@ Options (all optional):
   --yes, -y                 Accept safe defaults when non-interactive allows
   --help, -h                Show this help
 
-If the folder already has site_* content but no sites.yml, Weblify asks which
+If the folder already has site_* content but no sites.yml, Caxton asks which
 folders/hostnames to register and writes a minimal sites.yml (or use --yes /
 --slug non-interactively).
 

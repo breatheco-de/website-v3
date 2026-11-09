@@ -23,16 +23,21 @@ props:
   search:
     type: object
     required: false
-    description: Visitor live search (?q=). Default enabled false — use dynamic_entries.search for SSR ranking.
     properties:
-      - name: enabled
+      enabled:
         type: boolean
-        default: false
-      - name: placeholder
+        required: false
+      placeholder:
         type: string
-      - name: fields
+        required: false
+      fields:
         type: array
-        description: DB fields for visitor search mapping
+        required: false
+        items:
+          type:
+            type: string
+            required: true
+    description: Visitor live search (?q=). Default enabled false — use dynamic_entries.search for SSR ranking.
   items:
     type: array
     required: false

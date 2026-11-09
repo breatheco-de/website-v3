@@ -60,7 +60,7 @@ async function main(): Promise<void> {
 
   if (config.command === "token") {
     if (config.detect.kind !== "project") {
-      error("token requires an existing Weblify project (sites.yml).");
+      error("token requires an existing Caxton project (sites.yml).");
       process.exit(1);
     }
     runTokenCommand(config.projectRoot);

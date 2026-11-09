@@ -71,7 +71,7 @@ export async function ensureMcpPortFree(port: string): Promise<void> {
   if (others.length) {
     const detail = others.map((l) => `pid ${l.pid} (${l.cmd || "unknown"})`).join(", ");
     throw new Error(
-      `Port ${port} is already in use by ${detail}. Stop that process (or set MCP_PORT to a free port) and re-run weblify.`,
+      `Port ${port} is already in use by ${detail}. Stop that process (or set MCP_PORT to a free port) and re-run caxton-cms.`,
     );
   }
 
@@ -146,7 +146,7 @@ export async function startMcpServer(opts: {
 
   if (!secret) {
     throw new Error(
-      "MCP_SERVER_SECRET is missing. Re-run weblify so .env is created, or set MCP_SERVER_SECRET.",
+      "MCP_SERVER_SECRET is missing. Re-run caxton-cms so .env is created, or set MCP_SERVER_SECRET.",
     );
   }
 

@@ -40,6 +40,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { EntryActivityDialog } from "@/components/pipeline/EntryActivityBadge";
 import { Link2, Loader2, Unlink } from "lucide-react";
+import { AdsOnUrlNotice, adsNoticeFromCheck } from "@/components/editing/AdsOnUrlNotice";
+import { useUrlRemovalCheck } from "@/hooks/useUrlRemovalCheck";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugToken, useDebugAuth } from "@/hooks/useDebugAuth";
 import { apiFetch } from "@/lib/queryClient";
@@ -896,6 +898,23 @@ export function VersioningView({
       return;
     }
     setConvertTarget(locale);
+  };
+
+  const convertAds = useUrlRemovalCheck({
+    action: "unpublish",
+    contentType: contentInfo.type,
+    slug: versioningWriteSlug || contentInfo.slug,
+    locales: convertTarget ? [convertTarget] : [],
+    enabled: convertTarget !== null,
+  });
+  const [convertAdsNote, setConvertAdsNote] = useState<string | null>(null);
+  const onRefreshConvertAds = async () => {
+    try {
+      await convertAds.refreshAds();
+      setConvertAdsNote("Meta ads re-read just now. Google ads update with the next daily sync.");
+    } catch (err) {
+      setConvertAdsNote(err instanceof Error ? err.message : "Couldn't refresh ad data.");
+    }
   };
 
   const handleConvertToDraft = async () => {
@@ -2656,7 +2675,7 @@ export function VersioningView({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={convertTarget !== null} onOpenChange={(open) => { if (!open && !isConverting) setConvertTarget(null); }}>
+      <Dialog open={convertTarget !== null} onOpenChange={(open) => { if (!open && !isConverting) { setConvertTarget(null); setConvertAdsNote(null); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Convert live {convertTarget?.toUpperCase()} to draft?</DialogTitle>
@@ -2672,6 +2691,16 @@ export function VersioningView({
               </span>
             </DialogDescription>
           </DialogHeader>
+          <AdsOnUrlNotice
+            context="unpublish"
+            data={adsNoticeFromCheck(convertAds.check)}
+            loading={convertAds.loading}
+            error={convertAds.error}
+            onRefresh={onRefreshConvertAds}
+            refreshing={convertAds.refreshing}
+            refreshNote={convertAdsNote}
+            testIdPrefix="convert-ads"
+          />
           <DialogFooter className="flex-col gap-2 sm:flex-col">
             <Button
               variant="destructive"

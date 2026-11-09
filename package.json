@@ -1,10 +1,10 @@
 {
-  "name": "caxton",
+  "name": "caxton-cms",
   "version": "1.0.0",
   "type": "module",
   "license": "MIT",
   "bin": {
-    "weblify": "./dist/cli.js"
+    "caxton-cms": "./dist/cli.js"
   },
   "files": [
     "dist",
@@ -43,7 +43,7 @@
     "prepack": "node scripts/prepare-site-schemas-for-pack.mjs",
     "postpack": "node scripts/prepare-site-schemas-for-pack.mjs --restore",
     "dev": "NODE_ENV=development tsx server/index.ts",
-    "weblify": "tsx cli/src/index.ts",
+    "caxton": "tsx cli/src/index.ts",
     "sidequest": "NODE_ENV=development tsx server/jobs/sidequest-worker.ts",
     "mcp": "tsx mcp-server/index.ts",
     "build:cli": "node scripts/build-bundles.mjs --cli-only",

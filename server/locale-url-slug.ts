@@ -293,6 +293,27 @@ export function assertLocaleUrlAvailable(opts: {
   return { ok: true, url, localeSlug };
 }
 
+/** Public URL a locale has right now (before a rename / delete / unpublish). */
+export function resolveCurrentLocaleUrl(opts: {
+  contentType: string;
+  entryIdentity: string;
+  locale: string;
+  parsed: Record<string, unknown>;
+  commonData: Record<string, unknown>;
+  ci: ContentIndex;
+}): string {
+  const { contentType, entryIdentity, locale, parsed, commonData, ci } = opts;
+  const currentSlug = (parsed.slug as string) || entryIdentity;
+  const result = assertLocaleUrlAvailable({
+    contentType,
+    entryIdentity,
+    locale,
+    mergedPageData: { ...commonData, ...parsed, slug: currentSlug },
+    ci,
+  });
+  return result.ok ? result.url : ci.buildUrl(contentType, locale, currentSlug);
+}
+
 /** Same normalization ContentIndex applies to `meta.redirects` sources. */
 export function normalizeRedirectPath(rawPath: string): string {
   let normalized = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;

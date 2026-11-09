@@ -69,8 +69,8 @@ props:
     required: false
     description: Optional caption shown below the chart
   duration:
-    type: number
-    required: false
+    type: string
+    required: true
     description: How long the build animation takes, in seconds (e.g. 6). Left empty, the chart plays at its designed pace.
   wide:
     type: boolean

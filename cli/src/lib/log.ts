@@ -34,7 +34,7 @@ export function error(msg: string): void {
 
 export function banner(version: string): void {
   const col = c();
-  console.log(`${col.cyan("✦")} ${col.bold("weblify")} ${col.dim(version)}`);
+  console.log(`${col.cyan("✦")} ${col.bold("caxton-cms")} ${col.dim(version)}`);
 }
 
 export function printSiteOnly(opts: { siteUrl: string }): void {
@@ -68,11 +68,11 @@ export function printCloudAgentInstructions(opts: {
   console.log(col.dim("Keep this terminal open while you use the connector."));
   console.log(
     col.dim(
-      "If you restart Weblify, the link above may change — paste the new URL into the connector.",
+      "If you restart Caxton, the link above may change — paste the new URL into the connector.",
     ),
   );
   console.log(
-    col.dim("Need a new token later? Stop Weblify, then run: npx weblify token"),
+    col.dim("Need a new token later? Stop Caxton, then run: npx caxton-cms token"),
   );
   console.log("");
 }
@@ -114,7 +114,7 @@ export function printLocalAgentInstructions(opts: {
   console.log("  3. Save and chat with the agent against your site.");
   console.log("");
   console.log(
-    col.dim("Need a new secret later? Stop Weblify, then run: npx weblify token"),
+    col.dim("Need a new secret later? Stop Caxton, then run: npx caxton-cms token"),
   );
   console.log("");
 }
@@ -129,7 +129,7 @@ export function printLocalAgentConnectedTip(): void {
   console.log("");
 }
 
-/** Standalone `weblify token` — dual-use staff + MCP. */
+/** Standalone `caxton-cms token` — dual-use staff + MCP. */
 export function printTokenInstructions(opts: { token: string }): void {
   const col = c();
   console.log("");
@@ -141,6 +141,6 @@ export function printTokenInstructions(opts: { token: string }): void {
   console.log("  • MCP — use it as the auth token for Cursor / Claude Code / Claude.ai");
   console.log("    (Authorization: Bearer …, X-Api-Key, or the connector wizard).");
   console.log("");
-  console.log(col.dim("This replaces the previous token. Stop Weblify before minting if it is running."));
+  console.log(col.dim("This replaces the previous token. Stop Caxton before minting if it is running."));
   console.log("");
 }

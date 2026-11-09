@@ -110,15 +110,15 @@ Variables are listed by category. "Required" means the feature that depends on t
 | `PORT` | No | `5000` | TCP port the Express server listens on. | Core server | None |
 | `NODE_ENV` | No | `development` | Set to `production` to serve compiled static assets, enable secure cookies, and suppress development-only behaviour. | All production hardening | None |
 | `SITE_URL` | No | `http://localhost:5000` (dev) | Canonical base URL with no trailing slash (e.g. `https://www.example.com`). Falls back to `http://localhost:5000` when unset. Used for sitemaps, hreflang, canonical meta tags, and GitHub webhook registration. | Sitemap, SEO canonical URLs, GitHub webhook auto-registration | None |
-### Weblify CLI / package paths
+### Caxton CLI / package paths
 
-When you run `npx weblify` (or a globally linked `weblify`), the **engine** and the **site folder** can live in different directories. Leave these unset in a normal monorepo checkout (`npm run dev` / `npm run weblify` from the repo root).
+When you run `npx caxton-cms` (or a globally linked `caxton-cms`), the **engine** and the **site folder** can live in different directories. Leave these unset in a normal monorepo checkout (`npm run dev` / `npm run caxton` from the repo root).
 
 | Variable | Required | Default | Description | Features enabled | Extra config needed |
 |---|---|---|---|---|---|
-| `WEBLIFY_PROJECT_ROOT` | No | `process.cwd()` | Absolute path to the site project (`sites.yml`, `site_*`, `.env`, `data/`, `.cache/`, `.local/`). Set in the **shell** when the site is not your current directory, e.g. `WEBLIFY_PROJECT_ROOT=/path/to/my-site npx weblify`. The CLI loads `.env` from this directory, so putting the var only inside that `.env` cannot retarget create/resume from elsewhere. | `npx weblify` / linked CLI against a non-cwd site | Site folder with `sites.yml` (or empty folder to create) |
-| `WEBLIFY_PACKAGE_ROOT` | No | Directory of the installed Weblify package | Absolute path to the engine (server, client, shared, `dist/`). Rare override for unusual installs. | Force engine path when package resolution is wrong | Built/installable Weblify tree |
-| `WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF` | No | unset (off) | When GitHub App + public `SITE_URL` are configured, connection tokens no longer unlock the Debug bubble as staff. Set to `1` to allow that path again (recovery / bootstrap). | Staff login via Weblify connection token | Connection token from CLI |
+| `WEBLIFY_PROJECT_ROOT` | No | `process.cwd()` | Absolute path to the site project (`sites.yml`, `site_*`, `.env`, `data/`, `.cache/`, `.local/`). Set in the **shell** when the site is not your current directory, e.g. `WEBLIFY_PROJECT_ROOT=/path/to/my-site npx caxton-cms`. The CLI loads `.env` from this directory, so putting the var only inside that `.env` cannot retarget create/resume from elsewhere. | `npx caxton-cms` / linked CLI against a non-cwd site | Site folder with `sites.yml` (or empty folder to create) |
+| `WEBLIFY_PACKAGE_ROOT` | No | Directory of the installed Caxton package | Absolute path to the engine (server, client, shared, `dist/`). Rare override for unusual installs. | Force engine path when package resolution is wrong | Built/installable Caxton tree |
+| `WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF` | No | unset (off) | When GitHub App + public `SITE_URL` are configured, connection tokens no longer unlock the Debug bubble as staff. Set to `1` to allow that path again (recovery / bootstrap). | Staff login via Caxton connection token | Connection token from CLI |
 
 ### API Integrations
 

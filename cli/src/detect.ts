@@ -62,7 +62,7 @@ export function detectProject(root: string): DetectResult {
     root,
     issues: [
       `Folder is not empty and has no sites.yml or site_* content (found: ${meaningful.slice(0, 5).join(", ")}${meaningful.length > 5 ? "…" : ""}).`,
-      "Use an empty folder to create a site, add a site_* folder, or cd into an existing Weblify project.",
+      "Use an empty folder to create a site, add a site_* folder, or cd into an existing Caxton project.",
     ],
   };
 }

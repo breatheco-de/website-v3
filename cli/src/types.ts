@@ -12,7 +12,7 @@ export interface CliFlags {
   production: boolean;
   agenticInstallation: boolean;
   noMcpTunnel: boolean;
-  /** Positional: `weblify token` */
+  /** Positional: `caxton-cms token` */
   command: "token" | null;
   name?: string;
   slug?: string;
