@@ -100,6 +100,7 @@ import {
 import type { ContentTypeEditorHint } from "../../server/content-types.js";
 import { promoteWarnings, promoteFailureNextActions, ROBOTS_CHANGE_ON_PUBLISH_CODE, robotsChangeOnPublishResult, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, diagnosticsJobNextActions, overrideMasksSourceWarning, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import { touchesMetaRedirects } from "../lib/redirect-update.js";
+import { deleteVariantPreflight, variantRowFields, type VariantInfoPayload } from "../lib/variant-info-mcp.js";
 import {
   isSignupFieldMapError,
   signupFieldMapActionRequired,
@@ -5439,7 +5440,10 @@ export function registerPageTools(
     "Live-only pages have no versioning.yml: hasVersioning is false, variants is [], live_locales lists published locales — that is not unpublished. " +
     "versioning.yml is created by create_variant, not by hand; extra versions start at 0% traffic. " +
     "unregistered_variants lists variant files versioning.yml is missing (no traffic until staff register them). " +
-    "started_at gives each locale's test run date. Warnings cover page tests: ab_testing_not_setup, ab_check_failing, " +
+    "started_at gives each locale's test run date. " +
+    "Each variant row also has created_at, updated_at, age_state (new | active | stale | unknown; stale = created and last edited more than 30 days ago), " +
+    "verdict (cannot_delete | check_first | probably_safe) with reasons[{code,message}], behind_live, changes_vs_live (null when no live file) and sibling_locales (same slug in other languages; delete is per locale). " +
+    "Warnings cover page tests: ab_testing_not_setup, ab_check_failing, " +
     "variant_assignment_sticky (visitors keep their version; allocation is staff-only), split_mismatch (results unreliable). " +
     "Use before create_variant or editing an existing draft. Requires content_view.",
     {
@@ -5462,12 +5466,13 @@ export function registerPageTools(
 
       try {
         const versioningSlug = versioningApiSlug(contentType, slug, contentPath);
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}?include=variant_info`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken, { site: domain }) });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
           return fail((data.error as string) || `Server error: ${res.status}`);
         }
+        const variantInfo = (data.variantInfo as Record<string, Record<string, VariantInfoPayload>> | undefined) ?? {};
         const liveByLocale = (data.liveByLocale as Record<string, boolean> | undefined) ?? {};
         const live_locales = Object.entries(liveByLocale)
           .filter(([, isLive]) => isLive)
@@ -5538,8 +5543,32 @@ export function registerPageTools(
           { variants?: Array<{ slug: string; allocation: number }>; started_at?: string }
         >;
         const variants = Object.entries(versioning).flatMap(([locale, localeData]) =>
-          (localeData.variants || []).map(v => ({ locale, slug: v.slug, allocation: v.allocation }))
+          (localeData.variants || []).map(v => ({
+            locale,
+            slug: v.slug,
+            allocation: v.allocation,
+            ...(variantRowFields(variantInfo[locale]?.[v.slug]) ?? {}),
+          }))
         );
+        const inUse = variants.filter((v) => "verdict" in v && v.verdict === "check_first");
+        const behind = variants.filter((v) => "behind_live" in v && v.behind_live === true);
+        const verdictWarnings: McpWarning[] = [
+          ...(inUse.length
+            ? [{
+                code: "variants_in_use",
+                message:
+                  `${inUse.map((v) => `${v.slug}.${v.locale}`).join(", ")}: verdict check_first (see reasons). ` +
+                  "delete_variant stops with confirm_variant_in_use for these; an open proposal (proposal_open) can't be overridden.",
+              }]
+            : []),
+          ...(behind.length
+            ? [{
+                code: "variants_behind_live",
+                message:
+                  `${behind.map((v) => `${v.slug}.${v.locale}`).join(", ")}: live changed since the variant was made; promoting it would undo those live changes.`,
+              }]
+            : []),
+        ];
         const started_at = Object.fromEntries(
           Object.entries(versioning)
             .filter(([, localeData]) => typeof localeData.started_at === "string")
@@ -5562,7 +5591,7 @@ export function registerPageTools(
             ...(Object.keys(started_at).length ? { started_at } : {}),
             unregistered_variants,
           },
-          { warnings: [...unregisteredWarnings, ...abWarnings], next_actions: [] },
+          { warnings: [...unregisteredWarnings, ...abWarnings, ...verdictWarnings], next_actions: [] },
         );
       } catch (e) {
         return fail(`Failed to list variants: ${(e as Error).message}`);
@@ -6439,6 +6468,9 @@ export function registerPageTools(
     "Blocked when the variant has traffic allocated (VARIANT_HAS_TRAFFIC); staff must remove allocation first. " +
     "Shared-layout template variants (versioning slug template/single) require confirm_template_delete: true. " +
     "When the variant file is already gone but versioning.yml still lists the slug, pass cleanup_orphan: true. " +
+    "Preflight reads the variant verdict (same as list_variants rows): linked to an open proposal → fail variant_open_proposal (no override; withdraw/reject the proposal or staff unlink it). " +
+    "Other in-use reasons (created/edited within 30 days, running or recently ended test, unverified proposal, changes not on live, last draft of an unpublished page, unknown test history) → action_required confirm_variant_in_use; " +
+    "tell the user the reasons, then re-call with confirm_variant_in_use: true. Overridden reasons are returned in warnings and saved with your report. " +
     "Confirm with the user before calling. Requires confirm: true and report (min 80 chars). Cap: content_delete_variant.",
     {
       contentType: z.string().describe("Content type, e.g. 'program', 'page', 'landing'"),
@@ -6447,6 +6479,12 @@ export function registerPageTools(
       locale: z.string().default("en").describe("Locale of the variant file to delete, e.g. 'en' or 'es'"),
       confirm: z.boolean().describe("Must be true to perform delete."),
       report: z.string().describe(AGENT_REPORT_MUTATE_DESC),
+      confirm_variant_in_use: z
+        .boolean()
+        .optional()
+        .describe(
+          "Set only after the user confirmed deleting a variant whose verdict is check_first (reasons from the confirm_variant_in_use response or list_variants). Does not override an open proposal or traffic.",
+        ),
       confirm_template_delete: z
         .boolean()
         .optional()
@@ -6471,6 +6509,7 @@ export function registerPageTools(
       locale,
       confirm,
       report,
+      confirm_variant_in_use,
       confirm_template_delete,
       cleanup_orphan,
       agent_session_id,
@@ -6545,17 +6584,78 @@ export function registerPageTools(
         );
       }
 
+      const variantBase =
+        `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/` +
+        `${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/${encodeURIComponent(variantSlug)}`;
+
+      let variantInfo: VariantInfoPayload | null = null;
+      let variantInfoUnavailable = false;
+      try {
+        const infoRes = await fetch(`${variantBase}/info`, {
+          headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }),
+        });
+        if (infoRes.ok) variantInfo = (await infoRes.json()) as VariantInfoPayload;
+        else if (infoRes.status !== 404) variantInfoUnavailable = true;
+      } catch {
+        variantInfoUnavailable = true;
+      }
+      const preflight = deleteVariantPreflight(variantInfo, confirm_variant_in_use === true);
+      if (preflight.kind === "blocked_open_proposal") {
+        return fail(
+          "This variant belongs to an open proposal, so agents can't delete it (confirm_variant_in_use does not override this).",
+          {
+            code: "variant_open_proposal",
+            contentType,
+            slug,
+            locale,
+            variantSlug,
+            reasons: preflight.reasons,
+            warnings: [
+              {
+                code: "variant_open_proposal",
+                message:
+                  "Someone is reviewing this draft. The proposer withdraws or a reviewer rejects the proposal (update_proposal), or staff unlink it in the Versions panel; only then can it be deleted. Live content is unchanged.",
+              },
+            ],
+            next_actions: [],
+          },
+        );
+      }
+      if (preflight.kind === "confirm_required") {
+        return actionRequired(
+          {
+            success: false,
+            action_required: "confirm_variant_in_use",
+            code: "confirm_variant_in_use",
+            message:
+              "This variant may still be in use. Tell the user these reasons; if they still want it deleted, re-call delete_variant with confirm_variant_in_use: true.",
+            contentType,
+            slug,
+            locale,
+            variantSlug,
+            verdict: variantInfo?.health.verdict,
+            reasons: preflight.reasons,
+            warnings: [
+              {
+                code: "per_locale_delete",
+                message: `Deletes only ${variantSlug}.${locale}.yml. Same-slug variants in other languages stay (sibling_locales in list_variants). Live ${locale}.yml is not modified.`,
+              },
+            ],
+          },
+          [],
+        );
+      }
+
       try {
         const q = new URLSearchParams();
         if (cleanup_orphan === true) q.set("cleanup_orphan", "true");
         const qs = q.toString();
-        const url =
-          `http://127.0.0.1:${MAIN_SERVER_PORT}/api/versioning/${encodeURIComponent(contentType)}/` +
-          `${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/${encodeURIComponent(variantSlug)}` +
-          (qs ? `?${qs}` : "");
+        const url = variantBase + (qs ? `?${qs}` : "");
+        const overriddenCodes = preflight.kind === "proceed" ? preflight.overridden.map((r) => r.code) : [];
         const res = await fetch(url, {
           method: "DELETE",
           headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain }),
+          body: JSON.stringify({ report: trimmedReport, overridden_reasons: overriddenCodes }),
         });
         const data = await res.json() as Record<string, unknown>;
         if (!res.ok) {
@@ -6637,6 +6737,20 @@ export function registerPageTools(
             code: "shared_layout_template_delete",
             message:
               "Deleted a template variant file. Attached entries still inherit the live template shell; sibling entries were not auto-updated.",
+          });
+        }
+        if (preflight.kind === "proceed" && preflight.overridden.length > 0) {
+          warnings.push({
+            code: "variant_in_use_overridden",
+            message:
+              `Deleted despite: ${preflight.overridden.map((r) => `${r.code} (${r.message})`).join("; ")}. ` +
+              "These reasons were saved with your report on the delete event.",
+          });
+        }
+        if (variantInfoUnavailable) {
+          warnings.push({
+            code: "variant_info_unavailable",
+            message: "Could not read the variant's age/activity before deleting, so no in-use check ran.",
           });
         }
         const apiWarnings = data.warnings as Array<{ code?: string; message?: string; proposal_id?: string }> | undefined;

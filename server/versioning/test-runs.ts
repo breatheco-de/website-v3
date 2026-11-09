@@ -128,6 +128,22 @@ export function applyRunTransitions(
   return changed;
 }
 
+/** Every run for a page and language: running first, then by end date, newest first. */
+export function runsFor(
+  runs: TestRuns,
+  contentType: string,
+  slug: string,
+  locale: string,
+): Array<TestRun & { experiment_id: string }> {
+  return Object.entries(runs)
+    .filter(([, r]) => r.content_type === contentType && r.slug === slug && r.locale === locale)
+    .map(([id, r]) => ({ ...r, experiment_id: id }))
+    .sort((a, b) => {
+      if (!a.ended_at !== !b.ended_at) return a.ended_at ? 1 : -1;
+      return (b.ended_at ?? b.started_at ?? "").localeCompare(a.ended_at ?? a.started_at ?? "");
+    });
+}
+
 /** Running run for a page and language, otherwise the most recently ended one. */
 export function latestRun(
   runs: TestRuns,

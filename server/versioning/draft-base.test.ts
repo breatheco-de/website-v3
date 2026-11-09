@@ -18,6 +18,7 @@ import {
   variantRedirectChanges,
   type DraftRef,
 } from "./draft-base";
+import { readDraftMeta } from "./draft-meta";
 
 describe("draftSeedFromLive: legacy language funnel", () => {
   const personaFunnel = {
@@ -166,5 +167,69 @@ describe("old addresses (meta.redirects) on drafts", () => {
   it("variantRedirectChanges counts an address live gained after the draft was made as a change", () => {
     writeLive(["/old-a", "/live-add"]);
     expect(variantRedirectChanges(ref).removed.map((i) => i.path)).toEqual(["/live-add"]);
+  });
+});
+
+describe("_draft.created_at", () => {
+  const ORIGINAL_CWD = process.cwd();
+  let tempDir: string;
+  let contentRoot: string;
+  let entryDir: string;
+  let ref: DraftRef;
+  const draftPath = () => path.join(entryDir, "draft.en.yml");
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "draft-base-created-"));
+    contentRoot = path.join(tempDir, "site_test");
+    entryDir = path.join(contentRoot, "blog", "post-a");
+    fs.mkdirSync(entryDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(contentRoot, "content-types.yml"),
+      "blog:\n  directory: blog\n  url_pattern:\n    en: /en/blog/:slug\n",
+      "utf-8",
+    );
+    process.chdir(tempDir);
+    resetRegistry(contentRoot);
+    setDraftBaseStore(createMemoryDraftBaseStore());
+    ref = { contentType: "blog", slug: "post-a", locale: "en", variant: "draft", contentRoot };
+    fs.writeFileSync(path.join(entryDir, "en.yml"), yaml.dump({ title: "Live" }), "utf-8");
+    fs.writeFileSync(draftPath(), yaml.dump({ title: "Draft" }), "utf-8");
+  });
+
+  afterEach(() => {
+    process.chdir(ORIGINAL_CWD);
+    resetRegistry(contentRoot);
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("is stamped on the first base record and kept on later ones", () => {
+    recordDraftBase(ref, { skipMark: true, at: new Date("2026-09-01T00:00:00.000Z") });
+    expect(readDraftMeta(draftPath())?.created_at).toBe("2026-09-01T00:00:00.000Z");
+    recordDraftBase(ref, { skipMark: true, at: new Date("2026-10-15T00:00:00.000Z") });
+    const meta = readDraftMeta(draftPath());
+    expect(meta?.created_at).toBe("2026-09-01T00:00:00.000Z");
+    expect(meta?.based_on?.at).toBe("2026-10-15T00:00:00.000Z");
+  });
+
+  it("is not stamped when the caller is not creating the variant", () => {
+    recordDraftBase(ref, { skipMark: true, stampCreated: false });
+    const meta = readDraftMeta(draftPath());
+    expect(meta?.based_on).toBeTruthy();
+    expect(meta?.created_at).toBeUndefined();
+  });
+
+  it("is kept when a rebuild re-applies the draft on top of live", () => {
+    recordDraftBase(ref, { skipMark: true, at: new Date("2026-09-01T00:00:00.000Z") });
+    fs.writeFileSync(path.join(entryDir, "en.yml"), yaml.dump({ title: "Live", subtitle: "New" }), "utf-8");
+    const rebuilt = rebuildDraftFromBase(ref);
+    expect(rebuilt.ok).toBe(true);
+    expect(readDraftMeta(draftPath())?.created_at).toBe("2026-09-01T00:00:00.000Z");
+  });
+
+  it("a legacy draft without created_at stays without it after a rebuild", () => {
+    recordDraftBase(ref, { skipMark: true, stampCreated: false });
+    fs.writeFileSync(path.join(entryDir, "en.yml"), yaml.dump({ title: "Live", subtitle: "New" }), "utf-8");
+    expect(rebuildDraftFromBase(ref).ok).toBe(true);
+    expect(readDraftMeta(draftPath())?.created_at).toBeUndefined();
   });
 });

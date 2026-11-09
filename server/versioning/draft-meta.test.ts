@@ -71,6 +71,18 @@ describe("new draft for an unpublished locale", () => {
     expect(readDraftMeta(file)).toEqual(META);
   });
 
+  it("reads created_at back, and keeps it out of variant content", () => {
+    writeVariantFile(file, "title: Hi\n", { meta: null, skipMark: true });
+    writeDraftMeta(file, { created_at: "2026-10-01T12:00:00.000Z" }, { skipMark: true });
+    expect(readDraftMeta(file)).toEqual({ created_at: "2026-10-01T12:00:00.000Z" });
+    expect(readVariantData(file)).toEqual({ title: "Hi" });
+  });
+
+  it("reads an unquoted YAML timestamp created_at as an ISO string", () => {
+    fs.writeFileSync(file, "title: Hi\n_draft:\n  created_at: 2026-10-01T12:00:00.000Z\n", "utf-8");
+    expect(readDraftMeta(file)?.created_at).toBe("2026-10-01T12:00:00.000Z");
+  });
+
   it("removing _draft from a metadata-only draft leaves a readable empty draft", () => {
     writeVariantFile(file, "{}\n", { meta: META, skipMark: true });
     writeDraftMeta(file, { based_on: null }, { skipMark: true });

@@ -6,6 +6,21 @@ window_days: 6
 
 entries:
   - date: "2026-11-09"
+    summary: "Variant age/activity verdict on list_variants rows; delete_variant stops on variants still in use"
+    agent_impact:
+      - "list_variants rows add created_at, updated_at, age_state (new | active | stale | unknown; stale = created and last content edit both > 30 days), verdict (cannot_delete | check_first | probably_safe) + reasons[{code,message}], behind_live, changes_vs_live (date fields ignored; null when no live file) and sibling_locales (same slug in other languages — delete is per locale). Warnings variants_in_use / variants_behind_live."
+      - "delete_variant preflight: open proposal (reason proposal_open) → fail variant_open_proposal, no override (withdraw/reject the proposal or staff unlink it). Other check_first reasons (recently_created, recently_edited, age_unknown, proposal_unverified, test_running, test_ended_recently, test_history_unavailable, changes_not_on_live, last_draft_of_unpublished_page) → action_required confirm_variant_in_use; tell the user, then re-call with the new arg confirm_variant_in_use: true. Success warning variant_in_use_overridden; overridden codes are saved with your report on the delete event."
+      - "New variants record _draft.created_at once (create, convert_to_draft, register). Promote strips _draft, so it never reaches live. Older variants fall back to _draft.based_on.at, else age unknown (never treated as stale)."
+    tools_changed: false
+    paths:
+      - shared/variant-health.ts
+      - server/versioning/variant-info.ts
+      - server/versioning/draft-meta.ts
+      - server/versioning/draft-base.ts
+      - server/routes/versioning.ts
+      - mcp-server/lib/variant-info-mcp.ts
+      - mcp-server/tools/pages.ts
+  - date: "2026-11-09"
     summary: "Ads-aware URL removal: slug rename, delete_entries, convert_to_draft and update_redirect delete check Meta/Google ads on the URL"
     agent_impact:
       - "update_fields slug rename refuses without create_redirect when live ads use the old URL (actionRequired code live_ads_point_to_old_url; ads[] = platform, site, campaign_name, ad_name, status, matched_by, url; no override). Success adds warnings ads_rely_on_redirect / paused_ads_point_to_url / ads_check_unavailable. Live = active and spent or created in the last 7 days; matched by ad link or tagged visits in the last 14 days, across every site by domain."

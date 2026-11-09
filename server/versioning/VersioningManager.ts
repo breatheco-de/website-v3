@@ -15,7 +15,7 @@ import {
   hasActiveTraffic,
   pickVariant,
 } from "./assignment";
-import { applyRunTransitions, latestRun, type TestRun, type TestRuns } from "./test-runs";
+import { applyRunTransitions, latestRun, runsFor, type TestRun, type TestRuns } from "./test-runs";
 
 /** `_draft` is variant-file system metadata, never page content (see draft-meta.ts). */
 function stripDraftMeta(data: Record<string, unknown>): Record<string, unknown> {
@@ -144,6 +144,8 @@ export class VersioningManager {
   };
   private saveTimer: NodeJS.Timeout | null = null;
   private readonly contentRoot: string;
+  /** True once a state file (local or bucket) was loaded, so an empty `runs` means "never tested". */
+  private runHistoryLoaded = false;
 
   constructor(contentRoot?: string) {
     this.contentRoot = contentRoot ?? getContentDir();
@@ -279,6 +281,7 @@ export class VersioningManager {
   }
 
   private applyLoadedState(loaded: any): void {
+    this.runHistoryLoaded = true;
     const loadedEpoch = typeof loaded?.epoch === "number" ? loaded.epoch : 1;
     const runs: TestRuns = loaded?.runs && typeof loaded.runs === "object" ? loaded.runs : {};
     if (loadedEpoch < VERSIONING_STATE_EPOCH) {
@@ -530,6 +533,16 @@ export class VersioningManager {
   /** Running test for a page and language, otherwise the most recently ended one (null = none recorded). */
   public getLatestRun(contentType: string, slug: string, locale: string): (TestRun & { experiment_id: string }) | null {
     return latestRun(this.state.runs, contentType, slug, locale);
+  }
+
+  /** Every recorded run for a page and language, newest first. */
+  public getRuns(contentType: string, slug: string, locale: string): Array<TestRun & { experiment_id: string }> {
+    return runsFor(this.state.runs, contentType, slug, locale);
+  }
+
+  /** False when no state was ever loaded here (fresh checkout, bucket unreachable): run history is unknown. */
+  public hasRunHistory(): boolean {
+    return this.runHistoryLoaded || Object.keys(this.state.runs).length > 0;
   }
 
   /**

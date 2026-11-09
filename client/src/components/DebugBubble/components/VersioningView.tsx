@@ -57,6 +57,7 @@ import { STORAGE_KEY, OPEN_STORAGE_KEY } from "../types";
 import { PageHealthIndicators } from "./PageHealthIndicators";
 import { LayoutApprovalControl } from "./LayoutApprovalControl";
 import { VariantProposalBadge } from "./VariantProposalBadge";
+import { VariantInfoPopover, VariantVerdictSummary, useVariantInfo } from "./VariantInfoPopover";
 import { PendingProposalsDialog } from "./PendingProposalsDialog";
 import { LocaleFlag } from "./LocaleFlag";
 import {
@@ -479,6 +480,13 @@ export function VersioningView({
   const [isPromoting, setIsPromoting] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<{ locale: string; slug: string; allocation: number } | null>(null);
+  const deleteInfoQuery = useVariantInfo({
+    contentType: contentInfo.type,
+    versioningSlug: versioningWriteSlug,
+    locale: deleteTarget?.locale ?? "",
+    variantSlug: deleteTarget?.slug ?? "",
+    enabled: Boolean(deleteTarget) && !(deleteTarget!.allocation > 0),
+  });
   const [isDeleting, setIsDeleting] = useState(false);
 
   const [convertTarget, setConvertTarget] = useState<string | null>(null);
@@ -2121,6 +2129,12 @@ export function VersioningView({
                                 </button>
                               )}
                             </div>
+                            <VariantInfoPopover
+                              contentType={contentInfo.type}
+                              versioningSlug={versioningWriteSlug}
+                              locale={locale}
+                              variantSlug={variant.slug}
+                            />
                             {isActive && (
                               <Badge variant="default" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0" data-testid={`badge-active-variant-${locale}`}>
                                 active
@@ -2600,6 +2614,21 @@ export function VersioningView({
                   ({deleteTarget?.locale}) and remove it from the versioning list. This action cannot be undone.
                 </DialogDescription>
               </DialogHeader>
+              {deleteInfoQuery.isLoading ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="delete-variant-info-loading">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Checking whether anyone is using this version…
+                </div>
+              ) : deleteInfoQuery.data ? (
+                <VariantVerdictSummary info={deleteInfoQuery.data} />
+              ) : deleteInfoQuery.isError ? (
+                <p
+                  className="rounded-md border border-status-away/40 bg-status-away/10 px-2.5 py-2 text-xs text-foreground"
+                  data-testid="delete-variant-info-error"
+                >
+                  Couldn't load details for this version. Check that nobody is using it before deleting.
+                </p>
+              ) : null}
               <DialogFooter>
                 <Button
                   variant="outline"

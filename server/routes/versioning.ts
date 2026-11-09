@@ -346,6 +346,44 @@ async function proposalsByVariantFor(opts: {
   return out;
 }
 
+/** Context for variant-info (age, proposal, tests, verdict) on one page. */
+async function variantInfoContextFor(opts: {
+  res: Response;
+  contentType: string;
+  slug: string;
+  versioning: Record<string, { variants?: Array<{ slug: string; allocation?: number }>; started_at?: string }> | null;
+  versioningManager: any;
+  locales: string[];
+}): Promise<import("../versioning/variant-info").VariantInfoContext> {
+  let openProposals: import("../versioning/variant-info").OpenProposalRow[] | null = null;
+  let proposalEnv = "production";
+  try {
+    const mod = await import("../content-proposals");
+    proposalEnv = mod.DRAFT_LINK_ENV;
+    openProposals = isTemplateVersioningSlug(opts.slug)
+      ? []
+      : mod.listOpenProposalsForEntry(getContentRootName(opts.res), opts.contentType, opts.slug);
+  } catch {
+    openProposals = null;
+  }
+  return {
+    contentType: opts.contentType,
+    slug: opts.slug,
+    contentRoot: getContentRoot(opts.res),
+    versioning: opts.versioning,
+    vm: opts.versioningManager,
+    openProposals,
+    proposalEnv,
+    locales: opts.locales,
+  };
+}
+
+function wantsVariantInfo(req: Request): boolean {
+  const raw = req.query.include;
+  const parts = (Array.isArray(raw) ? raw : [raw]).flatMap((v) => String(v ?? "").split(","));
+  return parts.map((p) => p.trim()).includes("variant_info");
+}
+
 /** Resolve writable versioning slug (entry drafts or template `single`). */
 function resolveWritableVersioningSlug(
   contentType: string,
@@ -495,8 +533,28 @@ export function registerVersioningRoutes(app: Express): void {
       return;
     }
 
+    let variantInfo: Record<string, Record<string, unknown>> | undefined;
+    if (wantsVariantInfo(req)) {
+      try {
+        const { getVariantInfoMap } = await import("../versioning/variant-info");
+        variantInfo = getVariantInfoMap(
+          await variantInfoContextFor({
+            res,
+            contentType,
+            slug: resolvedSlug,
+            versioning,
+            versioningManager,
+            locales: availableLocales,
+          }),
+        );
+      } catch {
+        variantInfo = {};
+      }
+    }
+
     res.json({
       versioning,
+      ...(variantInfo ? { variantInfo } : {}),
       ab_testing,
       split_health: getSplitHealth(
         {
@@ -533,6 +591,51 @@ export function registerVersioningRoutes(app: Express): void {
           }),
     });
   });
+
+  // One variant's age, last edit, proposal, tests, drift and delete verdict (Versions panel info popover)
+  api.get(
+    app,
+    "/api/versioning/:contentType/:contentSlug/:locale/:variantSlug/info",
+    { rate: "staffWrite" },
+    async (req, res) => {
+      const { contentType, contentSlug: requestSlug, locale, variantSlug } = req.params;
+      if (!isValidType(contentType)) {
+        res.status(400).json({ error: "Invalid content type", validTypes: getAllFolders() });
+        return;
+      }
+      const auth = await requireCapability(req, res, "content_view", contentType);
+      if (!auth.authorized) return;
+      if (!/^[a-z0-9-]+$/.test(variantSlug) || !/^[a-z]{2}(-[A-Z]{2})?$/.test(locale)) {
+        res.status(400).json({ error: "Invalid variant or locale" });
+        return;
+      }
+
+      const root = getContentRoot(res);
+      const contentSlug = resolvePreviewBaseSlug(requestSlug, contentType, getCI(res));
+      const resolvedSlug = resolveVersioningReadSlug(contentType, contentSlug, root);
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+      const versioning = versioningManager.getVersioningForContent(contentType, resolvedSlug);
+      const { getVariantInfo } = await import("../versioning/variant-info");
+      const info = getVariantInfo(
+        await variantInfoContextFor({
+          res,
+          contentType,
+          slug: resolvedSlug,
+          versioning,
+          versioningManager,
+          locales: getLocaleEntries().map((l: { code: string }) => l.code),
+        }),
+        locale,
+        variantSlug,
+        { full: true },
+      );
+      if (!info) {
+        res.status(404).json({ error: `Variant ${variantSlug}.${locale}.yml not found` });
+        return;
+      }
+      res.json(info);
+    },
+  );
 
   // Update versioning allocations for a locale
   app.patch(
@@ -1137,6 +1240,12 @@ export function registerVersioningRoutes(app: Express): void {
       { ...existing, [locale]: { ...existing[locale], variants: localeVariants } },
       { author: auth.author || "api", contentRoot: root },
     );
+    {
+      const { readDraftMeta, writeDraftMeta } = await import("../versioning/draft-meta");
+      if (!readDraftMeta(variantFilePath)?.created_at) {
+        writeDraftMeta(variantFilePath, { created_at: new Date().toISOString() }, { author: auth.author || "api", contentRoot: root });
+      }
+    }
 
     const versioning = versioningManager.getVersioningForContent(contentType, resolved.slug) || {};
     const availableLocales = getLocaleEntries().map((l: { code: string }) => l.code);
@@ -1618,6 +1727,21 @@ export function registerVersioningRoutes(app: Express): void {
 
     const auth = await requireCapability(req, res, "content_delete_variant", contentType);
     if (!auth.authorized) return;
+
+    {
+      const body = (req.body ?? {}) as { report?: unknown; overridden_reasons?: unknown };
+      const report = typeof body.report === "string" ? body.report.trim() : "";
+      const overridden = Array.isArray(body.overridden_reasons)
+        ? body.overridden_reasons.filter((c): c is string => typeof c === "string" && /^[a-z_]+$/.test(c))
+        : [];
+      if (report) {
+        const gate = await beginMcpContentWrite(req, {
+          report: overridden.length ? `${report}\n\nOverrode variant delete checks: ${overridden.join(", ")}` : report,
+          mode: "legacy_report",
+        });
+        if (gate.ok) enterContentWriteContext(gate.ctx);
+      }
+    }
 
     const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
     if (!resolved.ok) {

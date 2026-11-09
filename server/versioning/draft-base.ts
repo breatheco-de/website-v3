@@ -380,21 +380,25 @@ export function diffSnapshots(before: BaseSnapshot, after: BaseSnapshot, opts?: 
 /**
  * Stamp `_draft.based_on` with today's live hashes and keep a base copy.
  * Call when a draft is created and after every rebuild — never on plain draft edits.
+ * Also stamps `_draft.created_at` when missing; pass `stampCreated: false` where the
+ * variant is not being created (rebuilds, bulk re-stamps of existing drafts).
  */
 export function recordDraftBase(
   ref: DraftRef,
-  opts: { author?: string; at?: Date; store?: DraftBaseStore; skipMark?: boolean } = {},
+  opts: { author?: string; at?: Date; store?: DraftBaseStore; skipMark?: boolean; stampCreated?: boolean } = {},
 ): DraftBasedOn | null {
   const draftPath = draftPathOf(ref);
   if (!fs.existsSync(draftPath)) return null;
+  const at = (opts.at ?? new Date()).toISOString();
   const basedOn: DraftBasedOn = {
     locale: hashFile(livePathOf(ref)),
     common: hashFile(commonPathOf(ref)),
-    at: (opts.at ?? new Date()).toISOString(),
+    at,
   };
+  const stampCreated = opts.stampCreated !== false && !readDraftMeta(draftPath)?.created_at;
   writeDraftMeta(
     draftPath,
-    { based_on: basedOn },
+    stampCreated ? { created_at: at, based_on: basedOn } : { based_on: basedOn },
     { author: opts.author, contentRoot: ref.contentRoot, skipMark: opts.skipMark },
   );
   const store = opts.store ?? activeStore;
@@ -579,7 +583,7 @@ export function rebuildDraftFromBase(
   }
   if (!opts.preview) {
     writeVariantData(draftPath, result, { author: opts.author, contentRoot: ref.contentRoot });
-    recordDraftBase(ref, { author: opts.author, store });
+    recordDraftBase(ref, { author: opts.author, store, stampCreated: false });
   }
   return {
     ok: true,

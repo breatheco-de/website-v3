@@ -1,7 +1,7 @@
 /**
  * `_draft` — reserved key inside a draft/variant file (`{variant}.{locale}.yml`).
  *
- * Holds where the draft came from (`based_on`), its translation source
+ * Holds when it was created (`created_at`), where it came from (`based_on`), its translation source
  * (`translated_from`) and its open proposal link (`proposal`). It travels with the
  * draft through the content repo, never reaches a published file, and is ignored by
  * fingerprints so metadata changes never count as a content edit.
@@ -47,6 +47,8 @@ export type DraftProposalLink = {
 };
 
 export type DraftMeta = {
+  /** When this variant was created (ISO). Written once; never reaches a published file. */
+  created_at?: string;
   based_on?: DraftBasedOn;
   translated_from?: DraftTranslatedFrom;
   proposal?: DraftProposalLink;
@@ -79,6 +81,10 @@ function normalizeMeta(raw: unknown): DraftMeta | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
   const out: DraftMeta = {};
+  if (typeof o.created_at === "string" && o.created_at) out.created_at = o.created_at;
+  else if (o.created_at instanceof Date && !Number.isNaN(o.created_at.getTime())) {
+    out.created_at = o.created_at.toISOString();
+  }
   if (o.based_on && typeof o.based_on === "object") {
     const b = o.based_on as Record<string, unknown>;
     out.based_on = {
