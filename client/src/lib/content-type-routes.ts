@@ -20,8 +20,7 @@ export type ContentTypeRouteInput = Pick<
 >;
 
 function routeKind(ct: ContentTypeRouteInput): ContentRouteKind {
-  // Pages use the same shell as landings/programs (ContentTypeDetail).
-  // "template" remains only for listing-prefix routes (see buildContentTypeRoutes).
+  if (ct.name === "page") return "template";
   if (ct.has_database || ct.single_template) return "database-single";
   return "content-type-detail";
 }
@@ -183,9 +182,7 @@ export function inferPublicPageChunk(
   contentTypes?: ContentTypeRouteInput[] | null,
 ): ContentRouteKind {
   const match = matchContentTypeRoute(pathname, buildContentTypeRoutes(contentTypes));
-  // Default to ContentTypeDetail shell (same as landings/pages); listing prefixes still
-  // report kind "template" but App also renders ContentTypeDetail for those.
-  return match?.kind ?? "content-type-detail";
+  return match?.kind ?? "template";
 }
 
 const SITEMAP_LOCALE_PREFIXES = new Set(["en", "es", "us"]);

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { IS_SERVER, shouldSuppressFullPageLoader, isSsrHydrateWindow } from "@/lib/initialData";
 import { useTranslation } from "react-i18next";
@@ -10,9 +11,9 @@ import { useSchemaOrg } from "@/hooks/useSchemaOrg";
 import { useContentAutoRefresh } from "@/hooks/useContentAutoRefresh";
 import { useAlternateUrls } from "@/hooks/useAlternateUrls";
 import { useScrollToLocationHashWhenReady } from "@/hooks/useScrollToLocationHashWhenReady";
+import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import LazyRender from "@/components/LazyRender";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
 import MenuSlotPlaceholder from "@/components/editing/MenuSlotPlaceholder";
 import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
 import { getApiPath } from "@shared/api-paths";
@@ -107,22 +108,13 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
 
   useScrollToLocationHashWhenReady(!!data && !isLoading);
 
-  const pageLayout = data?.layout as { menu?: { top?: string | null; bottom?: string | null } } | undefined;
   const {
     topMenuId,
     bottomMenuId,
     topMenuConfig,
+    isTopMenuLoading,
     sectionBackgroundOverlapsMenu,
-  } = useMenuConfig({
-    // Match App PublicShellHeader experiment (always main-navbar on top).
-    layout: {
-      menu: {
-        top: "main-navbar",
-        bottom: pageLayout?.menu?.bottom ?? null,
-      },
-    },
-    locale: effectiveLocale,
-  });
+  } = useMenuConfig({ layout: data?.layout as { menu?: { top?: string | null; bottom?: string | null } } | undefined, locale: effectiveLocale });
   const topChromeHeights = getMenuChromeHeights(topMenuConfig);
 
   const sectionsReady = useEagerSectionsReady(
@@ -142,7 +134,7 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
         className="min-h-screen flex items-center justify-center"
         data-testid={`loading-${type}`}
       >
-        <LoadingSpinner />
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -159,7 +151,7 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
           className="min-h-screen flex items-center justify-center"
           data-testid={`loading-${type}`}
         >
-          <LoadingSpinner />
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       );
     }
@@ -193,7 +185,7 @@ export default function ContentTypeDetail({ type, slug, locale, urlPattern }: Co
         }}
       >
         <div className="group relative">
-          {/* Experiment: Header lives in App PublicShellHeader (always main-navbar). */}
+          {topMenuId && <Header menuConfig={topMenuConfig} isLoading={isTopMenuLoading} />}
           <MenuSlotPlaceholder
             position="top"
             currentMenuId={topMenuId ?? null}

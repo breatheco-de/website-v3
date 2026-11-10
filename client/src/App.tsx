@@ -1,4 +1,4 @@
-import { Switch, Route, useLocation } from "wouter";
+import { Switch, Route } from "wouter";
 import { queryClient as defaultQueryClient } from "./lib/queryClient";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -10,26 +10,51 @@ import { DebugAuthProvider, useDebugAuth } from "@/hooks/useDebugAuth";
 import { ImagePickerProvider } from "@/contexts/ImagePickerContext";
 import { usePageTracking } from "@/hooks/usePageTracking";
 import { ThemeBackgroundVars } from "@/components/ThemeBackgroundVars";
-import Header from "@/components/Header";
 import type { ContentTypeApiItem } from "@/hooks/useContentTypes";
 import {
   buildContentTypeRoutes,
   REGIONAL_LOCALE_RE,
 } from "@/lib/content-type-routes";
 import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
-import {
-  loadContentTypeDetailChunk,
-  loadDatabaseSinglePageChunk,
-  loadPreviewFrameChunk,
-  loadPrivateRouterChunk,
-} from "@/lib/publicPageChunks";
 import "./i18n";
 
-/**
- * Client-only chrome: retry wrapper is fine (not on the hydrate critical path).
- * Do NOT use this for public page routes — .catch() creates a new thenable and
- * defeats preload (magenta Suspense flash).
- */
+// Track whether the Vite HMR WebSocket is currently connected.
+// When disconnected, lazy-import retries are paused until the connection
+// is restored (or a full-reload is imminent) rather than failing immediately.
+let _hmrConnected = true;
+
+function _waitForHmrReconnect(timeoutMs = 30_000): Promise<void> {
+  return new Promise((resolve) => {
+    if (_hmrConnected) { resolve(); return; }
+    let timer: ReturnType<typeof setTimeout>;
+    const onConnect = () => {
+      clearTimeout(timer);
+      window.removeEventListener("vite:ws:connect" as keyof WindowEventMap, onConnect);
+      resolve();
+    };
+    window.addEventListener("vite:ws:connect" as keyof WindowEventMap, onConnect);
+    // Timeout safety valve — resolve anyway so retries can proceed/fail naturally
+    timer = setTimeout(() => {
+      window.removeEventListener("vite:ws:connect" as keyof WindowEventMap, onConnect);
+      resolve();
+    }, timeoutMs);
+  });
+}
+
+if (typeof window !== "undefined") {
+  // Vite 5+ dispatches these events on the window when the HMR socket changes state
+  window.addEventListener("vite:ws:connect" as keyof WindowEventMap, () => {
+    _hmrConnected = true;
+  });
+  window.addEventListener("vite:ws:disconnect" as keyof WindowEventMap, () => {
+    _hmrConnected = false;
+  });
+  // A full-reload means the page is about to reload — no point retrying imports
+  window.addEventListener("vite:beforeFullReload" as keyof WindowEventMap, () => {
+    _hmrConnected = false;
+  });
+}
+
 function lazyWithRetry<T extends React.ComponentType<any>>(
   factory: () => Promise<{ default: T }>,
   retries = 3,
@@ -39,6 +64,12 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
     const attempt = (n: number): Promise<{ default: T }> =>
       factory().catch(async (err) => {
         if (n <= 0) throw err;
+        // If the HMR socket is disconnected, pause until it reconnects
+        // (avoids burning all retries while the server is restarting)
+        if (!_hmrConnected) {
+          await _waitForHmrReconnect();
+        }
+        // Back off on transient failures (edge 429 / aborted dynamic imports).
         const backoff = delay * (4 - n);
         await new Promise<void>((resolve) => setTimeout(resolve, backoff));
         return attempt(n - 1);
@@ -47,53 +78,12 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
   });
 }
 
-// Shared thenables with main.tsx preload (publicPageChunks) — do not wrap in
-// .catch or Suspense will blank #root. ContentTypeDetail stays lazy so lucide-
-// heavy page code stays out of the entry; PublicShellHeader owns the navbar.
-const ContentTypeDetail = lazy(() => loadContentTypeDetailChunk());
-const DatabaseSinglePage = lazy(() => loadDatabaseSinglePageChunk());
-const PreviewFrame = lazy(() => loadPreviewFrameChunk());
-const PrivateRouter = lazy(() => loadPrivateRouterChunk());
+const ContentTypeDetail = lazyWithRetry(() => import("@/pages/ContentTypeDetail"));
+const TemplatePage = lazyWithRetry(() => import("@/pages/page"));
+const DatabaseSinglePage = lazyWithRetry(() => import("@/pages/DatabaseSinglePage"));
 
-const PAGE_URL_PATTERN = { en: "/en/:slug", es: "/es/:slug", default: "/en/:slug" };
-
-/**
- * Experiment shell (Next `_app`-style): always main-navbar, outside the page tree
- * so hydrate can attach listeners without waiting on page body / layout.menu.top.
- * Skip private/preview; Header itself honors ?navbar=false.
- */
-function PublicShellHeader() {
-  const [location] = useLocation();
-  const path = location.split("?")[0];
-  if (path.startsWith("/private") || path.startsWith("/preview-frame")) {
-    return null;
-  }
-  return <Header menuId="main-navbar" />;
-}
-
-/** Trailing segment of a listing-prefix path ("/en/how-to" → "how-to"). */
-function listingPageSlug(routePath: string): string {
-  const parts = routePath.split("/").filter(Boolean);
-  const last = parts[parts.length - 1] || "";
-  return last.startsWith(":") ? "" : last;
-}
-
-/** Locale root aliases (/ /en/ /es/) — same shell as landings. */
-function HomePageRoute({ locale }: { locale: string }) {
-  const { data: homePageSettings } = useQuery<{ type: string; slug: string }>({
-    queryKey: ["/api/settings/home-page"],
-    staleTime: 60000,
-  });
-  return (
-    <ContentTypeDetail
-      type="page"
-      slug={homePageSettings?.slug ?? "home"}
-      locale={locale}
-      urlPattern={PAGE_URL_PATTERN}
-    />
-  );
-}
-
+const PreviewFrame = lazyWithRetry(() => import("@/pages/PreviewFrame"));
+const PrivateRouter = lazyWithRetry(() => import("@/pages/PrivateRouter"));
 // Admin/editor-only UI — deferred into separate chunks so regular visitors
 // never download them as part of the initial bundle. They are already
 // client-only (inside <ClientOnly>) so no SSR preload is needed.
@@ -184,57 +174,46 @@ function Router() {
   const { routes, isLoading } = useContentTypeRoutes();
 
   return (
-    <>
-      <PublicShellHeader />
-      <Suspense fallback={null}>
-        <Switch>
-          <Route path="/">{() => <HomePageRoute locale="en" />}</Route>
-          <Route path="/en/">{() => <HomePageRoute locale="en" />}</Route>
-          <Route path="/es/">{() => <HomePageRoute locale="es" />}</Route>
-          <Route path="/preview-frame" component={PreviewFrame} />
-          <Route path="/private/*" component={PrivateRouter} />
-          {routes.map((r) => {
-            const key = `${r.path}-${r.type}-${r.locale}-${r.isListingPrefix ? "listing" : r.kind}`;
-            return (
-              <Route key={key} path={r.path}>
-                {(params: { locale?: string; slug?: string }) => {
-                  if (r.regional && !REGIONAL_LOCALE_RE.test(params.locale || "")) {
-                    return <NotFound />;
-                  }
-                  if (r.kind === "database-single") {
-                    return <DatabaseSinglePage contentType={r.type} />;
-                  }
-                  // Listing prefixes are page YAML entries (e.g. /en/how-to) — same shell as landings.
-                  if (r.kind === "template" || r.isListingPrefix) {
-                    return (
-                      <ContentTypeDetail
-                        type="page"
-                        slug={params.slug || listingPageSlug(r.path)}
-                        locale={r.regional ? params.locale || "" : r.locale}
-                        urlPattern={PAGE_URL_PATTERN}
-                      />
-                    );
-                  }
-                  return (
-                    <ContentTypeDetail
-                      type={r.type}
-                      slug={params.slug || ""}
-                      locale={r.regional ? params.locale || "" : r.locale}
-                      urlPattern={r.urlPattern}
-                    />
-                  );
-                }}
-              </Route>
-            );
-          })}
-          {isLoading ? (
-            <Route>{() => <LoadingFallback />}</Route>
-          ) : (
-            <Route component={NotFound} />
-          )}
-        </Switch>
-      </Suspense>
-    </>
+    <Suspense fallback={null}>
+      <Switch>
+        <Route path="/" component={TemplatePage} />
+        <Route path="/en/" component={TemplatePage} />
+        <Route path="/es/" component={TemplatePage} />
+        <Route path="/preview-frame" component={PreviewFrame} />
+        <Route path="/private/*" component={PrivateRouter} />
+        {routes.map((r) => {
+          const key = `${r.path}-${r.type}-${r.locale}-${r.isListingPrefix ? "listing" : r.kind}`;
+          return (
+            <Route key={key} path={r.path}>
+              {(params: { locale?: string; slug?: string }) => {
+                if (r.regional && !REGIONAL_LOCALE_RE.test(params.locale || "")) {
+                  return <NotFound />;
+                }
+                if (r.kind === "template") {
+                  return <TemplatePage />;
+                }
+                if (r.kind === "database-single") {
+                  return <DatabaseSinglePage contentType={r.type} />;
+                }
+                return (
+                  <ContentTypeDetail
+                    type={r.type}
+                    slug={params.slug || ""}
+                    locale={r.regional ? params.locale || "" : r.locale}
+                    urlPattern={r.urlPattern}
+                  />
+                );
+              }}
+            </Route>
+          );
+        })}
+        {isLoading ? (
+          <Route>{() => <LoadingFallback />}</Route>
+        ) : (
+          <Route component={NotFound} />
+        )}
+      </Switch>
+    </Suspense>
   );
 }
 

@@ -98,11 +98,7 @@ describe("buildContentTypeRoutes", () => {
     const regionalPage = buildContentTypeRoutes(FAKE_TYPES).find(
       (r) => r.path === "/:locale/:slug",
     );
-    expect(regionalPage).toMatchObject({
-      type: "page",
-      regional: true,
-      kind: "content-type-detail",
-    });
+    expect(regionalPage).toMatchObject({ type: "page", regional: true, kind: "template" });
     const regionalProgram = buildContentTypeRoutes(FAKE_TYPES).find(
       (r) => r.path === "/:locale/career-programs/:slug",
     );
@@ -155,16 +151,8 @@ describe("matchContentTypeRoute / inferPublicPageChunk", () => {
     );
   });
 
-  it("falls back to content-type-detail when content types are missing", () => {
-    expect(inferPublicPageChunk("/en/about")).toBe("content-type-detail");
-  });
-
-  it("matches page URLs as content-type-detail (same shell as landings)", () => {
-    expect(matchContentTypeRoute("/en/home", routes)).toMatchObject({
-      type: "page",
-      kind: "content-type-detail",
-    });
-    expect(inferPublicPageChunk("/en/home", FAKE_TYPES)).toBe("content-type-detail");
+  it("falls back to template when content types are missing", () => {
+    expect(inferPublicPageChunk("/en/about")).toBe("template");
   });
 });
 

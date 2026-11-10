@@ -1,21 +1,12 @@
 /**
  * Shared public-route chunk preload for SSR (entry-server) and client hydrate (main.tsx).
- * Uses the same Promise instances as React.lazy() in App.tsx (see publicPageChunks.ts)
- * so <Suspense> does not blank #root after hydrateRoot.
+ * Keeps React.lazy() page modules in cache so <Suspense fallback={null}> does not blank #root.
  */
 import {
   inferPublicPageChunk,
   type ContentRouteKind,
   type ContentTypeRouteInput,
 } from "@/lib/content-type-routes";
-import {
-  loadContentTypeDetailChunk,
-  loadDatabaseSinglePageChunk,
-  loadPreviewFrameChunk,
-  loadPrivacyPageChunk,
-  loadPrivateRouterChunk,
-  loadTermsPageChunk,
-} from "@/lib/publicPageChunks";
 
 export type InitialDataLike =
   | {
@@ -53,19 +44,17 @@ export function pageChunkImportFromInitialData(
     if (!Array.isArray(queryKey) || queryKey.length === 0) continue;
     const key0 = queryKey[0];
     if (key0 === "/api/database-single") {
-      return loadDatabaseSinglePageChunk();
+      return import("@/pages/DatabaseSinglePage");
     }
     if (typeof key0 === "string" && key0.startsWith("/api/content-pages/")) {
       const type = key0.slice("/api/content-pages/".length);
       const ct = contentTypesFromInitialData(payload)?.find((t) => t.name === type);
       if (ct && (ct.has_database || ct.single_template)) {
-        return loadDatabaseSinglePageChunk();
+        return import("@/pages/DatabaseSinglePage");
       }
     }
-    // Pages (incl. home) hydrate through ContentTypeDetail — same shell as landings.
-    // Listing-prefix routes also render ContentTypeDetail type=page and seed /api/pages.
     if (key0 === "/api/pages" || key0 === "/api/blog/config") {
-      return loadContentTypeDetailChunk();
+      return import("@/pages/page");
     }
     if (
       typeof key0 === "string" &&
@@ -77,7 +66,7 @@ export function pageChunkImportFromInitialData(
       key0 !== "/api/settings/home-page" &&
       key0 !== "/api/blog/posts"
     ) {
-      return loadContentTypeDetailChunk();
+      return import("@/pages/ContentTypeDetail");
     }
   }
   return null;
@@ -86,9 +75,9 @@ export function pageChunkImportFromInitialData(
 export function importPublicPageChunk(
   kind: ContentRouteKind,
 ): Promise<unknown> {
-  if (kind === "database-single") return loadDatabaseSinglePageChunk();
-  // content-type-detail + listing "template" both hydrate via ContentTypeDetail.
-  return loadContentTypeDetailChunk();
+  if (kind === "database-single") return import("@/pages/DatabaseSinglePage");
+  if (kind === "content-type-detail") return import("@/pages/ContentTypeDetail");
+  return import("@/pages/page");
 }
 
 /**
@@ -103,16 +92,16 @@ export function resolvePublicPageChunkLoads(
   const path = rawPath.length > 1 ? rawPath.replace(/\/$/, "") : rawPath;
 
   if (path === "/private" || path.startsWith("/private/")) {
-    return [loadPrivateRouterChunk()];
+    return [import("@/pages/PrivateRouter")];
   }
   if (path === "/preview-frame") {
-    return [loadPreviewFrameChunk()];
+    return [import("@/pages/PreviewFrame")];
   }
   if (path === "/terms-conditions" || path === "/terminos-condiciones") {
-    return [loadTermsPageChunk()];
+    return [import("@/pages/TermsPage")];
   }
   if (path === "/privacy-policy" || path === "/politica-privacidad") {
-    return [loadPrivacyPageChunk()];
+    return [import("@/pages/PrivacyPage")];
   }
 
   const fromData = pageChunkImportFromInitialData(payload);

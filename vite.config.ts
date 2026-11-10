@@ -169,11 +169,17 @@ export default defineConfig(async () => ({
     target: isSsrBuild ? "node18" : ["chrome89", "safari15", "firefox89", "edge89"],
     chunkSizeWarningLimit: 600,
     minify: 'esbuild',
-    // Modulepreload the entry's full static graph so hydrate JS downloads in
-    // parallel with HTML (avoids dead SSR navbar while the entry discovers deps).
-    // CSS still wins first paint: serveStatic injects these tags after the
-    // stylesheet; applyEntryModulePreload does not demote them with fetchpriority=low.
-    modulePreload: true,
+    // Do not modulepreload every static dep of the entry. With SSR, CSS/LCP
+    // must win early bandwidth; hydration JS can discover its graph later.
+    // Keep only the bundler runtime — entry preload is injected at serve time
+    // (see applyEntryModulePreload). Drops framer/charts/carousel/etc. hints.
+    modulePreload: {
+      resolveDependencies: (_filename, deps) =>
+        deps.filter((dep) => {
+          const name = dep.split("/").pop() ?? dep;
+          return /^(rolldown-runtime|vite|modulepreload-polyfill)/.test(name);
+        }),
+    },
     // Vite 8: rollupOptions is deprecated in favour of rolldownOptions.
     // Rolldown (bundled with Vite 8) accepts the same manualChunks API.
     rolldownOptions: {

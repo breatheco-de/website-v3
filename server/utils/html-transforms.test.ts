@@ -5,14 +5,14 @@ import {
 } from "./html-transforms";
 
 describe("applyEntryModulePreload", () => {
-  it("keeps the entry static graph modulepreloads (incl. hydrate deps) without fetchpriority=low", () => {
+  it("keeps entry + runtime modulepreloads and drops framer/admin/heavy deps", () => {
     const html = `<!DOCTYPE html><html><head>
 <link rel="stylesheet" href="/assets/index-abc.css">
 <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-aaa.js">
 <link rel="modulepreload" crossorigin href="/assets/framer-bbb.js">
+<link rel="modulepreload" crossorigin href="/assets/charts-ccc.js">
 <link rel="modulepreload" crossorigin href="/assets/carousel-ddd.js">
 <link rel="modulepreload" crossorigin href="/assets/tanstack-eee.js">
-<link rel="modulepreload" crossorigin href="/assets/lucide-ggg.js">
 <link rel="modulepreload" crossorigin href="/assets/index-fff.js">
 <script type="module" crossorigin src="/assets/index-fff.js"></script>
 </head><body></body></html>`;
@@ -21,42 +21,32 @@ describe("applyEntryModulePreload", () => {
 
     expect(out).toContain('href="/assets/rolldown-runtime-aaa.js"');
     expect(out).toContain('href="/assets/index-fff.js"');
-    expect(out).toContain('href="/assets/framer-bbb.js"');
-    expect(out).toContain('href="/assets/carousel-ddd.js"');
-    expect(out).toContain('href="/assets/tanstack-eee.js"');
-    expect(out).toContain('href="/assets/lucide-ggg.js"');
-    expect(out).not.toContain('fetchpriority="low"');
+    expect(out).toContain('fetchpriority="low"');
+
+    expect(out).not.toContain("framer-bbb");
+    expect(out).not.toContain("charts-ccc");
+    expect(out).not.toContain("carousel-ddd");
+    expect(out).not.toContain("tanstack-eee");
 
     const preloadCount = (out.match(/rel="modulepreload"/g) ?? []).length;
-    expect(preloadCount).toBe(6);
+    expect(preloadCount).toBeLessThanOrEqual(3);
   });
 
-  it("adds a modulepreload for the entry script when missing", () => {
+  it("adds a low-priority modulepreload for the entry script when missing", () => {
     const html =
       `<script type="module" crossorigin src="/assets/index-xyz.js"></script>`;
     const out = applyEntryModulePreload(html);
     expect(out).toMatch(
-      /<link rel="modulepreload" crossorigin href="\/assets\/index-xyz\.js">/,
+      /<link rel="modulepreload" crossorigin href="\/assets\/index-xyz\.js" fetchpriority="low">/,
     );
-    expect(out).not.toContain('fetchpriority="low"');
-  });
-
-  it("dedupes repeated modulepreload hrefs", () => {
-    const html = `
-<link rel="modulepreload" crossorigin href="/assets/index-fff.js">
-<link rel="modulepreload" crossorigin href="/assets/index-fff.js" fetchpriority="low">
-<script type="module" crossorigin src="/assets/index-fff.js"></script>`;
-    const out = applyEntryModulePreload(html);
-    expect((out.match(/href="\/assets\/index-fff\.js"/g) ?? []).length).toBe(1);
   });
 });
 
 describe("__testShouldKeepModulePreload", () => {
-  it("keeps asset JS modulepreloads used by the entry graph", () => {
+  it("allowlists entry/runtime and denylists framer", () => {
     expect(__testShouldKeepModulePreload("/assets/index-abc.js")).toBe(true);
     expect(__testShouldKeepModulePreload("/assets/rolldown-runtime-x.js")).toBe(true);
-    expect(__testShouldKeepModulePreload("/assets/framer-x.js")).toBe(true);
-    expect(__testShouldKeepModulePreload("/assets/lucide-x.js")).toBe(true);
-    expect(__testShouldKeepModulePreload("/not-assets/foo.js")).toBe(false);
+    expect(__testShouldKeepModulePreload("/assets/framer-x.js")).toBe(false);
+    expect(__testShouldKeepModulePreload("/assets/lucide-x.js")).toBe(false);
   });
 });
