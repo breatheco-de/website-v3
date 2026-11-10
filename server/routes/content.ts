@@ -640,6 +640,8 @@ export function registerContentRoutes(app: Express): void {
       return;
     }
 
+    // Locations / layout still come from _common.yml; locale no longer does.
+    const commonData = landingCi.loadCommonData("landing", baseSlug);
     const landingLocations =
       (commonData?.locations as string[] | undefined) || undefined;
     const landingData = landing as unknown as Record<string, unknown>;
