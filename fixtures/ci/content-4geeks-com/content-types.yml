@@ -234,6 +234,8 @@ landing:
     menu:
       top: logo-only
       bottom: null
+  ads:
+    optimize: true
   unique_fields:
     - slug
   editor:

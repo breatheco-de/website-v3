@@ -30,6 +30,52 @@ export function pathnameFromSitemapLoc(loc: string): string | null {
   return pathname || "/";
 }
 
+/** Pages a content type was expected to render (status 200) and how many came back empty or threw. */
+export type RenderGateCounts = Record<string, { total: number; empty: number }>;
+
+export type RenderGateResult = {
+  failed: boolean;
+  failing: Array<{ type: string; total: number; empty: number; share: number }>;
+};
+
+export const RENDER_GATE_MIN_PAGES = 5;
+export const RENDER_GATE_MAX_EMPTY_SHARE = 0.1;
+
+/** Fail when a content type with enough pages has more than 10% empty renders. */
+export function evaluateRenderGate(
+  counts: RenderGateCounts,
+  opts: { minPages?: number; maxEmptyShare?: number } = {},
+): RenderGateResult {
+  const minPages = opts.minPages ?? RENDER_GATE_MIN_PAGES;
+  const maxShare = opts.maxEmptyShare ?? RENDER_GATE_MAX_EMPTY_SHARE;
+  const failing: RenderGateResult["failing"] = [];
+  for (const [type, { total, empty }] of Object.entries(counts)) {
+    if (total < minPages) continue;
+    const share = empty / total;
+    if (share > maxShare) failing.push({ type, total, empty, share });
+  }
+  return { failed: failing.length > 0, failing };
+}
+
+/** Deploy-log lines; deploy-vps.yml copies them into the Actions summary. */
+export function renderGateLogLines(
+  counts: RenderGateCounts,
+  result: RenderGateResult,
+  emptyPaths: string[],
+  overridden: boolean,
+): string[] {
+  const lines = Object.entries(counts)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([type, c]) => `RENDER_GATE type=${type} total=${c.total} empty=${c.empty}`);
+  for (const p of emptyPaths) lines.push(`RENDER_GATE_EMPTY path=${p}`);
+  const outcome = !result.failed ? "passed" : overridden ? "skipped_by_override" : "failed";
+  const failingText = result.failing
+    .map((f) => `${f.type} ${Math.round(f.share * 100)}% (${f.empty}/${f.total})`)
+    .join(", ");
+  lines.push(`RENDER_GATE result=${outcome}${failingText ? ` failing="${failingText}"` : ""}`);
+  return lines;
+}
+
 const isDirectRun =
   !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
@@ -53,6 +99,7 @@ async function runPrebuild(): Promise<void> {
   const { createPublicUrlResolver } = await import("../server/redirects");
   const { normalizePublicPath } = await import("../shared/public-app-routes");
   const { markdownPluginFlags } = await import("../server/markdown-enhance");
+  const { writeRenderGateState } = await import("../server/render-gate-state");
   const { child } = await import("../server/logger");
 
   const log = child({ module: "prebuild-html" });
@@ -72,6 +119,7 @@ async function runPrebuild(): Promise<void> {
       while (next < jobs.length) {
         const job = jobs[next];
         next += 1;
+        let gateNoted = false;
         try {
           const runtime = runtimes.get(job.siteId);
           if (!runtime) {
@@ -95,6 +143,10 @@ async function runPrebuild(): Promise<void> {
             variantKey: "live",
             writeCache: true,
           });
+          if (!rendered || rendered.status === 200) {
+            noteGate(job, !rendered);
+            gateNoted = true;
+          }
           if (!rendered || rendered.status !== 200) {
             skipped += 1;
             const reason = !rendered ? "empty body" : `status ${rendered.status}`;
@@ -123,6 +175,7 @@ async function runPrebuild(): Promise<void> {
           }
         } catch (err) {
           failed += 1;
+          if (!gateNoted) noteGate(job, true);
           log.warn({ err, pathname: job.pathname, siteId: job.siteId }, "prebuild page failed");
         }
       }
@@ -133,6 +186,19 @@ async function runPrebuild(): Promise<void> {
   const sites = requireSiteConfigs();
   const runtimes = new Map<string, ReturnType<typeof buildHtmlRebuildSite>>();
   const jobs: PageJob[] = [];
+
+  const gateCounts: RenderGateCounts = {};
+  const gateEmptyPaths: string[] = [];
+  function noteGate(job: PageJob, empty: boolean): void {
+    const type = job.contentType || "other";
+    const key = sites.length > 1 ? `${job.siteId}:${type}` : type;
+    const c = (gateCounts[key] ??= { total: 0, empty: 0 });
+    c.total += 1;
+    if (empty) {
+      c.empty += 1;
+      gateEmptyPaths.push(sites.length > 1 ? `${job.siteId}${job.pathname}` : job.pathname);
+    }
+  }
 
   let redirected = 0;
 
@@ -205,6 +271,28 @@ async function runPrebuild(): Promise<void> {
   );
   if (wrote === 0 && jobs.length > 0) {
     console.error("[prebuild-html] no page was stored");
+    process.exit(1);
+  }
+
+  const gate = evaluateRenderGate(gateCounts);
+  const overridden = process.env.SKIP_RENDER_GATE === "1";
+  for (const line of renderGateLogLines(gateCounts, gate, gateEmptyPaths.slice(0, 200), overridden)) {
+    console.log(line);
+  }
+  writeRenderGateState({
+    result: !gate.failed ? "passed" : overridden ? "skipped_by_override" : "failed",
+    deploy_sha: process.env.DEPLOY_SHA || null,
+    run_url: process.env.DEPLOY_RUN_URL || null,
+    checked_at: new Date().toISOString(),
+    counts: gateCounts,
+    failing: gate.failing,
+    empty_paths: gateEmptyPaths.slice(0, 50),
+  });
+  if (gate.failed && !overridden) {
+    console.error(
+      "[prebuild-html] page render check failed: too many pages of a content type rendered empty. " +
+        "The deploy stops before going live; the live site is unchanged.",
+    );
     process.exit(1);
   }
 }

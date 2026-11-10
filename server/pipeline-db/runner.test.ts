@@ -2185,6 +2185,45 @@ describe("pipeline-db runner", () => {
     rmSite(site);
   });
 
+  it("adds draft_activity when upgrading from v46", () => {
+    const site = `${TEST_PREFIX}-v46-draft-activity-${Date.now()}`;
+    rmSite(site);
+    fs.mkdirSync(siteDir(site), { recursive: true });
+    const raw = new Database(dbPath(site));
+    raw.exec(`
+      CREATE TABLE pipeline_schema_version (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        version INTEGER NOT NULL
+      );
+      INSERT INTO pipeline_schema_version (id, version) VALUES (1, 46);
+      CREATE TABLE draft_bases (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        content_type TEXT NOT NULL,
+        slug TEXT NOT NULL,
+        locale TEXT NOT NULL,
+        variant TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      INSERT INTO draft_bases (content_type, slug, locale, variant, created_at) VALUES ('page', 'a', 'en', 'draft', 1);
+    `);
+    raw.close();
+
+    ensurePipelineDb(site, { skipBackup: true });
+    expect(getPipelineSchemaVersion(site)).toBe(PIPELINE_SCHEMA_VERSION);
+    const db = new Database(dbPath(site));
+    db.prepare(
+      `INSERT INTO draft_activity (content_type, slug, locale, variant, content_hash, first_seen_at) VALUES ('page', 'a', 'en', 'draft', 'h1', 1)`,
+    ).run();
+    expect(db.prepare(`SELECT content_hash, first_seen_at, changed_at FROM draft_activity`).get()).toEqual({
+      content_hash: "h1",
+      first_seen_at: 1,
+      changed_at: null,
+    });
+    expect((db.prepare(`SELECT COUNT(*) AS n FROM draft_bases`).get() as { n: number }).n).toBe(1);
+    db.close();
+    rmSite(site);
+  });
+
   it("fails fast when migration cannot write", () => {
     const site = `${TEST_PREFIX}-readonly-${Date.now()}`;
     rmSite(site);

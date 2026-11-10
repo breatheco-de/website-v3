@@ -5,7 +5,7 @@ import * as yaml from "js-yaml";
 import type { Request, Response, NextFunction } from "express";
 import { contentIndex, ContentIndex } from "./content-index";
 import { resolveDynamicEntries } from "./dynamic-entries";
-import { resolveLayout, getAllConfigs, getContentTypeConfig, getLabel, getLayout, getPreviewConfig } from "./content-types";
+import { resolveLayout, getAdsOptimizedTypes, getAllConfigs, getContentTypeConfig, getLabel, getLayout, getPreviewConfig } from "./content-types";
 import {
   applyComponentSectionDefaults,
   applyComponentImageSizes,
@@ -834,10 +834,21 @@ export function urlBakesStoredPageQuery(url: string, ci: ContentIndex | undefine
   if (!resolved) return false;
   let locale = clean.startsWith("/es") ? "es" : "en";
   if (resolved.params?.locale) locale = resolved.params.locale;
-  else if (resolved.patternLocale && resolved.patternLocale !== "default") locale = resolved.patternLocale;
+  else if (resolved.patternLocale) locale = ci.servedLocale(resolved.contentType, resolved.slug, resolved.patternLocale);
   const { data } = ci.loadMergedContent(resolved.contentType, resolved.slug, locale);
   if (!data) return false;
   return requestBakesQueryParamTemplate(url, data, resolved.params ? Object.keys(resolved.params) : undefined);
+}
+
+function isAdsOptimizedUrl(cleanUrl: string, ci: ContentIndex, parsedType?: string): boolean {
+  try {
+    const types = getAdsOptimizedTypes(ci.contentRoot);
+    if (types.length === 0) return false;
+    const contentType = ci.resolveUrl(cleanUrl)?.contentType ?? parsedType;
+    return !!contentType && types.includes(contentType);
+  } catch {
+    return false;
+  }
 }
 
 export async function resolveInitialData(
@@ -865,14 +876,19 @@ export async function resolveInitialData(
   }
   queries.push(variablesQuery);
 
+  const adsLean = !!pageQuery && pageQuery.queryKey[0] !== "/api/database-single" && isAdsOptimizedUrl(cleanUrl, ci, parsedUrl?.contentType);
+
   // Seed main-navbar and main-footer unconditionally so the header and footer
   // are always present in the server-rendered HTML, even when pageQuery is null
   // (e.g. database-backed pages where the DB query failed or returned no result).
+  // Ads-optimized pages skip this: the layout loop below seeds only the menus they show.
   const defaultLocale = cleanUrl.startsWith("/es") ? "es" : "en";
-  const defaultNavbarQuery = resolveMenuQuery("main-navbar", defaultLocale, ci.contentRoot);
-  if (defaultNavbarQuery) queries.push(defaultNavbarQuery);
-  const defaultFooterQuery = resolveMenuQuery("main-footer", defaultLocale, ci.contentRoot);
-  if (defaultFooterQuery) queries.push(defaultFooterQuery);
+  if (!adsLean) {
+    const defaultNavbarQuery = resolveMenuQuery("main-navbar", defaultLocale, ci.contentRoot);
+    if (defaultNavbarQuery) queries.push(defaultNavbarQuery);
+    const defaultFooterQuery = resolveMenuQuery("main-footer", defaultLocale, ci.contentRoot);
+    if (defaultFooterQuery) queries.push(defaultFooterQuery);
+  }
 
   // If SSR resolved a canonical/base slug but the current URL uses a localized
   // alias slug, hydrate both keys to avoid first-render cache miss on client.
@@ -920,8 +936,9 @@ export async function resolveInitialData(
     // differ (e.g. /landing/foo with no /es prefix but es.yml). The header may
     // switch language after hydrate; the SSR subset must include both.
     const menuLocales = new Set<string>([locale, defaultLocale].filter(Boolean));
-    const topMenuId = layout?.menu?.top ?? "main-navbar";
-    const bottomMenuId = layout?.menu?.bottom ?? "main-footer";
+    // resolveLayout returns null for "no menu"; only a missing layout falls back to the defaults.
+    const topMenuId = layout?.menu ? layout.menu.top : "main-navbar";
+    const bottomMenuId = layout?.menu ? layout.menu.bottom : "main-footer";
     for (const menuLocale of menuLocales) {
       if (topMenuId) {
         const mq = resolveMenuQuery(topMenuId, menuLocale, ci.contentRoot);
@@ -981,7 +998,7 @@ export async function resolveInitialData(
     });
   }
 
-  const navigationManifest = readNavigationEagerManifest(ci.contentRoot);
+  const navigationManifest = adsLean ? null : readNavigationEagerManifest(ci.contentRoot);
   if (navigationManifest) {
     queries.push({
       queryKey: ["navigation-eager-manifest"],

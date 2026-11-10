@@ -1,12 +1,18 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { IconInfoCircle } from "@tabler/icons-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { IconClockExclamation, IconInfoCircle } from "@tabler/icons-react";
 import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useToast } from "@/hooks/use-toast";
 import { getDebugToken } from "@/hooks/useDebugAuth";
 import { apiFetch } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
+  DRAFT_CLEANUP_DELETE_DAYS,
+  DRAFT_CLEANUP_FLAG_DAYS,
+  DRAFT_CLEANUP_MIN_WARNING_DAYS,
+  DRAFT_CLEANUP_SAFE_DAYS,
   VARIANT_STALE_DAYS,
   formatVariantDay,
   relativeVariantDays,
@@ -102,20 +108,87 @@ export function VariantVerdictSummary({ info }: { info: VariantInfoResponse }) {
   );
 }
 
-function VariantInfoBody({ info }: { info: VariantInfoResponse }) {
+/** Scheduled deletion by the daily cleanup, with "Keep for now". */
+function CleanupNotice({ info, keepUrl, onKept }: { info: VariantInfoResponse; keepUrl: string | null; onKept?: () => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const cleanup = info.health.cleanup;
+  if (!cleanup) return null;
+  const since = formatVariantDay(info.health.last_activity_at);
+  const deletes = formatVariantDay(cleanup.deletes_at) ?? "soon";
+
+  const keep = async () => {
+    if (!keepUrl) return;
+    setBusy(true);
+    try {
+      const token = getDebugToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Token ${token}`;
+      const res = await fetch(keepUrl, { method: "POST", headers });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: data.error || "Could not keep this draft", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Draft kept", description: "It won't be deleted. The cleanup clock starts again today." });
+      await queryClient.invalidateQueries({ queryKey: ["/api/versioning/variant-info"] });
+      onKept?.();
+    } catch {
+      toast({ title: "Could not keep this draft", variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-2 space-y-1.5"
+      data-testid={`variant-cleanup-notice-${info.locale}-${info.slug}`}
+    >
+      <p className="text-xs text-foreground leading-snug">
+        {since ? `Not edited since ${since}. ` : ""}It will be deleted on {deletes} unless someone edits it.
+      </p>
+      {keepUrl && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          disabled={busy}
+          onClick={keep}
+          data-testid={`button-variant-keep-${info.locale}-${info.slug}`}
+        >
+          {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : "Keep for now"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function VariantInfoBody({
+  info,
+  keepUrl,
+  onKept,
+}: {
+  info: VariantInfoResponse;
+  keepUrl: string | null;
+  onKept?: () => void;
+}) {
   const now = Date.now();
   const { health, facts, details } = info;
-  const created = dateLine(
-    health.created_source === "based_on" ? "Created around" : "Created",
-    health.created_at,
-    now,
-  );
+  const created =
+    health.created_source === "first_seen"
+      ? health.created_at
+        ? `Date unknown; tracked since ${formatVariantDay(health.created_at)}`
+        : null
+      : dateLine(health.created_source === "based_on" ? "Created around" : "Created", health.created_at, now);
   const edited = dateLine("Last edited", health.updated_at, now);
   const behind = health.notes.find((n) => n.code === "behind_live");
   const otherNotes = health.notes.filter((n) => n.code !== "behind_live");
 
   return (
     <div className="space-y-2.5">
+      <CleanupNotice info={info} keepUrl={keepUrl} onKept={onKept} />
       <VariantVerdictSummary info={info} />
 
       <div className="space-y-0.5 text-xs text-muted-foreground">
@@ -192,39 +265,78 @@ function VariantInfoBody({ info }: { info: VariantInfoResponse }) {
             <code className="bg-muted px-1 rounded">_draft.based_on.at</code>) and the file's{" "}
             <code className="bg-muted px-1 rounded">updated_at</code>.
           </li>
+          <li>
+            Automatic cleanup (drafts not linked to a proposal, live server only): a draft identical to live is deleted
+            after {DRAFT_CLEANUP_SAFE_DAYS} days without edits. A draft with unpublished changes, or a language that
+            isn't live yet, is flagged after {DRAFT_CLEANUP_FLAG_DAYS} days and deleted at {DRAFT_CLEANUP_DELETE_DAYS},
+            never sooner than {DRAFT_CLEANUP_MIN_WARNING_DAYS} days after the flag. Any edit or Keep for now resets
+            the clock.
+          </li>
+          <li>
+            Never deleted automatically: versions with traffic, versions in a running test or one that ended in the
+            last {VARIANT_STALE_DAYS} days, the only draft of an unpublished page, and proposal drafts.
+          </li>
+          <li>
+            A deleted draft can be recovered by hand from this page folder's history in the content repo on GitHub.
+          </li>
         </ul>
       </details>
     </div>
   );
 }
 
-/** Info icon on a variant row: what this version is, how old, and whether it can be deleted. */
+/**
+ * Info icon on a variant row: what this version is, how old, and whether it can be deleted.
+ * A draft flagged by the daily cleanup shows a "Deletes {date}" badge instead.
+ */
 export function VariantInfoPopover({
   contentType,
   versioningSlug,
   locale,
   variantSlug,
+  cleanup,
+  onKept,
 }: {
   contentType: string | null | undefined;
   versioningSlug: string;
   locale: string;
   variantSlug: string;
+  cleanup?: { deletes_at: string } | null;
+  onKept?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const query = useVariantInfo({ contentType, versioningSlug, locale, variantSlug, enabled: open });
+  const keepUrl =
+    contentType && versioningSlug
+      ? `/api/versioning/${encodeURIComponent(contentType)}/${encodeURIComponent(versioningSlug)}/${encodeURIComponent(locale)}/${encodeURIComponent(variantSlug)}/keep`
+      : null;
+  const deletesDay = cleanup ? formatVariantDay(cleanup.deletes_at) : null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
-          aria-label={`About version ${variantSlug}`}
-          title="About this version"
-          data-testid={`button-variant-info-${locale}-${variantSlug}`}
-        >
-          <IconInfoCircle className="h-3.5 w-3.5" />
-        </button>
+        {deletesDay ? (
+          <button
+            type="button"
+            className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-destructive/40 bg-destructive/10 px-1.5 text-[10px] leading-4 text-destructive hover:bg-destructive/20"
+            aria-label={`Version ${variantSlug} will be deleted on ${deletesDay}`}
+            title="Scheduled for automatic deletion. Click for details."
+            data-testid={`badge-variant-cleanup-${locale}-${variantSlug}`}
+          >
+            <IconClockExclamation className="h-3 w-3" />
+            Deletes {deletesDay}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="inline-flex shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
+            aria-label={`About version ${variantSlug}`}
+            title="About this version"
+            data-testid={`button-variant-info-${locale}-${variantSlug}`}
+          >
+            <IconInfoCircle className="h-3.5 w-3.5" />
+          </button>
+        )}
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -241,7 +353,14 @@ export function VariantInfoPopover({
         ) : query.isError || !query.data ? (
           <p className="text-xs text-destructive">Couldn't load details for this version.</p>
         ) : (
-          <VariantInfoBody info={query.data} />
+          <VariantInfoBody
+            info={query.data}
+            keepUrl={keepUrl}
+            onKept={() => {
+              setOpen(false);
+              onKept?.();
+            }}
+          />
         )}
       </PopoverContent>
     </Popover>

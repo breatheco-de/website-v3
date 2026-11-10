@@ -70,6 +70,25 @@ export function injectPreloadTags(html: string, preloadTags: string): string {
 }
 
 /**
+ * Language, title, description, canonical and social tags for the client-only
+ * fallback (server render failed or was skipped). Never throws: the fallback must
+ * still be served when the page data is missing or odd.
+ */
+export function injectFallbackHead(
+  html: string,
+  payload: InitialDataPayload | null,
+  contentRoot: string | undefined,
+  url: string,
+): string {
+  if (!payload) return html;
+  try {
+    return injectSsrMetaTags(html, payload, contentRoot, url);
+  } catch {
+    return html;
+  }
+}
+
+/**
  * Build the SSR document from the index.html shell: #root body, image preloads,
  * meta tags, optional schema head fragment, and `__INITIAL_DATA__`.
  * Every injection inserts content literally — CMS copy may contain `$&`, `$1`, etc.

@@ -656,8 +656,7 @@ export function registerSeoRoutes(app: Express): void {
 
       let effectiveLocale = (req.query.locale as string) || "en";
       if (resolved && !req.query.locale && resolved.patternLocale) {
-        effectiveLocale =
-          resolved.patternLocale === "default" ? "en" : resolved.patternLocale;
+        effectiveLocale = getCI(res).servedLocale(resolved.contentType, resolved.slug, resolved.patternLocale);
       }
 
       let rawData: Record<string, unknown> | null = null;

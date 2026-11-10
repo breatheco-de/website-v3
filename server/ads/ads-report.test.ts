@@ -185,6 +185,10 @@ const fakeContentIndex = {
     const hit = Object.values(PAGES).find((p) => p.contentType === contentType && p.slug === slug);
     return hit ? { locale: hit.locale } : null;
   },
+  servedLocale: (contentType: string, slug: string, patternLocale?: string) => {
+    if (patternLocale && patternLocale !== "default") return patternLocale;
+    return Object.values(PAGES).find((p) => p.contentType === contentType && p.slug === slug)?.locale ?? "en";
+  },
   getLocaleUrls: (slug: string, contentType: string) => {
     const hit = Object.entries(PAGES).find(([, p]) => p.contentType === contentType && p.slug === slug);
     return hit ? { [hit[1].locale]: hit[0] } : {};

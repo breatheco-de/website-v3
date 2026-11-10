@@ -16,7 +16,7 @@ export { SeoIndexRefreshJob } from "./server/jobs/definitions/seo-index-refresh"
 export { EventWebhookDeliveryJob } from "./server/jobs/definitions/event-webhook-delivery";
 export { EntryDeleteCleanupJob } from "./server/jobs/definitions/entry-delete-cleanup";
 export { AiImageGcJob } from "./server/jobs/definitions/ai-image-gc";
-export { DraftLinkCheckJob, ProposalStaleSweepJob } from "./server/jobs/definitions/proposal-maintenance";
+export { DraftCleanupJob, DraftLinkCheckJob, ProposalStaleSweepJob } from "./server/jobs/definitions/proposal-maintenance";
 export { MetaAdsSyncJob } from "./server/jobs/definitions/meta-ads-sync";
 export { AdsSyncJob } from "./server/jobs/definitions/ads-sync";
 export { AdsRecheckJob } from "./server/jobs/definitions/ads-recheck";

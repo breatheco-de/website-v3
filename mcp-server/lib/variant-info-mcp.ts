@@ -8,6 +8,7 @@ import {
   NON_OVERRIDABLE_VARIANT_REASONS,
   overridableVariantReasons,
   type VariantAgeState,
+  type VariantCleanupState,
   type VariantHealth,
   type VariantReason,
   type VariantVerdict,
@@ -15,7 +16,9 @@ import {
 
 /** Subset of the server VariantInfo payload MCP reads. */
 export type VariantInfoPayload = {
-  health: Pick<VariantHealth, "verdict" | "age_state" | "created_at" | "updated_at" | "reasons" | "notes">;
+  health: Pick<VariantHealth, "verdict" | "age_state" | "created_at" | "updated_at" | "reasons" | "notes"> & {
+    cleanup?: VariantCleanupState | null;
+  };
   facts: { changes_vs_live: number | null; behind_live: boolean };
   siblings?: Array<{ locale: string; updated_at: string | null; verdict: VariantVerdict }>;
 };
@@ -29,6 +32,8 @@ export type VariantRowFields = {
   behind_live: boolean;
   changes_vs_live: number | null;
   sibling_locales: Array<{ locale: string; updated_at: string | null; verdict: VariantVerdict }>;
+  /** Scheduled for deletion by the daily abandoned-draft cleanup; null when not flagged. */
+  cleanup: VariantCleanupState | null;
 };
 
 export function variantRowFields(info: VariantInfoPayload | null | undefined): VariantRowFields | null {
@@ -42,6 +47,24 @@ export function variantRowFields(info: VariantInfoPayload | null | undefined): V
     behind_live: info.facts?.behind_live === true,
     changes_vs_live: info.facts?.changes_vs_live ?? null,
     sibling_locales: info.siblings ?? [],
+    cleanup: info.health.cleanup ?? null,
+  };
+}
+
+/** list_variants warning for drafts the daily cleanup will delete (null when none are flagged). */
+export function scheduledCleanupWarning(
+  rows: Array<{ slug: string; locale: string; cleanup?: VariantCleanupState | null }>,
+): { code: "draft_scheduled_for_cleanup"; message: string; drafts: Array<{ slug: string; locale: string; deletes_at: string; tier: string }> } | null {
+  const flagged = rows.filter((r) => r.cleanup);
+  if (!flagged.length) return null;
+  return {
+    code: "draft_scheduled_for_cleanup",
+    message:
+      `${flagged.map((r) => `${r.slug}.${r.locale} (deletes_at ${r.cleanup!.deletes_at})`).join(", ")}: ` +
+      "the daily abandoned-draft cleanup will delete these. Any content edit resets the clock (staff can also press Keep for now in the Versions panel). " +
+      "Only drafts not linked to a proposal are cleaned this way; proposal drafts follow the proposal sweeps. " +
+      "A deleted draft is recovered by hand from the content repo history on GitHub.",
+    drafts: flagged.map((r) => ({ slug: r.slug, locale: r.locale, deletes_at: r.cleanup!.deletes_at, tier: r.cleanup!.tier })),
   };
 }
 

@@ -9,7 +9,7 @@ import {
 } from "../events/types";
 import { sameAgentIdentity, type AgentActorLike } from "../../shared/agent-identity";
 
-export const PIPELINE_SCHEMA_VERSION = 46;
+export const PIPELINE_SCHEMA_VERSION = 47;
 
 export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
   {
@@ -930,6 +930,25 @@ export const PIPELINE_MIGRATIONS: PipelineMigration[] = [
           entry_key TEXT,
           cause_event_id INTEGER,
           queued_at INTEGER NOT NULL
+        );
+      `);
+    },
+  },
+  {
+    version: 47,
+    name: "draft_activity",
+    up(db) {
+      // Live server only: daily draft cleanup records when it first saw each draft and its last content change.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS draft_activity (
+          content_type TEXT NOT NULL,
+          slug TEXT NOT NULL,
+          locale TEXT NOT NULL,
+          variant TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          first_seen_at INTEGER NOT NULL,
+          changed_at INTEGER,
+          PRIMARY KEY (content_type, slug, locale, variant)
         );
       `);
     },

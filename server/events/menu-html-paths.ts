@@ -26,6 +26,7 @@ export type MenuPathIndex = {
   getContentTypeConfig(type: string): { directory?: string } | undefined;
   normalizeType?(type: string): string;
   getAllMenuUsage(): Map<string, MenuUsageRef[]>;
+  servedLocale?(contentType: string, slug: string, patternLocale?: string): string;
 };
 
 function normalize(ci: MenuPathIndex, type: string): string {
@@ -38,6 +39,9 @@ function pageLocale(
   resolved: ReturnType<MenuPathIndex["resolveUrl"]>,
 ): string {
   if (resolved?.patternLocale && resolved.patternLocale !== "default") return resolved.patternLocale;
+  if (resolved?.patternLocale === "default" && ci.servedLocale) {
+    return ci.servedLocale(resolved.contentType, resolved.slug, resolved.patternLocale);
+  }
   if (pathname === "/es" || pathname.startsWith("/es/")) return "es";
   const match = pathname.match(/^\/([a-z]{2})(\/|$)/);
   if (match && match[1] !== "en" && match[1] !== "us") return match[1]!;

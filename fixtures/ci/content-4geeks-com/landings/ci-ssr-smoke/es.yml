@@ -1,0 +1,22 @@
+title: "CI: prueba de renderizado"
+meta:
+  page_title: "Prueba de renderizado del servidor"
+  description: "Página de prueba de CI para landings optimizadas para anuncios."
+  robots: noindex, nofollow
+sections:
+  - type: numbered_steps
+    version: "1.0"
+    section_id: numbered_steps-ci
+    title: ¿Qué pasa cuando dejas tus datos?
+    description: Esto es lo que puedes esperar una vez que completes el formulario.
+    steps:
+      - icon: book-check
+        text: Recibes el temario completo al instante.
+      - icon: phone-call
+        text: Un asesor te llamará en un plazo de 24 horas.
+      - icon: user
+        text: Tú decides si es lo correcto para ti.
+  - type: footer
+    version: "1.0"
+    section_id: footer-ci
+    copyright_text: 2026 4Geeks. Todos los derechos reservados.

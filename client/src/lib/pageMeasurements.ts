@@ -29,6 +29,8 @@ export interface MeasurementFinding {
     | "heading_order"
     | "multiple_h1"
     | "empty_section"
+    | "section_not_loaded"
+    | "section_unknown_type"
     | "broken_image"
     | "tight_gap";
   severity: "error" | "warning";
@@ -54,6 +56,22 @@ function px(v: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * True when an ancestor between `child` and its section wrapper clips horizontal
+ * overflow and itself ends inside the viewport — a carousel track, not page scroll.
+ */
+function clippedWithinViewport(child: HTMLElement, wrapper: HTMLElement, vw: number): boolean {
+  let node = child.parentElement;
+  while (node) {
+    const cs = getComputedStyle(node);
+    const clips = /hidden|clip/.test(cs.overflowX || "") || /hidden|clip/.test(cs.overflow || "");
+    if (clips && node.getBoundingClientRect().right <= vw + 1) return true;
+    if (node === wrapper) return false;
+    node = node.parentElement;
+  }
+  return false;
+}
+
 function backgroundOf(el: HTMLElement): string {
   const cs = getComputedStyle(el);
   if (cs.backgroundImage && cs.backgroundImage !== "none") return cs.backgroundImage;
@@ -62,7 +80,14 @@ function backgroundOf(el: HTMLElement): string {
   return c;
 }
 
-export function measurePage(root: ParentNode = document): PageMeasurements {
+export interface MeasureOptions {
+  /** Section indexes whose code did not load in time (timed out or failed to download). */
+  notLoaded?: ReadonlySet<number>;
+  /** Section indexes whose type has no component at all. */
+  unknownTypes?: ReadonlySet<number>;
+}
+
+export function measurePage(root: ParentNode = document, opts: MeasureOptions = {}): PageMeasurements {
   const vw = window.innerWidth;
   const wrappers = Array.from(root.querySelectorAll<HTMLElement>(".section-wrapper[data-section-index]"));
   const sections: MeasuredSection[] = [];
@@ -90,7 +115,23 @@ export function measurePage(root: ParentNode = document): PageMeasurements {
     };
     sections.push(m);
 
-    if (m.height < EMPTY_SECTION_PX && el.offsetParent !== null) {
+    if (opts.unknownTypes?.has(index)) {
+      findings.push({
+        code: "section_unknown_type",
+        severity: "error",
+        section_path: m.path,
+        message: `No component for section type "${m.type}"; check the type name.`,
+        evidence: { type: m.type },
+      });
+    } else if (opts.notLoaded?.has(index)) {
+      findings.push({
+        code: "section_not_loaded",
+        severity: "warning",
+        section_path: m.path,
+        message: `${m.type} code did not load during the review; re-run the review.`,
+        evidence: { height: m.height },
+      });
+    } else if (m.height < EMPTY_SECTION_PX && el.offsetParent !== null) {
       findings.push({
         code: "empty_section",
         severity: "warning",
@@ -103,7 +144,9 @@ export function measurePage(root: ParentNode = document): PageMeasurements {
     let overflowRight = 0;
     el.querySelectorAll<HTMLElement>("*").forEach((child) => {
       const r = child.getBoundingClientRect();
-      if (r.width > 0 && r.right > vw + 1) overflowRight = Math.max(overflowRight, Math.round(r.right - vw));
+      if (r.width > 0 && r.right > vw + 1 && !clippedWithinViewport(child, el, vw)) {
+        overflowRight = Math.max(overflowRight, Math.round(r.right - vw));
+      }
     });
     if (overflowRight > 0) {
       findings.push({
@@ -192,8 +235,9 @@ export function measurePage(root: ParentNode = document): PageMeasurements {
     lastLevel = level;
   }
 
+  // Always reported: this is the finding that means the page itself scrolls sideways.
   const scrollWidth = document.documentElement.scrollWidth;
-  if (scrollWidth > vw + 1 && !findings.some((f) => f.code === "horizontal_overflow")) {
+  if (scrollWidth > vw + 1) {
     findings.push({
       code: "horizontal_overflow",
       severity: "error",

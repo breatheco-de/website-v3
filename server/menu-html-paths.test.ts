@@ -38,4 +38,14 @@ describe("pathsUsingMenu", () => {
   it("includes only the entry that picked a custom menu", () => {
     expect(pathsUsingMenu(index(), stored, "promo-nav")).toEqual(["/en/landing/promo"]);
   });
+
+  it("uses the entry's own language for a single-address page", () => {
+    const ci = index({
+      resolveUrl: (url: string) =>
+        url === "/landing/master-ia" ? { contentType: "blog", slug: "master-ia", patternLocale: "default" } : null,
+      servedLocale: (_type, slug) => (slug === "master-ia" ? "es" : "en"),
+    });
+    expect(pathsUsingMenu(ci, ["/landing/master-ia"], "main-navbar", "es")).toEqual(["/landing/master-ia"]);
+    expect(pathsUsingMenu(ci, ["/landing/master-ia"], "main-navbar", "en")).toEqual([]);
+  });
 });

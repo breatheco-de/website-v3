@@ -4,6 +4,7 @@ import { Moon, RefreshCw, Sun } from "lucide-react";
 import { SectionRenderer } from "@/components/SectionRenderer";
 import { getDebugToken } from "@/hooks/useDebugAuth";
 import { measurePage, type PageMeasurements } from "@/lib/pageMeasurements";
+import { loadPreviewSectionCode } from "@/lib/loadPreviewSectionCode";
 import type { PageSettings, Section } from "@shared/schema";
 
 interface PagePreviewPayload {
@@ -100,14 +101,19 @@ export default function PagePreviewPage() {
     if (!data || !rootRef.current) return;
     let cancelled = false;
     const root = rootRef.current;
-    void waitForImages(root).then(() => {
+    void (async () => {
+      const code = await loadPreviewSectionCode(data.sections);
+      if (cancelled) return;
+      // Let React commit the sections whose code just arrived before collecting their images.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitForImages(root);
       setTimeout(() => {
         if (cancelled) return;
-        const m = measurePage(root);
+        const m = measurePage(root, code);
         (window as unknown as { __PAGE_MEASUREMENTS__?: PageMeasurements }).__PAGE_MEASUREMENTS__ = m;
         setMeasurements(m);
       }, 300);
-    });
+    })();
     return () => {
       cancelled = true;
     };

@@ -346,6 +346,22 @@ async function proposalsByVariantFor(opts: {
   return out;
 }
 
+/** `{locale: {variant: flag}}` for drafts the daily cleanup scheduled for deletion (`_draft.cleanup`). */
+async function cleanupByVariantFor(
+  versioning: Record<string, { variants?: Array<{ slug: string }> }>,
+  variantPath: (variant: string, locale: string) => string,
+): Promise<Record<string, Record<string, { flagged_at: string; deletes_at: string }>>> {
+  const { readDraftMeta } = await import("../versioning/draft-meta");
+  const out: Record<string, Record<string, { flagged_at: string; deletes_at: string }>> = {};
+  for (const [locale, block] of Object.entries(versioning)) {
+    for (const v of block?.variants ?? []) {
+      const cleanup = readDraftMeta(variantPath(v.slug, locale))?.cleanup;
+      if (cleanup) (out[locale] ??= {})[v.slug] = cleanup;
+    }
+  }
+  return out;
+}
+
 /** Context for variant-info (age, proposal, tests, verdict) on one page. */
 async function variantInfoContextFor(opts: {
   res: Response;
@@ -355,27 +371,16 @@ async function variantInfoContextFor(opts: {
   versioningManager: any;
   locales: string[];
 }): Promise<import("../versioning/variant-info").VariantInfoContext> {
-  let openProposals: import("../versioning/variant-info").OpenProposalRow[] | null = null;
-  let proposalEnv = "production";
-  try {
-    const mod = await import("../content-proposals");
-    proposalEnv = mod.DRAFT_LINK_ENV;
-    openProposals = isTemplateVersioningSlug(opts.slug)
-      ? []
-      : mod.listOpenProposalsForEntry(getContentRootName(opts.res), opts.contentType, opts.slug);
-  } catch {
-    openProposals = null;
-  }
-  return {
+  const { buildVariantInfoContext } = await import("../versioning/variant-info");
+  return buildVariantInfoContext({
     contentType: opts.contentType,
     slug: opts.slug,
     contentRoot: getContentRoot(opts.res),
+    contentRootName: getContentRootName(opts.res),
     versioning: opts.versioning,
     vm: opts.versioningManager,
-    openProposals,
-    proposalEnv,
     locales: opts.locales,
-  };
+  });
 }
 
 function wantsVariantInfo(req: Request): boolean {
@@ -589,6 +594,11 @@ export function registerVersioningRoutes(app: Express): void {
             variantPath: (variant, locale) =>
               versioningManager.getVariantFilePath(contentType, resolvedSlug, variant, locale),
           }),
+      cleanupByVariant: templateMode
+        ? {}
+        : await cleanupByVariantFor(versioning, (variant, locale) =>
+            versioningManager.getVariantFilePath(contentType, resolvedSlug, variant, locale),
+          ),
     });
   });
 
@@ -1713,6 +1723,70 @@ export function registerVersioningRoutes(app: Express): void {
         payload: { variant: variantSlug, proposal_id: link.id, env: link.env, reason },
       });
       res.json({ success: true, unlinked: true, proposal_id: link.id, env: link.env });
+    },
+  );
+
+  // Keep for now (staff only): restarts the abandoned-draft cleanup clock; draft content unchanged.
+  api.post(
+    app,
+    "/api/versioning/:contentType/:contentSlug/:locale/:variantSlug/keep",
+    { rate: "staffWrite" },
+    async (req, res) => {
+      const { contentType, contentSlug, locale, variantSlug } = req.params;
+      if (!isValidType(contentType)) {
+        res.status(400).json({ error: "Invalid content type", validTypes: getAllFolders() });
+        return;
+      }
+      const auth = await requireCapability(req, res, "content_delete_variant", contentType);
+      if (!auth.authorized) return;
+      if (isSwarmCaller(req)) {
+        res.status(403).json({ code: "staff_only", error: "Only staff can keep a draft from cleanup." });
+        return;
+      }
+      if (!/^[a-z0-9-]+$/.test(variantSlug) || !/^[a-z]{2}(-[A-Z]{2})?$/.test(locale)) {
+        res.status(400).json({ error: "Invalid variant or locale" });
+        return;
+      }
+      const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
+      if (!resolved.ok) {
+        res.status(resolved.status).json({ error: resolved.error });
+        return;
+      }
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+      const variantFilePath = path.resolve(
+        versioningManager.getVariantFilePath(contentType, resolved.slug, variantSlug, locale),
+      );
+      if (!fs.existsSync(variantFilePath)) {
+        res.status(404).json({ error: "Draft file not found" });
+        return;
+      }
+      const { readDraftMeta, writeDraftMeta } = await import("../versioning/draft-meta");
+      const meta = readDraftMeta(variantFilePath);
+      if (meta?.proposal) {
+        res.status(400).json({
+          code: "proposal_draft",
+          error: "This draft belongs to a proposal; the proposal decides when it is removed.",
+        });
+        return;
+      }
+      const keptAt = new Date().toISOString();
+      writeDraftMeta(
+        variantFilePath,
+        { kept_at: keptAt, cleanup: null },
+        { author: auth.author || "api", contentRoot: getContentRoot(res) },
+      );
+      if (meta?.cleanup) {
+        const { emitEvent } = await import("../events/event-store");
+        const { singleAttribution } = await import("../events/types");
+        emitEvent({
+          site: getContentRootName(res),
+          type: "draft_cleanup_flag_cleared",
+          resource: { contentType, slug: resolved.slug, locale },
+          attribution: singleAttribution(auth.author || "api", { type: "ui" }),
+          payload: { variant: variantSlug, cause: "kept", deletes_at: meta.cleanup.deletes_at },
+        });
+      }
+      res.json({ success: true, kept_at: keptAt });
     },
   );
 

@@ -35,6 +35,22 @@ export const RENDER_REVIEW_ISSUE_CODES: Record<string, IssueCodeDefinition> = {
     suggestion: "Fill the required content for this variant or remove the section.",
     next_actions: [reReview],
   },
+  RENDER_SECTION_NOT_LOADED: {
+    title: "Section Code Did Not Load",
+    summary:
+      "The section's code did not finish downloading during the review, so it could not be measured. Usually a slow or failed download, not missing content.",
+    suggestion: "Re-run the review before editing the section.",
+    next_actions: [{ tool: "review_page_render", reason: "Re-run the review; the section is usually fine", priority: "recommended" }],
+  },
+  RENDER_SECTION_UNKNOWN_TYPE: {
+    title: "Unknown Section Type",
+    summary: "No component exists for this section's type, so it renders nothing on the live page.",
+    suggestion: "Fix the section `type` in the content (re-running the review will not help).",
+    next_actions: [
+      { tool: "list_components", reason: "Find the correct section type name", priority: "recommended" },
+      { tool: "get_component_schema", reason: "Check the fields for the corrected type", priority: "optional" },
+    ],
+  },
   RENDER_BROKEN_IMAGE: {
     title: "Image Failed To Load",
     next_actions: [reReview],

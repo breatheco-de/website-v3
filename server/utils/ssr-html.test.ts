@@ -5,6 +5,7 @@ import type { InitialDataPayload } from "../initial-data-middleware";
 import {
   assembleSsrDocument,
   contentTypesReadyForHtmlCache,
+  injectFallbackHead,
   isMeaningfulSsrAppHtml,
 } from "./ssr-html";
 
@@ -134,6 +135,40 @@ describe("HTML cache refuses a page built before content types exist", () => {
         queries: [{ queryKey: ["/api/content-types"], data: [{ name: "page" }] }],
       }),
     ).toBe(true);
+  });
+});
+
+describe("injectFallbackHead — client-only fallback after a failed render", () => {
+  const spanishLanding: InitialDataPayload = {
+    locale: "es",
+    queries: [
+      {
+        queryKey: ["/api/content-pages/landing", "master-ia", "auto"],
+        data: {
+          locale: "es",
+          slug: "master-ia",
+          meta: { page_title: "Máster en IA", description: "Aprende IA en España" },
+        },
+      },
+    ],
+  };
+
+  it("sets the page's language, title, description and og:locale", () => {
+    const html = injectFallbackHead(TEMPLATE, spanishLanding, undefined, "/landing/master-ia");
+    expect(html).toMatch(/<html[^>]*lang="es"/);
+    expect(html).toContain('property="og:locale" content="es_ES"');
+    expect(html).toContain("<title>Máster en IA</title>");
+    expect(html).toContain('content="Aprende IA en España"');
+    expect(html).toContain('<div id="root"></div>');
+  });
+
+  it("returns the shell unchanged without page data", () => {
+    expect(injectFallbackHead(TEMPLATE, null, undefined, "/landing/unknown")).toBe(TEMPLATE);
+  });
+
+  it("never throws on malformed page data", () => {
+    const broken = { queries: null } as unknown as InitialDataPayload;
+    expect(() => injectFallbackHead(TEMPLATE, broken, undefined, "/landing/x")).not.toThrow();
   });
 });
 

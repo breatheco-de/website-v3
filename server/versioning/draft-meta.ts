@@ -46,12 +46,21 @@ export type DraftProposalLink = {
   unverified_since?: string;
 };
 
+export type DraftCleanupFlag = {
+  flagged_at: string;
+  deletes_at: string;
+};
+
 export type DraftMeta = {
   /** When this variant was created (ISO). Written once; never reaches a published file. */
   created_at?: string;
   based_on?: DraftBasedOn;
   translated_from?: DraftTranslatedFrom;
   proposal?: DraftProposalLink;
+  /** Staff pressed "Keep for now": restarts the abandoned-draft cleanup clock. */
+  kept_at?: string;
+  /** Set by the daily cleanup when the draft will be deleted unless someone edits or keeps it. */
+  cleanup?: DraftCleanupFlag;
 };
 
 /** `null` deletes that key from `_draft`; `undefined` leaves it alone. */
@@ -77,14 +86,19 @@ export function safeDumpYaml(data: unknown): string {
 
 const parseYaml = safeLoadYaml;
 
+/** YAML may load unquoted timestamps as Date. */
+function isoOf(v: unknown): string | null {
+  if (typeof v === "string" && v) return v;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v.toISOString();
+  return null;
+}
+
 function normalizeMeta(raw: unknown): DraftMeta | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
   const out: DraftMeta = {};
-  if (typeof o.created_at === "string" && o.created_at) out.created_at = o.created_at;
-  else if (o.created_at instanceof Date && !Number.isNaN(o.created_at.getTime())) {
-    out.created_at = o.created_at.toISOString();
-  }
+  const createdAt = isoOf(o.created_at);
+  if (createdAt) out.created_at = createdAt;
   if (o.based_on && typeof o.based_on === "object") {
     const b = o.based_on as Record<string, unknown>;
     out.based_on = {
@@ -117,6 +131,14 @@ function normalizeMeta(raw: unknown): DraftMeta | null {
         ...(typeof p.unverified_since === "string" ? { unverified_since: p.unverified_since } : {}),
       };
     }
+  }
+  const keptAt = isoOf(o.kept_at);
+  if (keptAt) out.kept_at = keptAt;
+  if (o.cleanup && typeof o.cleanup === "object") {
+    const c = o.cleanup as Record<string, unknown>;
+    const flaggedAt = isoOf(c.flagged_at);
+    const deletesAt = isoOf(c.deletes_at);
+    if (flaggedAt && deletesAt) out.cleanup = { flagged_at: flaggedAt, deletes_at: deletesAt };
   }
   return Object.keys(out).length ? out : null;
 }

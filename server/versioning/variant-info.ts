@@ -22,10 +22,15 @@ import { RESERVED_UPDATED_AT_FIELD, UPDATED_AT_ALIAS_FIELD } from "../content-ty
 import { countVariantFiles, hasAnyLiveLocale } from "../draft-entry";
 import { isLiveServer } from "../live-server";
 import { authorDiff, computeDraftDrift, draftPathOf, livePathOf, type DraftRef } from "./draft-base";
+import { getDraftActivity } from "./draft-activity";
 import { readDraftMeta, readVariantData, type DraftBasedOn } from "./draft-meta";
 import type { TestRun } from "./test-runs";
 
 const DAY_MS = 86_400_000;
+
+function isoOrNull(ms: number | null | undefined): string | null {
+  return typeof ms === "number" && Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+}
 
 type LocaleConfig = { variants?: Array<{ slug: string; allocation?: number }>; started_at?: string };
 
@@ -91,6 +96,39 @@ export interface VariantInfo {
     live_changed_fields?: string[];
     based_on: DraftBasedOn | null;
     stale_days: number;
+  };
+}
+
+/** Context for one page: open proposals from the local proposals DB plus the page's versioning. */
+export async function buildVariantInfoContext(opts: {
+  contentType: string;
+  slug: string;
+  contentRoot: string;
+  contentRootName: string;
+  versioning: Record<string, LocaleConfig> | null;
+  vm: VariantInfoVersioning;
+  locales: string[];
+}): Promise<VariantInfoContext> {
+  let openProposals: OpenProposalRow[] | null = null;
+  let proposalEnv = "production";
+  try {
+    const mod = await import("../content-proposals");
+    proposalEnv = mod.DRAFT_LINK_ENV;
+    openProposals = isTemplateVersioningSlug(opts.slug)
+      ? []
+      : mod.listOpenProposalsForEntry(opts.contentRootName, opts.contentType, opts.slug);
+  } catch {
+    openProposals = null;
+  }
+  return {
+    contentType: opts.contentType,
+    slug: opts.slug,
+    contentRoot: opts.contentRoot,
+    versioning: opts.versioning,
+    vm: opts.vm,
+    openProposals,
+    proposalEnv,
+    locales: opts.locales,
   };
 }
 
@@ -185,6 +223,7 @@ export function getVariantInfo(
   const meta = readDraftMeta(filePath);
   const data = readVariantData(filePath);
   const hasLive = fs.existsSync(livePathOf(ref));
+  const activity = templateMode ? null : getDraftActivity(ref);
 
   let changedFields: string[] = [];
   if (hasLive) {
@@ -223,6 +262,10 @@ export function getVariantInfo(
     behind_since: drift.since ?? null,
     is_last_draft_of_unpublished: isLastDraftOfUnpublished,
     translated_from: meta?.translated_from?.locale ?? null,
+    kept_at: meta?.kept_at ?? null,
+    content_changed_at: isoOrNull(activity?.changed_at),
+    first_seen_at: isoOrNull(activity?.first_seen_at),
+    cleanup: meta?.cleanup ?? null,
   };
   const health = variantVerdict(facts, now);
 

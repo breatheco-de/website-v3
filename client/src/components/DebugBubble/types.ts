@@ -84,6 +84,8 @@ export interface VersioningResponse {
   publishedAt?: string | null;
   /** `{locale: {variant: badge}}` for drafts linked to a proposal. */
   proposalsByVariant?: Record<string, Record<string, VariantProposalLink>>;
+  /** `{locale: {variant: flag}}` for drafts the daily cleanup will delete unless edited or kept. */
+  cleanupByVariant?: Record<string, Record<string, { flagged_at: string; deletes_at: string }>>;
   /** Variant files on disk that versioning.yml does not list (no traffic, not manageable yet). */
   unregisteredVariants?: Array<{ locale: string; slug: string; fileName: string }>;
 }

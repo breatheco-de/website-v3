@@ -1985,13 +1985,20 @@ export class ContentIndex {
     // Exact public URL from the scan. YAML hits are not database pages.
     const indexed = this.byUrl.get(cleanUrl);
     if (indexed) {
+      // The index keeps the file locale (alternates need it); callers expect the
+      // pattern key, so a single-address type (/landing/:slug) reports "default".
+      const urlPattern = this.contentTypeConfigs[indexed.contentType]?.url_pattern;
+      const patternLocale =
+        urlPattern && !urlPattern[indexed.patternLocale] && urlPattern["default"]
+          ? "default"
+          : indexed.patternLocale;
       return {
         contentType: indexed.contentType,
         slug: indexed.slug,
         entry: indexed.entry,
         fromDatabase: indexed.source === "yaml" ? undefined : true,
         params: indexed.params,
-        patternLocale: indexed.patternLocale,
+        patternLocale,
       };
     }
 

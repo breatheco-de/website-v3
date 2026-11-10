@@ -36,7 +36,7 @@ import {
 } from "./public-html-status";
 import { applyEntryModulePreload } from "./utils/html-transforms";
 import { getEntryAssets, buildEntryPreloadTags, buildEntryLinkHeader } from "./utils/vite-manifest";
-import { assembleSsrDocument, isMeaningfulSsrAppHtml } from "./utils/ssr-html";
+import { assembleSsrDocument, injectFallbackHead, isMeaningfulSsrAppHtml } from "./utils/ssr-html";
 import {
   buildHtmlCacheKey,
   canonicalHtmlCachePath,
@@ -599,9 +599,15 @@ export function serveStatic(app: Express) {
       ssrDiag({ url, hasSchema: Boolean(ssrSchemaHtml) }, "serving client-only HTML fallback");
     }
 
+    const fallbackPayload = clientShellOnly
+      ? null
+      : await getInitialDataForRequest(renderUrl, res).catch(() => null);
+    const fallbackContentRoot = (res.locals as any).site?.contentRoot as string | undefined;
+
     if (ssrSchemaHtml) {
       try {
         let html = await fs.promises.readFile(indexHtmlPath, "utf-8");
+        html = injectFallbackHead(html, fallbackPayload, fallbackContentRoot, url);
         html = injectSsrSchemaHtml(html, ssrSchemaHtml);
         html = applyEntryModulePreload(html);
         html = applyEntryPreloads(html, res);
@@ -617,6 +623,7 @@ export function serveStatic(app: Express) {
 
     try {
       let html = await fs.promises.readFile(indexHtmlPath, "utf-8");
+      html = injectFallbackHead(html, fallbackPayload, fallbackContentRoot, url);
       html = applyEntryModulePreload(html);
       html = applyEntryPreloads(html, res);
       html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
