@@ -506,4 +506,28 @@ describe("injectSsrSchemaHtml", () => {
     expect(countOccurrences(html, "<!DOCTYPE html>")).toBe(1);
     expect(countOccurrences(html, "</head>")).toBe(1);
   });
+
+  it("replacing canonical does not eat neighboring non-self-closing stylesheet/modulepreload links", () => {
+    // Mirrors Vite's built index.html: modulepreload/stylesheet end with `>`,
+    // while canonical from injectSsrMetaTags is self-closing `/>`.
+    const shell = `<!DOCTYPE html><html><head>
+<link rel="preload" href="/fonts/x.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="modulepreload" crossorigin href="/assets/index-abc.js" fetchpriority="low">
+<script type="module" crossorigin src="/assets/index-abc.js"></script>
+<link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-xyz.js" fetchpriority="low">
+<link rel="stylesheet" crossorigin href="/assets/index-abc.css">
+<link rel="canonical" href="https://example.com/old" />
+</head><body></body></html>`;
+
+    const fragment = `<link rel="canonical" href="https://4geeks.com/es/workshops/demo" />`;
+    const html = injectSsrSchemaHtml(shell, fragment);
+
+    expect(html).toContain('rel="stylesheet" crossorigin href="/assets/index-abc.css"');
+    expect(html).toContain('href="/assets/index-abc.js"');
+    expect(html).toContain('href="/assets/rolldown-runtime-xyz.js"');
+    expect(html).toContain('href="/fonts/x.woff2"');
+    expect(html).not.toContain("https://example.com/old");
+    expect(html).toContain('rel="canonical" href="https://4geeks.com/es/workshops/demo"');
+    expect(html.match(/rel="canonical"/g)?.length).toBe(1);
+  });
 });

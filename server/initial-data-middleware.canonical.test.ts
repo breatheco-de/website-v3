@@ -80,6 +80,26 @@ describe("injectSsrMetaTags canonical", () => {
     expect(html.match(/rel="canonical"/g)?.length).toBe(1);
   });
 
+  it("replacing canonical does not eat neighboring non-self-closing stylesheet links", () => {
+    const head = [
+      '<link rel="modulepreload" crossorigin href="/assets/index-abc.js">',
+      '<link rel="stylesheet" crossorigin href="/assets/index-abc.css">',
+      '<link rel="canonical" href="https://example.com/old" />',
+    ].join("\n");
+    const html = injectSsrMetaTags(
+      shell(head),
+      pagePayload({
+        canonical_url: "https://4geeks.com/en/blog",
+      }),
+      undefined,
+      "/en/blog",
+    );
+    expect(html).toContain('rel="stylesheet" crossorigin href="/assets/index-abc.css"');
+    expect(html).toContain('href="/assets/index-abc.js"');
+    expect(html).toContain('rel="canonical" href="https://4geeks.com/en/blog"');
+    expect(html).not.toContain("https://example.com/old");
+  });
+
   it("emits auto canonical when meta.canonical_url is missing", () => {
     vi.mocked(resolveEffectiveCanonical).mockReturnValueOnce("https://4geeks.com/en/blog");
     const html = injectSsrMetaTags(
