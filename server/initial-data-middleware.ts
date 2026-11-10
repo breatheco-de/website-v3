@@ -297,10 +297,7 @@ async function resolvePageQueryInner(
     if (resolved.params?.locale) {
       locale = resolved.params.locale;
     } else if (!cleanUrl.match(/^\/(en|es)\b/)) {
-      const commonData = ci.loadCommonData(contentType, slug);
-      if (commonData?.locale && typeof commonData.locale === "string") {
-        locale = commonData.locale;
-      }
+      locale = ci.servedLocale(contentType, slug, "default");
     }
 
     if (apiPath) {

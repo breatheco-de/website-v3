@@ -36,6 +36,11 @@ function makeSite(): ContentIndex {
   );
   write(root, "landings/master-ia/_common.yml", "slug: master-ia\nlocale: es\n");
   write(root, "landings/master-ia/es.yml", "title: Master IA\n");
+  write(root, "landings/sin-locale/_common.yml", "slug: sin-locale\n");
+  write(root, "landings/sin-locale/es.yml", "title: Sin locale\n");
+  write(root, "landings/both/_common.yml", "slug: both\n");
+  write(root, "landings/both/en.yml", "title: Both\n");
+  write(root, "landings/both/es.yml", "title: Ambos\n");
   write(root, "how-to/install-js/en.yml", "slug: install-js\ntitle: Install\n");
   write(root, "how-to/install-js/es.yml", "slug: instalar-js\ntitle: Instalar\n");
   const ci = new ContentIndex(root);
@@ -64,6 +69,12 @@ describe("ContentIndex.resolveUrl patternLocale", () => {
     const ci = makeSite();
     const resolved = ci.resolveUrl("/landing/master-ia")!;
     expect(ci.servedLocale(resolved.contentType, resolved.slug, resolved.patternLocale)).toBe("es");
+  });
+
+  it("falls back to the only language file when _common has no locale", () => {
+    const ci = makeSite();
+    expect(ci.servedLocale("landing", "sin-locale", "default")).toBe("es");
+    expect(ci.servedLocale("landing", "both", "default")).toBe("en");
   });
 
   it("keeps the locale for per-locale URL patterns", () => {
