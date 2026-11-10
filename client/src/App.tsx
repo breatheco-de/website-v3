@@ -16,13 +16,6 @@ import {
   REGIONAL_LOCALE_RE,
 } from "@/lib/content-type-routes";
 import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
-import {
-  loadContentTypeDetailChunk,
-  loadDatabaseSinglePageChunk,
-  loadPreviewFrameChunk,
-  loadPrivateRouterChunk,
-  loadTemplatePageChunk,
-} from "@/lib/publicPageChunks";
 import "./i18n";
 
 // Track whether the Vite HMR WebSocket is currently connected.
@@ -85,18 +78,15 @@ function lazyWithRetry<T extends React.ComponentType<any>>(
   });
 }
 
-// Shared thenables with main.tsx preload (publicPageChunks) — do not wrap in
-// .catch / lazyWithRetry or Suspense will blank #root after hydrate.
-const ContentTypeDetail = lazy(() => loadContentTypeDetailChunk());
-const TemplatePage = lazy(() => loadTemplatePageChunk());
-const DatabaseSinglePage = lazy(() => loadDatabaseSinglePageChunk());
-const PreviewFrame = lazy(() => loadPreviewFrameChunk());
-const PrivateRouter = lazy(() => loadPrivateRouterChunk());
+const ContentTypeDetail = lazyWithRetry(() => import("@/pages/ContentTypeDetail"));
+const TemplatePage = lazyWithRetry(() => import("@/pages/page"));
+const DatabaseSinglePage = lazyWithRetry(() => import("@/pages/DatabaseSinglePage"));
 
+const PreviewFrame = lazyWithRetry(() => import("@/pages/PreviewFrame"));
+const PrivateRouter = lazyWithRetry(() => import("@/pages/PrivateRouter"));
 // Admin/editor-only UI — deferred into separate chunks so regular visitors
 // never download them as part of the initial bundle. They are already
 // client-only (inside <ClientOnly>) so no SSR preload is needed.
-// lazyWithRetry is fine here (not on the hydrate critical path).
 const DebugBubble = lazyWithRetry(() =>
   import("@/components/DebugBubble").then((m) => ({ default: m.DebugBubble })),
 );

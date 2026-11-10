@@ -6,10 +6,7 @@ import type { ContentIndex } from "./content-index";
 import { resolveInitialData, urlBakesStoredPageQuery, type InitialDataPayload } from "./initial-data-middleware";
 import { resolvePublicHtmlStatus } from "./public-html-status";
 import { publicPageHead } from "./public-page-schema";
-import {
-  applyEntryModulePreload,
-  prioritizeRenderBlockingCss,
-} from "./utils/html-transforms";
+import { applyEntryModulePreload } from "./utils/html-transforms";
 import { buildEntryPreloadTags, getEntryAssets } from "./utils/vite-manifest";
 import { assembleSsrDocument, contentTypesReadyForHtmlCache, isMeaningfulSsrAppHtml } from "./utils/ssr-html";
 import { injectGtmWebContainerId } from "./gtm-web-inject";
@@ -155,7 +152,6 @@ export async function buildAnonymousPageHtml(opts: {
   html = injectPageVersionDataLayer(html, opts.initialData);
   html = injectPageTrackingDataLayer(html, opts.initialData);
   if (opts.contentRoot) html = injectThemeOverrides(html, opts.contentRoot);
-  html = prioritizeRenderBlockingCss(html);
   if (!contentTypesReadyForHtmlCache(opts.initialData)) {
     log.warn({ url: opts.url }, "content type list missing; not storing this HTML copy");
     return { html, skipCacheWrite: true };

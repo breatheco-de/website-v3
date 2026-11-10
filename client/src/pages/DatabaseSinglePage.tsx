@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { Loader2 } from "lucide-react";
 import { IS_SERVER, shouldSuppressFullPageLoader, isSsrHydrateWindow } from "@/lib/initialData";
 import { useLocation } from "wouter";
 import { SectionRenderer } from "@/components/SectionRenderer";
@@ -19,7 +20,6 @@ import { resolveDeep } from "@/lib/variable-manager";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import LazyRender from "@/components/LazyRender";
-import { LoadingSpinner } from "@/components/LoadingSpinner";
 import MenuSlotPlaceholder from "@/components/editing/MenuSlotPlaceholder";
 import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
 import { useMenuConfig } from "@/hooks/useMenuConfig";
@@ -167,7 +167,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
         className="min-h-screen flex items-center justify-center"
         data-testid="loading-database-single"
       >
-        <LoadingSpinner />
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -183,7 +183,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
           className="min-h-screen flex items-center justify-center"
           data-testid="loading-database-single"
         >
-          <LoadingSpinner />
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
       );
     }
