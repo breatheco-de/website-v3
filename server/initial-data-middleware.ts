@@ -15,7 +15,6 @@ import { getVariableManager } from "./variable-manager";
 import { loadImageRegistry } from "./image-registry";
 import { getMergedImageRegistry } from "./image-registry-resolver";
 import type { SiteContext } from "./site-manager";
-import { readNavigationEagerManifest } from "./navigation-eager-manifest";
 import { getDefaultLocale, normalizeLocale, resolveEffectiveRobots } from "./settings";
 import { getApiPath } from "../shared/api-paths";
 import { toOgLocale } from "../shared/locale";
@@ -33,7 +32,10 @@ import {
 import { buildSingleEntryFromContent } from "./build-single-entry";
 import { hydrateEntryForDelivery } from "./hydrate-entry-delivery";
 import { databaseManager, type DatabaseManager } from "./database";
-import { applyEntryModulePreload } from "./utils/html-transforms";
+import {
+  applyEntryModulePreload,
+  prioritizeRenderBlockingCss,
+} from "./utils/html-transforms";
 import {
   buildInitialDataScriptTag,
   injectPageTrackingDataLayer,
@@ -981,13 +983,8 @@ export async function resolveInitialData(
     });
   }
 
-  const navigationManifest = readNavigationEagerManifest(ci.contentRoot);
-  if (navigationManifest) {
-    queries.push({
-      queryKey: ["navigation-eager-manifest"],
-      data: navigationManifest,
-    });
-  }
+  // navigation-eager-manifest (~20–30KB) is hover-prefetch only — do not inline
+  // it in __INITIAL_DATA__. Keeping it out of the HTML shortens parse + hydrate.
 
   const pageData = pageQuery?.data as Record<string, unknown> | undefined;
   const httpStatus =
@@ -1060,7 +1057,8 @@ function themeOnlyHtmlHook(res: Response, contentRoot: string): void {
     if (contentType && String(contentType).includes("text/html") && chunk) {
       try {
         const html = typeof chunk === "string" ? chunk : chunk.toString("utf-8");
-        const injected = injectThemeOverrides(html, contentRoot);
+        let injected = injectThemeOverrides(html, contentRoot);
+        injected = prioritizeRenderBlockingCss(injected);
         if (injected !== html) res.setHeader("content-length", Buffer.byteLength(injected, "utf-8"));
         return originalEnd.call(this, injected, ...args);
       } catch {
@@ -1174,6 +1172,7 @@ export function initialDataMiddleware(
             }
             injected = injectThemeOverrides(injected, ci.contentRoot);
             injected = applyEntryModulePreload(injected);
+            injected = prioritizeRenderBlockingCss(injected);
 
             const newLength = Buffer.byteLength(injected, "utf-8");
             res.setHeader("content-length", newLength);

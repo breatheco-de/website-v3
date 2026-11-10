@@ -57,13 +57,13 @@ export function getEntryAssets(distPublicPath: string): ManifestEntryAssets {
 /** Build `<link>` modulepreload tags for entry chunks.
  * CSS is intentionally NOT preloaded here: the blocking <link rel="stylesheet"> in
  * <head> must win discovery. serveStatic injects these tags *after* the first
- * stylesheet so the modulepreload storm does not delay render-blocking CSS.
- * JS preloads are marked fetchpriority=low: with SSR body HTML, scripts are only
- * needed for hydration. */
+ * stylesheet; prioritizeRenderBlockingCss then hoists CSS early so the JS graph
+ * downloads in parallel without starving first paint. No fetchpriority=low —
+ * that left the SSR navbar dead until the entry discovered its deps. */
 export function buildEntryPreloadTags(assets: ManifestEntryAssets): string {
   const tags: string[] = [];
   for (const href of assets.js) {
-    tags.push(`<link rel="modulepreload" crossorigin href="${escapeAttr(href)}" fetchpriority="low">`);
+    tags.push(`<link rel="modulepreload" crossorigin href="${escapeAttr(href)}">`);
   }
   return tags.join("\n");
 }
@@ -72,7 +72,7 @@ export function buildEntryPreloadTags(assets: ManifestEntryAssets): string {
 export function buildEntryLinkHeader(assets: ManifestEntryAssets): string {
   const parts: string[] = [];
   for (const href of assets.js) {
-    parts.push(`<${escapeAttr(href)}>; rel=modulepreload; crossorigin; fetchpriority=low`);
+    parts.push(`<${escapeAttr(href)}>; rel=modulepreload; crossorigin`);
   }
   return parts.join(", ");
 }

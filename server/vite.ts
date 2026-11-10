@@ -34,7 +34,10 @@ import {
   resolvePublicHtmlStatus,
   shouldSkipPublicSsr,
 } from "./public-html-status";
-import { applyEntryModulePreload } from "./utils/html-transforms";
+import {
+  applyEntryModulePreload,
+  prioritizeRenderBlockingCss,
+} from "./utils/html-transforms";
 import { getEntryAssets, buildEntryPreloadTags, buildEntryLinkHeader } from "./utils/vite-manifest";
 import { assembleSsrDocument, isMeaningfulSsrAppHtml } from "./utils/ssr-html";
 import {
@@ -607,6 +610,7 @@ export function serveStatic(app: Express) {
         html = applyEntryPreloads(html, res);
         html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
         if (!clientShellOnly) html = applyPageBoot(html, _req, res);
+        html = prioritizeRenderBlockingCss(html);
         maybeRecordPublicNotFound(_req, res, status);
         res.status(status).set({ "Content-Type": "text/html" }).send(html);
         return;
@@ -621,6 +625,7 @@ export function serveStatic(app: Express) {
       html = applyEntryPreloads(html, res);
       html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
       if (!clientShellOnly) html = applyPageBoot(html, _req, res);
+      html = prioritizeRenderBlockingCss(html);
       maybeRecordPublicNotFound(_req, res, status);
       res.status(status).set({ "Content-Type": "text/html" }).send(html);
     } catch {
