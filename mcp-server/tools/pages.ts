@@ -5286,7 +5286,7 @@ export function registerPageTools(
       const q = new URLSearchParams({ locale });
       if (variant) q.set("variant", variant);
       try {
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(resolved.contentType)}/field-provenance/${encodeURIComponent(slug)}?`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/content-types/${encodeURIComponent(resolved.contentType)}/field-provenance/${encodeURIComponent(slug)}?${q}`;
         const res = await fetch(url, { headers: internalHeaders(mcpToken, { site: domain }) });
         const data = await res.json();
         if (!res.ok) return fail((data as { error?: string }).error || `Server error: ${res.status}`);

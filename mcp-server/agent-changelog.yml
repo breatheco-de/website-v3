@@ -6,6 +6,16 @@ window_days: 6
 
 entries:
   - date: "2026-11-10"
+    summary: "MCP YAML parse uses shared template-var escape; get_entry_fields honors locale"
+    agent_impact:
+      - "get_entry_content / other MCP YAML reads now use the same escapeTemplateVars helper as the app server, so detached locale files with nested liquid defaults (e.g. {{ entry.call_to_action.success | {\"message\": \"...\"} }}) parse instead of silently returning only _common.yml fields."
+      - "get_entry_fields now forwards locale (and variant) on field-provenance — requesting es no longer always inspects en.yml."
+    tools_changed: true
+    paths:
+      - mcp-server/lib/content.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/lib/safe-load-template-vars.test.ts
+  - date: "2026-11-10"
     summary: "One-address pages (/landing/:slug): language comes from the matched slug's language file; two languages sharing a slug is blocked; _common.yml locale is ignored legacy"
     agent_impact:
       - "Language of a one-address page = the language file whose slug matches the URL (resolveUrl fileLocale). /landing/<es-slug> serves es.yml, /landing/<en-slug> serves en.yml. _common.yml `locale` is never read: do not write it (bad practice). locale-slug-uniqueness warns COMMON_LOCALE_IGNORED; migration 012 removes old lines. nonlocalized-common-locale validator retired."
