@@ -30,6 +30,7 @@
     "check:api-rate": "tsx scripts/check-api-rate-policy.ts",
     "check:section-spacing": "tsx scripts/section-spacing/check.ts",
     "content:pull": "tsx scripts/content-pull.ts",
+    "fixtures:refresh-ci": "tsx scripts/refresh-ci-fixture.ts",
     "ensure:registry": "tsx scripts/ensure-registry.ts",
     "schema:sync": "tsx scripts/schema-sync/sync-schemas.ts",
     "schema:sync:check": "tsx scripts/schema-sync/sync-schemas.ts --check",

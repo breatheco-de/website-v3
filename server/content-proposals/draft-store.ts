@@ -59,6 +59,7 @@ import {
   type RebuildResult,
   type TranslationSourceCheck,
 } from "../versioning/draft-base";
+import { forgetDraftActivity } from "../versioning/draft-activity";
 
 /** Bump when the draft diff logic changes so cached proposal views are rebuilt. */
 const DERIVED_VIEW_VERSION = "v2";
@@ -134,6 +135,8 @@ export type ProposalDraftStore = {
   liveValue(entry: { contentType: string; slug: string; locale: string }, fieldPath: string): unknown;
   /** Every entry-folder draft carrying `_draft.proposal` (daily link check). */
   listLinkedDrafts(): Array<{ ref: ProposalDraftRef; link: DraftProposalLink }>;
+  /** Every entry-folder draft (shared-template drafts excluded), with its proposal link when present. */
+  listDrafts?(): Array<{ ref: ProposalDraftRef; link: DraftProposalLink | null }>;
   /** Attached entries published in `locale` (what a template proposal reaches). */
   listAttachedEntries?(contentType: string, locale: string): string[];
   /** Locales with a live shared template (`template.{locale}.yml`) for this type. */
@@ -216,7 +219,12 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
       return data ? getAtPath(data, fieldPath) : undefined;
     },
     listLinkedDrafts() {
-      const out: Array<{ ref: ProposalDraftRef; link: DraftProposalLink }> = [];
+      return store.listDrafts!().filter(
+        (d): d is { ref: ProposalDraftRef; link: DraftProposalLink } => !!d.link?.id,
+      );
+    },
+    listDrafts() {
+      const out: Array<{ ref: ProposalDraftRef; link: DraftProposalLink | null }> = [];
       const root = path.isAbsolute(contentRoot) ? contentRoot : path.join(process.cwd(), contentRoot);
       const seen = new Set<string>();
       for (const contentType of Object.keys(getAllConfigs(contentRoot))) {
@@ -234,7 +242,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
             const m = VARIANT_FILE_RE.exec(name);
             if (!m || isTemplateVersioningSlug(m[1]!)) continue;
             const link = readDraftMeta(path.join(typeDir, d.name, name))?.proposal;
-            if (link?.id) out.push({ ref: { contentType, slug: d.name, locale: m[2]!, variant: m[1]! }, link });
+            out.push({ ref: { contentType, slug: d.name, locale: m[2]!, variant: m[1]! }, link: link?.id ? link : null });
           }
         }
       }
@@ -430,6 +438,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
         markFileAsModified(relFromCwd(draftPath), author, undefined, contentRoot);
       }
       forgetDraftBase(withRoot(ref));
+      forgetDraftActivity(withRoot(ref));
       const vm = ctx.versioningManager;
       const existing = vm.getVersioningForContent(ref.contentType, versioningSlug);
       if (existing) {

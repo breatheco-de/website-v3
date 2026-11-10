@@ -7,6 +7,13 @@
 /** A variant created and last edited longer ago than this is stale; tests that ended within it still count. */
 export const VARIANT_STALE_DAYS = 30;
 
+/** Daily cleanup of drafts not linked to a proposal (live server only). */
+export const DRAFT_CLEANUP_SAFE_DAYS = 30;
+export const DRAFT_CLEANUP_FLAG_DAYS = 60;
+export const DRAFT_CLEANUP_DELETE_DAYS = 90;
+/** A flagged draft is never deleted sooner than this after the flag. */
+export const DRAFT_CLEANUP_MIN_WARNING_DAYS = 30;
+
 const DAY_MS = 86_400_000;
 
 export type VariantVerdict = "cannot_delete" | "check_first" | "probably_safe";
@@ -18,6 +25,7 @@ export type VariantReasonCode =
   | "has_traffic"
   | "recently_created"
   | "recently_edited"
+  | "recently_kept"
   | "age_unknown"
   | "proposal_open"
   | "proposal_unverified"
@@ -80,6 +88,23 @@ export interface VariantFacts {
   /** Deleting this file removes the whole (unpublished) page. */
   is_last_draft_of_unpublished: boolean;
   translated_from?: string | null;
+  /** `_draft.kept_at`: staff pressed "Keep for now". */
+  kept_at?: string | null;
+  /** When the live server first saw this draft's content change (any source). */
+  content_changed_at?: string | null;
+  /** When the live server first saw this draft; stands in for a missing creation date. */
+  first_seen_at?: string | null;
+  /** `_draft.cleanup`: flagged for deletion by the daily cleanup. */
+  cleanup?: { flagged_at: string; deletes_at: string } | null;
+}
+
+export type DraftCleanupTier = "nothing_to_lose" | "has_work";
+
+/** Set when the daily cleanup flagged this draft for deletion. */
+export interface VariantCleanupState {
+  tier: DraftCleanupTier;
+  flagged_at: string;
+  deletes_at: string;
 }
 
 export interface VariantReason<C extends string = VariantReasonCode> {
@@ -95,9 +120,9 @@ export interface VariantPurpose {
 export interface VariantHealth {
   verdict: VariantVerdict;
   age_state: VariantAgeState;
-  /** created_at, else based_on_at, else null. */
+  /** created_at, else based_on_at, else first_seen_at, else null. */
   created_at: string | null;
-  created_source: "created_at" | "based_on" | null;
+  created_source: "created_at" | "based_on" | "first_seen" | null;
   updated_at: string | null;
   /** Newer of created and last edited. */
   last_activity_at: string | null;
@@ -108,6 +133,8 @@ export interface VariantHealth {
   purpose: VariantPurpose;
   /** One plain-English line for the top of the popover. */
   summary: string;
+  /** Scheduled for deletion by the daily cleanup (null when not flagged). */
+  cleanup: VariantCleanupState | null;
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -173,17 +200,26 @@ export function variantVerdict(facts: VariantFacts, now: number = Date.now()): V
   const reasons: VariantReason[] = [];
   const notes: VariantReason<VariantNoteCode>[] = [];
 
-  const created = facts.created_at ?? facts.based_on_at;
-  const createdSource = facts.created_at ? "created_at" : facts.based_on_at ? "based_on" : null;
-  const lastActivity = newer(created, facts.updated_at);
+  const { created, source: createdSource } = createdOf(facts);
+  const lastActivity = lastActivityOf(facts);
+  const lastEdit = newer(facts.updated_at, facts.content_changed_at ?? null);
 
   let age: VariantAgeState;
   if (created && within(created, now)) {
     age = "new";
-    reasons.push({ code: "recently_created", message: `Created ${when(created, now)}. Someone may still be working on it.` });
-  } else if (within(facts.updated_at, now)) {
+    reasons.push({
+      code: "recently_created",
+      message:
+        createdSource === "first_seen"
+          ? `First seen ${when(created, now)}; we don't know when it was made. Someone may still be working on it.`
+          : `Created ${when(created, now)}. Someone may still be working on it.`,
+    });
+  } else if (within(lastEdit, now)) {
     age = "active";
-    reasons.push({ code: "recently_edited", message: `Edited ${when(facts.updated_at, now)}.` });
+    reasons.push({ code: "recently_edited", message: `Edited ${when(lastEdit, now)}.` });
+  } else if (within(facts.kept_at, now)) {
+    age = "active";
+    reasons.push({ code: "recently_kept", message: `Someone chose to keep it ${when(facts.kept_at, now)}.` });
   } else if (!created) {
     age = "unknown";
     reasons.push({ code: "age_unknown", message: "We don't know when this version was made." });
@@ -282,7 +318,100 @@ export function variantVerdict(facts: VariantFacts, now: number = Date.now()): V
     notes,
     purpose: variantPurpose(facts),
     summary,
+    cleanup: facts.cleanup ? { tier: cleanupTierOf(facts), ...facts.cleanup } : null,
   };
+}
+
+function createdOf(facts: VariantFacts): { created: string | null; source: VariantHealth["created_source"] } {
+  if (facts.created_at) return { created: facts.created_at, source: "created_at" };
+  if (facts.based_on_at) return { created: facts.based_on_at, source: "based_on" };
+  if (facts.first_seen_at) return { created: facts.first_seen_at, source: "first_seen" };
+  return { created: null, source: null };
+}
+
+/** Newest of created (or first seen), editorial updated_at, content change seen, and kept. */
+function lastActivityOf(facts: VariantFacts): string | null {
+  let out = createdOf(facts).created;
+  for (const d of [facts.updated_at, facts.content_changed_at ?? null, facts.kept_at ?? null]) out = newer(out, d);
+  return out;
+}
+
+/** Identical to live (dates ignored) loses nothing; anything else holds unpublished work. */
+export function cleanupTierOf(facts: Pick<VariantFacts, "has_live" | "changes_vs_live">): DraftCleanupTier {
+  return facts.has_live && facts.changes_vs_live === 0 ? "nothing_to_lose" : "has_work";
+}
+
+export type DraftCleanupAction = "keep" | "flag" | "clear_flag" | "delete";
+
+export type DraftCleanupReason =
+  | "proposal"
+  | "has_traffic"
+  | "test_running"
+  | "test_ended_recently"
+  | "test_history_unavailable"
+  | "last_draft_of_unpublished_page"
+  | "age_unknown"
+  | "active"
+  | "activity_since_flag"
+  | "flag_waiting"
+  | "idle";
+
+export interface DraftCleanupDecision {
+  action: DraftCleanupAction;
+  tier: DraftCleanupTier;
+  reason: DraftCleanupReason;
+  last_activity_at: string | null;
+  /** For "flag": when it will be deleted; for a waiting flag: the existing date. */
+  deletes_at: string | null;
+}
+
+/**
+ * What the daily cleanup does with one draft that is not linked to a proposal.
+ * Nothing to lose: deleted after DRAFT_CLEANUP_SAFE_DAYS idle, no flag. Has work: flagged at
+ * DRAFT_CLEANUP_FLAG_DAYS idle, deleted at DRAFT_CLEANUP_DELETE_DAYS but never sooner than
+ * DRAFT_CLEANUP_MIN_WARNING_DAYS after the flag. Activity newer than the flag clears it.
+ */
+export function draftCleanupDecision(facts: VariantFacts, now: number = Date.now()): DraftCleanupDecision {
+  const tier = cleanupTierOf(facts);
+  const lastActivity = lastActivityOf(facts);
+  const flag = facts.cleanup ?? null;
+  const out = (action: DraftCleanupAction, reason: DraftCleanupReason, deletesAt: string | null = flag?.deletes_at ?? null) => ({
+    action,
+    tier,
+    reason,
+    last_activity_at: lastActivity,
+    deletes_at: deletesAt,
+  });
+
+  let blocked: DraftCleanupReason | null = null;
+  if (facts.proposal.state !== "none") blocked = "proposal";
+  else if (facts.allocation > 0) blocked = "has_traffic";
+  else if (facts.test.state === "running") blocked = "test_running";
+  else if (facts.test.state === "ended_recently") blocked = "test_ended_recently";
+  else if (facts.test.state === "unknown" && facts.on_live_server) blocked = "test_history_unavailable";
+  else if (facts.is_last_draft_of_unpublished) blocked = "last_draft_of_unpublished_page";
+  else if (!lastActivity) blocked = "age_unknown";
+  if (blocked) return flag ? out("clear_flag", blocked, null) : out("keep", blocked, null);
+
+  const lastMs = parseMs(lastActivity)!;
+  const flaggedMs = parseMs(flag?.flagged_at);
+  if (flag && (flaggedMs === null || lastMs > flaggedMs)) return out("clear_flag", "activity_since_flag", null);
+
+  const idle = now - lastMs;
+  if (tier === "nothing_to_lose") {
+    if (idle >= DRAFT_CLEANUP_SAFE_DAYS * DAY_MS) return out("delete", "idle");
+    return out("keep", flag ? "flag_waiting" : "active");
+  }
+  if (flag) {
+    const deletesMs = parseMs(flag.deletes_at);
+    if (deletesMs !== null && now >= deletesMs) return out("delete", "idle");
+    return out("keep", "flag_waiting");
+  }
+  if (idle >= DRAFT_CLEANUP_FLAG_DAYS * DAY_MS) {
+    const deletesMs = Math.max(lastMs + DRAFT_CLEANUP_DELETE_DAYS * DAY_MS, now + DRAFT_CLEANUP_MIN_WARNING_DAYS * DAY_MS);
+    return out("flag", "idle", new Date(deletesMs).toISOString());
+  }
+  return out("keep", "active", null);
 }
 
 /** Reasons a delete_variant caller would be overriding with confirm_variant_in_use. */

@@ -54,6 +54,9 @@ Candidate rules (colored sections carry padding, no stacked same color, open wit
 ## Render review and the publish gate
 
 - Desktop + mobile full-page screenshots via Cloudflare Browser Rendering on a signed preview URL, plus measured findings per section (content touching a color edge, horizontal overflow, tight gaps, heading order / multiple H1, broken images, empty sections, learned-rule breaks).
+- Horizontal overflow counts only content a visitor can scroll to: a carousel track clipped by its own container is not a finding. A page-level overflow (`section_path` null) means the whole page scrolls sideways and is always reported.
+- The preview loads every section's code first (about 10 s cap). `section_not_loaded` = the code did not arrive in time (re-run the review; not a content problem). `section_unknown_type` = no component exists for the section `type` (fix the type; re-running will not help). Neither is reported as `empty_section`.
+- Findings stay in the issue store until the page is reviewed again, so older reviews may still list carousel overflow or empty sections that newer reviews no longer report.
 - **Gate (agents only):** publishing a new or detached entry-owned page, or one whose section structure changed vs live, requires a review of the exact draft structure → otherwise `action_required` `render_review_required`. Copy-only changes, template entries and staff publishes are not gated.
 - Cloudflare or a public `SITE_URL` not configured → the gate only warns (`render_review_unavailable`) and you continue.
 - Reviews are cached by page + structure; re-run after structural edits.

@@ -2,6 +2,8 @@ import path from "path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // Same JSX runtime as the app build (plugin-react); server/ssr-smoke.test.ts renders entry-server.
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
     // Many tests call process.chdir(), which worker threads do not support.

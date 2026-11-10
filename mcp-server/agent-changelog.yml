@@ -5,6 +5,36 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-10"
+    summary: "Render review: no false overflow for clipped carousels; section code loads before measuring; single-address pages report their own language"
+    agent_impact:
+      - "review_page_render / get_render_review: horizontal_overflow now counts only content a visitor can scroll to (carousel tracks clipped by their own container are ignored); page-level overflow (section_path null) is always reported. Older reviews keep their old findings until the page is reviewed again."
+      - "The preview loads every section's code (about 10s cap) before measuring. New findings: section_not_loaded (warning, RENDER_SECTION_NOT_LOADED: code did not arrive; re-run, not a content problem) and section_unknown_type (error, RENDER_SECTION_UNKNOWN_TYPE: no component for the type; fix type via list_components). Neither is reported as empty_section."
+      - "Single-address pages (/landing/:slug) resolve to the entry's own _common locale (e.g. es) in the ads report, organic-traffic entry keys and the SEO page-sections lookup instead of defaulting to en."
+    tools_changed: false
+    paths:
+      - client/src/lib/pageMeasurements.ts
+      - client/src/lib/loadPreviewSectionCode.ts
+      - client/src/pages/PagePreviewPage.tsx
+      - scripts/validation/validators/render-review.issueCodes.ts
+      - mcp-server/tools/design.ts
+      - mcp-server/explain/design.md
+      - server/content-index.ts
+  - date: "2026-11-10"
+    summary: "Daily cleanup deletes abandoned drafts not linked to a proposal (live server); list_variants shows the schedule"
+    agent_impact:
+      - "Unlinked drafts identical to live are deleted after 30 idle days. Drafts with unpublished work (or a language with no live file) get _draft.cleanup {flagged_at, deletes_at} at 60 idle days and are deleted at 90 (never sooner than 30 days after the flag). Never touched: traffic > 0%, running or recently ended test, last draft of an unpublished page, proposal-linked drafts, shared-template drafts."
+      - "list_variants rows add cleanup {tier, flagged_at, deletes_at} | null and warning draft_scheduled_for_cleanup (drafts[] with deletes_at). Any content edit resets the clock (seen by the live server from any source); staff can also press Keep for now (_draft.kept_at). Agents have no keep tool; age reasons add recently_kept and created_source first_seen."
+      - "Events draft_cleanup_flagged / draft_cleanup_flag_cleared / draft_cleanup_deleted (no file text). Deletions push as system:draft-cleanup; recovery is manual from the content repo history on GitHub."
+    tools_changed: false
+    paths:
+      - shared/variant-health.ts
+      - server/versioning/draft-cleanup.ts
+      - server/versioning/draft-activity.ts
+      - server/versioning/variant-info.ts
+      - mcp-server/lib/variant-info-mcp.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/content_system.md
   - date: "2026-11-09"
     summary: "Variant age/activity verdict on list_variants rows; delete_variant stops on variants still in use"
     agent_impact:

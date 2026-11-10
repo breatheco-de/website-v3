@@ -100,7 +100,7 @@ import {
 import type { ContentTypeEditorHint } from "../../server/content-types.js";
 import { promoteWarnings, promoteFailureNextActions, ROBOTS_CHANGE_ON_PUBLISH_CODE, robotsChangeOnPublishResult, VARIANT_WARNINGS, actionRequired, diagnosticsAfterGoLiveNextAction, diagnosticsJobNextActions, overrideMasksSourceWarning, type McpTextResult, type McpWarning, type NextAction, type McpSideEffect } from "../lib/respond.js";
 import { touchesMetaRedirects } from "../lib/redirect-update.js";
-import { deleteVariantPreflight, variantRowFields, type VariantInfoPayload } from "../lib/variant-info-mcp.js";
+import { deleteVariantPreflight, scheduledCleanupWarning, variantRowFields, type VariantInfoPayload } from "../lib/variant-info-mcp.js";
 import {
   isSignupFieldMapError,
   signupFieldMapActionRequired,
@@ -5443,6 +5443,7 @@ export function registerPageTools(
     "started_at gives each locale's test run date. " +
     "Each variant row also has created_at, updated_at, age_state (new | active | stale | unknown; stale = created and last edited more than 30 days ago), " +
     "verdict (cannot_delete | check_first | probably_safe) with reasons[{code,message}], behind_live, changes_vs_live (null when no live file) and sibling_locales (same slug in other languages; delete is per locale). " +
+    "cleanup {tier, flagged_at, deletes_at} is set when the daily abandoned-draft cleanup will delete the draft (warning draft_scheduled_for_cleanup); any content edit resets it. " +
     "Warnings cover page tests: ab_testing_not_setup, ab_check_failing, " +
     "variant_assignment_sticky (visitors keep their version; allocation is staff-only), split_mismatch (results unreliable). " +
     "Use before create_variant or editing an existing draft. Requires content_view.",
@@ -5552,7 +5553,9 @@ export function registerPageTools(
         );
         const inUse = variants.filter((v) => "verdict" in v && v.verdict === "check_first");
         const behind = variants.filter((v) => "behind_live" in v && v.behind_live === true);
+        const cleanupWarning = scheduledCleanupWarning(variants);
         const verdictWarnings: McpWarning[] = [
+          ...(cleanupWarning ? [cleanupWarning] : []),
           ...(inUse.length
             ? [{
                 code: "variants_in_use",

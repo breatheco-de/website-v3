@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { variantVerdict, type VariantFacts } from "../../shared/variant-health";
-import { deleteVariantPreflight, variantRowFields, type VariantInfoPayload } from "./variant-info-mcp";
+import { deleteVariantPreflight, scheduledCleanupWarning, variantRowFields, type VariantInfoPayload } from "./variant-info-mcp";
 
 const NOW = Date.parse("2026-11-09T12:00:00.000Z");
 const daysAgo = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
@@ -75,5 +75,27 @@ describe("variantRowFields", () => {
 
   it("returns null without info", () => {
     expect(variantRowFields(undefined)).toBeNull();
+  });
+
+  it("carries the cleanup flag", () => {
+    const cleanup = { flagged_at: daysAgo(3), deletes_at: daysAgo(-27) };
+    expect(variantRowFields(info({ changes_vs_live: 2, cleanup }))!.cleanup).toEqual({ tier: "has_work", ...cleanup });
+    expect(variantRowFields(info())!.cleanup).toBeNull();
+  });
+});
+
+describe("scheduledCleanupWarning", () => {
+  it("lists flagged drafts with their deletion date", () => {
+    const w = scheduledCleanupWarning([
+      { slug: "draft", locale: "es", cleanup: { tier: "has_work", flagged_at: daysAgo(3), deletes_at: daysAgo(-27) } },
+      { slug: "draft", locale: "en", cleanup: null },
+    ])!;
+    expect(w.code).toBe("draft_scheduled_for_cleanup");
+    expect(w.drafts).toEqual([{ slug: "draft", locale: "es", deletes_at: daysAgo(-27), tier: "has_work" }]);
+    expect(w.message).toContain("draft.es");
+  });
+
+  it("is null when nothing is flagged", () => {
+    expect(scheduledCleanupWarning([{ slug: "draft", locale: "en" }])).toBeNull();
   });
 });

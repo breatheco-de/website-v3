@@ -434,7 +434,7 @@ const SERVICE_COMMIT_AUTHORS = new Set(["system", "unknown", "github-pull", "age
 export function isServiceCommitAuthor(author: string | null | undefined): boolean {
   const a = author?.trim().toLowerCase();
   if (!a) return true;
-  return SERVICE_COMMIT_AUTHORS.has(a) || a.startsWith("migration:");
+  return SERVICE_COMMIT_AUTHORS.has(a) || a.startsWith("migration:") || a.startsWith("system:");
 }
 
 function withSuffix(message: string, suffix?: string): string {

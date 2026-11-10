@@ -29,11 +29,13 @@ type Finding = {
 };
 
 const FINDING_FIX_HINTS: Record<string, string> = {
-  horizontal_overflow: "Something is wider than the viewport (usually mobile): shorten long words/URLs, pick a variant with fewer columns, or reduce items.",
+  horizontal_overflow: "Something a visitor can scroll to is wider than the viewport (usually mobile): shorten long words/URLs, pick a variant with fewer columns, or reduce items. Carousel tracks clipped by their own container are not reported; a page-level finding (section_path null) means the whole page scrolls sideways.",
   color_edge_without_padding: "Two different backgrounds meet with content touching the edge: give the colored section vertical padding (paddingY) or use the neighbor's background.",
   heading_order: "Headings skip a level: adjust the section's heading level or pick a variant whose title fits the outline.",
   multiple_h1: "More than one H1: only the first hero should own the H1.",
   empty_section: "The section rendered (almost) nothing: fill required fields or remove it.",
+  section_not_loaded: "The section's code did not finish downloading during the review (not a content problem): re-run review_page_render before editing it.",
+  section_unknown_type: "No component exists for this section type, so it renders nothing live: fix the section type (list_components); re-running will not help.",
   broken_image: "An image failed to load: replace the src with a gallery image (get_or_set_media_to_gallery).",
   tight_gap: "Adjacent sections with the same background have almost no space between them: add padding or alternate backgrounds.",
   measurements_missing: "The preview never finished rendering: a section may crash; check get_entry_content and the component YAML.",
@@ -254,6 +256,8 @@ export function registerDesignTools(mcp: McpServer, mcpToken?: string, grants?: 
     "review_page_render",
     "Render a page in a real browser (Cloudflare) on desktop 1440px and mobile 390px, keep full-page screenshots, and measure layout problems: " +
       "horizontal overflow, colored edges with no padding, heading order, multiple H1, empty sections, broken images, tight gaps (+ learned site rules when available). " +
+      "Overflow counts only content a visitor can scroll to (clipped carousel tracks are ignored; page-level overflow is always reported). " +
+      "Section code is loaded first (about 10s cap): code that did not load is section_not_loaded (re-run), a type with no component is section_unknown_type (fix the type), neither is empty_section. " +
       "Component layout traits (overlays, self-padded variants) suppress false positives. " +
       "source 'entry' reviews a live page, draft or variant (pass variant for drafts) and writes findings to the validation issue store (validator render-review, category design); " +
       "source 'demo' reviews a create_page_demo hash (findings returned only). Async: returns job_id — poll get_render_review. " +

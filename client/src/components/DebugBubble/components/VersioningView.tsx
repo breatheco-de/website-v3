@@ -2134,6 +2134,15 @@ export function VersioningView({
                               versioningSlug={versioningWriteSlug}
                               locale={locale}
                               variantSlug={variant.slug}
+                              cleanup={versioningData?.cleanupByVariant?.[locale]?.[variant.slug] ?? null}
+                              onKept={() => {
+                                if (onVersioningDataUpdate && contentInfo.type && contentInfo.slug) {
+                                  fetch(`/api/versioning/${contentInfo.type}/${contentInfo.slug}`)
+                                    .then((r) => r.json())
+                                    .then(onVersioningDataUpdate)
+                                    .catch(() => {});
+                                }
+                              }}
                             />
                             {isActive && (
                               <Badge variant="default" className="text-[10px] px-1.5 py-0 leading-4 flex-shrink-0" data-testid={`badge-active-variant-${locale}`}>

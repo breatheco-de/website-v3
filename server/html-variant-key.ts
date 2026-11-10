@@ -65,6 +65,9 @@ export function resolveDocumentTarget(
         locale:
           resolved.params?.locale ||
           (resolved.patternLocale && resolved.patternLocale !== "default" ? resolved.patternLocale : "") ||
+          (resolved.patternLocale === "default"
+            ? ci.servedLocale(resolved.contentType, resolved.slug, resolved.patternLocale)
+            : "") ||
           (clean.match(/^\/(es)\b/) ? "es" : "en"),
       };
     } else {

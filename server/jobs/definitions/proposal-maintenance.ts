@@ -65,9 +65,38 @@ export class DraftLinkCheckJob extends Job {
   }
 }
 
-/** Startup: queue the daily jobs once (draft link check only on the live server). */
+/**
+ * Daily (self-rescheduling), live server only: delete abandoned drafts that are not linked to a
+ * proposal (shared/variant-health.ts `draftCleanupDecision`). Only the live server's activity
+ * record counts, so a laptop never cleans drafts.
+ */
+export class DraftCleanupJob extends Job {
+  async run(): Promise<{ ok: boolean }> {
+    const { isLiveServer } = await import("../../live-server");
+    if (!isLiveServer()) {
+      log.info("[DraftCleanupJob] skipped: not the live server");
+      return { ok: true };
+    }
+    const { getSiteContextMap } = await import("../../site-manager");
+    const { runDraftCleanupForSite } = await import("../../versioning/draft-cleanup");
+    try {
+      for (const ctx of Array.from(getSiteContextMap().values())) {
+        const report = await runDraftCleanupForSite(ctx);
+        log.info({ site: ctx.contentRootName, ...report }, "[DraftCleanupJob] done");
+      }
+    } finally {
+      await reschedule("draft_cleanup");
+    }
+    return { ok: true };
+  }
+}
+
+/** Startup: queue the daily jobs once (draft link check and draft cleanup only on the live server). */
 export async function scheduleProposalMaintenance(): Promise<void> {
   const { isLiveServer } = await import("../../live-server");
   await reschedule("proposal_stale_sweep", 10 * 60 * 1000);
-  if (isLiveServer()) await reschedule("draft_link_check", 15 * 60 * 1000);
+  if (isLiveServer()) {
+    await reschedule("draft_link_check", 15 * 60 * 1000);
+    await reschedule("draft_cleanup", 20 * 60 * 1000);
+  }
 }

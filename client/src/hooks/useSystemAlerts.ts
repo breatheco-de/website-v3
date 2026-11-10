@@ -18,7 +18,9 @@ export type SystemAlertCode =
   | "github_app_env_missing"
   | "decision_model_unavailable"
   | "ab_check_failed"
-  | "ab_check_inconclusive";
+  | "ab_check_inconclusive"
+  | "render_gate_failed"
+  | "render_gate_skipped";
 
 export interface SystemAlert {
   id: string;

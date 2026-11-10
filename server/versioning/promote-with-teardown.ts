@@ -33,6 +33,7 @@ import {
   type DraftRef,
   type FieldChange,
 } from "./draft-base";
+import { forgetDraftActivity } from "./draft-activity";
 import { markFileAsModified } from "../sync-state";
 import { deepMerge } from "../utils/deepMerge";
 import {
@@ -1010,6 +1011,7 @@ export async function promoteVariantWithOptionalTeardown(
 
     fs.unlinkSync(variantFilePath);
     forgetDraftBase(ref);
+    forgetDraftActivity(ref);
 
     if ("funnel" in routed.draftCommon) {
       stripFunnelFromAllLocaleYamls(contentType, slug, contentRoot, author);

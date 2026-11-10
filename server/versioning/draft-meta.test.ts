@@ -83,6 +83,20 @@ describe("new draft for an unpublished locale", () => {
     expect(readDraftMeta(file)?.created_at).toBe("2026-10-01T12:00:00.000Z");
   });
 
+  it("reads kept_at and the cleanup flag back; an incomplete flag is dropped", () => {
+    fs.writeFileSync(
+      file,
+      "title: Hi\n_draft:\n  kept_at: 2026-11-01T00:00:00.000Z\n  cleanup:\n    flagged_at: 2026-10-01T00:00:00.000Z\n    deletes_at: '2026-10-31T00:00:00.000Z'\n",
+      "utf-8",
+    );
+    expect(readDraftMeta(file)).toEqual({
+      kept_at: "2026-11-01T00:00:00.000Z",
+      cleanup: { flagged_at: "2026-10-01T00:00:00.000Z", deletes_at: "2026-10-31T00:00:00.000Z" },
+    });
+    fs.writeFileSync(file, "_draft:\n  cleanup:\n    flagged_at: '2026-10-01T00:00:00.000Z'\n", "utf-8");
+    expect(readDraftMeta(file)).toBeNull();
+  });
+
   it("removing _draft from a metadata-only draft leaves a readable empty draft", () => {
     writeVariantFile(file, "{}\n", { meta: META, skipMark: true });
     writeDraftMeta(file, { based_on: null }, { skipMark: true });

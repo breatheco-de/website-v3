@@ -10,6 +10,10 @@ on:
         description: "Skip content check: deploy even if server content could not be pushed to GitHub (copies are saved on the server first)"
         type: boolean
         default: false
+      skip_render_gate:
+        description: "Skip page render check: go live even if many pages of a content type render empty (emergency only)"
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-vps
@@ -108,6 +112,8 @@ jobs:
           WEBSITE_RUNTIME_B64: ${{ env.WEBSITE_RUNTIME_B64 }}
           DEPLOY_SHA: ${{ github.sha }}
           SKIP_CONTENT_FLUSH: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_content_flush && '1' || '0' }}
+          SKIP_RENDER_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_render_gate && '1' || '0' }}
+          DEPLOY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           KEY="$RUNNER_TEMP/gha_deploy"
@@ -116,6 +122,8 @@ jobs:
             printf 'export WEBSITE_RUNTIME_B64=%q\n' "$WEBSITE_RUNTIME_B64"
             printf 'export DEPLOY_SHA=%q\n' "$DEPLOY_SHA"
             printf 'export SKIP_CONTENT_FLUSH=%q\n' "$SKIP_CONTENT_FLUSH"
+            printf 'export SKIP_RENDER_GATE=%q\n' "$SKIP_RENDER_GATE"
+            printf 'export DEPLOY_RUN_URL=%q\n' "$DEPLOY_RUN_URL"
             cat <<'REMOTE'
           set -euo pipefail
           APP_ROOT=/opt/website-v3
@@ -282,6 +290,42 @@ jobs:
                   *) echo "- ➖ \`$site\`: A/B testing not set up." ;;
                 esac
               done <<< "$AB_LINES"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Page render check lines from the deploy log (pre-flip; a failure stops the deploy).
+          GATE_LINES="$(ssh -i "$KEY" \
+            -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            "grep '^RENDER_GATE' /opt/website-v3/.deploy-state/${DEPLOY_SHA}.log 2>/dev/null || true" 2>/dev/null || true)"
+          if [[ -n "$GATE_LINES" ]]; then
+            {
+              echo ""
+              echo "## Page render check"
+              echo ""
+              outcome="$(echo "$GATE_LINES" | sed -n 's/^RENDER_GATE result=\([^ ]*\).*/\1/p' | tail -1)"
+              failing="$(echo "$GATE_LINES" | sed -n 's/^RENDER_GATE result=.*failing="\(.*\)".*/\1/p' | tail -1)"
+              case "$outcome" in
+                passed) echo "- ✅ Every content type rendered (no type over 10% empty pages)." ;;
+                failed) echo "- ❌ **Deploy stopped before going live**: too many pages rendered empty ($failing). The live site is unchanged. Fix the pages below, or rerun with **Skip page render check** in an emergency." ;;
+                skipped_by_override) echo "- ⚠️ Went live with the page render check skipped: $failing rendered empty." ;;
+                *) echo "- ➖ Page render check did not report a result." ;;
+              esac
+              echo ""
+              echo "| Content type | Pages | Empty |"
+              echo "|---|---|---|"
+              echo "$GATE_LINES" | sed -n 's/^RENDER_GATE type=\([^ ]*\) total=\([0-9]*\) empty=\([0-9]*\)$/| \1 | \2 | \3 |/p'
+              empties="$(echo "$GATE_LINES" | sed -n 's/^RENDER_GATE_EMPTY path=//p')"
+              if [[ -n "$empties" ]]; then
+                count="$(echo "$empties" | wc -l | tr -d ' ')"
+                echo ""
+                echo "Empty pages ($count, first 20):"
+                echo "$empties" | head -20 | sed 's/^/- `/; s/$/`/'
+              fi
             } >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "summary: done=$RESULT abort=$ABORT"

@@ -60,6 +60,16 @@ All marketing content lives under the site folder from `sites.yml` (`content_fol
 - **Variant (of a live page):** `{variant}.{locale}.yml` beside a live `{locale}.yml`, registered in `versioning.yml`. Traffic allocation allowed. `promote_variant` replaces live for one locale; `delete_variant` discards one locale's variant file (per-locale; blocked when allocation > 0% — staff must remove traffic first). Deleting the last draft on an unpublished entry removes the whole folder. Soft guidance: confirm with the user before promote/publish/delete. On **attached** shared-layout entries, `create_variant` remaps to the type template unless detached or entry-level drafts exist — MCP requires principal approval + `confirm_template_variant: true` (see `explain_site` topic `shared-layout`). Per-entry field refreshes use `propose_change` / `update_fields`, not `create_variant`.
 - **All content types:** **Create/duplicate seeds exactly one locale** — multi-locale create is rejected (`create_entry`, `/api/content/create`, Create Content UI). Add translations via `translate_entry` → `draft.{locale}.yml` → promote/publish. Every file-based type (shared-layout included) is draft-first on create; attached drafts carry fields only (structure stays on `template.{locale}.yml`).
 
+### Abandoned draft cleanup (drafts not linked to a proposal)
+
+Daily job on the **live server only** (`DraftCleanupJob`, rules in `shared/variant-health.ts` `draftCleanupDecision`). Each language file is judged on its own.
+
+- **Activity** = newest of `_draft.created_at` / `based_on.at`, editorial `updated_at`, `_draft.kept_at` (staff "Keep for now"), and the day the live server saw the content change (pipeline DB `draft_activity`; catches edits from any source, including GitHub). Undated drafts start their clock the first day the live server sees them; the first sighting never acts.
+- **Nothing to lose** (identical to live, dates ignored): deleted after 30 idle days, no flag.
+- **Has unpublished work** (differs from live, or no live file for that language): `_draft.cleanup { flagged_at, deletes_at }` at 60 idle days; deleted at 90, never sooner than 30 days after the flag. Activity newer than the flag clears it.
+- **Never deleted:** traffic > 0%, a running test or one ended < 30 days ago, test history unavailable, the last draft of an unpublished page, any `_draft.proposal` link (proposal sweeps own those), shared-template drafts.
+- **MCP:** `list_variants` rows carry `cleanup` + warning `draft_scheduled_for_cleanup`; any content edit resets the clock. Agents have no keep tool. Events: `draft_cleanup_flagged`, `draft_cleanup_flag_cleared`, `draft_cleanup_deleted` (no file text). Deletion pushes through auto-commit as `system:draft-cleanup`; recovery is manual from the content repo history.
+
 ## Merge behavior
 
 When a page is loaded the system performs a deep merge: `_common.yml` fields are the base and the locale file overrides them. Arrays are replaced wholesale (not appended). This means locale-specific fields override shared ones for the same key.
