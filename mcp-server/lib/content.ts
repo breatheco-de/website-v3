@@ -11,7 +11,11 @@ import {
   type ComponentBehaviors,
 } from "../../shared/component-behaviors.js";
 import { typeUsesSharedTemplate } from "../../shared/sharedLayoutPaths.js";
-import { assertNoCorruptedTemplateKeys } from "../../shared/templateVars.js";
+import {
+  assertNoCorruptedTemplateKeys,
+  escapeTemplateVars,
+  unescapeObjectVars,
+} from "../../shared/templateVars.js";
 import {
   resolveLayoutTraits,
   type ComponentLayoutBlock,
@@ -230,32 +234,12 @@ export function resolveSiteContext(domain?: string): SiteContextResult {
 
 export function safeLoad(raw: string): Record<string, unknown> | null {
   try {
-    // Template expressions like {{ ratio | 7:1 }} contain characters (e.g. ":")
-    // that break YAML parsing. Swap them out for safe placeholders, parse, then
-    // restore so callers receive the original template strings intact.
-    const templates: string[] = [];
-    const sanitized = raw.replace(/\{\{[^}]*\}\}/g, (match) => {
-      templates.push(match);
-      return `__TPL_${templates.length - 1}__`;
-    });
-
-    const parsed = (yaml.load(sanitized) as Record<string, unknown>) || null;
-    if (!parsed || templates.length === 0) return parsed;
-
-    function restore(val: unknown): unknown {
-      if (typeof val === "string")
-        return val.replace(/__TPL_(\d+)__/g, (_, i) => templates[parseInt(i)]);
-      if (Array.isArray(val)) return val.map(restore);
-      if (val && typeof val === "object") {
-        const out: Record<string, unknown> = {};
-        for (const [k, v] of Object.entries(val as Record<string, unknown>))
-          out[k] = restore(v);
-        return out;
-      }
-      return val;
-    }
-
-    return restore(parsed) as Record<string, unknown>;
+    // Same escape path as server/yaml-parse-cache (shared/templateVars): nested
+    // defaults like {{ entry.x | {"message": "..."} }} must survive js-yaml.
+    const { escaped, map } = escapeTemplateVars(raw);
+    const loaded = yaml.load(escaped);
+    if (!loaded || typeof loaded !== "object" || Array.isArray(loaded)) return null;
+    return unescapeObjectVars(loaded, map) as Record<string, unknown>;
   } catch {
     return null;
   }
