@@ -3,6 +3,7 @@ import os from "os";
 import path from "path";
 import { Job } from "sidequest";
 import { currentArchiveRecord, isArchiveCopyUrl, rowNeedsArchive, rowProofLink } from "@shared/evidence-archive";
+import { isRowRejected } from "@shared/evidence-kinds";
 import { emitEvent } from "../../events/event-store";
 import { checkOriginal, type OriginalCheck } from "../../evidence-archive/archive-org-client";
 import { listEvidenceDatabases, readEvidenceRows } from "../../evidence-archive/rows";
@@ -105,6 +106,7 @@ export async function runEvidenceArchiveSweep(
         continue;
       }
       for (const row of rows) {
+        if (isRowRejected(row)) continue;
         const link = rowProofLink(row, db.cfg.proof_field);
         if (!link || isArchiveCopyUrl(link) || seen.has(link)) continue;
         seen.add(link);

@@ -47,10 +47,32 @@ export interface RowStamp {
   at: string;
 }
 
+/**
+ * Row key the server writes when staff reject a story: the row stays in the file (so agents
+ * cannot re-add its link) but is hidden from pages, listings, search and proposal evidence.
+ */
+export const REJECTED_KEY = "_rejected";
+
+/** Row key the server writes when a save went past a "looks like" warning. */
+export const SIMILAR_TO_KEY = "_similar_to";
+
+export interface RowRejection {
+  by: string | null;
+  at: string;
+  /** Shared by every row rejected in one action; Restore brings the whole group back. */
+  group: string;
+}
+
+export interface SimilarToEntry {
+  title: string | null;
+  link: string | null;
+  at: string;
+}
+
 /** Fields that always count as the claim itself, besides proof_field and match_fields. */
 export const EVIDENCE_CLAIM_TEXT_FIELDS = ["title", "excerpt"] as const;
 
-export type EvidenceRowTrust = "trusted" | "verified" | "unverified";
+export type EvidenceRowTrust = "trusted" | "verified" | "unverified" | "rejected";
 
 export function isEvidenceKind(v: unknown): v is EvidenceKind {
   return typeof v === "string" && (EVIDENCE_KINDS as readonly string[]).includes(v);
@@ -111,8 +133,39 @@ export function readRowStamp(row: Record<string, unknown> | null | undefined): R
   return { type: t, author: typeof author === "string" ? author : null, at: typeof at === "string" ? at : "" };
 }
 
-/** No stamp = row predates tracking (trusted); staff stamp = verified; agent stamp = unverified. */
+export function readRowRejection(row: Record<string, unknown> | null | undefined): RowRejection | null {
+  const r = row?.[REJECTED_KEY];
+  if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+  const o = r as Record<string, unknown>;
+  return {
+    by: typeof o.by === "string" ? o.by : null,
+    at: typeof o.at === "string" ? o.at : "",
+    group: typeof o.group === "string" ? o.group : "",
+  };
+}
+
+export function isRowRejected(row: Record<string, unknown> | null | undefined): boolean {
+  return readRowRejection(row) !== null;
+}
+
+export function readSimilarTo(row: Record<string, unknown> | null | undefined): SimilarToEntry[] {
+  const v = row?.[SIMILAR_TO_KEY];
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
+    .map((e) => ({
+      title: typeof e.title === "string" ? e.title : null,
+      link: typeof e.link === "string" ? e.link : null,
+      at: typeof e.at === "string" ? e.at : "",
+    }));
+}
+
+/**
+ * Rejected wins; otherwise no stamp = row predates tracking (trusted); staff stamp = verified;
+ * agent stamp = unverified.
+ */
 export function rowTrust(row: Record<string, unknown> | null | undefined): EvidenceRowTrust {
+  if (isRowRejected(row)) return "rejected";
   const s = readRowStamp(row);
   if (!s) return "trusted";
   return s.type === "staff" ? "verified" : "unverified";

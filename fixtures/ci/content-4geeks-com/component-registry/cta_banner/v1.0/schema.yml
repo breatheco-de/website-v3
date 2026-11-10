@@ -9,11 +9,99 @@ behaviors:
     via: form-settings
     notes: Lead/form conversion settings via Forms tab.
 variants:
-  default: {}
-  form: {}
-  promotion: {}
-  resourceShowcase: {}
-  strip: {}
+  default:
+    content_shape:
+      text:
+        title:
+          min: 26
+          max: 44
+          typical: 41
+        subtitle:
+          min: 88
+          max: 147
+          typical: 111
+      image: unused
+      icon: unused
+      sample_pages: 3
+      measured_at: "2026-10-02"
+    best_for: >-
+      Landing and marketing pages needing a prominent headline (26-44 chars) with supporting subtitle (88-147 chars) to
+      drive form conversions.
+    avoid_when: >-
+      Pages with many items, image-heavy content, or when a compact strip, resource showcase, or promotional banner
+      variant would be more suitable.
+    metadata_status: draft
+  form:
+    content_shape:
+      text:
+        title:
+          min: 10
+          max: 90
+          typical: 42
+        subtitle:
+          min: 43
+          max: 294
+          typical: 67
+      image: unused
+      icon: unused
+      sample_pages: 139
+      measured_at: "2026-10-02"
+    best_for: >-
+      Landing and location pages with a short title (under 50 chars) and longer subtitle that want to capture leads via
+      an inline form.
+    avoid_when: >-
+      Blog posts, program pages, or any content-heavy pages where a simple button CTA would be more appropriate than a
+      form.
+    metadata_status: draft
+  promotion:
+    best_for: >-
+      Promotional CTAs on marketing or product pages with a strong headline, short subtitle, and 1-2 action buttons to
+      drive conversions.
+    avoid_when: Pages needing simple links, high item counts, heavy media, or subtle non-promotional messaging.
+    metadata_status: draft
+  resourceShowcase:
+    content_shape:
+      items:
+        benefits:
+          min: 2
+          max: 3
+          typical: 2
+      text:
+        eyebrow:
+          min: 13
+          max: 27
+          typical: 13
+        title:
+          min: 52
+          max: 134
+          typical: 63
+        subtitle:
+          min: 54
+          max: 151
+          typical: 115
+      image: unused
+      icon: unused
+      sample_pages: 14
+      measured_at: "2026-10-02"
+    best_for: Blog pages promoting downloadable resources with 2-3 benefits, a PDF preview, and an embedded lead form.
+    avoid_when: Pages without a clear resource download or when no lead form or preview content is available.
+    metadata_status: draft
+  strip:
+    content_shape:
+      items:
+        cta_buttons:
+          min: 1
+          max: 1
+          typical: 1
+      image: unused
+      icon: required
+      sample_pages: 1
+      measured_at: "2026-10-02"
+    best_for: >-
+      Landing pages needing a compact horizontal CTA strip with one icon, rich text, and exactly one button to drive a
+      single action.
+    avoid_when: Pages requiring multiple CTAs, hero visuals, large images, or more than one button.
+    metadata_status: draft
 variant_props:
   default:
     cta_text:
@@ -45,7 +133,7 @@ variant_props:
           options:
             - none
             - add_to_cart
-            - begin_checkout
+            - click_begin_checkout
         button_variant:
           type: string
           required: false
@@ -701,6 +789,81 @@ variant_props:
                     value:
                       type: string
                       required: true
+            referral_key:
+              type: object
+              required: false
+              properties:
+                visible:
+                  type: boolean
+                  required: false
+                required:
+                  type: boolean
+                  required: false
+                default:
+                  type: string
+                  required: false
+                default_country:
+                  type: string
+                  required: false
+                helper_text:
+                  type: string
+                  required: false
+                placeholder:
+                  type: string
+                  required: false
+                show_label:
+                  type: boolean
+                  required: false
+                label:
+                  type: string
+                  required: false
+                slugs:
+                  type: array
+                  required: false
+                  items:
+                    type:
+                      type: string
+                      required: true
+                source:
+                  type: object
+                  required: false
+                  properties:
+                    content_type:
+                      type: string
+                      required: false
+                    database:
+                      type: string
+                      required: false
+                    related_field:
+                      type: string
+                      required: false
+                    query:
+                      type: string
+                      required: false
+                    value_path:
+                      type: string
+                      required: true
+                    label_path:
+                      type: string
+                      required: true
+                component_renderer:
+                  type: string
+                  required: false
+                  options:
+                    - text
+                    - phone
+                    - textarea
+                    - select
+                    - cards
+                    - simple-list
+                    - grouped-list
+                options:
+                  type: array
+                  required: false
+                  items:
+                    value:
+                      type: string
+                      required: true
             client_comments:
               type: object
               required: false
@@ -826,6 +989,13 @@ variant_props:
         button_className:
           type: string
           required: false
+        button_variant:
+          type: string
+          required: false
+          options:
+            - primary
+            - secondary
+            - outline
         terms_className:
           type: string
           required: false
@@ -859,7 +1029,7 @@ variant_props:
           options:
             - none
             - add_to_cart
-            - begin_checkout
+            - click_begin_checkout
         button_variant:
           type: string
           required: false
@@ -1548,6 +1718,81 @@ variant_props:
                     value:
                       type: string
                       required: true
+            referral_key:
+              type: object
+              required: false
+              properties:
+                visible:
+                  type: boolean
+                  required: false
+                required:
+                  type: boolean
+                  required: false
+                default:
+                  type: string
+                  required: false
+                default_country:
+                  type: string
+                  required: false
+                helper_text:
+                  type: string
+                  required: false
+                placeholder:
+                  type: string
+                  required: false
+                show_label:
+                  type: boolean
+                  required: false
+                label:
+                  type: string
+                  required: false
+                slugs:
+                  type: array
+                  required: false
+                  items:
+                    type:
+                      type: string
+                      required: true
+                source:
+                  type: object
+                  required: false
+                  properties:
+                    content_type:
+                      type: string
+                      required: false
+                    database:
+                      type: string
+                      required: false
+                    related_field:
+                      type: string
+                      required: false
+                    query:
+                      type: string
+                      required: false
+                    value_path:
+                      type: string
+                      required: true
+                    label_path:
+                      type: string
+                      required: true
+                component_renderer:
+                  type: string
+                  required: false
+                  options:
+                    - text
+                    - phone
+                    - textarea
+                    - select
+                    - cards
+                    - simple-list
+                    - grouped-list
+                options:
+                  type: array
+                  required: false
+                  items:
+                    value:
+                      type: string
+                      required: true
             client_comments:
               type: object
               required: false
@@ -1673,6 +1918,13 @@ variant_props:
         button_className:
           type: string
           required: false
+        button_variant:
+          type: string
+          required: false
+          options:
+            - primary
+            - secondary
+            - outline
         terms_className:
           type: string
           required: false
@@ -1712,7 +1964,7 @@ variant_props:
           options:
             - none
             - add_to_cart
-            - begin_checkout
+            - click_begin_checkout
         button_variant:
           type: string
           required: false

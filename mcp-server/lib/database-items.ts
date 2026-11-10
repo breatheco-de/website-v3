@@ -2,6 +2,14 @@
  * Pure helpers for MCP local database item tools (FAQ defaults, dedupe, indexing).
  */
 
+import { REJECTED_KEY } from "@shared/evidence-kinds";
+import {
+  findEvidenceDuplicates,
+  similarAcknowledged,
+  type DuplicateBlockCode,
+  type SimilarRow,
+} from "@shared/evidence-duplicates";
+
 export const FAQ_DB_NAME = "frequently_asked_questions";
 
 export function normalizeFaqQuestion(question: string): string {
@@ -152,6 +160,7 @@ export type BatchRowFail = {
   field?: string;
   existing_index?: number;
   index?: number;
+  similar?: SimilarRow[];
 };
 
 export type BatchRowResult = BatchRowOk | BatchRowFail;
@@ -192,10 +201,12 @@ export function prepareBatchAdd(
   database: string,
   items: unknown[],
   existing: Record<string, unknown>[],
+  evidence?: EvidenceAddContext,
 ): { results: BatchRowResult[]; toWrite: PreparedAddRow[] } {
   const results: BatchRowResult[] = [];
   const toWrite: PreparedAddRow[] = [];
   const writtenSoFar: Record<string, unknown>[] = [];
+  const existingRows = evidence ? rowsWithRejected(existing, evidence.rejected) : existing;
 
   for (let input_index = 0; input_index < items.length; input_index++) {
     const raw = items[input_index];
@@ -249,6 +260,35 @@ export function prepareBatchAdd(
     }
 
     const prepared = { ...raw };
+    if (evidence) {
+      const pool = [...existingRows, ...writtenSoFar];
+      const check = findEvidenceDuplicates({
+        rows: pool,
+        candidate: prepared,
+        proofField: evidence.proofField,
+        ignoreWords: evidence.ignoreWords,
+      });
+      if (check.blocked) {
+        results.push({
+          input_index,
+          ok: false,
+          code: check.blocked.code,
+          message: duplicateRowMessage(check.blocked.code, check.blocked.title ?? null),
+          ...(check.blocked.index !== undefined ? { existing_index: check.blocked.index } : {}),
+        });
+        continue;
+      }
+      if (!similarAcknowledged(check.similar, evidence.acknowledged)) {
+        results.push({
+          input_index,
+          ok: false,
+          code: "similar_rows",
+          message: `Looks like ${check.similar.length} existing row(s) about the same story. Retry with acknowledged_similar listing every similar index if this is different coverage.`,
+          similar: check.similar,
+        });
+        continue;
+      }
+    }
     writtenSoFar.push(prepared);
     toWrite.push({ input_index, item: prepared });
     results.push({
@@ -260,6 +300,89 @@ export function prepareBatchAdd(
   }
 
   return { results, toWrite };
+}
+
+/** Evidence database context for duplicate pre-checks (bulk add). */
+export type EvidenceAddContext = {
+  proofField: string;
+  /** Global indices of staff-rejected rows (item reads strip the server marker). */
+  rejected: ReadonlySet<number>;
+  ignoreWords: ReadonlySet<string>;
+  acknowledged: readonly number[];
+};
+
+/** Stored rows with the rejected marker restored, so the shared matcher sees rejections. */
+export function rowsWithRejected(
+  items: Record<string, unknown>[],
+  rejected: ReadonlySet<number>,
+): Record<string, unknown>[] {
+  if (rejected.size === 0) return items;
+  return items.map((item, i) => (rejected.has(i) ? { ...item, [REJECTED_KEY]: { by: null, at: "", group: "" } } : item));
+}
+
+function duplicateRowMessage(code: DuplicateBlockCode, title: string | null): string {
+  const named = title ? `"${title}"` : "an existing row";
+  if (code === "redirect_link") return "Redirect link (news aggregator / shortener): use the publisher's own article link.";
+  if (code === "rejected_link") return `Staff rejected this story (${named}); agents cannot add it again.`;
+  return `Link already in the database: ${named}.`;
+}
+
+const REFUSAL_CODES = new Set(["duplicate_link", "rejected_link", "redirect_link", "similar_rows", "rejected_row", "staff_only"]);
+
+/**
+ * MCP fail details for a server duplicate refusal (409 / 403 body), or null when the body is not one.
+ * `retry` is the same tool call, used for the similar_rows next action.
+ */
+export function duplicateRefusalDetails(
+  database: string,
+  body: Record<string, unknown>,
+  retry: { tool: string; args: Record<string, unknown> },
+): Record<string, unknown> | null {
+  const code = typeof body.code === "string" ? body.code : "";
+  if (!REFUSAL_CODES.has(code)) return null;
+  const existing_index = typeof body.existing_index === "number" ? body.existing_index : undefined;
+  const similar = Array.isArray(body.similar) ? (body.similar as SimilarRow[]) : undefined;
+  const warnings: Array<{ code: string; message: string }> = [];
+  const next_actions: Array<Record<string, unknown>> = [];
+  if (code === "duplicate_link" && existing_index !== undefined) {
+    next_actions.push({
+      tool: "update_database_item",
+      reason: "The story is already a row; update that row instead of adding a copy",
+      args_hint: { database, index: existing_index },
+      priority: "recommended",
+    });
+  } else if (code === "similar_rows" && similar?.length) {
+    next_actions.push({
+      tool: retry.tool,
+      reason: "Only if this is different coverage: retry listing every similar index you reviewed",
+      args_hint: { ...retry.args, acknowledged_similar: similar.map((s) => s.index) },
+      priority: "optional",
+    });
+  } else if (code === "rejected_link") {
+    warnings.push({
+      code: "rejected_story",
+      message: "Staff rejected this story. Agents cannot add, restore or override it; skip it.",
+    });
+  } else if (code === "redirect_link") {
+    warnings.push({
+      code: "redirect_link",
+      message: "Resolve the publisher's own article URL (not news.google.com / t.co / bit.ly / lnkd.in…) and retry with that link.",
+    });
+  } else if (code === "rejected_row") {
+    warnings.push({
+      code: "rejected_row",
+      message: "Rejected rows keep agents from re-adding the story; only staff can delete them on the Databases page.",
+    });
+  }
+  return {
+    code,
+    ...(existing_index !== undefined ? { existing_index } : {}),
+    ...(body.existing ? { existing: body.existing } : {}),
+    ...(similar ? { similar } : {}),
+    ...(typeof body.input_index === "number" ? { input_index: body.input_index } : {}),
+    warnings,
+    next_actions,
+  };
 }
 
 export type BatchUpdateInput = {

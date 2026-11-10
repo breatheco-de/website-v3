@@ -13,8 +13,10 @@ export type EditorType =
   | "color-picker"
   | "image-picker"
   | "link-picker"
-  | "form-settings";
+  | "form-settings"
+  | "string-picker:primary,secondary,outline";
 
 export const fieldEditors: Record<string, EditorType> = {
   ".": "form-settings",
+  "button_variant": "string-picker:primary,secondary,outline",
 };

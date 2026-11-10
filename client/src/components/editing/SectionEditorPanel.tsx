@@ -6239,6 +6239,14 @@ export function SectionEditorPanel({
                 }
 
                 if (isSimpleField && editorType === "string-picker") {
+                  // Writing a nested form prop would create an empty form object that save rejects.
+                  if (
+                    formSettingsPath &&
+                    !boundFormObjectPresent &&
+                    fieldPath.startsWith(`${formSettingsPath}.`)
+                  ) {
+                    return null;
+                  }
                   const options = variant ? variant.split(",") : [];
                   const getSimpleStringValue = () => {
                     if (!parsedSection) return "";

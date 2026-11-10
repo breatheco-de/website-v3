@@ -311,6 +311,7 @@ export interface LeadFormData {
   privacy_url?: string;
   className?: string;
   button_className?: string;
+  button_variant?: "primary" | "secondary" | "outline";
   terms_className?: string;
   turnstile?: {
     enabled?: boolean;
@@ -372,10 +373,14 @@ interface ConsentSectionProps {
   geo?: { country_code?: string } | null;
   consentSettings?: Record<string, Record<string, string> | string>;
   fallbackKey?: string | null;
+  textStyle?: React.CSSProperties;
 }
 
 const CONSENT_COPY_CLASS =
-  "text-xs text-muted-foreground max-w-none prose-p:my-0 prose-p:leading-snug [&_p]:m-0 [&_a]:underline [&_a]:text-inherit hover:[&_a]:text-foreground";
+  "text-xs text-inherit opacity-80 max-w-none prose-p:my-0 prose-p:leading-snug prose-strong:text-inherit [&_p]:m-0 [&_a]:underline [&_a]:text-inherit hover:[&_a]:no-underline";
+
+const CONSENT_CHECKBOX_CLASS =
+  "border-current opacity-80 data-[state=checked]:opacity-100 data-[state=checked]:bg-transparent data-[state=checked]:text-current";
 
 function ConsentMessage({ html, testId }: { html: string; testId?: string }) {
   if (!html?.trim()) return null;
@@ -417,6 +422,7 @@ function FallbackConsentField({
               <Checkbox
                 checked={!!field.value}
                 onCheckedChange={field.onChange}
+                className={CONSENT_CHECKBOX_CLASS}
                 data-testid={fallbackKey === "consent_general" ? "checkbox-consent-general" : "checkbox-consent-fallback"}
               />
             </FormControl>
@@ -441,7 +447,7 @@ function FallbackConsentField({
   );
 }
 
-function ConsentSection({ consent, form, locale, formOptions, sessionLocation, geo, consentSettings, fallbackKey }: ConsentSectionProps) {
+function ConsentSection({ consent, form, locale, formOptions, sessionLocation, geo, consentSettings, fallbackKey, textStyle }: ConsentSectionProps) {
   const selectedLocationSlug = form.watch("location");
   const selectedLocation = selectedLocationSlug
     ? formOptions?.locations.find((loc) => loc.slug === selectedLocationSlug)
@@ -464,7 +470,7 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, g
     : "";
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" style={textStyle}>
       {requirement.showFallback && requirement.fallbackKey && (
         <FallbackConsentField
           form={form}
@@ -486,6 +492,7 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, g
                   <Checkbox
                     checked={field.value}
                     onCheckedChange={field.onChange}
+                    className={CONSENT_CHECKBOX_CLASS}
                     data-testid="checkbox-consent-marketing"
                   />
                 </FormControl>
@@ -519,6 +526,7 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, g
                 <Checkbox
                   checked={field.value}
                   onCheckedChange={field.onChange}
+                  className={CONSENT_CHECKBOX_CLASS}
                   data-testid="checkbox-consent-email"
                 />
               </FormControl>
@@ -546,6 +554,7 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, g
                 <Checkbox
                   checked={field.value}
                   onCheckedChange={field.onChange}
+                  className={CONSENT_CHECKBOX_CLASS}
                   data-testid="checkbox-consent-sms"
                 />
               </FormControl>
@@ -573,6 +582,7 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, g
                 <Checkbox
                   checked={field.value}
                   onCheckedChange={field.onChange}
+                  className={CONSENT_CHECKBOX_CLASS}
                   data-testid="checkbox-consent-whatsapp"
                 />
               </FormControl>
@@ -608,6 +618,7 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, g
                     <Checkbox
                       checked={!!field.value}
                       onCheckedChange={field.onChange}
+                      className={CONSENT_CHECKBOX_CLASS}
                       data-testid={`checkbox-consent-${yamlField}`}
                     />
                   </FormControl>
@@ -2146,6 +2157,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   });
   const formCopy = resolveLeadFormCopy(formPhase, effectiveData, locale);
 
+  const pickedButtonVariant =
+    data.button_variant === "outline"
+      ? "outline"
+      : data.button_variant === "secondary"
+        ? "secondary"
+        : "default";
+  const submitButtonVariant = formCopy.submit_disabled === true ? "secondary" : pickedButtonVariant;
+
   const showField = (name: keyof NonNullable<LeadFormData["fields"]>) => {
     const hideOptionals =
       isSignupRequested && isLoggedIn && !loginMode && allRequiredFieldsFilled;
@@ -2315,6 +2334,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           )}
           <Button
             type="submit"
+            variant={pickedButtonVariant}
             className="w-full"
             disabled={loginMutation.isPending || !loginEmail.trim() || !loginPassword}
             data-testid="button-login-submit"
@@ -2415,7 +2435,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               )}
               <Button 
                 type="submit" 
-                variant={formCopy.submit_disabled === true ? "secondary" : "default"}
+                variant={submitButtonVariant}
                 disabled={submitMutation.isPending || formCopy.submit_disabled === true}
                 data-testid="button-submit"
               >
@@ -2472,6 +2492,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                   geo={session.geo}
                   consentSettings={consentSettings}
                   fallbackKey={consentFallbackKey}
+                  textStyle={termsStyle}
                 />
               </div>
             )}
@@ -2928,6 +2949,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               geo={session.geo}
               consentSettings={consentSettings}
               fallbackKey={consentFallbackKey}
+              textStyle={termsStyle}
             />
           )}
 
@@ -2965,7 +2987,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
 
           <Button 
             type="submit" 
-            variant={formCopy.submit_disabled === true ? "secondary" : "default"}
+            variant={submitButtonVariant}
             className={`w-full ${data.button_className || ""}`}
             disabled={submitMutation.isPending || formCopy.submit_disabled === true}
             data-testid="button-submit"
@@ -2978,11 +3000,11 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           </Button>
 
           {isSignupRequested && showTerms && showLegalAndConsent && (
-            <p className={`text-xs text-center ${data.terms_className || "text-muted-foreground"}`} style={termsStyle} data-testid="text-terms">
+            <p className={`text-xs text-center ${data.terms_className || "text-inherit opacity-80"}`} style={termsStyle} data-testid="text-terms">
               {locale === "es" ? "Al registrarte, aceptas los " : "By signing up, you agree to the "}
               <a 
                 href={effectiveTermsUrl || legalSettings?.legal_terms_url || (locale === "es" ? "/es/terminos-y-condiciones" : "/en/terms-conditions")} 
-                className="underline hover:text-foreground"
+                className="underline hover:no-underline"
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="link-terms"
@@ -2992,7 +3014,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
               {locale === "es" ? " y la " : " and "}
               <a 
                 href={effectivePrivacyUrl || legalSettings?.legal_privacy_url || (locale === "es" ? "/es/politicas-de-privacidad" : "/en/privacy-policy")} 
-                className="underline hover:text-foreground"
+                className="underline hover:no-underline"
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="link-privacy"

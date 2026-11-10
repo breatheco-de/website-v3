@@ -44,6 +44,12 @@ export function isWaybackUrl(url: string): boolean {
   return WAYBACK_URL.test(url.trim());
 }
 
+/** The page a Wayback snapshot copies, or null when the URL is not a snapshot. */
+export function waybackOriginalUrl(url: string): string | null {
+  const m = WAYBACK_URL.exec(url.trim());
+  return m ? m[2]! : null;
+}
+
 const ARCHIVE_TODAY_HOSTS = new Set([
   "archive.today",
   "archive.ph",

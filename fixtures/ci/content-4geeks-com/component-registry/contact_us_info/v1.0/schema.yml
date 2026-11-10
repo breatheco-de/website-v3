@@ -666,6 +666,81 @@ props:
                   value:
                     type: string
                     required: true
+          referral_key:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              default_country:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+              slugs:
+                type: array
+                required: false
+                items:
+                  type:
+                    type: string
+                    required: true
+              source:
+                type: object
+                required: false
+                properties:
+                  content_type:
+                    type: string
+                    required: false
+                  database:
+                    type: string
+                    required: false
+                  related_field:
+                    type: string
+                    required: false
+                  query:
+                    type: string
+                    required: false
+                  value_path:
+                    type: string
+                    required: true
+                  label_path:
+                    type: string
+                    required: true
+              component_renderer:
+                type: string
+                required: false
+                options:
+                  - text
+                  - phone
+                  - textarea
+                  - select
+                  - cards
+                  - simple-list
+                  - grouped-list
+              options:
+                type: array
+                required: false
+                items:
+                  value:
+                    type: string
+                    required: true
           client_comments:
             type: object
             required: false
@@ -791,6 +866,13 @@ props:
       button_className:
         type: string
         required: false
+      button_variant:
+        type: string
+        required: false
+        options:
+          - primary
+          - secondary
+          - outline
       terms_className:
         type: string
         required: false
@@ -824,3 +906,20 @@ props:
         required: true
         description: Contact email
     description: List of office/location contacts
+variants:
+  default:
+    content_shape:
+      text:
+        title:
+          min: 17
+          max: 18
+          typical: 17
+      image: unused
+      icon: unused
+      sample_pages: 1
+      measured_at: "2026-10-02"
+    best_for: >-
+      Use on contact pages or landing page bottoms when you need to capture leads via form while simultaneously
+      displaying 2-4 office locations with address, phone and email.
+    avoid_when: Avoid when you only need a simple contact form or only want to show office locations without lead capture.
+    metadata_status: draft

@@ -371,6 +371,13 @@ props:
       button_className:
         type: string
         required: false
+      button_variant:
+        type: string
+        required: false
+        options:
+          - primary
+          - secondary
+          - outline
       terms_className:
         type: string
         required: false
@@ -422,3 +429,17 @@ props:
         description: Final encouraging message
         example: Now you're ready to make the best decision for your career!
     description: Section explaining what happens after form submission
+variants:
+  default:
+    content_shape:
+      image: unused
+      icon: unused
+      sample_pages: 1
+      measured_at: "2026-10-02"
+    best_for: >-
+      Program application pages with 1 hero, multi-step form fields including country phone selector, consent
+      checkboxes, and a 3-4 item next steps column.
+    avoid_when: >-
+      Pages without a clear program application goal, or when no next steps explanation or lead form submission flow is
+      needed.
+    metadata_status: draft

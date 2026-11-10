@@ -13,6 +13,7 @@ import { getDatabaseUsage } from "../database-usage";
 import * as fs from "fs";
 import * as path from "path";
 import * as yaml from "js-yaml";
+import { randomUUID } from "crypto";
 import { execSync as _execSync } from "child_process";
 import {
   versioningUpdateSchema,
@@ -225,7 +226,25 @@ import {
 import { child } from "../logger";
 import { api } from "../rate-limit/api";
 import { applyRowStamp, applyRowStampsBulk, stripRowStamp, verifiedStamp, type RowWriter } from "../database-row-stamp";
-import { ROW_STAMP_KEY, readEvidenceConfig, rowTrust, validateEvidenceConfig } from "@shared/evidence-kinds";
+import {
+  REJECTED_KEY,
+  ROW_STAMP_KEY,
+  SIMILAR_TO_KEY,
+  isRowRejected,
+  readEvidenceConfig,
+  readRowRejection,
+  readSimilarTo,
+  rowTrust,
+  validateEvidenceConfig,
+} from "@shared/evidence-kinds";
+import { ignoreWordSet, normalizeEvidenceUrl, rejectionGroup } from "@shared/evidence-duplicates";
+import {
+  applySimilarTo,
+  guardEvidenceWrite,
+  linkChanged,
+  similarityFieldsChanged,
+} from "../evidence-duplicates-guard";
+import { siteBrandTerms } from "../content-proposals/site-brand";
 import { archiveView, isArchiveCopyUrl, normalizeBackupArchiveUrl, rowProofLink } from "@shared/evidence-archive";
 import { writeArchiveRecords } from "../evidence-archive/apply";
 import { markRowsPendingArchive, queueArchiveJobs } from "../evidence-archive/on-save";
@@ -264,10 +283,41 @@ function getValidationCache(res: Response) {
   return (res.locals.site as any)?.validationCache ?? getValidationCacheService();
 }
 
+function isAgentRequest(req: Request): boolean {
+  return isMcpLoopbackRequest(req) || typeof req.headers["x-mcp-author"] === "string";
+}
+
 /** Who is writing a database row: MCP loopback (or x-mcp-author) is an agent; everything else is staff. */
 function rowWriterFor(req: Request, author: string | null): RowWriter {
-  const isAgent = isMcpLoopbackRequest(req) || typeof req.headers["x-mcp-author"] === "string";
-  return { type: isAgent ? "agent" : "staff", author };
+  return { type: isAgentRequest(req) ? "agent" : "staff", author };
+}
+
+/**
+ * Duplicate-check controls on item writes, as query params (the PATCH body is the row itself):
+ * `allow_duplicate=1` (staff Save anyway) and `acknowledged_similar=3,7` (stored positions reviewed).
+ * Sends 403 and returns null when an agent sends `allow_duplicate`.
+ */
+function readDuplicateControls(req: Request, res: Response): { allowDuplicate: boolean; acknowledged: number[] } | null {
+  const allow = String(req.query.allow_duplicate ?? "") === "1" || req.query.allow_duplicate === "true";
+  if (allow && isAgentRequest(req)) {
+    res.status(403).json({
+      error: "Only staff can save past a duplicate check (Save anyway on the Databases page).",
+      code: "staff_only",
+    });
+    return null;
+  }
+  const raw = req.query.acknowledged_similar;
+  const acknowledged = (Array.isArray(raw) ? raw.join(",") : String(raw ?? ""))
+    .split(",")
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => Number.isInteger(n) && n >= 0);
+  return { allowDuplicate: allow, acknowledged };
+}
+
+/** Brand words ignored when comparing titles on this site. */
+function duplicateIgnoreWords(res: Response): Set<string> {
+  const domain = (res.locals.site as { config?: { domain?: string } } | undefined)?.config?.domain;
+  return ignoreWordSet(siteBrandTerms(getContentRoot(res), domain));
 }
 
 /** Domains whose fallback_content_folder is this site, so they also use its evidence databases. */
@@ -672,7 +722,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
     try {
       const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
       const limit = Math.max(1, Math.min(1000, parseInt(String(req.query.limit || "100"), 10)));
-      const result = await getDB(res).fetchItems(req.params.name);
+      const result = await getDB(res).fetchItems(req.params.name, false, { includeRejected: true });
 
       // Apply tag/select field filters: filter[fieldName]=value (multi-value OR per field, AND across fields)
       const filterParam = req.query.filter as Record<string, string | string[]> | undefined;
@@ -700,7 +750,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
       const rawRows = evidenceCfg ? getDB(res).getRawItems(req.params.name) ?? [] : [];
       res.json({
         ...result,
-        items: pageEntries.map((e) => e.item),
+        items: pageEntries.map((e) => stripRowStamp(e.item)),
         // Stored position of each returned row; PATCH/DELETE /items/:index expect this, not the page row.
         indices: pageEntries.map((e) => e.index),
         ...(evidenceCfg
@@ -708,6 +758,9 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
               evidence_trust: pageEntries.map((e) => rowTrust(rawRows[e.index] as Record<string, unknown> | undefined)),
               evidence_archive: pageEntries.map((e) =>
                 archiveView(rawRows[e.index] as Record<string, unknown> | undefined, evidenceCfg.proof_field),
+              ),
+              evidence_similar_to: pageEntries.map((e) =>
+                readSimilarTo(rawRows[e.index] as Record<string, unknown> | undefined),
               ),
             }
           : {}),
@@ -754,6 +807,8 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         return;
       }
 
+      const controls = readDuplicateControls(req, res);
+      if (!controls) return;
       const { items: prevRows } = readLocalItems(dbm, dbName, getContentRoot(res));
       const stamped = applyRowStampsBulk({
         prevRows,
@@ -761,6 +816,32 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         evidence: config.evidence,
         writer: rowWriterFor(req, auth.author),
       });
+      const evidenceCfg = readEvidenceConfig(config.evidence);
+      if (evidenceCfg) {
+        // Whole-file saves (reorders, bulk edits) only check links the previous rows did not have.
+        const prevLinks = new Set(prevRows.map((r) => normalizeEvidenceUrl(rowProofLink(r, evidenceCfg.proof_field))));
+        const ignoreWords = duplicateIgnoreWords(res);
+        for (let i = 0; i < stamped.length; i++) {
+          const link = normalizeEvidenceUrl(rowProofLink(stamped[i]!, evidenceCfg.proof_field));
+          if (!link || prevLinks.has(link)) continue;
+          const guard = guardEvidenceWrite({
+            evidence: config.evidence,
+            label: config.name || dbName,
+            rows: stamped,
+            candidate: stamped[i]!,
+            excludeIndex: i,
+            checkLink: true,
+            checkSimilar: false,
+            allowDuplicate: controls.allowDuplicate,
+            acknowledged: controls.acknowledged,
+            ignoreWords,
+          });
+          if (!guard.ok) {
+            res.status(guard.refusal.status).json({ ...guard.refusal.body, input_index: i });
+            return;
+          }
+        }
+      }
       const archiveLinks = markRowsPendingArchive(stamped, config.evidence);
       const data: unknown = resultsPath ? { [resultsPath]: stamped } : stamped;
       const yamlStr = safeYamlDump(data, { lineWidth: 120 });
@@ -877,8 +958,32 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
           }),
         );
       }
+      const controls = readDuplicateControls(req, res);
+      if (!controls) return;
       const localConfig = config.source.local!;
       const { items: existing, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
+      if (readEvidenceConfig(config.evidence)) {
+        const ignoreWords = duplicateIgnoreWords(res);
+        const pool = [...existing];
+        for (let i = 0; i < coercedItems.length; i++) {
+          const guard = guardEvidenceWrite({
+            evidence: config.evidence,
+            label: config.name || dbName,
+            rows: pool,
+            candidate: coercedItems[i]!,
+            checkLink: true,
+            allowDuplicate: controls.allowDuplicate,
+            acknowledged: controls.acknowledged,
+            ignoreWords,
+          });
+          if (!guard.ok) {
+            res.status(guard.refusal.status).json({ ...guard.refusal.body, input_index: i });
+            return;
+          }
+          coercedItems[i] = applySimilarTo(coercedItems[i]!, guard.similarTo);
+          pool.push(coercedItems[i]!);
+        }
+      }
       const archiveLinks = markRowsPendingArchive(coercedItems, config.evidence);
       writeLocalItems(dbm, dbName, filePath, resultsPath, [...existing, ...coercedItems], localConfig.filename, getContentRoot(res), { req, author: auth.author });
       queueArchiveJobs({ site: getSiteKey(res), contentRoot: getContentRoot(res), database: dbName, links: archiveLinks });
@@ -918,18 +1023,45 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         res.status(400).json(relationFieldFailureHttpBody(relationCoerced.failures));
         return;
       }
+      const controls = readDuplicateControls(req, res);
+      if (!controls) return;
       const localConfig = config.source.local!;
       const { items, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
       if (idx >= items.length) {
         res.status(404).json({ error: `Item at index ${idx} not found` });
         return;
       }
-      items[idx] = applyRowStamp({
-        prev: items[idx],
-        next: { ...items[idx], ...relationCoerced.fields },
+      const prevRow = items[idx]!;
+      let nextRow = applyRowStamp({
+        prev: prevRow,
+        next: { ...prevRow, ...relationCoerced.fields },
         evidence: config.evidence,
         writer: rowWriterFor(req, auth.author),
       });
+      const evidenceCfg = readEvidenceConfig(config.evidence);
+      if (evidenceCfg) {
+        const checkLink = linkChanged(prevRow, nextRow, evidenceCfg.proof_field);
+        if (checkLink || similarityFieldsChanged(prevRow, nextRow)) {
+          const guard = guardEvidenceWrite({
+            evidence: config.evidence,
+            label: config.name || dbName,
+            rows: items,
+            candidate: nextRow,
+            excludeIndex: idx,
+            prev: prevRow,
+            checkLink,
+            allowDuplicate: controls.allowDuplicate,
+            acknowledged: controls.acknowledged,
+            ignoreWords: duplicateIgnoreWords(res),
+          });
+          if (!guard.ok) {
+            res.status(guard.refusal.status).json(guard.refusal.body);
+            return;
+          }
+          nextRow = applySimilarTo(nextRow, guard.similarTo);
+        }
+      }
+      items[idx] = nextRow;
       const archiveLinks = markRowsPendingArchive([items[idx]], config.evidence);
       writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res), { req, author: auth.author });
       queueArchiveJobs({ site: getSiteKey(res), contentRoot: getContentRoot(res), database: dbName, links: archiveLinks });
@@ -957,6 +1089,13 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
       const { items, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
       if (idx >= items.length) {
         res.status(404).json({ error: `Item at index ${idx} not found` });
+        return;
+      }
+      if (isAgentRequest(req) && isRowRejected(items[idx])) {
+        res.status(403).json({
+          error: "Staff rejected this story; deleting it would let it be added again. Only staff can delete a rejected row.",
+          code: "rejected_row",
+        });
         return;
       }
       items.splice(idx, 1);
@@ -994,9 +1133,116 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         res.status(404).json({ error: `Item at index ${idx} not found` });
         return;
       }
-      items[idx] = { ...items[idx], [ROW_STAMP_KEY]: verifiedStamp(auth.author) };
+      const { [SIMILAR_TO_KEY]: _reviewed, ...verifiedRow } = items[idx]!;
+      items[idx] = { ...verifiedRow, [ROW_STAMP_KEY]: verifiedStamp(auth.author) };
       writeLocalItems(dbm, dbName, filePath, resultsPath, items, localConfig.filename, getContentRoot(res), { req, author: auth.author });
       res.json({ success: true, index: idx, trust: rowTrust(items[idx]) });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(msg.includes("not found") || msg.includes("Only local") ? 404 : 500).json({ error: msg });
+    }
+  });
+
+  type GroupRow = { index: number; title: string | null; locale: string | null };
+  const groupRow = (items: Record<string, unknown>[], index: number): GroupRow => {
+    const r = items[index] ?? {};
+    return {
+      index,
+      title: typeof r.title === "string" ? r.title : null,
+      locale: typeof r.locale === "string" ? r.locale : null,
+    };
+  };
+
+  /** Staff-only evidence row action target; sends the error response and returns null otherwise. */
+  async function evidenceRowForRejection(req: Request, res: Response, action: string) {
+    if (isAgentRequest(req)) {
+      res.status(403).json({ error: `${action} evidence rows is staff UI only.`, code: "staff_only" });
+      return null;
+    }
+    const auth = await requireCapability(req, res, "databases_edit_data", req.params.name);
+    if (!auth.authorized) return null;
+    const dbName = req.params.name;
+    const idx = parseInt(req.params.index, 10);
+    if (isNaN(idx) || idx < 0) {
+      res.status(400).json({ error: "Invalid index" });
+      return null;
+    }
+    const dbm = getDB(res);
+    const config = dbm.get(dbName);
+    const cfg = readEvidenceConfig(config.evidence);
+    if (!cfg) {
+      res.status(400).json({ error: "This database is not an evidence source.", code: "not_evidence" });
+      return null;
+    }
+    const { items, filePath, resultsPath } = readLocalItems(dbm, dbName, getContentRoot(res));
+    if (idx >= items.length) {
+      res.status(404).json({ error: `Item at index ${idx} not found` });
+      return null;
+    }
+    return { auth, dbName, dbm, config, cfg, idx, items, filePath, resultsPath };
+  }
+
+  // Reject: the story stays in the file (so its link cannot be added again) but is hidden from pages,
+  // listings, search and proposal evidence. Covers other-language rows and, by default, same-link twins.
+  api.post(app, "/api/databases/:name/items/:index/reject", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const t = await evidenceRowForRejection(req, res, "Rejecting");
+      if (!t) return;
+      const includeSameLink = (req.body as { include_same_link?: unknown } | undefined)?.include_same_link !== false;
+      const group = rejectionGroup({ rows: t.items, index: t.idx, proofField: t.cfg.proof_field, includeSameLink });
+      const summary = {
+        index: t.idx,
+        translations: group.translations.map((i) => groupRow(t.items, i)),
+        same_link: group.sameLink.map((i) => groupRow(t.items, i)),
+        indices: group.all,
+      };
+      if (String(req.query.preview ?? "") === "1") {
+        res.json({ preview: true, ...summary });
+        return;
+      }
+      const rejection = { by: t.auth.author ?? null, at: new Date().toISOString(), group: randomUUID() };
+      for (const i of group.all) {
+        if (!isRowRejected(t.items[i])) t.items[i] = { ...t.items[i], [REJECTED_KEY]: rejection };
+      }
+      writeLocalItems(t.dbm, t.dbName, t.filePath, t.resultsPath, t.items, t.config.source.local!.filename, getContentRoot(res), {
+        req,
+        author: t.auth.author,
+      });
+      res.json({ success: true, ...summary });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(msg.includes("not found") || msg.includes("Only local") ? 404 : 500).json({ error: msg });
+    }
+  });
+
+  // Restore: clears the rejection on every row rejected in the same action.
+  api.post(app, "/api/databases/:name/items/:index/restore", { rate: "staffWrite" }, async (req, res) => {
+    try {
+      const t = await evidenceRowForRejection(req, res, "Restoring");
+      if (!t) return;
+      const rejection = readRowRejection(t.items[t.idx]);
+      if (!rejection) {
+        res.status(400).json({ error: "This row is not rejected.", code: "not_rejected" });
+        return;
+      }
+      const indices = t.items
+        .map((row, i) => ({ row, i }))
+        .filter(({ row, i }) => i === t.idx || (!!rejection.group && readRowRejection(row)?.group === rejection.group))
+        .map(({ i }) => i);
+      const summary = { index: t.idx, rows: indices.map((i) => groupRow(t.items, i)), indices };
+      if (String(req.query.preview ?? "") === "1") {
+        res.json({ preview: true, ...summary });
+        return;
+      }
+      for (const i of indices) {
+        const { [REJECTED_KEY]: _restored, ...rest } = t.items[i]!;
+        t.items[i] = rest;
+      }
+      writeLocalItems(t.dbm, t.dbName, t.filePath, t.resultsPath, t.items, t.config.source.local!.filename, getContentRoot(res), {
+        req,
+        author: t.auth.author,
+      });
+      res.json({ success: true, ...summary });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(msg.includes("not found") || msg.includes("Only local") ? 404 : 500).json({ error: msg });

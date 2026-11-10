@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyRowStamp, applyRowStampsBulk, stripRowStamp } from "./database-row-stamp";
-import { ROW_STAMP_KEY, rowTrust } from "@shared/evidence-kinds";
+import { REJECTED_KEY, ROW_STAMP_KEY, SIMILAR_TO_KEY, rowTrust } from "@shared/evidence-kinds";
 import { ARCHIVE_KEY, archiveView } from "@shared/evidence-archive";
 
 const evidence = {
@@ -155,5 +155,55 @@ describe("applyRowStampsBulk", () => {
     });
     expect(rowTrust(out[1])).toBe("verified");
     expect(rowTrust(out[0])).toBe("trusted");
+  });
+});
+
+describe("_rejected and _similar_to", () => {
+  const rejection = { by: "alice", at: "2026-11-10T00:00:00.000Z", group: "g1" };
+  const similarTo = [{ title: "Other story", link: "https://example.com/x", at: "2026-11-10T00:00:00.000Z" }];
+  const rejectedRow = { ...verifiedRow, [REJECTED_KEY]: rejection, [SIMILAR_TO_KEY]: similarTo };
+
+  it("are stripped from reads", () => {
+    const out = stripRowStamp(rejectedRow);
+    expect(REJECTED_KEY in out).toBe(false);
+    expect(SIMILAR_TO_KEY in out).toBe(false);
+  });
+
+  it("an edit keeps both, even when it changes the proof", () => {
+    const row = applyRowStamp({
+      prev: rejectedRow,
+      next: { ...stripRowStamp(rejectedRow), title: "Typo fixed", link_url: "https://example.com/z" },
+      evidence,
+      writer: staff,
+      now,
+    });
+    expect(row[REJECTED_KEY]).toEqual(rejection);
+    expect(row[SIMILAR_TO_KEY]).toEqual(similarTo);
+    expect(rowTrust(row)).toBe("rejected");
+  });
+
+  it("client-sent values are dropped", () => {
+    const row = applyRowStamp({
+      prev: verifiedRow,
+      next: { ...verifiedRow, [REJECTED_KEY]: rejection, [SIMILAR_TO_KEY]: similarTo },
+      evidence,
+      writer: agent,
+      now,
+    });
+    expect(REJECTED_KEY in row).toBe(false);
+    expect(SIMILAR_TO_KEY in row).toBe(false);
+  });
+
+  it("a whole-file save keeps the rejection when the row is reordered or its title edited", () => {
+    const other = { title: "Other", organization: "IDB", link_url: "https://example.com/idb" };
+    const out = applyRowStampsBulk({
+      prevRows: [other, rejectedRow],
+      nextRows: [stripRowStamp({ ...rejectedRow, title: "Renamed" }), stripRowStamp({ ...other })],
+      evidence,
+      writer: staff,
+      now,
+    });
+    expect(out[0]![REJECTED_KEY]).toEqual(rejection);
+    expect(REJECTED_KEY in out[1]!).toBe(false);
   });
 });

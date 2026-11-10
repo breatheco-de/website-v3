@@ -34,6 +34,7 @@ import {
 import { MarkdownEditorField } from "@/components/editing/MarkdownEditorField";
 import { useToast } from "@/hooks/use-toast";
 import { useImageRegistry } from "@/components/UniversalImage";
+import { SaveCancelledError } from "@/components/databases/EvidenceDuplicateDialog";
 import { queryClient } from "@/lib/queryClient";
 import {
   fromDateInputValue,
@@ -770,6 +771,7 @@ export function ItemEditModal({
       });
       onClose();
     } catch (err) {
+      if (err instanceof SaveCancelledError) return;
       toast({
         title: "Save failed",
         description: err instanceof Error ? err.message : String(err),

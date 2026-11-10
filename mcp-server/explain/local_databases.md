@@ -11,13 +11,13 @@ Private databases may be **local** (`source.type: local` → YAML under `db/{nam
 | Tool | Cap | Notes |
 |---|---|---|
 | `list_databases` | `databases_view`, `databases_edit_data`, **or** `databases_manage` | Prefer `local_only: true` for CRUD targets. Settings vs rows: see description. |
-| `list_database_items` | same | All sources; **summary** rows + global `index`; optional `refresh` (edit/manage only) |
-| `get_database_item` | same | All sources; **full** row by global index; optional `refresh` (edit/manage only) |
-| `add_database_item` | `databases_edit_data` (write scoped to slug) | Local only; FAQ defaults + dedupe |
-| `add_database_items` | same | Local only; bulk add (max 40), best-effort |
-| `update_database_item` | same | Local only; prefer `expect_question` |
-| `update_database_items` | same | Local only; bulk update (max 40) |
-| `delete_database_item` | same | Local only; requires `confirm: true` |
+| `list_database_items` | same | All sources; **summary** rows + global `index`; optional `refresh` (edit/manage only); evidence banks hide rejected rows unless `include_rejected` |
+| `get_database_item` | same | All sources; **full** row by global index; optional `refresh` (edit/manage only); rejected row → `rejected_row` unless `include_rejected` |
+| `add_database_item` | `databases_edit_data` (write scoped to slug) | Local only; FAQ defaults + dedupe; evidence duplicate checks + `acknowledged_similar` |
+| `add_database_items` | same | Local only; bulk add (max 40), best-effort; per-row evidence duplicate codes |
+| `update_database_item` | same | Local only; prefer `expect_question`; link change runs evidence duplicate checks |
+| `update_database_items` | same | Local only; bulk update (max 40); duplicate refusals are per-row (no abort) |
+| `delete_database_item` | same | Local only; requires `confirm: true`; agents cannot delete rejected evidence rows |
 | `create_or_update_database` | **`databases_manage` only** | Create = config + empty local items YAML; update = deep patch + `confirm:true` |
 | `reindex_database` | **`databases_manage` only** | After item writes; queues an incremental Sidequest sync (definition patches that enable/change `vector_search` auto-queue it) |
 
@@ -132,6 +132,32 @@ evidence:
 - **Archive copy:** the server also writes `_archive: { source_url, status: pending|archived|failed|manual, url, captured_at, error, set_by, updated_at, original: { status: ok|gone, checked_at } }` — an Internet Archive (archive.org) copy of the row's `proof_field` link. Same rules as the stamp: client values dropped, never in pages / listings / MCP item reads. A record whose `source_url` differs from the current link is stale (ignored). A link that already is a saved copy counts as archived (`archive_url` = the link; nothing is saved again): a Wayback snapshot `web.archive.org/web/<timestamp>/…` (calendar pages like `/web/2024*/…` do not count) or an archive.today snapshot (`archive.ph` / `.today` / `.is` / `.li` / `.vn` / `.fo` / `.md`, short id or dated form). Only the live server archives: after a row save (new or changed link) and in a weekly sweep that retries failures older than a week and flags originals returning 404 / 410. Staff-only on the Databases page: Archive now / Retry, paste a backup link (`manual`, never replaced by a job). Agents cannot trigger archiving.
 - **Review archive fields:** `claims[].row.archive_status` (`none` no link · `not_archived` · `pending` · `archived` · `failed`) and `archive_url`. A `sourced` claim that is not archived adds warning `evidence_not_archived` — warning only, never a blocker.
 - **Does not:** change page rendering; push content GitHub; verify rows; dismiss names; archive links (server-side only).
+
+### Duplicate checks (every evidence bank, enforced by the server)
+
+Just add the row and handle the refusal — no need to list the bank first. Links compare by their **original** URL: Wayback copies unwrapped; scheme, `www.` / `m.` / `amp.`, `/amp`, trailing slash, `#fragment`, `utm_*` / `fbclid` / `gclid` / `mc_cid` / `mc_eid` ignored. archive.today short ids compare as-is.
+
+| Code | When | Agent can override? |
+|---|---|---|
+| `redirect_link` | link host is news.google.com, t.co, bit.ly, lnkd.in, ow.ly, buff.ly, tinyurl.com, goo.gl, feedproxy.google.com | No — resolve the publisher's article URL and retry |
+| `rejected_link` | a staff-rejected row has this link (**any** locale) | No — skip the story |
+| `duplicate_link` | a row in the **same locale** has this link (`existing_index`) | No — `next_actions` → `update_database_item` on that row |
+| `similar_rows` | same locale + same `kind`: title word overlap ≥ 0.5 (brand words ignored), or same `organization` + `year`; or same link in another locale **without** a matching `translation_key` | Yes — retry with `acknowledged_similar` listing **every** `similar[].index` (only if it is different coverage) |
+
+- Same link in another locale **with** the same `translation_key` is a translation → allowed.
+- Acknowledged saves record `_similar_to: [{ title, link, at }]` on the row (server-only, never in reads); staff see "Looks like …" next to Mark verified, which clears it.
+- Edits: changing the link runs every rule; title / organization / year / locale / kind / `translation_key` edits only report rows that **became** similar. Edits that keep the link never refuse an existing duplicate pair.
+- Bulk add: same codes per row; first wins within the batch (later rows point `existing_index` at the earlier row's future index). If a write races in, the server refuses the whole batch with `input_index`; retry.
+- Staff (UI only) can Save anyway past `duplicate_link` / `rejected_link` / `similar_rows`; `allow_duplicate` from MCP → 403 `staff_only`. Nobody can save a redirect link.
+
+### Rejected stories
+
+Staff press **Reject** on the Databases page (agents cannot reject or restore). The row stays in the YAML with server-only `_rejected: { by, at, group }` so its link cannot be re-added. One Reject covers the row, its other-language rows (same `translation_key`) and, by default, other rows with the same link; **Restore** brings the whole group back.
+
+- Hidden from pages, listings, sitemap, search / vector index and proposal evidence. Stored positions (global `index`) never shift.
+- `list_database_items` hides them by default (warning `rejected_hidden` with the count); `include_rejected: true` shows them with `rejected: true`. `get_database_item` on one → `rejected_row` unless `include_rejected`.
+- Edits keep the rejection (warning `row_rejected`). Agents cannot delete a rejected row (`rejected_row`, 403).
+- The weekly archive.org check and save-time archiving skip rejected rows.
 
 ## Side effects and non-effects
 

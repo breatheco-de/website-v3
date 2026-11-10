@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {AlertTriangle, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUpDown, Check, ChevronDown, ChevronUp, CircleCheck, CircleX, Clock, CloudUpload, Code, Copy, Database, Download, ExternalLink, Eye, File, HeartPulse, HelpCircle, Image, Info, Link as LinkIcon, Loader2, Network, Pencil, Play, Plus, RefreshCw, Save, Search, Server, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Table, Tags, TestTube, Trash2, Upload, Wand2, Webhook, X} from "lucide-react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, Link, useLocation, useSearch } from "wouter";
@@ -59,6 +59,8 @@ import type { DatabaseEvidenceConfig, EvidenceRowTrust } from "@shared/evidence-
 import { EvidenceSourceKpiCard } from "@/components/databases/EvidenceSourceKpiCard";
 import { ArchiveColumnHeader, EvidenceArchiveCell } from "@/components/databases/EvidenceArchiveCell";
 import { EvidenceTrustLabel } from "@/components/databases/EvidenceTrustLabel";
+import { useEvidenceDuplicateGuard } from "@/components/databases/EvidenceDuplicateDialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { KpiLabelHelp } from "@/components/databases/KpiLabelHelp";
 import type { RowArchiveView } from "@shared/evidence-archive";
 
@@ -354,6 +356,16 @@ interface DatabaseItems {
   evidence_trust?: EvidenceRowTrust[];
   /** Evidence databases only: Internet Archive copy of each returned row's link. */
   evidence_archive?: RowArchiveView[];
+  /** Evidence databases only: rows each returned row looked like when it was saved past the warning. */
+  evidence_similar_to?: Array<Array<{ title: string | null; link: string | null; at: string }>>;
+}
+
+interface RejectionPreview {
+  storedIndex: number;
+  mode: "reject" | "restore";
+  translations: Array<{ index: number; title: string | null; locale: string | null }>;
+  sameLink: Array<{ index: number; title: string | null; locale: string | null }>;
+  rows: Array<{ index: number; title: string | null; locale: string | null }>;
 }
 
 interface KeyValuePair {
@@ -4455,6 +4467,94 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
     const idx = (itemsData?.items ?? []).indexOf(item);
     return idx >= 0 ? itemsData?.evidence_archive?.[idx] ?? null : null;
   };
+  const similarToOf = (item: Record<string, unknown>) => {
+    if (!showEvidenceTrust) return [];
+    const idx = (itemsData?.items ?? []).indexOf(item);
+    return idx >= 0 ? itemsData?.evidence_similar_to?.[idx] ?? [] : [];
+  };
+  const trustAtStoredIndex = (storedIndex: number): EvidenceRowTrust | null => {
+    const pos = itemsData?.indices?.indexOf(storedIndex) ?? -1;
+    return pos >= 0 ? itemsData?.evidence_trust?.[pos] ?? null : null;
+  };
+  const [showRejected, setShowRejected] = useState(true);
+  const hasRejectedRows = (itemsData?.evidence_trust ?? []).includes("rejected");
+
+  const openStoredRow = useCallback(
+    (storedIndex: number) => {
+      const pos = itemsData?.indices?.indexOf(storedIndex) ?? -1;
+      const row = pos >= 0 ? itemsData?.items?.[pos] : undefined;
+      if (!row) {
+        toast({ title: `Row ${storedIndex + 1} is on another page`, description: "Change page or search for it to open it." });
+        return;
+      }
+      setIsAddingItem(false);
+      setEditingItem(row);
+      setEditingItemIndex(storedIndex);
+    },
+    [itemsData, toast],
+  );
+  const duplicateGuard = useEvidenceDuplicateGuard({ onOpenExisting: openStoredRow });
+
+  const [rejection, setRejection] = useState<RejectionPreview | null>(null);
+  const [rejectSameLink, setRejectSameLink] = useState(true);
+  const [rejectionBusy, setRejectionBusy] = useState(false);
+  const openRejection = async (storedIndex: number, mode: "reject" | "restore") => {
+    setRejectionBusy(true);
+    try {
+      const res = await apiFetch(`/api/databases/${dbName}/items/${storedIndex}/${mode}?preview=1`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ include_same_link: true }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        translations?: RejectionPreview["translations"];
+        same_link?: RejectionPreview["sameLink"];
+        rows?: RejectionPreview["rows"];
+      };
+      if (!res.ok) throw new Error(body.error || `Could not ${mode} this row`);
+      setRejectSameLink(true);
+      setRejection({
+        storedIndex,
+        mode,
+        translations: body.translations ?? [],
+        sameLink: body.same_link ?? [],
+        rows: (body.rows ?? []).filter((r) => r.index !== storedIndex),
+      });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    } finally {
+      setRejectionBusy(false);
+    }
+  };
+  const confirmRejection = async () => {
+    if (!rejection) return;
+    setRejectionBusy(true);
+    try {
+      const res = await apiFetch(`/api/databases/${dbName}/items/${rejection.storedIndex}/${rejection.mode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ include_same_link: rejectSameLink }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error || "Failed");
+      }
+      const restoring = rejection.mode === "restore";
+      setRejection(null);
+      await Promise.all([refetchItems(), refetchRawItems()]);
+      toast({
+        title: restoring ? "Story restored" : "Story rejected",
+        description: restoring
+          ? "It shows on the site again and can be used as proof."
+          : "It is hidden from the site, and agents cannot add it again.",
+      });
+    } catch (err) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+    } finally {
+      setRejectionBusy(false);
+    }
+  };
   const [verifyingIndex, setVerifyingIndex] = useState<number | null>(null);
   const verifyEvidenceRow = async (storedIndex: number) => {
     setVerifyingIndex(storedIndex);
@@ -5277,6 +5377,19 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                       Add Item
                     </Button>
                   )}
+                  {showEvidenceTrust && hasRejectedRows && (
+                    <label
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                      title="Rejected stories stay in the list so agents cannot add them again. They never show on the site."
+                    >
+                      <Switch
+                        checked={showRejected}
+                        onCheckedChange={setShowRejected}
+                        data-testid="switch-show-rejected"
+                      />
+                      Show rejected
+                    </label>
+                  )}
                 </div>
                 <div className="flex items-start gap-2">
                   {!!itemsData && (
@@ -5701,16 +5814,20 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {(editMode ? (itemsData?.items || []) : filteredItems).map((item, i) => {
+                      {(editMode ? (itemsData?.items || []) : filteredItems)
+                        .filter((item) => showRejected || trustOf(item) !== "rejected")
+                        .map((item, i) => {
                         const openItemEdit = () => {
                           setEditingItem(item);
                           setEditingItemIndex(storedIndexOf(item, i));
                           setIsAddingItem(false);
                         };
+                        const rowRejected = trustOf(item) === "rejected";
+                        const similarTo = similarToOf(item);
                         return (
                         <tr
                           key={i}
-                          className="border-b last:border-b-0 hover:bg-muted/30 cursor-pointer"
+                          className={`border-b last:border-b-0 hover:bg-muted/30 cursor-pointer ${rowRejected ? "opacity-60" : ""}`}
                           data-testid={`row-item-${i}`}
                           onClick={openItemEdit}
                         >
@@ -5746,7 +5863,32 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                           )}
                           {showEvidenceTrust && (
                             <td className="px-3 py-1.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                              {trustOf(item) === "unverified" ? (
+                              <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1.5">
+                              {rowRejected ? (
+                                <div className="flex items-center gap-1.5">
+                                  <Badge
+                                    variant="outline"
+                                    className="font-normal text-[10px]"
+                                    title="Hidden from the site and never used as proof. Agents cannot add this link again."
+                                    data-testid={`badge-evidence-rejected-${i}`}
+                                  >
+                                    Rejected
+                                  </Badge>
+                                  {canEditRows && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-6 px-2 text-[10px]"
+                                      disabled={rejectionBusy}
+                                      onClick={() => void openRejection(storedIndexOf(item, i), "restore")}
+                                      data-testid={`button-restore-evidence-${i}`}
+                                    >
+                                      Restore
+                                    </Button>
+                                  )}
+                                </div>
+                              ) : trustOf(item) === "unverified" ? (
                                 <div className="flex items-center gap-1.5">
                                   <Badge
                                     variant="outline"
@@ -5774,6 +5916,31 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                               ) : (
                                 <span className="text-[10px] text-muted-foreground">—</span>
                               )}
+                              {canEditRows && !rowRejected && trustOf(item) !== null && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-[10px] text-muted-foreground"
+                                  disabled={rejectionBusy}
+                                  title="Hide this story from the site and stop agents from adding it again"
+                                  onClick={() => void openRejection(storedIndexOf(item, i), "reject")}
+                                  data-testid={`button-reject-evidence-${i}`}
+                                >
+                                  Reject
+                                </Button>
+                              )}
+                              </div>
+                              {similarTo.length > 0 && (
+                                <span
+                                  className="max-w-[260px] truncate text-[10px] text-muted-foreground"
+                                  title={similarTo.map((s) => s.title || s.link || "").join("\n")}
+                                  data-testid={`text-evidence-similar-${i}`}
+                                >
+                                  Looks like: “{similarTo[0]!.title || similarTo[0]!.link}”
+                                  {similarTo.length > 1 ? ` +${similarTo.length - 1}` : ""}
+                                </span>
+                              )}
+                              </div>
                             </td>
                           )}
                           {showEvidenceTrust && (
@@ -6186,7 +6353,9 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
             <DialogHeader>
               <DialogTitle>Delete Item</DialogTitle>
               <DialogDescription>
-                Are you sure you want to delete item {deleteConfirmIndex + 1}? This will immediately save the file without this entry.
+                {trustAtStoredIndex(deleteConfirmIndex) === "rejected"
+                  ? "This story was rejected. Deleting it removes the record that stops agents from adding it again, so agents may add this story again. Keep it rejected instead?"
+                  : `Are you sure you want to delete item ${deleteConfirmIndex + 1}? This will immediately save the file without this entry.`}
               </DialogDescription>
             </DialogHeader>
             <DialogFooter className="flex items-center justify-end gap-2">
@@ -6197,7 +6366,7 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                 disabled={savingItems}
                 data-testid="button-cancel-delete-item"
               >
-                Cancel
+                {trustAtStoredIndex(deleteConfirmIndex) === "rejected" ? "Keep rejected" : "Cancel"}
               </Button>
               <Button
                 variant="destructive"
@@ -6234,33 +6403,102 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                 ) : (
                   <Trash2 className="h-3.5 w-3.5 mr-1" />
                 )}
-                Delete
+                {trustAtStoredIndex(deleteConfirmIndex) === "rejected" ? "Delete anyway" : "Delete"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
       )}
 
+      {rejection && (
+        <Dialog open onOpenChange={(v) => { if (!v) setRejection(null); }}>
+          <DialogContent data-testid="dialog-evidence-rejection">
+            <DialogHeader>
+              <DialogTitle>{rejection.mode === "reject" ? "Reject this story?" : "Restore this story?"}</DialogTitle>
+              <DialogDescription>
+                {rejection.mode === "reject"
+                  ? "Rejected stories stay in the list so agents know not to add them again. They are hidden from the site and never used as proof. You can restore them later."
+                  : "It shows on the site again and can be used as proof. Agents can add its link again too."}
+              </DialogDescription>
+            </DialogHeader>
+            {rejection.mode === "reject" && rejection.translations.length > 0 && (
+              <div className="text-sm">
+                <p className="font-medium text-foreground">Also rejects its other languages:</p>
+                <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                  {rejection.translations.map((r) => (
+                    <li key={r.index}>{`${r.title || `Row ${r.index + 1}`}${r.locale ? ` (${r.locale})` : ""}`}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {rejection.mode === "reject" && rejection.sameLink.length > 0 && (
+              <label className="flex items-start gap-2 text-sm">
+                <Checkbox
+                  checked={rejectSameLink}
+                  onCheckedChange={(v) => setRejectSameLink(v === true)}
+                  data-testid="checkbox-reject-same-link"
+                />
+                <span>
+                  {rejection.sameLink.length === 1 ? "1 other row uses this link" : `${rejection.sameLink.length} other rows use this link`}
+                  {": "}
+                  <span className="text-muted-foreground">
+                    {rejection.sameLink.map((r) => r.title || `Row ${r.index + 1}`).join(", ")}
+                  </span>
+                  . Reject {rejection.sameLink.length === 1 ? "it" : "them"} too.
+                </span>
+              </label>
+            )}
+            {rejection.mode === "restore" && rejection.rows.length > 0 && (
+              <div className="text-sm">
+                <p className="font-medium text-foreground">Also restores:</p>
+                <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+                  {rejection.rows.map((r) => (
+                    <li key={r.index}>{`${r.title || `Row ${r.index + 1}`}${r.locale ? ` (${r.locale})` : ""}`}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <DialogFooter className="flex items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setRejection(null)} disabled={rejectionBusy}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant={rejection.mode === "reject" ? "destructive" : "default"}
+                onClick={() => void confirmRejection()}
+                disabled={rejectionBusy}
+                data-testid="button-confirm-rejection"
+              >
+                {rejectionBusy && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                {rejection.mode === "reject" ? "Reject" : "Restore"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {duplicateGuard.dialog}
+
       {(editingItem !== null || isAddingItem) && (
         <ItemEditModal
+          key={isAddingItem ? "new" : String(editingItemIndex)}
           dbName={dbName}
           item={isAddingItem ? null : editingItem}
           allItems={itemsData?.items || []}
           onSave={async (builtItem) => {
-            let res: Response;
-            if (isAddingItem) {
-              res = await apiFetch(`/api/databases/${dbName}/items`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ item: builtItem }),
-              });
-            } else {
-              res = await apiFetch(`/api/databases/${dbName}/items/${editingItemIndex}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(builtItem),
-              });
-            }
+            const res = await duplicateGuard.send((query) =>
+              isAddingItem
+                ? apiFetch(`/api/databases/${dbName}/items${query}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ item: builtItem }),
+                  })
+                : apiFetch(`/api/databases/${dbName}/items/${editingItemIndex}${query}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(builtItem),
+                  }),
+            );
             if (!res.ok) {
               const err = await res.json().catch(() => ({}));
               throw new Error((err as { error?: string }).error || "Failed to save item");

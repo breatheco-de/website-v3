@@ -676,6 +676,81 @@ props:
                   value:
                     type: string
                     required: true
+          referral_key:
+            type: object
+            required: false
+            properties:
+              visible:
+                type: boolean
+                required: false
+              required:
+                type: boolean
+                required: false
+              default:
+                type: string
+                required: false
+              default_country:
+                type: string
+                required: false
+              helper_text:
+                type: string
+                required: false
+              placeholder:
+                type: string
+                required: false
+              show_label:
+                type: boolean
+                required: false
+              label:
+                type: string
+                required: false
+              slugs:
+                type: array
+                required: false
+                items:
+                  type:
+                    type: string
+                    required: true
+              source:
+                type: object
+                required: false
+                properties:
+                  content_type:
+                    type: string
+                    required: false
+                  database:
+                    type: string
+                    required: false
+                  related_field:
+                    type: string
+                    required: false
+                  query:
+                    type: string
+                    required: false
+                  value_path:
+                    type: string
+                    required: true
+                  label_path:
+                    type: string
+                    required: true
+              component_renderer:
+                type: string
+                required: false
+                options:
+                  - text
+                  - phone
+                  - textarea
+                  - select
+                  - cards
+                  - simple-list
+                  - grouped-list
+              options:
+                type: array
+                required: false
+                items:
+                  value:
+                    type: string
+                    required: true
           client_comments:
             type: object
             required: false
@@ -804,7 +879,31 @@ props:
       button_className:
         type: string
         required: false
+      button_variant:
+        type: string
+        required: false
+        options:
+          - primary
+          - secondary
+          - outline
       terms_className:
         type: string
         required: false
     description: LeadForm configuration shown when the bar expands
+layout:
+  flow: out
+variants:
+  default:
+    content_shape:
+      text:
+        heading:
+          min: 22
+          max: 56
+          typical: 39
+      image: unused
+      icon: unused
+      sample_pages: 121
+      measured_at: "2026-10-02"
+    best_for: Long-form landing pages with 1 persistent Apply CTA and lead form, where users scroll past the main hero form.
+    avoid_when: Short pages, program pages, or any page where the inline lead form is not present or visible in the hero.
+    metadata_status: draft

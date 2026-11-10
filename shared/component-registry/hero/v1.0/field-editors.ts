@@ -95,14 +95,18 @@ export const fieldEditors: Record<string, EditorType> = {
   "credibility:pills[].background_color": "color-picker",
   "credibility:pills_url": "link-picker",
   "productShowcase:form": "form-settings",
+  "productShowcase:form.button_variant": "string-picker:primary,secondary,outline",
   "ApplyFormProductShowcase:form": "form-settings",
+  "ApplyFormProductShowcase:form.button_variant": "string-picker:primary,secondary,outline",
   "course:signup_card.form": "form-settings",
+  "course:signup_card.form.button_variant": "string-picker:primary,secondary,outline",
 
   // exercise variant
   "exercise:description": "rich-text-editor",
   "exercise:features[].icon": "icon-picker",
   "exercise:stats[].icon": "icon-picker",
   "exercise:form": "form-settings",
+  "exercise:form.button_variant": "string-picker:primary,secondary,outline",
   "exercise:form_card_image": "image-with-style-picker",
 
   // workshop variant
@@ -118,6 +122,7 @@ export const fieldEditors: Record<string, EditorType> = {
   "workshop:host.socials[].url": "link-picker",
   "workshop:host.avatar_url": "image-picker",
   "workshop:form": "form-settings",
+  "workshop:form.button_variant": "string-picker:primary,secondary,outline",
   "workshop:calendar_cta": "cta-button",
   "workshop:calendar_cta.heading": "text-input",
   "workshop:calendar_cta.icon": "icon-picker",

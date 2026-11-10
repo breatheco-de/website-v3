@@ -19,8 +19,96 @@ import {
   validateFaqItem,
   withGlobalIndices,
   FAQ_DB_NAME,
+  duplicateRefusalDetails,
+  rowsWithRejected,
   type BatchRowResult,
 } from "./database-items";
+import { isRowRejected } from "@shared/evidence-kinds";
+
+describe("prepareBatchAdd on evidence databases", () => {
+  const existing = [
+    { title: "Bahamas picks 4Geeks for AI education", locale: "en", kind: "press", link_url: "https://web.archive.org/web/2026/https://www.entnerd.com/bahamas" },
+    { title: "Old rejected story", locale: "en", kind: "press", link_url: "https://example.com/rejected" },
+    { title: "Miami Dade College curriculum partner", locale: "en", kind: "press", link_url: "https://example.com/mdc" },
+  ];
+  const ctx = (acknowledged: number[] = []) => ({
+    proofField: "link_url",
+    rejected: new Set([1]),
+    ignoreWords: new Set(["4geeks"]),
+    acknowledged,
+  });
+
+  it("refuses duplicates, rejected and redirect links per row; first wins within the batch", () => {
+    const { results, toWrite } = prepareBatchAdd(
+      "press_mentions",
+      [
+        { title: "x", locale: "en", link_url: "https://entnerd.com/bahamas?utm_source=a" },
+        { title: "y", locale: "en", link_url: "https://example.com/rejected/" },
+        { title: "z", locale: "en", link_url: "https://t.co/abc" },
+        { title: "New story one", locale: "en", link_url: "https://new.example/1" },
+        { title: "New story one copy", locale: "en", link_url: "https://new.example/1" },
+      ],
+      existing,
+      ctx(),
+    );
+    expect(results.map((r) => (r.ok ? "ok" : r.code))).toEqual([
+      "duplicate_link",
+      "rejected_link",
+      "redirect_link",
+      "ok",
+      "duplicate_link",
+    ]);
+    expect(results[0]).toMatchObject({ existing_index: 0 });
+    expect(results[4]).toMatchObject({ existing_index: 3 });
+    expect(toWrite.map((r) => r.input_index)).toEqual([3]);
+  });
+
+  it("similar rows need every index acknowledged", () => {
+    const item = { title: "Miami Dade College names curriculum partner", locale: "en", kind: "press", link_url: "https://news.example/mdc" };
+    const first = prepareBatchAdd("press_mentions", [item], existing, ctx());
+    expect(first.results[0]).toMatchObject({ ok: false, code: "similar_rows" });
+    const second = prepareBatchAdd("press_mentions", [item], existing, ctx([2]));
+    expect(second.results[0]!.ok).toBe(true);
+  });
+
+  it("rowsWithRejected restores the marker by global index", () => {
+    expect(rowsWithRejected(existing, new Set([1])).map(isRowRejected)).toEqual([false, true, false]);
+  });
+});
+
+describe("duplicateRefusalDetails", () => {
+  it("duplicate_link points at update_database_item for the existing row", () => {
+    const d = duplicateRefusalDetails(
+      "press_mentions",
+      { code: "duplicate_link", existing_index: 4, existing: { title: "t", link: "l", rejected: false } },
+      { tool: "add_database_item", args: { database: "press_mentions" } },
+    );
+    expect(d).toMatchObject({
+      code: "duplicate_link",
+      existing_index: 4,
+      next_actions: [{ tool: "update_database_item", args_hint: { database: "press_mentions", index: 4 } }],
+    });
+  });
+
+  it("similar_rows offers the same call with acknowledged_similar", () => {
+    const d = duplicateRefusalDetails(
+      "press_mentions",
+      { code: "similar_rows", similar: [{ index: 2 }, { index: 7 }] },
+      { tool: "add_database_item", args: { database: "press_mentions", item: { title: "x" } } },
+    );
+    expect((d!.next_actions as Array<{ args_hint: Record<string, unknown> }>)[0]!.args_hint.acknowledged_similar).toEqual([2, 7]);
+  });
+
+  it("rejected_link carries a warning and no next action", () => {
+    const d = duplicateRefusalDetails("press_mentions", { code: "rejected_link", existing_index: 1 }, { tool: "add_database_item", args: {} });
+    expect(d!.next_actions).toEqual([]);
+    expect((d!.warnings as Array<{ code: string }>).map((w) => w.code)).toEqual(["rejected_story"]);
+  });
+
+  it("other errors are not refusals", () => {
+    expect(duplicateRefusalDetails("x", { error: "boom" }, { tool: "add_database_item", args: {} })).toBeNull();
+  });
+});
 
 describe("normalizeFaqQuestion / faqDuplicateKey", () => {
   it("normalizes punctuation and case", () => {

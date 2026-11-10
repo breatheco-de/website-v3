@@ -22,6 +22,7 @@ export const fieldEditors: Record<string, EditorType> = {
   "buttons[].url": "link-picker",
   "cta_url": "link-picker",
   "form": "form-settings",
+  "form.button_variant": "string-picker:primary,secondary,outline" as EditorType,
 
   // ── strip variant ────────────────────────────────────────────────────
   "strip:text": "rich-text-editor",

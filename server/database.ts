@@ -16,7 +16,7 @@ import type { MediaGallery } from "./media-gallery";
 import { expandEditorFieldTokens } from "@shared/editor-field-values";
 import { slugify } from "@shared/slug";
 import { resolveCacheTtlMinutes, resolveRefreshRetryMinutes, type DbCacheTtlConfig } from "@shared/db-cache-ttl";
-import type { DatabaseEvidenceConfig } from "@shared/evidence-kinds";
+import { REJECTED_KEY, isRowRejected, type DatabaseEvidenceConfig } from "@shared/evidence-kinds";
 import { stripRowStamp } from "./database-row-stamp";
 import { freezeShared } from "./utils/deepFreeze";
 import { child } from "./logger";
@@ -566,6 +566,17 @@ interface OverridesFile {
   entries: Record<string, Record<string, unknown>>;
 }
 
+/**
+ * Mapped rows minus staff-rejected ones (marked `_rejected: true` when the copy is built).
+ * Stored copies keep every row so stored positions — what edits and deletes address — never shift.
+ */
+export function withoutRejected<T extends Record<string, unknown>>(items: T[]): T[] {
+  return items.some((i) => i?.[REJECTED_KEY] === true) ? items.filter((i) => i?.[REJECTED_KEY] !== true) : items;
+}
+
+/** Read option: include rejected rows (staff Databases page, evidence pairing). Pages never pass it. */
+export type RejectedReadOpts = { includeRejected?: boolean };
+
 export type LastGoodItems = {
   items: Record<string, unknown>[];
   fetchedAt: string;
@@ -579,7 +590,10 @@ export class DatabaseManager {
   private memoryCache = new Map<string, { data: CacheEntry; expires: number }>();
   private cache: IDatabaseCache = new SqliteCache();
   /** Parsed mapped copy per database, reused until the stored copy's fetched_at changes. */
-  private mappedMemo = new Map<string, { fetchedAt: string; items: Record<string, unknown>[] }>();
+  private mappedMemo = new Map<
+    string,
+    { fetchedAt: string; items: Record<string, unknown>[]; publicItems: Record<string, unknown>[] }
+  >();
   private memoGeneration = 0;
   /** Listing rows per content type, keyed by the copy's fetched_at + memo generation. */
   private listingMemo = new Map<string, { key: string; items: Record<string, unknown>[] }>();
@@ -834,7 +848,7 @@ export class DatabaseManager {
   async refreshIfExpired(name: string): Promise<void> {
     const config = this.configs.get(name);
     if (!config) return;
-    const lastGood = this.getLastGoodItems(name);
+    const lastGood = this.getLastGoodItems(name, { includeRejected: true });
     if (lastGood && !lastGood.stale) return;
     const failedAt = this.refreshFailedAt.get(name);
     if (failedAt !== undefined && Date.now() - failedAt < resolveRefreshRetryMinutes(config.cache) * 60_000) return;
@@ -876,10 +890,14 @@ export class DatabaseManager {
     return this.changedRefreshRows(name, previous, next);
   }
 
+  /**
+   * Rows of a database. Staff-rejected rows are left out unless `includeRejected`; with it,
+   * `items[i]` is the row stored at position `i` (rejected rows carry `_rejected: true`).
+   */
   async fetchItems(
     name: string,
     forceRefresh = false,
-    opts?: { skipRefreshEvent?: boolean; skipVectorIndex?: boolean },
+    opts?: { skipRefreshEvent?: boolean; skipVectorIndex?: boolean } & RejectedReadOpts,
   ): Promise<{
     items: Record<string, unknown>[];
     raw_count: number;
@@ -889,12 +907,13 @@ export class DatabaseManager {
   }> {
     const config = this.get(name);
     const ttlMinutes = resolveCacheTtlMinutes(config.cache);
+    const pick = (items: Record<string, unknown>[]) => (opts?.includeRejected ? items : withoutRejected(items));
 
     if (!forceRefresh) {
       const memEntry = this.memoryCache.get(name);
       if (memEntry && Date.now() < memEntry.expires) {
         this.scheduleExternalImages(name, config, memEntry.data.items);
-        return { ...memEntry.data, from_cache: true };
+        return { ...memEntry.data, items: pick(memEntry.data.items), from_cache: true };
       }
 
       const cached = this.cache.read(name, ttlMinutes);
@@ -922,7 +941,7 @@ export class DatabaseManager {
           expires: Date.now() + ttlMinutes * 60 * 1000,
         });
         this.scheduleExternalImages(name, config, cached.items);
-        return { ...cached, from_cache: true };
+        return { ...cached, items: pick(cached.items), from_cache: true };
       }
     }
 
@@ -965,6 +984,9 @@ export class DatabaseManager {
           )
         )
       : (rawItems as Record<string, unknown>[]).map(stripRowStamp);
+    items = items.map((item, i) =>
+      isRowRejected(rawItems[i] as Record<string, unknown>) ? { ...item, [REJECTED_KEY]: true } : item,
+    );
 
     const overridesFile = this.loadOverridesFile(name);
     if (overridesFile && Object.keys(overridesFile.entries).length > 0) {
@@ -1006,14 +1028,14 @@ export class DatabaseManager {
     });
 
     this.scheduleExternalImages(name, config, items);
-    if (!opts?.skipRefreshEvent) this.noteRefreshDiff(name, previousItems, items);
+    if (!opts?.skipRefreshEvent) this.noteRefreshDiff(name, previousItems, withoutRejected(items));
 
     const vsConfig = (config as DatabaseConfig).vector_search;
     if (!opts?.skipVectorIndex && vsConfig?.enabled && vsConfig.fields?.length > 0) {
       this.queueVectorIndex(name, "fetch");
     }
 
-    return { ...entry, from_cache: false };
+    return { ...entry, items: pick(items), from_cache: false };
   }
 
   async warmup(): Promise<void> {
@@ -1256,7 +1278,7 @@ export class DatabaseManager {
    * Last stored mapped copy, even when older than the TTL (a broken source keeps
    * serving it). Items are shared and frozen outside production: copy before changing.
    */
-  getLastGoodItems(name: string): LastGoodItems | null {
+  getLastGoodItems(name: string, opts?: RejectedReadOpts): LastGoodItems | null {
     const config = this.configs.get(name);
     if (!config) return null;
     const fetchedAt = this.cache.readFetchedAt(name);
@@ -1268,16 +1290,27 @@ export class DatabaseManager {
     if (!memo || memo.fetchedAt !== fetchedAt) {
       const entry = this.cache.read(name, Infinity);
       if (!entry) return null;
-      memo = { fetchedAt: entry.fetched_at, items: freezeShared(entry.items) };
+      const items = freezeShared(entry.items);
+      const publicItems = withoutRejected(items);
+      memo = {
+        fetchedAt: entry.fetched_at,
+        items,
+        publicItems: publicItems === items ? items : freezeShared(publicItems),
+      };
       this.mappedMemo.set(name, memo);
     }
     const ageMs = Math.max(0, Date.now() - new Date(memo.fetchedAt).getTime());
     const ttlMs = resolveCacheTtlMinutes(config.cache) * 60 * 1000;
-    return { items: memo.items, fetchedAt: memo.fetchedAt, stale: ageMs > ttlMs, ageMs };
+    return {
+      items: opts?.includeRejected ? memo.items : memo.publicItems,
+      fetchedAt: memo.fetchedAt,
+      stale: ageMs > ttlMs,
+      ageMs,
+    };
   }
 
-  getMappedItems(name: string): Record<string, unknown>[] | null {
-    return this.getLastGoodItems(name)?.items ?? null;
+  getMappedItems(name: string, opts?: RejectedReadOpts): Record<string, unknown>[] | null {
+    return this.getLastGoodItems(name, opts)?.items ?? null;
   }
 
   /** Bumped whenever the memo is cleared; derived per-type memos key on it. */

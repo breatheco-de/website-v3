@@ -105,6 +105,7 @@ import {
 import { LinkedDatabaseExplainDialog } from "@/components/editing/LinkedDatabaseExplainDialog";
 import { AdsFirstCard } from "@/components/editing/AdsFirstCard";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
+import { useEvidenceDuplicateGuard } from "@/components/databases/EvidenceDuplicateDialog";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
 import {
   DeprecateFieldForm,
@@ -6471,6 +6472,7 @@ export default function ContentTypeManagePage() {
     index: number;
   } | null>(null);
   const [openingDbEdit, setOpeningDbEdit] = useState(false);
+  const dbDuplicateGuard = useEvidenceDuplicateGuard();
 
   const { data: localeSettings } = useQuery<LocaleSettings>({
     queryKey: ["/api/settings/locales"],
@@ -11198,6 +11200,7 @@ export default function ContentTypeManagePage() {
         databaseSlug={dbSlug}
         hasDatabase={hasDb}
       />
+      {dbDuplicateGuard.dialog}
       {editingDbEntry && dbSlug && (
         <ItemEditModal
           dbName={dbSlug}
@@ -11224,11 +11227,13 @@ export default function ContentTypeManagePage() {
             return previewRow?.cacheBustedUrl || null;
           })()}
           onSave={async (builtItem) => {
-            const res = await fetch(`/api/databases/${dbSlug}/items/${editingDbEntry.index}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(builtItem),
-            });
+            const res = await dbDuplicateGuard.send((query) =>
+              fetch(`/api/databases/${dbSlug}/items/${editingDbEntry.index}${query}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(builtItem),
+              }),
+            );
             if (!res.ok) {
               const err = await res.json().catch(() => ({}));
               throw new Error((err as { error?: string }).error || "Failed to save item");

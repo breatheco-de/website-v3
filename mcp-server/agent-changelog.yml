@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-11-10"
+    summary: "Evidence banks (press_mentions…): server refuses duplicate / rejected / redirect links, warns on look-alike stories; staff-rejected rows stay hidden"
+    agent_impact:
+      - "add/update database item on evidence banks → 409 codes in fail details: duplicate_link (same link, same locale; next_actions update_database_item on existing_index), rejected_link (staff rejected the story, any locale; skip), redirect_link (news.google.com / t.co / bit.ly / lnkd.in…; use the publisher URL), similar_rows (retry with acknowledged_similar listing every similar[].index only if it is different coverage). Just add and handle the refusal — do not list the bank first."
+      - "Links compare by original URL (Wayback unwrapped, www/m/amp, tracking params ignored). Same link across locales is allowed only with a matching translation_key. add_database_items reports the codes per row (first wins in the batch); update_database_items records refusals per row without aborting."
+      - "Staff-rejected rows (_rejected, server-only) are hidden from pages, listings, search and evidence; list_database_items hides them (warning rejected_hidden) unless include_rejected:true, get_database_item returns rejected_row. Agents cannot reject, restore, delete a rejected row (rejected_row) or send allow_duplicate (staff_only)."
+    tools_changed: false
+    paths:
+      - shared/evidence-duplicates.ts
+      - server/evidence-duplicates-guard.ts
+      - server/routes/databases.ts
+      - mcp-server/tools/databases.ts
+      - mcp-server/explain/local_databases.md
+  - date: "2026-11-10"
     summary: "One-address pages (/landing/:slug): language comes from the matched slug's language file; two languages sharing a slug is blocked; _common.yml locale is ignored legacy"
     agent_impact:
       - "Language of a one-address page = the language file whose slug matches the URL (resolveUrl fileLocale). /landing/<es-slug> serves es.yml, /landing/<en-slug> serves en.yml. _common.yml `locale` is never read: do not write it (bad practice). locale-slug-uniqueness warns COMMON_LOCALE_IGNORED; migration 012 removes old lines. nonlocalized-common-locale validator retired."

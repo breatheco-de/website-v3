@@ -1,11 +1,9 @@
-import fs from "fs";
-import path from "path";
-import yaml from "js-yaml";
-import { ROW_STAMP_KEY, readEvidenceConfig } from "@shared/evidence-kinds";
+import { REJECTED_KEY, ROW_STAMP_KEY, isRowRejected, readEvidenceConfig } from "@shared/evidence-kinds";
 import { ARCHIVE_KEY } from "@shared/evidence-archive";
 import { getSiteContextMap, type SiteContext } from "../site-manager";
 import { child } from "../logger";
 import { brandTerms, type EvidenceSource } from "./evidence-match";
+import { readBrandName } from "./site-brand";
 
 const log = child({ module: "evidence-sources" });
 
@@ -16,17 +14,6 @@ export type EvidenceSourcesSnapshot = {
   /** Display brand used in Jev questions. */
   brandLabel: string;
 };
-
-function readBrandName(contentRoot: string): string | null {
-  try {
-    const file = path.join(contentRoot, "brand-context.yml");
-    if (!fs.existsSync(file)) return null;
-    const doc = yaml.load(fs.readFileSync(file, "utf-8")) as { brand?: { name?: unknown } } | null;
-    return typeof doc?.brand?.name === "string" ? doc.brand.name : null;
-  } catch {
-    return null;
-  }
-}
 
 /** The site plus the site its fallback_content_folder points to (one hop). */
 export function evidenceSiteContexts(ctx: SiteContext): SiteContext[] {
@@ -47,16 +34,20 @@ async function sourcesFor(ctx: SiteContext): Promise<EvidenceSource[]> {
     try {
       await ctx.database.fetchItems(name);
       const raw = ctx.database.getRawItems(name) ?? [];
-      const mapped = ctx.database.getMappedItems(name) ?? raw;
+      const mapped = ctx.database.getMappedItems(name, { includeRejected: true }) ?? raw;
       // Mapped field names (what staff pick in the dialog) plus the server keys, which only the raw row carries.
+      // Paired by stored position over the full list so row refs stay true positions; rejected rows
+      // keep their `_rejected` marker and the evidence index skips them.
       const rows = mapped.map((m, i) => {
         const r = raw[i] as Record<string, unknown> | undefined;
         const stamp = r?.[ROW_STAMP_KEY];
         const archive = r?.[ARCHIVE_KEY];
+        const rejected = isRowRejected(r) ? r?.[REJECTED_KEY] : undefined;
         return {
           ...m,
           ...(stamp ? { [ROW_STAMP_KEY]: stamp } : {}),
           ...(archive ? { [ARCHIVE_KEY]: archive } : {}),
+          ...(rejected ? { [REJECTED_KEY]: rejected } : {}),
         };
       });
       out.push({ site: ctx.contentRootName, domain: ctx.config.domain, database: name, label: config.name || name, config: cfg, rows });

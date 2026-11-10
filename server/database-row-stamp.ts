@@ -1,5 +1,7 @@
 import {
+  REJECTED_KEY,
   ROW_STAMP_KEY,
+  SIMILAR_TO_KEY,
   evidenceProofFields,
   readEvidenceConfig,
   readRowStamp,
@@ -12,9 +14,12 @@ import { ARCHIVE_KEY, readArchiveRecord, rowProofLink } from "@shared/evidence-a
 export type RowWriter = { type: RowStampType; author: string | null };
 
 /** Row keys only the server writes; dropped from client input and from every public read. */
-export const SERVER_ROW_KEYS: readonly string[] = [ROW_STAMP_KEY, ARCHIVE_KEY];
+export const SERVER_ROW_KEYS: readonly string[] = [ROW_STAMP_KEY, ARCHIVE_KEY, REJECTED_KEY, SIMILAR_TO_KEY];
 
-/** Row without server-only keys (`_changed_by`, `_archive`). */
+/** Server keys an edit always carries forward from the stored row (only dedicated routes change them). */
+const CARRIED_ROW_KEYS: readonly string[] = [REJECTED_KEY, SIMILAR_TO_KEY];
+
+/** Row without server-only keys (`_changed_by`, `_archive`, `_rejected`, `_similar_to`). */
 export function stripRowStamp<T extends Record<string, unknown>>(row: T): T {
   if (!row || typeof row !== "object" || !SERVER_ROW_KEYS.some((k) => k in row)) return row;
   const rest: Record<string, unknown> = { ...row };
@@ -43,12 +48,18 @@ function withServerKeys(
   clean: Record<string, unknown>,
   stamp: RowStamp | null,
   archive: unknown,
+  prev: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> {
-  return {
+  const out: Record<string, unknown> = {
     ...clean,
     ...(stamp ? { [ROW_STAMP_KEY]: stamp } : {}),
     ...(archive !== undefined && archive !== null ? { [ARCHIVE_KEY]: archive } : {}),
   };
+  for (const k of CARRIED_ROW_KEYS) {
+    const v = prev?.[k];
+    if (v !== undefined && v !== null) out[k] = v;
+  }
+  return out;
 }
 
 /**
@@ -69,11 +80,11 @@ export function applyRowStamp(opts: {
   const cfg = readEvidenceConfig(opts.evidence);
   const prevStamp = opts.prev ? readRowStamp(opts.prev) : null;
   const prevArchive = opts.prev?.[ARCHIVE_KEY];
-  if (!cfg) return withServerKeys(clean, prevStamp, prevArchive);
+  if (!cfg) return withServerKeys(clean, prevStamp, prevArchive, opts.prev);
   if (proofFieldsChanged(opts.prev ? stripRowStamp(opts.prev) : null, clean, cfg)) {
-    return withServerKeys(clean, newStamp(opts.writer, opts.now ?? new Date()), prevArchive);
+    return withServerKeys(clean, newStamp(opts.writer, opts.now ?? new Date()), prevArchive, opts.prev);
   }
-  return withServerKeys(clean, prevStamp, prevArchive);
+  return withServerKeys(clean, prevStamp, prevArchive, opts.prev);
 }
 
 /** Bulk replace: each incoming row keeps the stamp and archive of a previous row with identical proof fields. */
@@ -93,20 +104,29 @@ export function applyRowStampsBulk(opts: {
     if (!prevByKey.has(k)) prevByKey.set(k, p);
   }
   const archiveByLink = new Map<string, unknown>();
+  const rejectedByLink = new Map<string, unknown>();
   if (cfg) {
     for (const p of opts.prevRows) {
       const rec = readArchiveRecord(p);
       if (rec && !archiveByLink.has(rec.source_url)) archiveByLink.set(rec.source_url, p[ARCHIVE_KEY]);
+      const link = rowProofLink(p, cfg.proof_field);
+      if (link && p[REJECTED_KEY] && !rejectedByLink.has(link)) rejectedByLink.set(link, p[REJECTED_KEY]);
     }
   }
   return opts.nextRows.map((next, i) => {
     const clean = stripRowStamp(next);
     const prev = cfg ? prevByKey.get(keyOf(clean)) ?? null : opts.prevRows[i] ?? null;
     const row = applyRowStamp({ prev, next: clean, evidence: opts.evidence, writer: opts.writer, now: opts.now });
-    if (cfg && !(ARCHIVE_KEY in row)) {
+    if (cfg) {
       const link = rowProofLink(clean, cfg.proof_field);
-      const archive = link ? archiveByLink.get(link) : undefined;
-      if (archive !== undefined) row[ARCHIVE_KEY] = archive;
+      if (!(ARCHIVE_KEY in row)) {
+        const archive = link ? archiveByLink.get(link) : undefined;
+        if (archive !== undefined) row[ARCHIVE_KEY] = archive;
+      }
+      if (!prev && !(REJECTED_KEY in row)) {
+        const rejected = link ? rejectedByLink.get(link) : undefined;
+        if (rejected !== undefined) row[REJECTED_KEY] = rejected;
+      }
     }
     return row;
   });

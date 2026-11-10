@@ -4,6 +4,7 @@
  */
 
 import {
+  isRowRejected,
   rowTrust,
   type DatabaseEvidenceConfig,
   type EvidenceKind,
@@ -125,6 +126,7 @@ export function buildEvidenceIndex(sources: EvidenceSource[], brand: string[]): 
   for (const src of sources) {
     const ignore = new Set((src.config.ignore_values ?? []).map(normalizeName));
     src.rows.forEach((row, index) => {
+      if (isRowRejected(row)) return;
       const linkRaw = row[src.config.proof_field];
       const archive = archiveView(row, src.config.proof_field);
       const ref: EvidenceRowRef = {

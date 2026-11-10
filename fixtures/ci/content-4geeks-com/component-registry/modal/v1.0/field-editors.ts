@@ -5,6 +5,7 @@ export type EditorType = string;
 
 export const fieldEditors: Record<string, EditorType> = {
   form: "form-settings",
+  "form.button_variant": "string-picker:primary,secondary,outline",
   "twoColumn:left.image": "image-with-style-picker",
   "twoColumn:right.image": "image-with-style-picker",
   "twoColumn:left.heading":

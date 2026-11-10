@@ -1,5 +1,5 @@
 import { ARCHIVE_KEY, readArchiveRecord, rowNeedsArchive, rowProofLink } from "@shared/evidence-archive";
-import { readEvidenceConfig } from "@shared/evidence-kinds";
+import { isRowRejected, readEvidenceConfig } from "@shared/evidence-kinds";
 import { enqueueEvidenceArchive } from "../jobs/definitions/evidence-archive";
 import { isLiveServer } from "../live-server";
 import { child } from "../logger";
@@ -27,6 +27,7 @@ export function markRowsPendingArchive(
   const links = new Set<string>();
   for (const row of rows) {
     if (links.size >= MAX_PER_SAVE) break;
+    if (isRowRejected(row)) continue;
     if (!rowNeedsArchive(row, cfg.proof_field, { retryFailedAfterMs: Number.POSITIVE_INFINITY })) continue;
     const link = rowProofLink(row, cfg.proof_field)!;
     row[ARCHIVE_KEY] = pendingRecord(readArchiveRecord(row), link, at);

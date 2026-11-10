@@ -8,6 +8,8 @@ description: >-
 when_to_use: >-
   Lead forms or short content that should open on click from a CTA/link instead of navigating away. Always set
   section_id; wire buttons with url: "#that-id". Agents: explain_site topic sections.
+layout:
+  flow: out
 behaviors:
   conversion:
     via: form-settings
@@ -18,9 +20,41 @@ variants:
   default:
     description: Simple heading + optional lead form overlay
     best_for: Apply / contact popups opened via
+    content_shape:
+      text:
+        heading:
+          min: 14
+          max: 39
+          typical: 23
+        description:
+          min: 66
+          max: 163
+          typical: 108
+      image: unused
+      icon: unused
+      sample_pages: 22
+      measured_at: "2026-10-02"
+    avoid_when: >-
+      Pages needing inline content, media, images, icons, or complex multi-section layouts that cannot be triggered via
+      URL hash.
+    metadata_status: draft
   twoColumn:
     description: two_column-style overlay — image + rich text + bullets + CTA buttons
     best_for: Workshop RSVP success and similar confirmation overlays
+    content_shape:
+      items:
+        proportions:
+          min: 2
+          max: 2
+          typical: 2
+      image: unused
+      icon: unused
+      sample_pages: 1
+      measured_at: "2026-10-02"
+    avoid_when: >-
+      Pages needing more or less than 2 columns, inline content, heavy image galleries, or content that should stay on
+      the main page flow.
+    metadata_status: draft
 variant_props:
   default:
     heading:
@@ -965,6 +999,13 @@ variant_props:
         button_className:
           type: string
           required: false
+        button_variant:
+          type: string
+          required: false
+          options:
+            - primary
+            - secondary
+            - outline
         terms_className:
           type: string
           required: false

@@ -7,8 +7,9 @@
  * EditorType options: "icon-picker" | "color-picker" | "image-picker" | "link-picker" | "form-settings"
  */
 
-export type EditorType = "icon-picker" | "color-picker" | "image-picker" | "link-picker" | "form-settings";
+export type EditorType = "icon-picker" | "color-picker" | "image-picker" | "link-picker" | "form-settings" | "string-picker:primary,secondary,outline";
 
 export const fieldEditors: Record<string, EditorType> = {
   "form": "form-settings",
+  "form.button_variant": "string-picker:primary,secondary,outline",
 };

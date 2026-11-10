@@ -32,9 +32,12 @@ import {
   validateBulkLength,
   validateFaqItem,
   withGlobalIndices,
+  duplicateRefusalDetails,
   type BatchRowResult,
 } from "../lib/database-items.js";
 import { evidenceProofFields, readEvidenceConfig } from "@shared/evidence-kinds";
+import { ignoreWordSet, type SimilarRow } from "@shared/evidence-duplicates";
+import { siteBrandTerms } from "../../server/content-proposals/site-brand.js";
 
 const MAIN_SERVER_PORT = process.env.PORT || "5000";
 
@@ -175,22 +178,34 @@ async function forceRefreshDatabase(
   return { ok: true };
 }
 
+type ItemsPage = {
+  items?: Record<string, unknown>[];
+  indices?: number[];
+  evidence_trust?: string[];
+  total_count?: number;
+  error?: string;
+};
+
+/** Every stored row in order (staff-rejected ones included) plus the global indices that are rejected. */
 async function fetchAllItems(
   dbName: string,
   domain: string | null,
   mcpToken?: string,
-): Promise<{ ok: true; items: Record<string, unknown>[] } | { ok: false; message: string }> {
+): Promise<{ ok: true; items: Record<string, unknown>[]; rejected: Set<number> } | { ok: false; message: string }> {
   // High limit so we can stamp global indices correctly before filtering.
   const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/items${queryStringJoin("limit=1000&page=1")}`;
   const res = await fetch(url, { headers: internalHeaders(mcpToken, { site: domain ?? undefined }) });
-  const data = (await res.json()) as {
-    items?: Record<string, unknown>[];
-    total_count?: number;
-    error?: string;
-  };
+  const data = (await res.json()) as ItemsPage;
   if (!res.ok) {
     return { ok: false, message: data.error || `Server error: ${res.status}` };
   }
+  const rejected = new Set<number>();
+  const noteRejected = (page: ItemsPage, offset: number) => {
+    page.evidence_trust?.forEach((t, k) => {
+      if (t === "rejected") rejected.add(page.indices?.[k] ?? offset + k);
+    });
+  };
+  noteRejected(data, 0);
   let items = data.items ?? [];
   const total = data.total_count ?? items.length;
   if (total > items.length) {
@@ -199,14 +214,49 @@ async function fetchAllItems(
     for (let page = 2; page <= pages; page++) {
       const pageUrl = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(dbName)}/items${queryStringJoin(`limit=1000&page=${page}`)}`;
       const pageRes = await fetch(pageUrl, { headers: internalHeaders(mcpToken, { site: domain ?? undefined }) });
-      const pageData = (await pageRes.json()) as { items?: Record<string, unknown>[]; error?: string };
+      const pageData = (await pageRes.json()) as ItemsPage;
       if (!pageRes.ok) {
         return { ok: false, message: pageData.error || `Server error: ${pageRes.status}` };
       }
+      noteRejected(pageData, items.length);
       items = items.concat(pageData.items ?? []);
     }
   }
-  return { ok: true, items };
+  return { ok: true, items, rejected };
+}
+
+/** Query string for the server's duplicate-check controls. */
+function acknowledgedQuery(acknowledged: number[] | undefined): string {
+  return acknowledged?.length ? `?acknowledged_similar=${acknowledged.join(",")}` : "";
+}
+
+/** Server refusal (duplicate check / rejected row) as an MCP fail, or a plain fail. */
+function failWrite(
+  database: string,
+  data: Record<string, unknown>,
+  status: number,
+  retry: { tool: string; args: Record<string, unknown> },
+) {
+  const message = (data.error as string) || `Server error: ${status}`;
+  const details = duplicateRefusalDetails(database, data, retry);
+  return details ? fail(message, details) : fail(message);
+}
+
+const ACKNOWLEDGED_SIMILAR_FIELD = z
+  .array(z.number().int().min(0))
+  .optional()
+  .describe(
+    "Evidence databases: global indices of 'looks like the same story' rows you reviewed (from a similar_rows refusal). " +
+      "Pass every index only when this is different coverage; staff see the match when verifying.",
+  );
+
+const INCLUDE_REJECTED_FIELD = z
+  .boolean()
+  .optional()
+  .describe("Evidence databases: include staff-rejected rows (flagged rejected:true). Default false — they are hidden.");
+
+function brandIgnoreWords(contentPath: string, domain: string | null): Set<string> {
+  return ignoreWordSet(siteBrandTerms(contentPath, domain));
 }
 
 /**
@@ -223,6 +273,7 @@ async function prepareDatabaseRead(opts: {
   | {
       ok: true;
       items: Record<string, unknown>[];
+      rejected: Set<number>;
       refreshed: boolean;
       refreshFailed: boolean;
       refreshIgnoredPagination: boolean;
@@ -264,6 +315,7 @@ async function prepareDatabaseRead(opts: {
   return {
     ok: true,
     items: all.items,
+    rejected: all.rejected,
     refreshed,
     refreshFailed,
     refreshIgnoredPagination,
@@ -514,9 +566,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         .optional()
         .describe("Extra field filters (OR within field, AND across fields)"),
       refresh: z.boolean().optional().describe(REFRESH_ARG_DESC),
+      include_rejected: INCLUDE_REJECTED_FIELD,
       site: z.string().optional(),
     },
-    async ({ database, page, limit, locale, filter, refresh, site }) => {
+    async ({ database, page, limit, locale, filter, refresh, include_rejected, site }) => {
       const denied = await requireReadCap(mcpToken);
       if (denied) return denied;
 
@@ -543,9 +596,14 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const indexed = withGlobalIndices(prepared.items);
         const filters: Record<string, string | string[]> = { ...(filter ?? {}) };
         if (locale) filters.locale = locale;
-        const filtered = filterIndexedItems(indexed, filters);
+        const visible = include_rejected ? indexed : indexed.filter((row) => !prepared.rejected.has(row.index));
+        const filtered = filterIndexedItems(visible, filters);
         const pageResult = paginateItems(filtered, pageNum, limit ?? 50);
-        const summaryItems = pageResult.items.map((row) => summarizeDatabaseItem(row));
+        const summaryItems = pageResult.items.map((row) => ({
+          ...summarizeDatabaseItem(row),
+          ...(prepared.rejected.has(row.index) ? { rejected: true } : {}),
+        }));
+        const hiddenRejected = include_rejected ? 0 : prepared.rejected.size;
 
         return ok(
           {
@@ -561,13 +619,23 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
             total_count: pageResult.total_count,
           },
           {
-            warnings: databaseReadWarnings({
-              sourceType,
-              refreshed: prepared.refreshed,
-              refreshFailed: prepared.refreshFailed,
-              refreshIgnoredPagination: prepared.refreshIgnoredPagination,
-              refreshSkipped: prepared.refreshSkipped,
-            }),
+            warnings: [
+              ...databaseReadWarnings({
+                sourceType,
+                refreshed: prepared.refreshed,
+                refreshFailed: prepared.refreshFailed,
+                refreshIgnoredPagination: prepared.refreshIgnoredPagination,
+                refreshSkipped: prepared.refreshSkipped,
+              }),
+              ...(hiddenRejected > 0
+                ? [
+                    {
+                      code: "rejected_hidden",
+                      message: `${hiddenRejected} staff-rejected row(s) hidden (global indices unchanged). Their links cannot be re-added; pass include_rejected:true to see them.`,
+                    },
+                  ]
+                : []),
+            ],
             next_actions: [],
           },
         );
@@ -586,9 +654,10 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
       database: z.string(),
       index: z.number().int().min(0).describe("Global array index"),
       refresh: z.boolean().optional().describe(REFRESH_ARG_DESC),
+      include_rejected: INCLUDE_REJECTED_FIELD,
       site: z.string().optional(),
     },
-    async ({ database, index, refresh, site }) => {
+    async ({ database, index, refresh, include_rejected, site }) => {
       const denied = await requireReadCap(mcpToken);
       if (denied) return denied;
 
@@ -613,6 +682,20 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         if (index < 0 || index >= prepared.items.length) {
           return fail(`Item at index ${index} not found (length=${prepared.items.length})`);
         }
+        const rejected = prepared.rejected.has(index);
+        if (rejected && !include_rejected) {
+          return fail(`Item ${index} in ${database} is a staff-rejected story (hidden from pages, listings, search and evidence).`, {
+            code: "rejected_row",
+            index,
+            warnings: [
+              {
+                code: "rejected_hidden",
+                message: "Its link cannot be re-added. Pass include_rejected:true to read the row anyway.",
+              },
+            ],
+            next_actions: [],
+          });
+        }
 
         return ok(
           {
@@ -622,6 +705,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
             local,
             index,
             item: prepared.items[index],
+            ...(rejected ? { rejected: true } : {}),
             item_file: itemFileForConfig(database, cfg.data.config),
           },
           {
@@ -643,15 +727,19 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
 
   mcp.tool(
     "add_database_item",
-    "Append one item to a local database YAML. FAQ requires question, answer, locale; fills last_updated/priority/locations defaults; rejects duplicate (locale, question). Does not push content sync. Set reindex:true to reindex after write if you have databases_manage.",
+    "Append one item to a local database YAML. FAQ requires question, answer, locale; fills last_updated/priority/locations defaults; rejects duplicate (locale, question). " +
+      "Evidence databases (e.g. press_mentions): refuses a link already in the bank (duplicate_link), a staff-rejected story (rejected_link) or a redirect link (redirect_link); " +
+      "'looks like' rows return similar_rows until acknowledged_similar lists them. Just add and handle the refusal — no need to list first. " +
+      "Does not push content sync. Set reindex:true to reindex after write if you have databases_manage.",
     {
       database: z.string(),
       item: itemSchema.describe("Item fields to append"),
       reindex: z.boolean().optional().describe("If true and vector_search enabled, reindex after write (needs databases_manage)"),
+      acknowledged_similar: ACKNOWLEDGED_SIMILAR_FIELD,
       ...requiredAgentSessionIdField,
       site: z.string().optional(),
     },
-    async ({ database, item, reindex, agent_session_id, site }) => {
+    async ({ database, item, reindex, acknowledged_similar, agent_session_id, site }) => {
       const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
@@ -712,7 +800,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           });
         }
 
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items${acknowledgedQuery(acknowledged_similar)}`;
         const res = await fetch(url, {
           method: "POST",
           headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
@@ -720,7 +808,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
-          return fail((data.error as string) || `Server error: ${res.status}`);
+          return failWrite(database, data, res.status, { tool: "add_database_item", args: { database, item } });
         }
 
         const newIndex =
@@ -764,7 +852,9 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
 
   mcp.tool(
     "add_database_items",
-    "Best-effort bulk append to a local database YAML (max 40). Per-row results[]; FAQ defaults + first-wins dedupe. Retry only failed input_index rows. Does not push content sync. Set reindex:true after any success if you have databases_manage.",
+    "Best-effort bulk append to a local database YAML (max 40). Per-row results[]; FAQ defaults + first-wins dedupe. " +
+      "Evidence databases: per-row duplicate_link / rejected_link / redirect_link / similar_rows (first wins within the batch). " +
+      "Retry only failed input_index rows. Does not push content sync. Set reindex:true after any success if you have databases_manage.",
     {
       database: z.string(),
       items: z
@@ -778,10 +868,11 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         .describe(
           "If true and vector_search enabled, reindex once after any successful write (needs databases_manage)",
         ),
+      acknowledged_similar: ACKNOWLEDGED_SIMILAR_FIELD,
       ...requiredAgentSessionIdField,
       site: z.string().optional(),
     },
-    async ({ database, items, reindex, agent_session_id, site }) => {
+    async ({ database, items, reindex, acknowledged_similar, agent_session_id, site }) => {
       const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
@@ -810,7 +901,20 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const all = await fetchAllItems(database, domain, mcpToken);
         if (!all.ok) return fail(all.message);
 
-        const { results, toWrite } = prepareBatchAdd(database, items, all.items);
+        const evidenceCfg = readEvidenceConfig(cfg.data.config.evidence);
+        const { results, toWrite } = prepareBatchAdd(
+          database,
+          items,
+          all.items,
+          evidenceCfg
+            ? {
+                proofField: evidenceCfg.proof_field,
+                rejected: all.rejected,
+                ignoreWords: brandIgnoreWords(siteResult.contentPath, domain),
+                acknowledged: acknowledged_similar ?? [],
+              }
+            : undefined,
+        );
         const warnings: McpWarning[] = [
           ...syncWarnings(`db/${database}/${local.filename}`),
           ...evidenceWriteWarnings(cfg.data.config, "new_row"),
@@ -841,7 +945,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         const indices: number[] = [];
 
         if (toWrite.length > 0) {
-          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items`;
+          const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items${acknowledgedQuery(acknowledged_similar)}`;
           const res = await fetch(url, {
             method: "POST",
             headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
@@ -849,7 +953,15 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           });
           const data = (await res.json()) as Record<string, unknown>;
           if (!res.ok) {
+            // The server re-checks the whole batch (a write may have raced in); its input_index is batch-local.
+            const refusal = duplicateRefusalDetails(database, data, {
+              tool: "add_database_items",
+              args: { database, items },
+            });
+            const sentIndex = typeof data.input_index === "number" ? toWrite[data.input_index]?.input_index : undefined;
             return fail((data.error as string) || `Server error: ${res.status}`, {
+              ...(refusal ?? {}),
+              ...(sentIndex !== undefined ? { input_index: sentIndex } : {}),
               results,
               wrote_count: 0,
               failed_count: results.length,
@@ -930,7 +1042,9 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
 
   mcp.tool(
     "update_database_item",
-    "PATCH a local database item by global index. Pass expect.question (from prior list/get) to refuse stale indices. FAQ dedupe applies if question/locale change. Set reindex:true to reindex after write.",
+    "PATCH a local database item by global index. Pass expect.question (from prior list/get) to refuse stale indices. FAQ dedupe applies if question/locale change. " +
+      "Evidence databases: changing the link runs the duplicate checks (duplicate_link / rejected_link / redirect_link); title/organization/locale edits may return similar_rows. Edits keep a staff rejection. " +
+      "Set reindex:true to reindex after write.",
     {
       database: z.string(),
       index: z.number().int().min(0),
@@ -940,10 +1054,11 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         .optional()
         .describe("If set, must match current item.question or update is refused"),
       reindex: z.boolean().optional(),
+      acknowledged_similar: ACKNOWLEDGED_SIMILAR_FIELD,
       ...requiredAgentSessionIdField,
       site: z.string().optional(),
     },
-    async ({ database, index, item, expect_question, reindex, agent_session_id, site }) => {
+    async ({ database, index, item, expect_question, reindex, acknowledged_similar, agent_session_id, site }) => {
       const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
@@ -1029,7 +1144,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           }
         }
 
-        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}`;
+        const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}${acknowledgedQuery(acknowledged_similar)}`;
         const res = await fetch(url, {
           method: "PATCH",
           headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
@@ -1037,7 +1152,13 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
-          return fail((data.error as string) || `Server error: ${res.status}`);
+          return failWrite(database, data, res.status, { tool: "update_database_item", args: { database, index, item } });
+        }
+        if (all.rejected.has(index)) {
+          warnings.push({
+            code: "row_rejected",
+            message: "This row is a staff-rejected story: it stays hidden from pages, listings, search and evidence after your edit.",
+          });
         }
 
         const ri = await maybeReindex(database, domain, mcpToken, reindex, vectorEnabled);
@@ -1167,6 +1288,23 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
             body: JSON.stringify(row.item),
           });
           const data = (await res.json()) as Record<string, unknown>;
+          const refusal =
+            res.status === 409
+              ? duplicateRefusalDetails(database, data, { tool: "update_database_item", args: { database, index: row.index, item: row.item } })
+              : null;
+          if (refusal) {
+            // Duplicate checks refuse before writing: record the row and keep going.
+            finalResults[row.input_index] = {
+              input_index: row.input_index,
+              ok: false,
+              code: String(refusal.code),
+              message: (data.error as string) || "Refused by the duplicate check",
+              index: row.index,
+              ...(typeof refusal.existing_index === "number" ? { existing_index: refusal.existing_index } : {}),
+              ...(Array.isArray(refusal.similar) ? { similar: refusal.similar as SimilarRow[] } : {}),
+            };
+            continue;
+          }
           if (!res.ok) {
             const msg = (data.error as string) || `Server error: ${res.status}`;
             finalResults[row.input_index] = {
@@ -1261,7 +1399,8 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
 
   mcp.tool(
     "delete_database_item",
-    "Delete a local database item by global index. Requires confirm:true. Without confirm, returns action_required with usage summary. Hard delete — bank FAQs disappear from all sections that pull them.",
+    "Delete a local database item by global index. Requires confirm:true. Without confirm, returns action_required with usage summary. Hard delete — bank FAQs disappear from all sections that pull them. " +
+      "Staff-rejected evidence rows cannot be deleted by agents (rejected_row).",
     {
       database: z.string(),
       index: z.number().int().min(0),
@@ -1301,6 +1440,17 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           return fail(`Item at index ${index} not found (length=${all.items.length})`);
         }
         const current = all.items[index];
+        if (all.rejected.has(index)) {
+          return failWrite(
+            database,
+            {
+              error: "Staff rejected this story; deleting it would let it be added again. Only staff can delete a rejected row.",
+              code: "rejected_row",
+            },
+            403,
+            { tool: "delete_database_item", args: { database, index } },
+          );
+        }
 
         if (
           expect_question !== undefined &&
@@ -1391,7 +1541,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
-          return fail((data.error as string) || `Server error: ${res.status}`);
+          return failWrite(database, data, res.status, { tool: "delete_database_item", args: { database, index } });
         }
 
         const ri = await maybeReindex(database, domain, mcpToken, reindex, vectorEnabled);
