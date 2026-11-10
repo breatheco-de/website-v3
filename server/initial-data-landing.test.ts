@@ -65,6 +65,8 @@ function makeSite(): ContentIndex {
     "landings/master-ia/es.yml",
     "title: Master IA\nmeta:\n  page_title: Máster en IA\nsections: []\n",
   );
+  write(root, "landings/sin-locale/_common.yml", "slug: sin-locale\n");
+  write(root, "landings/sin-locale/es.yml", "title: Sin locale\nmeta:\n  page_title: Sin locale\nsections: []\n");
   write(root, "pages/about/en.yml", "slug: about\ntitle: About\nsections: []\n");
   write(root, "promos/oferta/_common.yml", "slug: oferta\nlocale: es\n");
   write(root, "promos/oferta/es.yml", "title: Oferta\nsections: []\n");
@@ -89,6 +91,13 @@ describe("resolveInitialData for a single-address landing", () => {
     const ci = makeSite();
     const payload = await resolveInitialData("/landing/master-ia", ci, databaseManager);
     expect(keys(payload)).toContain(JSON.stringify(["/api/landings", "master-ia", "auto"]));
+    expect(payload?.locale).toBe("es");
+  });
+
+  it("serves a Spanish-only landing with no locale in _common.yml in Spanish", async () => {
+    const ci = makeSite();
+    const payload = await resolveInitialData("/landing/sin-locale", ci, databaseManager);
+    expect(keys(payload)).toContain(JSON.stringify(["/api/landings", "sin-locale", "auto"]));
     expect(payload?.locale).toBe("es");
   });
 });

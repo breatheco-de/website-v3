@@ -49,6 +49,7 @@ export function checkPageFiles(): Record<string, string> {
   return {
     "_common.yml": dumpYaml({
       slug: AB_CHECK_SLUG,
+      locale: AB_CHECK_LOCALE,
       system: AB_CHECK_SYSTEM_MARKER,
       sitemap: false,
     }),
