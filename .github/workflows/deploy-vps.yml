@@ -310,9 +310,9 @@ jobs:
               outcome="$(echo "$GATE_LINES" | sed -n 's/^RENDER_GATE result=\([^ ]*\).*/\1/p' | tail -1)"
               failing="$(echo "$GATE_LINES" | sed -n 's/^RENDER_GATE result=.*failing="\(.*\)".*/\1/p' | tail -1)"
               case "$outcome" in
-                passed) echo "- ✅ Every content type rendered (no type over 10% empty pages)." ;;
-                failed) echo "- ❌ **Deploy stopped before going live**: too many pages rendered empty ($failing). The live site is unchanged. Fix the pages below, or rerun with **Skip page render check** in an emergency." ;;
-                skipped_by_override) echo "- ⚠️ Went live with the page render check skipped: $failing rendered empty." ;;
+                passed) echo "- ✅ Every content type rendered (no type over 10% empty pages) and no address is shared by two languages." ;;
+                failed) echo "- ❌ **Deploy stopped before going live** ($failing). The live site is unchanged. Fix the pages below, or rerun with **Skip page render check** in an emergency." ;;
+                skipped_by_override) echo "- ⚠️ Went live with the page render check skipped ($failing)." ;;
                 *) echo "- ➖ Page render check did not report a result." ;;
               esac
               echo ""
@@ -325,6 +325,12 @@ jobs:
                 echo ""
                 echo "Empty pages ($count, first 20):"
                 echo "$empties" | head -20 | sed 's/^/- `/; s/$/`/'
+              fi
+              shared="$(echo "$GATE_LINES" | sed -n 's/^RENDER_GATE_CONFLICT path=\([^ ]*\) locales=\(.*\)$/- `\1` is shared by \2: only one language can be shown there. Give one language its own slug./p')"
+              if [[ -n "$shared" ]]; then
+                echo ""
+                echo "Addresses shared by two languages:"
+                echo "$shared" | head -20
               fi
             } >> "$GITHUB_STEP_SUMMARY"
           fi

@@ -100,6 +100,21 @@ function attachAuthorUrls(
   return item;
 }
 
+function isResolvedItem(v: unknown): boolean {
+  return (
+    v !== null &&
+    typeof v === "object" &&
+    !Array.isArray(v) &&
+    typeof (v as Record<string, unknown>).slug === "string"
+  );
+}
+
+/** Field already hydrated by an earlier pass (object, or non-empty array of objects with `slug`). */
+function isAlreadyResolved(raw: unknown): boolean {
+  if (Array.isArray(raw)) return raw.length > 0 && raw.every(isResolvedItem);
+  return isResolvedItem(raw);
+}
+
 /**
  * Mutates a copy of `entry`: each relation field becomes hydrated object / object[]
  * (or left as pointer string(s) on broken refs).
@@ -120,6 +135,7 @@ export async function resolveRelationsOnEntry(
   for (const [field, hint] of Object.entries(editor as Record<string, ContentTypeEditorHint>)) {
     if (hint?.type !== "relation" || !hint.source) continue;
     const raw = entry[field];
+    if (isAlreadyResolved(raw)) continue;
     const normalized = normalizeRelationPointers(raw);
     if (!normalized.ok) {
       errors.push(`${field}: ${normalized.error}`);

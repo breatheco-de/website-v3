@@ -47,7 +47,10 @@ import { validateYamlIdentity } from "../validate-content-identity";
 import {
   assertLocaleUrlAvailable,
   checkNewLocaleUrlSlug,
+  isSingleAddressPattern,
+  liveLocaleSlugsInFolder,
   ownLocaleSlug,
+  singleAddressConflictFor,
   validateLocaleUrlSlugFormat,
 } from "../locale-url-slug";
 import { getContentTypeConfig } from "../content-types";
@@ -624,6 +627,17 @@ export async function promoteVariantWithOptionalTeardown(
     }
     const parsedVariant = (ci.safeYamlLoad(variantContent) as Record<string, unknown>) || {};
     const commonForGate = ci.loadCommonData(contentType, slug) || {};
+    const urlPatternForGate = getContentTypeConfig(contentType, contentRoot)?.url_pattern ?? null;
+    if (!templateMode && isSingleAddressPattern(urlPatternForGate)) {
+      const commonSlug = typeof commonForGate.slug === "string" && commonForGate.slug.trim() ? commonForGate.slug.trim() : null;
+      const conflict = singleAddressConflictFor({
+        urlPattern: urlPatternForGate,
+        slugsByLocale: liveLocaleSlugsInFolder(contentDir, slug, (raw) => safeLoadYaml(raw), commonSlug),
+        locale,
+        newSlug: ownLocaleSlug(parsedVariant) ?? commonSlug ?? slug,
+      });
+      if (!conflict.ok) return { ok: false, code: conflict.code, error: conflict.error, status: 409, details: conflict.details };
+    }
     const mergedForGate = deepMerge(commonForGate, parsedVariant) as Record<string, unknown>;
     const { evaluateLiveEntrySeoAndRequiredFields } = await import("../live-entry-seo-gate");
     const seoGate = evaluateLiveEntrySeoAndRequiredFields({

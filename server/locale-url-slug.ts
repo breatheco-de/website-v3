@@ -2,6 +2,8 @@
  * Per-locale URL slug helpers: resolve slug for YAML, uniqueness at go-live, redirect policy on rename.
  */
 
+import fs from "fs";
+import path from "path";
 import type { ContentIndex } from "./content-index.js";
 import {
   extractUrlPatternParams,
@@ -14,6 +16,7 @@ import { assessSlugLocaleMatch, SLUG_LOCALE_MISMATCH_CODE } from "@shared/slug-l
 import { isSlug, SLUG_FORMAT_HINT } from "@shared/slug";
 
 export const LOCALE_URL_SLUG_REQUIRED = "locale_url_slug_required";
+export const LOCALE_URL_SLUG_CONFLICT = "locale_url_slug_conflict";
 export const URL_SLUG_REQUIRED = "url_slug_required";
 export const IDEA_URL_SLUG_CONFLICT = "idea_url_slug_conflict";
 export const URL_SLUG_OVERRIDE_INVALID = "url_slug_override_invalid";
@@ -66,6 +69,139 @@ export function urlPatternUsesSlug(
 ): boolean {
   const pattern = urlPattern?.[locale] || urlPattern?.["default"] || `/${locale}/:slug`;
   return /(^|\/):slug(\/|$)/.test(pattern);
+}
+
+/**
+ * One address for every language (`url_pattern` is only `default`, no `:locale`), e.g.
+ * /landing/:slug. Each language must then have its own slug, or two languages share one
+ * address and only one of them can ever be shown.
+ */
+export function isSingleAddressPattern(urlPattern: Record<string, string> | null | undefined): boolean {
+  const def = urlPattern?.default;
+  if (typeof def !== "string" || !def.trim() || def.includes(":locale")) return false;
+  return Object.keys(urlPattern ?? {}).every((k) => k === "default");
+}
+
+type SlugIndex = Pick<ContentIndex, "getAvailableLocalesOrVariants" | "getLocaleSlug" | "getContentTypeConfig" | "normalizeType">;
+
+function isLiveLocaleStem(locale: string): boolean {
+  return !locale.startsWith("_") && !locale.includes(".");
+}
+
+/** Public slug of each live language of an entry (own `slug:`, else `_common.yml` slug, else the folder name). */
+export function liveLocaleSlugs(ci: SlugIndex, contentType: string, folderSlug: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const loc of ci.getAvailableLocalesOrVariants(contentType as never, folderSlug)) {
+    if (!isLiveLocaleStem(loc)) continue;
+    out[loc] = ci.getLocaleSlug(folderSlug, contentType, loc);
+  }
+  return out;
+}
+
+/** Groups of live languages sharing one address on a one-address type (empty when none or not one-address). */
+export function findSingleAddressSlugConflicts(
+  ci: SlugIndex,
+  contentType: string,
+  folderSlug: string,
+): Array<{ slug: string; locales: string[] }> {
+  const pattern = ci.getContentTypeConfig(ci.normalizeType(contentType))?.url_pattern;
+  if (!isSingleAddressPattern(pattern)) return [];
+  const bySlug = new Map<string, string[]>();
+  for (const [loc, slug] of Object.entries(liveLocaleSlugs(ci, contentType, folderSlug))) {
+    bySlug.set(slug, [...(bySlug.get(slug) ?? []), loc]);
+  }
+  return [...bySlug.entries()]
+    .filter(([, locales]) => locales.length > 1)
+    .map(([slug, locales]) => ({ slug, locales: locales.sort() }));
+}
+
+/** Other live languages that already use `newSlug` as their address (one-address types only). */
+export function wouldConflict(
+  ci: SlugIndex,
+  contentType: string,
+  folderSlug: string,
+  locale: string,
+  newSlug: string,
+): string[] {
+  const pattern = ci.getContentTypeConfig(ci.normalizeType(contentType))?.url_pattern;
+  if (!isSingleAddressPattern(pattern)) return [];
+  return Object.entries(liveLocaleSlugs(ci, contentType, folderSlug))
+    .filter(([loc, slug]) => loc !== locale && slug === newSlug)
+    .map(([loc]) => loc)
+    .sort();
+}
+
+/**
+ * Live language files in an entry folder → public slug (own `slug:`, else `commonSlug`, else
+ * the folder name). Reads files directly; `load` parses YAML (template-safe loader).
+ */
+export function liveLocaleSlugsInFolder(
+  folderPath: string,
+  entryIdentity: string,
+  load: (raw: string) => Record<string, unknown> | null | undefined,
+  commonSlug?: string | null,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  let files: string[] = [];
+  try {
+    files = fs.readdirSync(folderPath);
+  } catch {
+    return out;
+  }
+  for (const f of files) {
+    const m = /^([a-z]{2}(?:-[a-z]{2})?)\.ya?ml$/.exec(f);
+    if (!m) continue;
+    let own: string | null = null;
+    try {
+      own = ownLocaleSlug(load(fs.readFileSync(path.join(folderPath, f), "utf-8")));
+    } catch {
+      own = null;
+    }
+    out[m[1]!] = own ?? commonSlug ?? entryIdentity;
+  }
+  return out;
+}
+
+/** Conflict check from already-known slugs per live language (no index needed). */
+export function singleAddressConflictFor(opts: {
+  urlPattern: Record<string, string> | null | undefined;
+  slugsByLocale: Record<string, string>;
+  locale: string;
+  newSlug: string;
+}): LocaleUrlSlugGateResult {
+  if (!isSingleAddressPattern(opts.urlPattern)) return { ok: true };
+  const others = Object.entries(opts.slugsByLocale)
+    .filter(([loc, slug]) => loc !== opts.locale && slug === opts.newSlug)
+    .map(([loc]) => loc)
+    .sort();
+  return conflictGateResult(opts.urlPattern?.default ?? "", opts.locale, others, opts.newSlug);
+}
+
+/** Gate result for a write that would give `locale` the same address as another language. */
+export function singleAddressConflictResult(opts: {
+  ci: SlugIndex;
+  contentType: string;
+  folderSlug: string;
+  locale: string;
+  newSlug: string;
+}): LocaleUrlSlugGateResult {
+  const others = wouldConflict(opts.ci, opts.contentType, opts.folderSlug, opts.locale, opts.newSlug);
+  const pattern = opts.ci.getContentTypeConfig(opts.ci.normalizeType(opts.contentType))?.url_pattern?.default ?? "";
+  return conflictGateResult(pattern, opts.locale, others, opts.newSlug);
+}
+
+function conflictGateResult(pattern: string, locale: string, others: string[], newSlug: string): LocaleUrlSlugGateResult {
+  if (others.length === 0) return { ok: true };
+  const address = pattern.replace(":slug", newSlug);
+  const locales = [locale, ...others].sort();
+  return {
+    ok: false,
+    code: LOCALE_URL_SLUG_CONFLICT,
+    error:
+      `Both languages would share ${address} (${locales.join(", ")}) and only one can be shown there. ` +
+      `Give the ${locale} version its own slug.`,
+    details: { address, locales, locale, slug: newSlug, property_path: "slug" },
+  };
 }
 
 /** The language file's own `slug:` (not `_common.yml`), or null. */

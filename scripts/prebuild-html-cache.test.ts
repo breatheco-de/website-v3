@@ -50,3 +50,20 @@ describe("renderGateLogLines", () => {
     expect(renderGateLogLines(counts, evaluateRenderGate(counts), [], true).at(-1)).toMatch(/result=skipped_by_override/);
   });
 });
+
+describe("render gate: addresses shared by two languages", () => {
+  it("fails on a conflict even when every page rendered", () => {
+    const counts = { landing: { total: 100, empty: 0 } };
+    const result = evaluateRenderGate(counts, { conflicts: [{ address: "/landing/ai-fluency", locales: ["en", "es"] }] });
+    expect(result.failed).toBe(true);
+    expect(result.failing).toEqual([]);
+    const lines = renderGateLogLines(counts, result, [], false);
+    expect(lines).toContain("RENDER_GATE_CONFLICT path=/landing/ai-fluency locales=en,es");
+    expect(lines.at(-1)).toBe('RENDER_GATE result=failed failing="1 address(es) shared by two languages"');
+  });
+
+  it("an override records the conflict as skipped", () => {
+    const result = evaluateRenderGate({}, { conflicts: [{ address: "/landing/x", locales: ["en", "es"] }] });
+    expect(renderGateLogLines({}, result, [], true).at(-1)).toMatch(/result=skipped_by_override/);
+  });
+});

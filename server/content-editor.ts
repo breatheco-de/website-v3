@@ -1,4 +1,5 @@
 import fs from "fs";
+import { isSingleAddressPattern } from "./locale-url-slug";
 import { getDefaultContentFolder, getDefaultContentRoot } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
@@ -3070,16 +3071,26 @@ export async function checkSlugRename(
     };
   }
 
-  const effectiveLocale =
-    contentType === "landing"
-      ? ((ci.loadCommonData("landing", resolvedFolderSlug)?.locale as string) || locale)
-      : locale;
+  // The requested language's own file; `_common.yml` `locale` is ignored legacy.
+  const effectiveLocale = locale;
 
   const localeFile = [`${effectiveLocale}.yml`, `${effectiveLocale}.yaml`].find(
     (f) => fs.existsSync(path.join(folderPath, f)),
   );
   if (!localeFile) {
     return { ok: false, statusCode: 404, code: "locale_not_found", error: `Locale file not found: ${effectiveLocale}` };
+  }
+
+  const { singleAddressConflictResult } = await import("./locale-url-slug.js");
+  const sharedAddress = singleAddressConflictResult({
+    ci,
+    contentType,
+    folderSlug: resolvedFolderSlug,
+    locale: effectiveLocale,
+    newSlug,
+  });
+  if (!sharedAddress.ok) {
+    return { ok: false, statusCode: 409, code: sharedAddress.code, error: sharedAddress.error };
   }
 
   const localeFilePath = path.join(folderPath, localeFile);
@@ -4141,6 +4152,8 @@ export async function createContentEntry(
           if (file === "_common.yml") {
             parsed.title = title;
             delete parsed.funnel;
+            // Language comes from the language file; `locale` here is ignored legacy.
+            if (isSingleAddressPattern(typeConfigForParams?.url_pattern)) delete parsed.locale;
             for (const [fieldName, newValue] of Object.entries(uniqueFieldValues)) {
               if (fieldName === "slug" || fieldName === "title") continue;
               parsed[fieldName] = coerceToOriginalType(String(newValue), parsed[fieldName]);

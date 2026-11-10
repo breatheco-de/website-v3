@@ -15,4 +15,4 @@ The script copies `site_4geeks-com/component-registry/` and `content-types.yml`,
 
 ## SSR smoke pages
 
-`server/ssr-smoke.test.ts` renders one fixture page for `landing` and for every ads-optimized content type with the real `client/src/entry-server.tsx`, and fails on an empty body. Each such type needs a page here (today `landings/ci-ssr-smoke/`, Spanish only, `noindex`). These pages are never served or pushed to the content repo.
+`server/ssr-smoke.test.ts` renders one fixture page for `landing` and for every ads-optimized content type with the real `client/src/entry-server.tsx`, and fails on an empty body. Each such type needs a page here: today `landings/ci-ssr-smoke/` (Spanish only) and `landings/ci-ssr-bilingual/` (English at `ci-ssr-bilingual`, Spanish at `ci-ssr-bilingue`: each language of a one-address landing renders at its own slug, in its own language). Both are `noindex`, and neither sets `locale` in `_common.yml` (the language comes from the language file). These pages are never served or pushed to the content repo.

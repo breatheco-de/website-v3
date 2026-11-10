@@ -12,6 +12,7 @@ vi.mock("./ab-testing/state", () => ({ abCheckPageLock: () => null }));
 vi.mock("./entry-ref", () => ({ resolveEntryRef: (_ci: unknown, ref: { ref: string }) => ({ ok: true, entryId: ref.ref }) }));
 vi.mock("./content-index", () => ({ contentIndex: {} }));
 vi.mock("./locale-url-slug", () => ({
+  isSingleAddressPattern: () => false,
   entryAgeHours: (v: unknown) => (v ? (Date.now() - Date.parse(String(v))) / 3_600_000 : null),
   readPublishedAtFromCommon: (c: Record<string, unknown> | null) => c?.published_at,
   resolveCurrentLocaleUrl: (o: { locale: string; parsed: { slug?: string }; entryIdentity: string }) =>
@@ -35,6 +36,8 @@ const ci = {
   getContentFolderPath: () => folder,
   loadCommonData: () => ({ published_at: old }),
   safeYamlLoad: (raw: string) => ({ slug: raw.split(":")[1]!.trim() }),
+  normalizeType: (t: string) => t,
+  getContentTypeConfig: () => ({ url_pattern: { en: "/en/blog/:slug", es: "/es/blog/:slug" } }),
 };
 
 const liveAd: AdOnUrl = {

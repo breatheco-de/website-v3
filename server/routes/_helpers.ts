@@ -1300,7 +1300,8 @@ export function listCareerPrograms(
 }
 
 export function loadLandingPage(slug: string, locale?: string, ci: typeof contentIndex = contentIndex): LandingPage | null {
-  const effectiveLocale = locale || ((ci.loadCommonData("landing", slug)?.locale as string) || getDefaultLocale());
+  const effectiveLocale =
+    locale || ci.resolveLocaleFromUrlSlug(slug, "landing") || ci.servedLocale("landing", ci.resolveBaseSlug(slug, "landing"), "default");
   const result = ci.loadContent<LandingPage>({
     contentType: "landing",
     slug,
@@ -1329,11 +1330,12 @@ export function listLandingPages(ci: typeof contentIndex = contentIndex): Array<
   const slugs = ci.listContentSlugs("landing");
   const landings: Array<{ slug: string; title: string; locale: string }> = [];
 
+  // One row per live language (each language of a landing has its own address).
   for (const slug of slugs) {
-    const commonData = ci.loadCommonData("landing", slug);
-    const locale = (commonData?.locale as string) || getDefaultLocale();
-    const landing = loadLandingPage(slug, locale, ci);
-    if (landing) {
+    const locales = [...ci.getAvailableLocalesOrVariants("landing", slug)].sort();
+    for (const locale of locales) {
+      const landing = loadLandingPage(slug, locale, ci);
+      if (!landing) continue;
       const landingSlug = landing.slug || slug;
       const landingTitle = landing.title || "";
       if (landingTitle) {

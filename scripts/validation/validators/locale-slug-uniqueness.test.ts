@@ -199,7 +199,7 @@ describe("localeSlugUniquenessValidator", () => {
     expect(result.warnings).toHaveLength(0);
   });
 
-  it("skips landing with default-only url_pattern", async () => {
+  it("errors when two languages of a one-address landing share a slug", async () => {
     const entryDir = path.join(tmp, "landings", "promo");
     fs.mkdirSync(entryDir, { recursive: true });
     const enPath = path.join(entryDir, "en.yml");
@@ -227,8 +227,52 @@ describe("localeSlugUniquenessValidator", () => {
       ),
     );
 
-    expect(result.status).toBe("passed");
+    expect(result.status).toBe("failed");
+    expect(result.errors.map((e) => e.code)).toEqual(["SLUG_SHARED_SINGLE_ADDRESS", "SLUG_SHARED_SINGLE_ADDRESS"]);
     expect(result.warnings).toHaveLength(0);
+  });
+
+  it("passes a bilingual landing whose languages have their own slugs", async () => {
+    const entryDir = path.join(tmp, "landings", "promo");
+    fs.mkdirSync(entryDir, { recursive: true });
+    const enPath = path.join(entryDir, "en.yml");
+    fs.writeFileSync(enPath, yaml.dump({ slug: "promo", title: "EN" }));
+    fs.writeFileSync(path.join(entryDir, "es.yml"), yaml.dump({ slug: "promocion", title: "ES" }));
+    const ci = new ContentIndex(tmp);
+    ci.scanFast();
+    const result = await localeSlugUniquenessValidator.run(
+      makeContext(tmp, [{ type: "landing", slug: "promo", locale: "en", filePath: enPath, title: "EN", entryFields: { slug: "promo" } }], ci),
+    );
+    expect(result.status).toBe("passed");
+  });
+
+  it("warns that locale in a landing's _common.yml is ignored legacy", async () => {
+    const entryDir = path.join(tmp, "landings", "solo");
+    fs.mkdirSync(entryDir, { recursive: true });
+    const esPath = path.join(entryDir, "es.yml");
+    fs.writeFileSync(path.join(entryDir, "_common.yml"), "slug: solo\nlocale: es\n");
+    fs.writeFileSync(esPath, yaml.dump({ title: "ES" }));
+    const ci = new ContentIndex(tmp);
+    ci.scanFast();
+    const result = await localeSlugUniquenessValidator.run(
+      makeContext(tmp, [{ type: "landing", slug: "solo", locale: "es", filePath: esPath, title: "ES", entryFields: {} }], ci),
+    );
+    expect(result.warnings.map((w) => w.code)).toEqual(["COMMON_LOCALE_IGNORED"]);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it("does not flag _common.yml locale on per-language types", async () => {
+    const entryDir = path.join(tmp, "programs", "web");
+    fs.mkdirSync(entryDir, { recursive: true });
+    const enPath = path.join(entryDir, "en.yml");
+    fs.writeFileSync(path.join(entryDir, "_common.yml"), "slug: web\nlocale: en\n");
+    fs.writeFileSync(enPath, yaml.dump({ slug: "web", title: "EN" }));
+    const ci = new ContentIndex(tmp);
+    ci.scanFast();
+    const result = await localeSlugUniquenessValidator.run(
+      makeContext(tmp, [{ type: "program", slug: "web", locale: "en", filePath: enPath, title: "EN", entryFields: { slug: "web" } }], ci),
+    );
+    expect(result.warnings.filter((w) => w.code === "COMMON_LOCALE_IGNORED")).toHaveLength(0);
   });
 
   it("skips database-backed content types", async () => {

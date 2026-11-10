@@ -1,0 +1,17 @@
+slug: ci-ssr-bilingual
+title: "CI: bilingual render check"
+meta:
+  page_title: "Server render check (English)"
+  description: "CI page: each language of a one-address landing renders at its own slug."
+  robots: noindex, nofollow
+sections:
+  - type: numbered_steps
+    version: "1.0"
+    section_id: numbered_steps-ci-en
+    title: What happens when you apply?
+    description: Here is what to expect.
+    steps:
+      - icon: book-check
+        text: You get the full syllabus right away.
+      - icon: phone-call
+        text: An advisor calls you within 24 hours.

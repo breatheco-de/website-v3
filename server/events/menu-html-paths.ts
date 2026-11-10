@@ -22,11 +22,12 @@ export type MenuPathIndex = {
     contentType: string;
     slug: string;
     patternLocale?: string;
+    fileLocale?: string;
   } | null;
   getContentTypeConfig(type: string): { directory?: string } | undefined;
   normalizeType?(type: string): string;
   getAllMenuUsage(): Map<string, MenuUsageRef[]>;
-  servedLocale?(contentType: string, slug: string, patternLocale?: string): string;
+  servedLocale?(contentType: string, slug: string, patternLocale?: string, fileLocale?: string): string;
 };
 
 function normalize(ci: MenuPathIndex, type: string): string {
@@ -40,7 +41,7 @@ function pageLocale(
 ): string {
   if (resolved?.patternLocale && resolved.patternLocale !== "default") return resolved.patternLocale;
   if (resolved?.patternLocale === "default" && ci.servedLocale) {
-    return ci.servedLocale(resolved.contentType, resolved.slug, resolved.patternLocale);
+    return ci.servedLocale(resolved.contentType, resolved.slug, resolved.patternLocale, resolved.fileLocale);
   }
   if (pathname === "/es" || pathname.startsWith("/es/")) return "es";
   const match = pathname.match(/^\/([a-z]{2})(\/|$)/);

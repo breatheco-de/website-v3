@@ -33,18 +33,22 @@ export function pathnameFromSitemapLoc(loc: string): string | null {
 /** Pages a content type was expected to render (status 200) and how many came back empty or threw. */
 export type RenderGateCounts = Record<string, { total: number; empty: number }>;
 
+/** Two languages of one page sharing one address on a one-address type (e.g. /landing/:slug). */
+export type RenderGateConflict = { address: string; locales: string[] };
+
 export type RenderGateResult = {
   failed: boolean;
   failing: Array<{ type: string; total: number; empty: number; share: number }>;
+  conflicts: RenderGateConflict[];
 };
 
 export const RENDER_GATE_MIN_PAGES = 5;
 export const RENDER_GATE_MAX_EMPTY_SHARE = 0.1;
 
-/** Fail when a content type with enough pages has more than 10% empty renders. */
+/** Fail when a content type with enough pages has more than 10% empty renders, or any address is shared by two languages. */
 export function evaluateRenderGate(
   counts: RenderGateCounts,
-  opts: { minPages?: number; maxEmptyShare?: number } = {},
+  opts: { minPages?: number; maxEmptyShare?: number; conflicts?: RenderGateConflict[] } = {},
 ): RenderGateResult {
   const minPages = opts.minPages ?? RENDER_GATE_MIN_PAGES;
   const maxShare = opts.maxEmptyShare ?? RENDER_GATE_MAX_EMPTY_SHARE;
@@ -54,7 +58,8 @@ export function evaluateRenderGate(
     const share = empty / total;
     if (share > maxShare) failing.push({ type, total, empty, share });
   }
-  return { failed: failing.length > 0, failing };
+  const conflicts = opts.conflicts ?? [];
+  return { failed: failing.length > 0 || conflicts.length > 0, failing, conflicts };
 }
 
 /** Deploy-log lines; deploy-vps.yml copies them into the Actions summary. */
@@ -68,10 +73,11 @@ export function renderGateLogLines(
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([type, c]) => `RENDER_GATE type=${type} total=${c.total} empty=${c.empty}`);
   for (const p of emptyPaths) lines.push(`RENDER_GATE_EMPTY path=${p}`);
+  for (const c of result.conflicts) lines.push(`RENDER_GATE_CONFLICT path=${c.address} locales=${c.locales.join(",")}`);
   const outcome = !result.failed ? "passed" : overridden ? "skipped_by_override" : "failed";
-  const failingText = result.failing
-    .map((f) => `${f.type} ${Math.round(f.share * 100)}% (${f.empty}/${f.total})`)
-    .join(", ");
+  const failingParts = result.failing.map((f) => `${f.type} ${Math.round(f.share * 100)}% (${f.empty}/${f.total})`);
+  if (result.conflicts.length) failingParts.push(`${result.conflicts.length} address(es) shared by two languages`);
+  const failingText = failingParts.join(", ");
   lines.push(`RENDER_GATE result=${outcome}${failingText ? ` failing="${failingText}"` : ""}`);
   return lines;
 }
@@ -100,6 +106,8 @@ async function runPrebuild(): Promise<void> {
   const { normalizePublicPath } = await import("../shared/public-app-routes");
   const { markdownPluginFlags } = await import("../server/markdown-enhance");
   const { writeRenderGateState } = await import("../server/render-gate-state");
+  const { getAllConfigs } = await import("../server/content-types");
+  const { findSingleAddressSlugConflicts, isSingleAddressPattern } = await import("../server/locale-url-slug");
   const { child } = await import("../server/logger");
 
   const log = child({ module: "prebuild-html" });
@@ -189,6 +197,7 @@ async function runPrebuild(): Promise<void> {
 
   const gateCounts: RenderGateCounts = {};
   const gateEmptyPaths: string[] = [];
+  const gateConflicts: RenderGateConflict[] = [];
   function noteGate(job: PageJob, empty: boolean): void {
     const type = job.contentType || "other";
     const key = sites.length > 1 ? `${job.siteId}:${type}` : type;
@@ -209,6 +218,15 @@ async function runPrebuild(): Promise<void> {
     // does not enqueue index_refresh. That enqueue opens the live Sidequest
     // database and this process never exits, so the deploy never flips traffic.
     runtime.contentIndex.scanSlow();
+    for (const [type, config] of Object.entries(getAllConfigs(runtime.contentRoot))) {
+      if (config?.database || !isSingleAddressPattern(config?.url_pattern)) continue;
+      for (const folderSlug of runtime.contentIndex.listContentSlugs(type)) {
+        for (const c of findSingleAddressSlugConflicts(runtime.contentIndex, type, folderSlug)) {
+          const address = String(config.url_pattern?.default ?? "").replace(":slug", c.slug);
+          gateConflicts.push({ address: sites.length > 1 ? `${site.contentFolder}${address}` : address, locales: c.locales });
+        }
+      }
+    }
     const redirects = createPublicUrlResolver(runtime.contentIndex, { freshRedirects: true });
     const seen = new Set<string>();
     for (const row of getSitemapUrls(toActiveSiteCtx(runtime), true)) {
@@ -274,7 +292,7 @@ async function runPrebuild(): Promise<void> {
     process.exit(1);
   }
 
-  const gate = evaluateRenderGate(gateCounts);
+  const gate = evaluateRenderGate(gateCounts, { conflicts: gateConflicts });
   const overridden = process.env.SKIP_RENDER_GATE === "1";
   for (const line of renderGateLogLines(gateCounts, gate, gateEmptyPaths.slice(0, 200), overridden)) {
     console.log(line);
@@ -287,10 +305,13 @@ async function runPrebuild(): Promise<void> {
     counts: gateCounts,
     failing: gate.failing,
     empty_paths: gateEmptyPaths.slice(0, 50),
+    conflicts: gate.conflicts,
   });
   if (gate.failed && !overridden) {
     console.error(
-      "[prebuild-html] page render check failed: too many pages of a content type rendered empty. " +
+      "[prebuild-html] page render check failed: " +
+        (gate.failing.length ? "too many pages of a content type rendered empty. " : "") +
+        (gate.conflicts.length ? "two languages of a page share one address. " : "") +
         "The deploy stops before going live; the live site is unchanged.",
     );
     process.exit(1);

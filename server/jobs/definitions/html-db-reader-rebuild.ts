@@ -24,17 +24,17 @@ export type HtmlDbReaderRebuildPayload = {
   pages: HtmlDbReaderPage[];
 };
 
-function pageLocale(
-  resolved: {
-    contentType: string;
-    slug: string;
-    params?: Record<string, string>;
-    patternLocale?: string;
-  },
-  servedLocale: (contentType: string, slug: string, patternLocale?: string) => string,
-): string {
+type ResolvedPage = {
+  contentType: string;
+  slug: string;
+  params?: Record<string, string>;
+  patternLocale?: string;
+  fileLocale?: string;
+};
+
+function pageLocale(resolved: ResolvedPage, localeFor: (r: ResolvedPage) => string): string {
   if (resolved.params?.locale) return resolved.params.locale;
-  return servedLocale(resolved.contentType, resolved.slug, resolved.patternLocale);
+  return localeFor(resolved);
 }
 
 export class HtmlDbReaderRebuildJob extends Job {
@@ -77,7 +77,7 @@ export class HtmlDbReaderRebuildJob extends Job {
           {
             contentType: resolved.contentType,
             slug: resolved.slug,
-            locale: pageLocale(resolved, (type, slug, pl) => ci.servedLocale(type, slug, pl)),
+            locale: pageLocale(resolved, (r) => ci.localeForResolved(r)),
           },
           usage.queries,
         );

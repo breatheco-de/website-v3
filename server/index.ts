@@ -487,12 +487,13 @@ app.use((req, res, next) => {
       htmlDocumentCacheControlFor,
       logHtmlRender,
       pickCachedEncoding,
+      getBootedHtmlBody,
       rehydrateHtmlPageCache,
     } = await import("./html-page-cache");
     const { urlBakesStoredPageQuery } = await import("./initial-data-middleware");
     rehydrateHtmlPageCache();
     const { resolveHtmlVariantKey } = await import("./html-variant-key");
-    const { applyPageBoot, needsPageBoot } = await import("./ads/ads-first");
+    const { injectPageBoot, needsPageBoot, pageBootKey, resolvePageBootForResponse } = await import("./ads/ads-first");
     app.use(async (req, res, next) => {
       if (req.path.startsWith("/api/") || req.path.startsWith("/private/")) {
         return next();
@@ -541,12 +542,26 @@ app.use((req, res, next) => {
         return next();
       }
 
-      // Per-request page boot (token, ads-first flags) cannot go into precompressed bodies.
-      const boot = needsPageBoot(res);
-      const encoding = boot ? "identity" : pickCachedEncoding(req.headers["accept-encoding"]);
-      const body = boot
-        ? applyPageBoot(cached.html, req, res)
-        : encoding === "br" ? cached.br : encoding === "gzip" ? cached.gzip : cached.html;
+      let encoding = pickCachedEncoding(req.headers["accept-encoding"]);
+      let body: Buffer | string;
+      if (needsPageBoot(res)) {
+        const cfg = resolvePageBootForResponse(req, res);
+        const booted = encoding === "identity"
+          ? null
+          : getBootedHtmlBody(
+              cacheKey,
+              { key: pageBootKey(cfg), token: cfg.t, inject: (html) => injectPageBoot(html, cfg) },
+              encoding,
+            );
+        if (booted) {
+          body = booted;
+        } else {
+          encoding = "identity";
+          body = injectPageBoot(cached.html, cfg);
+        }
+      } else {
+        body = encoding === "br" ? cached.br : encoding === "gzip" ? cached.gzip : cached.html;
+      }
       logHtmlRender({
         url: cleanUrl,
         ms: Math.round(performance.now() - started),

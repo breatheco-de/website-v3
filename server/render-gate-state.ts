@@ -15,6 +15,8 @@ export type RenderGateState = {
   counts: Record<string, { total: number; empty: number }>;
   failing: Array<{ type: string; total: number; empty: number; share: number }>;
   empty_paths: string[];
+  /** Addresses shared by two languages of one page (one-address types like /landing/:slug). */
+  conflicts?: Array<{ address: string; locales: string[] }>;
 };
 
 let dataDirOverride: string | null = null;

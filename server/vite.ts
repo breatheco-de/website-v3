@@ -54,6 +54,7 @@ import {
 import { buildAnonymousPageHtml } from "./render-hub-html";
 import { injectGtmWebContainerId } from "./gtm-web-inject";
 import { applyPageBoot } from "./ads/ads-first";
+import { precompressedStatic } from "./static-precompressed";
 import { child as loggerChild } from "./logger";
 import { notePage, pagePatternForStats } from "./process-stats";
 import { recordPublicNotFound } from "./runtime-issues-store";
@@ -357,6 +358,7 @@ export function serveStatic(app: Express) {
     );
   }
 
+  app.use(precompressedStatic(distPath));
   app.use(express.static(distPath, { index: false }));
 
   const indexHtmlPath = path.resolve(distPath, "index.html");

@@ -23,6 +23,8 @@ The `:slug` placeholder is replaced with the locale file `slug` value at runtime
 
 Routing ownership is checked against the live content index. If a real folder or another entry already resolves the same URL, slug changes are rejected with `slug_already_owned_by_other_entry`.
 
+**One address for every language** (`default` only, e.g. landings): the URL carries no language, so the slug decides it. `/landing/<es-slug>` serves `es.yml`, `/landing/<en-slug>` serves `en.yml`. Every language needs a slug no other language of the page uses; otherwise only one can ever be shown, and translate / publish / rename refuse with `locale_url_slug_conflict` (validation error `SLUG_SHARED_SINGLE_ADDRESS`, deploys stop). Never set `locale` in `_common.yml`: it is ignored legacy (`COMMON_LOCALE_IGNORED`).
+
 ## Locale prefixes
 
 - English pages: `/en/` prefix — e.g. `/en/career-programs/ai-engineering`
