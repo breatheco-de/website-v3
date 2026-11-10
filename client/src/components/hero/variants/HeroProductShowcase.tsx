@@ -103,6 +103,8 @@ export default function HeroProductShowcase({
 
   const formCardBackground = (fullData as any).form_card_background as string | undefined;
   const formCardTextColor = (fullData as any).form_card_text_color as string | undefined;
+  const formCardFinePrintColor = formCardTextColor || data.form_terms_color;
+  const formCardFinePrintStyle = formCardFinePrintColor ? { color: formCardFinePrintColor } : undefined;
   const formCardTitle = (fullData as any).form_card_title as string | undefined;
   const formCardSubtitle = (fullData as any).form_card_subtitle as string | undefined;
   const rawFormCardImage = (fullData as any).form_card_image;
@@ -603,7 +605,7 @@ export default function HeroProductShowcase({
                           } as LeadFormData
                         }
                         landingLocations={landingLocations}
-                        termsStyle={data.form_terms_color ? { color: data.form_terms_color } : undefined}
+                        termsStyle={formCardFinePrintStyle}
                       />
                     </Suspense>
                   </div>
@@ -678,7 +680,7 @@ export default function HeroProductShowcase({
                       } as LeadFormData
                     }
                     landingLocations={landingLocations}
-                    termsStyle={data.form_terms_color ? { color: data.form_terms_color } : undefined}
+                    termsStyle={formCardFinePrintStyle}
                   />
                 </Suspense>
               </Card>

@@ -59,6 +59,7 @@ import { LayoutApprovalControl } from "./LayoutApprovalControl";
 import { VariantProposalBadge } from "./VariantProposalBadge";
 import { VariantInfoPopover, VariantVerdictSummary, useVariantInfo } from "./VariantInfoPopover";
 import { PendingProposalsDialog } from "./PendingProposalsDialog";
+import { PublicCacheMenuItem, type PublicCacheTarget } from "./PublicCacheMenuItem";
 import { LocaleFlag } from "./LocaleFlag";
 import {
   AbStickyAdvanced,
@@ -205,6 +206,7 @@ function DefaultLiveRowActions({
   onConvert,
   onEditYaml,
   onDelete,
+  publicCache,
 }: {
   locale: string;
   allocation: number;
@@ -213,7 +215,9 @@ function DefaultLiveRowActions({
   onConvert: () => void;
   onEditYaml?: () => void;
   onDelete?: () => void;
+  publicCache?: PublicCacheTarget;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0">
       <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
@@ -255,7 +259,7 @@ function DefaultLiveRowActions({
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      <DropdownMenu>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <Button
             size="icon"
@@ -266,7 +270,8 @@ function DefaultLiveRowActions({
             <IconDots className="h-3 w-3" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuContent align="end" className={publicCache ? "w-64" : "w-48"}>
+          {publicCache && <PublicCacheMenuItem target={publicCache} open={menuOpen} />}
           {onEditYaml && (
             <DropdownMenuItem
               onClick={onEditYaml}
@@ -378,6 +383,11 @@ export function VersioningView({
   // Template versioning only when attached shared-layout (API returns versioningSlug "single")
   const isTemplateVersioning =
     isSharedLayout && !isDetached && versioningData?.versioningSlug === TEMPLATE_VERSIONING_SLUG;
+  // The shared template itself has no public page; an attached entry still does.
+  const publicCacheFor = (locale: string): PublicCacheTarget | undefined =>
+    contentInfo.type && contentInfo.slug && contentInfo.slug !== TEMPLATE_VERSIONING_SLUG
+      ? { contentType: contentInfo.type, slug: contentInfo.slug, locale }
+      : undefined;
   // Mutations use the resolved slug from the API; never guess "single" while detached
   const versioningWriteSlug =
     versioningData?.versioningSlug ||
@@ -1819,6 +1829,7 @@ export function VersioningView({
                                 ? () => onRequestDeletePage({ locale, liveLocales })
                                 : undefined
                             }
+                            publicCache={publicCacheFor(locale)}
                           />
                         </div>
                       </div>
@@ -2069,6 +2080,7 @@ export function VersioningView({
                                       ? () => onRequestDeletePage({ locale, liveLocales })
                                       : undefined
                                   }
+                                  publicCache={publicCacheFor(locale)}
                                 />
                               )}
                             </div>

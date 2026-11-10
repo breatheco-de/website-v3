@@ -350,6 +350,40 @@ export function htmlRebuildInFlight(key: string): boolean {
   return entry.pendingGeneration > entry.generation;
 }
 
+export type HtmlCachePeek = {
+  storedAt: number;
+  generation: number;
+  pendingGeneration: number;
+  source: "memory" | "disk";
+};
+
+/**
+ * Stored time and generations for a key without serving it. Does not reorder the LRU,
+ * load the disk copy, or drop a copy whose rebuild is slow. Disk is a stat, not a read.
+ */
+export function peekHtmlCacheEntry(key: string): HtmlCachePeek | null {
+  const entry = cache.get(key);
+  let diskMtime = 0;
+  try {
+    diskMtime = fs.statSync(diskPathForKey(key)).mtimeMs;
+  } catch {
+    diskMtime = 0;
+  }
+  if (entry) {
+    // The worker writes the file before this process adopts it; the next read serves it.
+    const rebuiltOnDisk = entry.pendingSince > 0 && diskMtime > entry.pendingSince;
+    return {
+      storedAt: Math.max(entry.storedAt, diskMtime),
+      generation: entry.generation,
+      pendingGeneration: rebuiltOnDisk ? entry.generation : entry.pendingGeneration,
+      source: "memory",
+    };
+  }
+  if (!diskMtime) return null;
+  const generation = generations.get(key) ?? 0;
+  return { storedAt: diskMtime, generation, pendingGeneration: generation, source: "disk" };
+}
+
 export function currentHtmlGeneration(key: string): number {
   return generations.get(key) ?? cache.get(key)?.generation ?? 0;
 }
