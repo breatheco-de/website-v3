@@ -159,10 +159,20 @@ export function injectPageBoot(html: string, cfg: PageBootConfig): string {
  * mode, so they are marked private (shared caches must not store them).
  */
 export function applyPageBoot(html: string, req: Request, res: Response): string {
+  return injectPageBoot(html, resolvePageBootForResponse(req, res));
+}
+
+/** Boot config for this response. Marks ads-first responses visitor-specific, like `applyPageBoot`. */
+export function resolvePageBootForResponse(req: Request, res: Response): PageBootConfig {
   const rawPath = (req.originalUrl || req.url || "/").split("?")[0]!.split("#")[0]!;
   const cfg = resolvePageBoot(req, res, rawPath);
   if (cfg.af) (res.locals as { visitorSpecificHtml?: boolean }).visitorSpecificHtml = true;
-  return injectPageBoot(html, cfg);
+  return cfg;
+}
+
+/** Stable key for one boot config; equal configs inject identical bytes. */
+export function pageBootKey(cfg: PageBootConfig): string {
+  return `${cfg.af}|${cfg.cm ?? ""}|${cfg.fp}|${cfg.t}`;
 }
 
 /** True when this response needs per-request injection (cached compressed bodies cannot be used). */

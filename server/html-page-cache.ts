@@ -39,7 +39,22 @@ export interface CachedHtmlPage {
   html: string;
 }
 
-type Stored = Omit<CachedHtmlPage, "html"> & { html?: string };
+type BootedBody = { br: Buffer; gzip: Buffer };
+
+type Stored = Omit<CachedHtmlPage, "html"> & {
+  html?: string;
+  /** Page token the boot copies were built with; a new token clears them. */
+  bootToken?: string;
+  /** Compressed bodies with the page boot injected, keyed by boot config. Memory only. */
+  bootVariants?: Map<string, BootedBody>;
+};
+
+export type PageBootInjection = {
+  /** Equal keys must inject identical bytes. */
+  key: string;
+  token: string;
+  inject: (html: string) => string;
+};
 
 const cache = new Map<string, Stored>();
 let byteBudget = DEFAULT_BYTE_BUDGET;
@@ -270,6 +285,53 @@ export function getCachedHtml(key: string): CachedHtmlPage | null {
   return decorate(entry);
 }
 
+/**
+ * Compressed body for a cached page with its page boot injected. Built once per boot config
+ * and reused; the copies count toward the cache budget and are not written to disk.
+ * Null when the page is no longer in memory.
+ */
+export function getBootedHtmlBody(
+  key: string,
+  boot: PageBootInjection,
+  encoding: "br" | "gzip",
+): Buffer | null {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (entry.bootToken !== boot.token) clearBootVariants(entry);
+  let body = entry.bootVariants?.get(boot.key);
+  if (!body) {
+    const html = entry.html ?? zlib.gunzipSync(entry.gzip).toString("utf8");
+    body = compressHtml(boot.inject(html));
+    entry.bootToken = boot.token;
+    (entry.bootVariants ??= new Map()).set(boot.key, body);
+    const added = body.br.length + body.gzip.length;
+    entry.byteLength += added;
+    usedBytes += added;
+    evictUntilBudget();
+  }
+  return encoding === "br" ? body.br : body.gzip;
+}
+
+function clearBootVariants(entry: Stored): void {
+  if (!entry.bootVariants) return;
+  let freed = 0;
+  for (const body of entry.bootVariants.values()) freed += body.br.length + body.gzip.length;
+  entry.byteLength -= freed;
+  usedBytes -= freed;
+  entry.bootVariants = undefined;
+  entry.bootToken = undefined;
+}
+
+function compressHtml(html: string): BootedBody {
+  const raw = Buffer.from(html, "utf8");
+  return {
+    gzip: zlib.gzipSync(raw, { level: 6 }),
+    br: zlib.brotliCompressSync(raw, {
+      params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5 },
+    }),
+  };
+}
+
 export function noteHtmlRebuildPending(
   key: string,
   generation: number,
@@ -311,11 +373,7 @@ export function setCachedHtml(
   const generation = opts?.generation ?? currentHtmlGeneration(key);
   if (generation < (generations.get(key) ?? 0)) return;
 
-  const raw = Buffer.from(html, "utf8");
-  const gzip = zlib.gzipSync(raw, { level: 6 });
-  const br = zlib.brotliCompressSync(raw, {
-    params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5 },
-  });
+  const { gzip, br } = compressHtml(html);
   const byteLength = gzip.length + br.length;
   const storedAt = nowFn();
   const next: Stored = {

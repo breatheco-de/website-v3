@@ -1,0 +1,17 @@
+slug: ci-ssr-bilingue
+title: "CI: prueba bilingüe"
+meta:
+  page_title: "Prueba de renderizado (español)"
+  description: "Página de CI: cada idioma de una landing de una sola dirección se renderiza en su propio slug."
+  robots: noindex, nofollow
+sections:
+  - type: numbered_steps
+    version: "1.0"
+    section_id: numbered_steps-ci-es
+    title: ¿Qué pasa cuando aplicas?
+    description: Esto es lo que puedes esperar.
+    steps:
+      - icon: book-check
+        text: Recibes el temario completo al instante.
+      - icon: phone-call
+        text: Un asesor te llamará en 24 horas.

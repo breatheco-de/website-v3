@@ -606,3 +606,32 @@ describe("promoteVariantWithOptionalTeardown", () => {
     }
   });
 });
+
+describe("promote: one address for every language (/landing/:slug)", () => {
+  beforeEach(() => {
+    fs.writeFileSync(
+      path.join(contentRoot, "content-types.yml"),
+      "blog:\n  directory: blog\n  url_pattern:\n    default: /landing/:slug\n",
+      "utf-8",
+    );
+    resetRegistry(contentRoot);
+  });
+
+  it("refuses publishing a language whose slug another language already uses", async () => {
+    write("draft.es.yml", "slug: post-a\ntitle: Borrador\nsections: []\n");
+    const res = await promote({ locale: "es" });
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.code).toBe("locale_url_slug_conflict");
+      expect(res.details).toMatchObject({ address: "/landing/post-a", locales: ["en", "es"], property_path: "slug" });
+    }
+    expect(fs.existsSync(path.join(entryDir, "es.yml"))).toBe(false);
+  });
+
+  it("publishes a language with its own slug", async () => {
+    write("draft.es.yml", "slug: entrada-a\ntitle: Borrador\nsections: []\n");
+    const res = await promote({ locale: "es", confirmSlugLanguage: true });
+    expect(res.ok).toBe(true);
+    expect(load("es.yml").slug).toBe("entrada-a");
+  });
+});

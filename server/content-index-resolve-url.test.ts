@@ -41,6 +41,11 @@ function makeSite(): ContentIndex {
   write(root, "landings/both/_common.yml", "slug: both\n");
   write(root, "landings/both/en.yml", "title: Both\n");
   write(root, "landings/both/es.yml", "title: Ambos\n");
+  write(root, "landings/promo/_common.yml", "slug: promo\nlocale: en\n");
+  write(root, "landings/promo/en.yml", "slug: promo\ntitle: Promo\n");
+  write(root, "landings/promo/es.yml", "slug: promocion\ntitle: Promoción\n");
+  write(root, "landings/wrong-common/_common.yml", "slug: wrong-common\nlocale: en\n");
+  write(root, "landings/wrong-common/es.yml", "title: Solo español\n");
   write(root, "how-to/install-js/en.yml", "slug: install-js\ntitle: Install\n");
   write(root, "how-to/install-js/es.yml", "slug: instalar-js\ntitle: Instalar\n");
   const ci = new ContentIndex(root);
@@ -65,16 +70,40 @@ describe("ContentIndex.resolveUrl patternLocale", () => {
     });
   });
 
-  it("serves a single-address entry in its own _common locale", () => {
+  it("serves a single-language landing in the language of its file", () => {
     const ci = makeSite();
     const resolved = ci.resolveUrl("/landing/master-ia")!;
-    expect(ci.servedLocale(resolved.contentType, resolved.slug, resolved.patternLocale)).toBe("es");
+    expect(resolved.fileLocale).toBe("es");
+    expect(ci.localeForResolved(resolved)).toBe("es");
   });
 
-  it("falls back to the only language file when _common has no locale", () => {
+  it("falls back to the only language file, then the first by code", () => {
     const ci = makeSite();
     expect(ci.servedLocale("landing", "sin-locale", "default")).toBe("es");
     expect(ci.servedLocale("landing", "both", "default")).toBe("en");
+  });
+
+  it("takes the language from the matched address on a bilingual landing", () => {
+    const ci = makeSite();
+    const en = ci.resolveUrl("/landing/promo")!;
+    const es = ci.resolveUrl("/landing/promocion")!;
+    expect(en).toMatchObject({ slug: "promo", patternLocale: "default", fileLocale: "en" });
+    expect(es).toMatchObject({ slug: "promo", patternLocale: "default", fileLocale: "es" });
+    expect(ci.localeForResolved(es)).toBe("es");
+  });
+
+  it("ignores _common.yml locale, even when it names a language with no file", () => {
+    const ci = makeSite();
+    const resolved = ci.resolveUrl("/landing/wrong-common")!;
+    expect(ci.localeForResolved(resolved)).toBe("es");
+    expect(ci.servedLocale("landing", "wrong-common", "default")).toBe("es");
+  });
+
+  it("resolveLocaleFromUrlSlug finds the language even when the slug equals the folder name", () => {
+    const ci = makeSite();
+    expect(ci.resolveLocaleFromUrlSlug("promo", "landing")).toBe("en");
+    expect(ci.resolveLocaleFromUrlSlug("promocion", "landing")).toBe("es");
+    expect(ci.resolveLocaleFromUrlSlug("master-ia", "landing")).toBe("es");
   });
 
   it("keeps the locale for per-locale URL patterns", () => {

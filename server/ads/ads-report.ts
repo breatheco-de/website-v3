@@ -798,7 +798,7 @@ function makeResolver(ci: ContentIndex, hosts: HostSets) {
     if (route) return { content_type: route.contentType, slug: route.slug, locale: route.locale };
     const r = ci.resolveUrl(p);
     if (!r) return null;
-    return { content_type: r.contentType, slug: r.slug, locale: ci.servedLocale(r.contentType, r.slug, r.patternLocale) };
+    return { content_type: r.contentType, slug: r.slug, locale: ci.localeForResolved(r) };
   };
 
   const resolveUncached = (startHost: string, startPath: string): Resolved => {

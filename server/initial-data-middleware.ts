@@ -184,6 +184,7 @@ async function resolvePageQueryInner(
     {
       let probeLocale = cleanUrl.match(/^\/(es)\b/) ? "es" : "en";
       if (resolved.params?.locale) probeLocale = resolved.params.locale;
+      else if (isNonLocalized) probeLocale = ci.localeForResolved(resolved);
       const normalizedProbe = normalizeLocale(probeLocale);
       if (
         isEmptyDetachedLocaleEntry({
@@ -297,7 +298,7 @@ async function resolvePageQueryInner(
     if (resolved.params?.locale) {
       locale = resolved.params.locale;
     } else if (!cleanUrl.match(/^\/(en|es)\b/)) {
-      locale = ci.servedLocale(contentType, slug, "default");
+      locale = ci.localeForResolved(resolved);
     }
 
     if (apiPath) {
@@ -829,7 +830,7 @@ export function urlBakesStoredPageQuery(url: string, ci: ContentIndex | undefine
   if (!resolved) return false;
   let locale = clean.startsWith("/es") ? "es" : "en";
   if (resolved.params?.locale) locale = resolved.params.locale;
-  else if (resolved.patternLocale) locale = ci.servedLocale(resolved.contentType, resolved.slug, resolved.patternLocale);
+  else if (resolved.patternLocale) locale = ci.localeForResolved(resolved);
   const { data } = ci.loadMergedContent(resolved.contentType, resolved.slug, locale);
   if (!data) return false;
   return requestBakesQueryParamTemplate(url, data, resolved.params ? Object.keys(resolved.params) : undefined);

@@ -66,7 +66,7 @@ export function resolveDocumentTarget(
           resolved.params?.locale ||
           (resolved.patternLocale && resolved.patternLocale !== "default" ? resolved.patternLocale : "") ||
           (resolved.patternLocale === "default"
-            ? ci.servedLocale(resolved.contentType, resolved.slug, resolved.patternLocale)
+            ? ci.localeForResolved(resolved)
             : "") ||
           (clean.match(/^\/(es)\b/) ? "es" : "en"),
       };

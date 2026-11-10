@@ -6,6 +6,7 @@ import { ContentIndex } from "./content-index";
 import { resetRegistry } from "./content-types";
 import { databaseManager } from "./database";
 import { resolveInitialData } from "./initial-data-middleware";
+import { listLandingPages, loadLandingPage } from "./routes/_helpers";
 
 const tmpDirs: string[] = [];
 
@@ -65,6 +66,9 @@ function makeSite(): ContentIndex {
     "landings/master-ia/es.yml",
     "title: Master IA\nmeta:\n  page_title: Máster en IA\nsections: []\n",
   );
+  write(root, "landings/promo/_common.yml", "slug: promo\nlocale: en\n");
+  write(root, "landings/promo/en.yml", "slug: promo\ntitle: Promo\nmeta:\n  page_title: Promo EN\nsections: []\n");
+  write(root, "landings/promo/es.yml", "slug: promocion\ntitle: Promoción\nmeta:\n  page_title: Promoción ES\nsections: []\n");
   write(root, "landings/sin-locale/_common.yml", "slug: sin-locale\n");
   write(root, "landings/sin-locale/es.yml", "title: Sin locale\nmeta:\n  page_title: Sin locale\nsections: []\n");
   write(root, "pages/about/en.yml", "slug: about\ntitle: About\nsections: []\n");
@@ -94,11 +98,45 @@ describe("resolveInitialData for a single-address landing", () => {
     expect(payload?.locale).toBe("es");
   });
 
+  it("serves each address of a bilingual landing in its own language", async () => {
+    const ci = makeSite();
+    const pageOf = (p: Awaited<ReturnType<typeof resolveInitialData>>, urlSlug: string) =>
+      p?.queries.find((q) => JSON.stringify(q.queryKey) === JSON.stringify(["/api/landings", urlSlug, "auto"]))?.data as
+        | { title?: string; locale?: string }
+        | undefined;
+
+    const es = await resolveInitialData("/landing/promocion", ci, databaseManager);
+    expect(es?.locale).toBe("es");
+    expect(pageOf(es, "promocion")?.title).toBe("Promoción");
+
+    const en = await resolveInitialData("/landing/promo", ci, databaseManager);
+    expect(en?.locale).toBe("en");
+    expect(pageOf(en, "promo")?.title).toBe("Promo");
+  });
+
   it("serves a Spanish-only landing with no locale in _common.yml in Spanish", async () => {
     const ci = makeSite();
     const payload = await resolveInitialData("/landing/sin-locale", ci, databaseManager);
     expect(keys(payload)).toContain(JSON.stringify(["/api/landings", "sin-locale", "auto"]));
     expect(payload?.locale).toBe("es");
+  });
+});
+
+describe("landing loaders behind /api/landings", () => {
+  it("loads the language whose slug is the address", () => {
+    const ci = makeSite();
+    expect(loadLandingPage("promocion", undefined, ci)?.title).toBe("Promoción");
+    expect(loadLandingPage("promo", undefined, ci)?.title).toBe("Promo");
+    expect(loadLandingPage("sin-locale", undefined, ci)?.title).toBe("Sin locale");
+  });
+
+  it("lists every live language of a landing", () => {
+    const ci = makeSite();
+    const rows = listLandingPages(ci).filter((r) => r.slug === "promo" || r.slug === "promocion");
+    expect(rows.map((r) => [r.slug, r.locale]).sort()).toEqual([
+      ["promo", "en"],
+      ["promocion", "es"],
+    ]);
   });
 });
 

@@ -276,7 +276,7 @@ export function softResolveLeaderboardIdentity(path: string): {
     return {
       content_type: r.contentType ?? null,
       slug: r.slug ?? null,
-      locale: contentIndex.servedLocale(r.contentType, r.slug, r.patternLocale),
+      locale: contentIndex.localeForResolved(r),
     };
   } catch {
     return { content_type: null, slug: null, locale: null };
@@ -1017,7 +1017,7 @@ export async function assembleOpportunitiesMode(opts: {
       return {
         contentType: r.contentType,
         slug: r.slug,
-        patternLocale: contentIndex.servedLocale(r.contentType, r.slug, r.patternLocale),
+        patternLocale: contentIndex.localeForResolved(r),
       };
     },
     site: opts.contentFolder,

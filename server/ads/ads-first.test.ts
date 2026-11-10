@@ -17,7 +17,9 @@ const {
   clearAdsFirstPathIndex,
   injectPageBoot,
   issuePageToken,
+  pageBootKey,
   resolvePageBoot,
+  resolvePageBootForResponse,
   verifyPageToken,
 } = await import("./ads-first");
 
@@ -78,6 +80,28 @@ describe("resolvePageBoot", () => {
 
   it("is empty when no content type is flagged", () => {
     expect(resolvePageBoot(req({ "x-country-code": "US" }), res, "/en/a")).toEqual({ af: 0, cm: null, fp: 0, t: "" });
+  });
+
+  it("marks ads-first responses visitor-specific", () => {
+    flagged.types = ["landing"];
+    const locals: Record<string, unknown> = { site: { contentRootName: "site_c", contentRoot: "/x", contentIndex: ci } };
+    const cfg = resolvePageBootForResponse(
+      { headers: {}, ip: "203.0.113.9", socket: {}, originalUrl: "/en/a?x=1" } as never,
+      { locals } as never,
+    );
+    expect(cfg.af).toBe(1);
+    expect(locals.visitorSpecificHtml).toBe(true);
+  });
+});
+
+describe("pageBootKey", () => {
+  it("differs exactly when the injected config differs", () => {
+    const base = { af: 1 as const, cm: "notice" as const, fp: 1 as const, t: "abc.def" };
+    expect(pageBootKey(base)).toBe(pageBootKey({ ...base }));
+    expect(pageBootKey({ ...base, cm: "ask" })).not.toBe(pageBootKey(base));
+    expect(pageBootKey({ ...base, cm: null })).not.toBe(pageBootKey(base));
+    expect(pageBootKey({ ...base, t: "abc.xyz" })).not.toBe(pageBootKey(base));
+    expect(pageBootKey({ ...base, af: 0 })).not.toBe(pageBootKey(base));
   });
 });
 

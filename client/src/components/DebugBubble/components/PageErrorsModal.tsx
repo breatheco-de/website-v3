@@ -70,7 +70,7 @@ export const PER_PAGE_VALIDATORS = [
   "content-quality",
   "section-variants",
   "text-limits",
-  "nonlocalized-common-locale",
+  "locale-slug-uniqueness",
 ];
 
 interface PageErrorsModalProps {

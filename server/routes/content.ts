@@ -595,23 +595,19 @@ export function registerContentRoutes(app: Express): void {
     // (e.g. "4geeks-vs-otros-landing" → folder "4geeks-vs-others-landing")
     const baseSlug = getCI(res).resolveBaseSlug(slug, "landing");
 
-    // Get locale from query param, _common.yml, or default — then verify it exists
+    // Language: explicit ?locale=, else the language whose slug is this address, else
+    // servedLocale (only / first language file). _common.yml `locale` is ignored legacy.
     const queryLocale = req.query.locale as string | undefined;
     const supported = getSupportedLocales();
     const validQueryLocale = queryLocale && supported.includes(queryLocale) ? queryLocale : undefined;
-    const commonData = getCI(res).loadCommonData("landing", baseSlug);
-    let locale = validQueryLocale || (commonData?.locale as string) || getDefaultLocale();
-    const availableLocales = getCI(res).getAvailableLocalesOrVariants("landing" as ContentType, baseSlug);
+    const landingCi = getCI(res);
+    let locale =
+      validQueryLocale ||
+      landingCi.resolveLocaleFromUrlSlug(slug, "landing") ||
+      landingCi.servedLocale("landing", baseSlug, "default");
+    const availableLocales = [...landingCi.getAvailableLocalesOrVariants("landing" as ContentType, baseSlug)].sort();
     if (availableLocales.length > 0 && !availableLocales.includes(locale)) {
-      locale = availableLocales[0];
-    }
-    // If the URL slug is locale-specific (e.g. the ES slug of a bilingual page),
-    // detect which locale it belongs to and override the default locale detection
-    if (!validQueryLocale) {
-      const detectedLocale = getCI(res).resolveLocaleFromUrlSlug(slug, "landing");
-      if (detectedLocale && availableLocales.includes(detectedLocale)) {
-        locale = detectedLocale;
-      }
+      locale = availableLocales[0]!;
     }
 
     let landing: LandingPage | null = null;

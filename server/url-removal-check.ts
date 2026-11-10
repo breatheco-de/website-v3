@@ -12,7 +12,7 @@ import type { ContentIndex } from "./content-index";
 import { contentIndex } from "./content-index";
 import { resolveEntryRef } from "./entry-ref";
 import { ownHostsForContentRoot } from "./link-check/hosts";
-import { entryAgeHours, readPublishedAtFromCommon, resolveCurrentLocaleUrl } from "./locale-url-slug";
+import { entryAgeHours, isSingleAddressPattern, readPublishedAtFromCommon, resolveCurrentLocaleUrl } from "./locale-url-slug";
 import { child } from "./logger";
 import {
   AGENT_REDIRECT_AGE_HOURS,
@@ -65,7 +65,8 @@ export async function assessUrlRemoval(input: {
   const locales = requested.length > 0 ? requested : liveLocalesInFolder(folderPath);
   const out: UrlRemovalLocale[] = [];
   for (const raw of locales) {
-    const candidates = contentType === "landing" && typeof commonData.locale === "string" ? [raw, commonData.locale] : [raw];
+    const singleAddress = isSingleAddressPattern(ci.getContentTypeConfig(ci.normalizeType(contentType))?.url_pattern);
+    const candidates = singleAddress ? [raw, ci.servedLocale(contentType, entryId, "default")] : [raw];
     let locale = raw;
     let file: string | undefined;
     for (const c of candidates) {

@@ -30,7 +30,8 @@ describe("collectRenderGateAlerts", () => {
   it("raises a critical alert when the check stopped a deploy", async () => {
     const [alert] = await collectRenderGateAlerts(state("failed", LANDINGS_EMPTY));
     expect(alert).toMatchObject({ severity: "critical", code: "render_gate_failed", title: "Deploy stopped before going live" });
-    expect(alert!.message).toContain("100% of landing pages (115/115) rendered empty. The live site is unchanged.");
+    expect(alert!.message).toContain("100% of landing pages (115/115) rendered empty.");
+    expect(alert!.message).toContain("The live site is unchanged.");
     expect(alert!.message).toContain("/landing/a");
     expect(alert!.message).toContain("abcdef1");
   });
@@ -56,5 +57,23 @@ describe("collectRenderGateAlerts", () => {
     fs.writeFileSync(path.join(dir, "render-gate.json"), "{not json");
     expect(await collectRenderGateAlerts()).toEqual([]);
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("collectRenderGateAlerts: shared addresses", () => {
+  it("raises a critical alert naming the shared address when only conflicts failed", async () => {
+    const [alert] = await collectRenderGateAlerts({
+      result: "failed",
+      deploy_sha: null,
+      run_url: null,
+      checked_at: "2026-11-10T00:00:00.000Z",
+      counts: { landing: { total: 100, empty: 0 } },
+      failing: [],
+      empty_paths: [],
+      conflicts: [{ address: "/landing/ai-fluency", locales: ["en", "es"] }],
+    });
+    expect(alert).toMatchObject({ severity: "critical", code: "render_gate_failed" });
+    expect(alert!.message).toContain("Two languages share one address: /landing/ai-fluency (en, es)");
+    expect(alert!.message).toContain("The live site is unchanged.");
   });
 });

@@ -163,6 +163,24 @@ Then run **Deploy to VPS** again (Actions → Run workflow). Do not just `system
 
 When Node ships the next security release, raise the floors in `require_patched_node` in [`scripts/deploy.sh`](../scripts/deploy.sh). CI ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) uses `node-version: "24"`, which already picks up the latest 24.x.
 
+### 4.5 Precompressed static files (optional nginx)
+
+`npm run build` ends with [`scripts/precompress-assets.mjs`](../scripts/precompress-assets.mjs), which writes `file.br` and `file.gz` next to each compressible file in `dist/public`. Node already serves those copies ([`server/static-precompressed.ts`](../server/static-precompressed.ts)), so nothing on the server has to change.
+
+To take asset requests off Node entirely, let nginx serve `/assets/` from the live release. This needs ngx_brotli built with its static module (`brotli_static`); check with `nginx -V 2>&1 | grep -o brotli` and that the config test passes with the directive.
+
+```nginx
+location /assets/ {
+    root /opt/website-v3/current/dist/public;
+    brotli_static on;
+    gzip_static on;
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    try_files $uri @app;
+}
+```
+
+`@app` is the named location that proxies to Node (define it next to the existing `proxy_pass` block if it does not exist yet). `nginx -t && systemctl reload nginx` after editing. `current` is a symlink that flips on deploy; nginx resolves it per request (unless `open_file_cache` is on), so a deploy needs no nginx reload.
+
 ---
 
 ## 5. systemd

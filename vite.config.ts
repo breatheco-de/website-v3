@@ -29,6 +29,7 @@ import {
   shouldUseSiteSchemaStub,
   siteComponentRegistryExists,
 } from "./shared/site-schema-stub-mode";
+import { publicBundleGuardPlugin } from "./scripts/bundle-guard/plugin";
 
 // Vite 6+ removed isSsrBuild from the defineConfig callback.
 // Detect SSR build by checking the CLI arguments instead.
@@ -137,6 +138,7 @@ export default defineConfig(async () => ({
     siteComponentSchemasStubPlugin(),
     componentRegistryGuardPlugin(),
     navigationEagerManifestPlugin(isSsrBuild),
+    publicBundleGuardPlugin(isSsrBuild),
     react({
       babel: {
         plugins: [
@@ -185,11 +187,19 @@ export default defineConfig(async () => ({
     rolldownOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('recharts') || id.includes('victory-vendor')) {
-            return 'charts';
-          }
-          if (id.includes('framer-motion')) {
-            return 'framer';
+          // Every group below pulls its dependencies in with it, so a group for an
+          // admin-only library also captures any shared module it depends on, and
+          // every public page then downloads the whole group. That is why there
+          // are no charts/framer/carousel groups. React gets its own group so it
+          // cannot be absorbed this way; react-dom/server stays out of it because
+          // only SSR and tests import it. publicBundleGuardPlugin fails the build
+          // when admin-only libraries reach the public bundle.
+          if (
+            !isSsrBuild &&
+            /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id) &&
+            !/[\\/]react-dom[\\/](server|cjs[\\/]react-dom-server)/.test(id)
+          ) {
+            return 'react-vendor';
           }
           if (id.includes('@tanstack')) {
             return 'tanstack';
@@ -223,9 +233,6 @@ export default defineConfig(async () => ({
             id.includes('node_modules/react-day-picker')
           ) {
             return 'date';
-          }
-          if (id.includes('node_modules/embla-carousel')) {
-            return 'carousel';
           }
         },
       },

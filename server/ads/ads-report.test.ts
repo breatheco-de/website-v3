@@ -185,9 +185,10 @@ const fakeContentIndex = {
     const hit = Object.values(PAGES).find((p) => p.contentType === contentType && p.slug === slug);
     return hit ? { locale: hit.locale } : null;
   },
-  servedLocale: (contentType: string, slug: string, patternLocale?: string) => {
-    if (patternLocale && patternLocale !== "default") return patternLocale;
-    return Object.values(PAGES).find((p) => p.contentType === contentType && p.slug === slug)?.locale ?? "en";
+  localeForResolved: (r: { contentType: string; slug: string; patternLocale?: string; fileLocale?: string }) => {
+    if (r.patternLocale && r.patternLocale !== "default") return r.patternLocale;
+    if (r.fileLocale) return r.fileLocale;
+    return Object.values(PAGES).find((p) => p.contentType === r.contentType && p.slug === r.slug)?.locale ?? "en";
   },
   getLocaleUrls: (slug: string, contentType: string) => {
     const hit = Object.entries(PAGES).find(([, p]) => p.contentType === contentType && p.slug === slug);

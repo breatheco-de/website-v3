@@ -313,7 +313,9 @@ export async function generateDatabaseSsrHtml(
     authorName = record.author || "4Geeks Academy";
   }
 
-  const collected = await collectDatabaseRecordSchemas(contentType, record, locale, ci, contentRoot);
+  const collected = await collectDatabaseRecordSchemas(contentType, record, locale, ci, contentRoot, {
+    alreadyHydrated: true,
+  });
   for (const sectionSchema of collected.documents) {
     scripts.push(
       `<script type="application/ld+json" data-ssr="true">${JSON.stringify(sectionSchema)}</script>`,

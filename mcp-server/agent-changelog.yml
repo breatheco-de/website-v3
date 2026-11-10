@@ -6,11 +6,27 @@ window_days: 6
 
 entries:
   - date: "2026-11-10"
+    summary: "One-address pages (/landing/:slug): language comes from the matched slug's language file; two languages sharing a slug is blocked; _common.yml locale is ignored legacy"
+    agent_impact:
+      - "Language of a one-address page = the language file whose slug matches the URL (resolveUrl fileLocale). /landing/<es-slug> serves es.yml, /landing/<en-slug> serves en.yml. _common.yml `locale` is never read: do not write it (bad practice). locale-slug-uniqueness warns COMMON_LOCALE_IGNORED; migration 012 removes old lines. nonlocalized-common-locale validator retired."
+      - "Every language of a one-address page needs a slug no other language uses. translate_entry without url_slug on a landing that already uses the folder slug → action_required set_locale_url_slug (code locale_url_slug_conflict, details {address, locales, property_path: slug, file}); nothing written. promote_variant / publish_draft and slug renames refuse the same conflict (409). Retry translate_entry with url_slug (a word in the target language)."
+      - "Validation: SLUG_SHARED_SINGLE_ADDRESS (error) when two languages share one address; deploys stop pre-flip until fixed (Page render check). Per-language types keep the SLUG_SHARED_ACROSS_LOCALES warning."
+    tools_changed: false
+    paths:
+      - server/content-index.ts
+      - server/locale-url-slug.ts
+      - server/versioning/promote-with-teardown.ts
+      - server/content-editor.ts
+      - scripts/validation/validators/locale-slug-uniqueness.ts
+      - scripts/migrations/012_remove_common_locale.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/routing.md
+  - date: "2026-11-10"
     summary: "Render review: no false overflow for clipped carousels; section code loads before measuring; single-address pages report their own language"
     agent_impact:
       - "review_page_render / get_render_review: horizontal_overflow now counts only content a visitor can scroll to (carousel tracks clipped by their own container are ignored); page-level overflow (section_path null) is always reported. Older reviews keep their old findings until the page is reviewed again."
       - "The preview loads every section's code (about 10s cap) before measuring. New findings: section_not_loaded (warning, RENDER_SECTION_NOT_LOADED: code did not arrive; re-run, not a content problem) and section_unknown_type (error, RENDER_SECTION_UNKNOWN_TYPE: no component for the type; fix type via list_components). Neither is reported as empty_section."
-      - "Single-address pages (/landing/:slug) resolve to the entry's own _common locale (e.g. es), else its only language file, in SSR, the ads report, organic-traffic entry keys and the SEO page-sections lookup instead of defaulting to en. Still set locale on _common.yml for new landings (nonlocalized-common-locale validator)."
+      - "Single-address pages (/landing/:slug) are served in the language of the file whose slug matches the address, in SSR, the ads report, organic-traffic entry keys and the SEO page-sections lookup, instead of defaulting to en (see the entry above)."
     tools_changed: false
     paths:
       - client/src/lib/pageMeasurements.ts

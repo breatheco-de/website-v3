@@ -109,6 +109,36 @@ describe("duplicate never carries a funnel", () => {
   });
 });
 
+describe("duplicating a one-address landing", () => {
+  it("drops the ignored locale from the copied _common.yml", async () => {
+    fs.appendFileSync(
+      path.join(contentRoot, "content-types.yml"),
+      "landing:\n  directory: landings\n  field_mapping:\n    title: title\n    _slug: slug\n  url_pattern:\n    default: /landing/:slug\n",
+      "utf-8",
+    );
+    const src = path.join(contentRoot, "landings", "source-landing");
+    fs.mkdirSync(src, { recursive: true });
+    fs.writeFileSync(path.join(src, "_common.yml"), yaml.dump({ slug: "source-landing", locale: "es", programs: ["x"] }), "utf-8");
+    fs.writeFileSync(path.join(src, "es.yml"), yaml.dump({ title: "Fuente", sections: [] }), "utf-8");
+    resetRegistry(contentRoot);
+
+    const result = await createContentEntry({
+      type: "landing",
+      title: "Copia",
+      slugEs: "copia-landing",
+      sourceSlug: "source-landing",
+      skipLocales: ["en"],
+      contentRootName: rootName,
+    });
+    expect(result.success).toBe(true);
+    const common = yaml.load(
+      fs.readFileSync(path.join(contentRoot, "landings", "copia-landing", "_common.yml"), "utf-8"),
+    ) as Record<string, unknown>;
+    expect(common.locale).toBeUndefined();
+    expect(common.programs).toEqual(["x"]);
+  });
+});
+
 describe("shared-template create starts as a draft", () => {
   it("writes draft.{locale}.yml + versioning.yml, no live file and no published_at", async () => {
     const result = await createContentEntry({

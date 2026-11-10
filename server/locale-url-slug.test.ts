@@ -5,7 +5,11 @@ import {
   checkAcceptedUrlSlug,
   checkNewLocaleUrlSlug,
   entryAgeHours,
+  findSingleAddressSlugConflicts,
+  isSingleAddressPattern,
   resolveLocaleUrlSlug,
+  singleAddressConflictResult,
+  wouldConflict,
   urlPatternUsesSlug,
   validateLocaleUrlSlugFormat,
 } from "./locale-url-slug";
@@ -195,5 +199,45 @@ describe("validateLocaleUrlSlugFormat", () => {
   it("rejects invalid slugs", () => {
     expect(validateLocaleUrlSlugFormat("Bad Slug")).not.toBeNull();
     expect(validateLocaleUrlSlugFormat("good-slug")).toBeNull();
+  });
+});
+
+describe("one-address slug conflicts", () => {
+  const slugs: Record<string, Record<string, string>> = {
+    promo: { en: "promo", es: "promocion" },
+    clash: { en: "clash", es: "clash" },
+  };
+  const fakeCi = (pattern: Record<string, string>) =>
+    ({
+      normalizeType: (t: string) => t,
+      getContentTypeConfig: () => ({ url_pattern: pattern }),
+      getAvailableLocalesOrVariants: (_t: string, folder: string) => [...Object.keys(slugs[folder] ?? {}), "draft.es"],
+      getLocaleSlug: (folder: string, _t: string, loc: string) => slugs[folder]![loc]!,
+    }) as unknown as ContentIndex;
+  const landing = fakeCi({ default: "/landing/:slug" });
+  const perLocale = fakeCi({ en: "/en/:slug", es: "/es/:slug" });
+
+  it("isSingleAddressPattern only for default-only patterns without :locale", () => {
+    expect(isSingleAddressPattern({ default: "/landing/:slug" })).toBe(true);
+    expect(isSingleAddressPattern({ en: "/en/:slug", es: "/es/:slug" })).toBe(false);
+    expect(isSingleAddressPattern({ default: "/:locale/x/:slug" })).toBe(false);
+    expect(isSingleAddressPattern({ default: "/x/:slug", es: "/es/x/:slug" })).toBe(false);
+  });
+
+  it("finds languages sharing one address, ignoring drafts", () => {
+    expect(findSingleAddressSlugConflicts(landing, "landing", "promo")).toEqual([]);
+    expect(findSingleAddressSlugConflicts(landing, "landing", "clash")).toEqual([{ slug: "clash", locales: ["en", "es"] }]);
+    expect(findSingleAddressSlugConflicts(perLocale, "page", "clash")).toEqual([]);
+  });
+
+  it("refuses a slug another language already uses, with a plain message", () => {
+    const r = singleAddressConflictResult({ ci: landing, contentType: "landing", folderSlug: "promo", locale: "es", newSlug: "promo" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe("locale_url_slug_conflict");
+    expect(r.error).toContain("/landing/promo");
+    expect(r.details).toMatchObject({ address: "/landing/promo", locales: ["en", "es"], property_path: "slug" });
+    expect(singleAddressConflictResult({ ci: landing, contentType: "landing", folderSlug: "promo", locale: "es", newSlug: "promocion-2" }).ok).toBe(true);
+    expect(wouldConflict(perLocale, "page", "promo", "es", "promo")).toEqual([]);
   });
 });

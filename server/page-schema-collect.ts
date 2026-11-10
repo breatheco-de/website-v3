@@ -96,6 +96,7 @@ export async function collectDatabaseRecordSchemas(
   locale: string,
   ci: ContentIndex,
   contentRoot: string,
+  opts: { alreadyHydrated?: boolean } = {},
 ): Promise<PageSchemaCollectResult> {
   const baseUrl = getSiteBaseUrl(contentRoot);
   const config = getContentTypeConfig(contentType, contentRoot);
@@ -103,13 +104,14 @@ export async function collectDatabaseRecordSchemas(
 
   record = ensureRecordArticleContent(contentType, { ...record }, locale, contentRoot);
 
-  const hydrated = await hydrateEntryForDelivery(contentType, record, {
-    contentRoot,
-    locale,
-    contentIndex: ci,
-    baseUrl,
-  });
-  record = hydrated;
+  if (!opts.alreadyHydrated) {
+    record = await hydrateEntryForDelivery(contentType, record, {
+      contentRoot,
+      locale,
+      contentIndex: ci,
+      baseUrl,
+    });
+  }
 
   const urlPattern = config.url_pattern[locale] || config.url_pattern["en"];
   if (!urlPattern) return emptyResult();

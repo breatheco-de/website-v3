@@ -6337,6 +6337,39 @@ export function registerPageTools(
               ],
             );
           }
+          if (serverCode === "locale_url_slug_conflict") {
+            return actionRequired(
+              {
+                success: false,
+                action_required: "set_locale_url_slug",
+                code: serverCode,
+                message: errMsg,
+                details: { ...(details ?? {}), property_path: "slug", file: `${locale}.yml` },
+                warnings: [
+                  {
+                    code: "locale_url_slug_conflict",
+                    message:
+                      "One address for every language (e.g. /landing/:slug): each language needs a slug no other language of this page uses, or only one of them can ever be shown. " +
+                      "Nothing was published; the live page and other languages are unchanged.",
+                  },
+                ],
+              },
+              [
+                {
+                  tool: "update_fields",
+                  reason: `Give the ${locale} draft its own address (field_path slug, a word in ${locale} not used by another language), then retry promote_variant.`,
+                  priority: "required",
+                  args_hint: {
+                    slug,
+                    locale,
+                    contentType,
+                    variant: variantSlug,
+                    updates: [{ field_path: "slug", value: `<address-in-${locale}>` }],
+                  },
+                },
+              ],
+            );
+          }
           if (serverCode === TEXT_LIMITS_EXCEEDED_CODE) {
             return textLimitsExceededResult(errMsg, data, {
               slug,
@@ -8566,7 +8599,9 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         `Required for non-default variant names; default "${TRANSLATE_DEFAULT_VARIANT}" is auto-created when missing. Needs content_create_variant.`,
       ),
       url_slug: z.string().optional().describe(
-        "Optional public URL slug for the target locale (kebab-case). Stored on the variant; uniqueness is validated at promote/publish.",
+        "Public URL slug for the target locale (kebab-case). Stored on the variant; uniqueness is validated at promote/publish. " +
+          "Required in practice on one-address types (landings, /landing/:slug): every language needs a slug no other language of the page uses, " +
+          "else action_required set_locale_url_slug (locale_url_slug_conflict) and nothing is written.",
       ),
       site: z.string().optional().describe(SITE_PARAM_DESC),
       confirm_new_values: z.boolean().optional().describe(
@@ -8638,6 +8673,7 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
       const { isEmptyLocaleContent } = await import("../../shared/isEmptyLocaleContent.js");
       const { contentIndex } = await import("../../server/content-index.js");
       const {
+        isSingleAddressPattern,
         resolveLocaleUrlSlug,
         validateLocaleUrlSlugFormat,
       } = await import("../../server/locale-url-slug.js");
@@ -8935,6 +8971,59 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         existingSlug: mergeIntoExisting ? existingLocaleSlug : null,
         entryIdentity: slug,
       });
+
+      // One address for every language (/landing/:slug): this language needs a slug no
+      // other live language uses, or both share one address and only one can be shown.
+      if (isSingleAddressPattern(resolved.config.url_pattern)) {
+        const commonPath = path.join(dir, "_common.yml");
+        const commonData = fs.existsSync(commonPath)
+          ? ((safeLoad(fs.readFileSync(commonPath, "utf-8")) as Record<string, unknown> | null) ?? {})
+          : {};
+        const commonSlug = typeof commonData.slug === "string" && commonData.slug.trim() ? commonData.slug.trim() : slug;
+        const sharedWith = fs
+          .readdirSync(dir)
+          .filter((f) => /^[a-z]{2}(-[a-z]{2})?\.ya?ml$/.test(f) && f.replace(/\.ya?ml$/, "") !== target_locale)
+          .filter((f) => {
+            const data = safeLoad(fs.readFileSync(path.join(dir, f), "utf-8")) as Record<string, unknown> | null;
+            const own = typeof data?.slug === "string" && data.slug.trim() ? data.slug.trim() : commonSlug;
+            return own === localeUrlSlug;
+          })
+          .map((f) => f.replace(/\.ya?ml$/, ""));
+        if (sharedWith.length > 0) {
+          const address = (resolved.config.url_pattern?.default ?? "").replace(":slug", localeUrlSlug);
+          return actionRequired(
+            {
+              success: false,
+              action_required: "set_locale_url_slug",
+              code: "locale_url_slug_conflict",
+              message:
+                `${address} is already the ${sharedWith.join(", ")} address of this page. One address for every language: ` +
+                `the ${target_locale} translation needs its own url_slug. Nothing was written.`,
+              details: {
+                address,
+                locales: [target_locale, ...sharedWith].sort(),
+                property_path: "slug",
+                file: `${ctDir}/${slug}/${target_locale}.yml`,
+              },
+              warnings: [
+                {
+                  code: "locale_url_slug_conflict",
+                  message:
+                    "Pass url_slug (a word in the target language, not used by another language of this page). The folder name stays the page ID; other languages' addresses do not change.",
+                },
+              ],
+            },
+            [
+              {
+                tool: "translate_entry",
+                reason: `Retry with url_slug: the ${target_locale} address word.`,
+                priority: "required",
+                args_hint: { slug, contentType: resolved.contentType, target_locale, url_slug: `<address-in-${target_locale}>`, ...siteHint },
+              },
+            ],
+          );
+        }
+      }
 
       const built = buildTranslateLocaleData({
         mode,

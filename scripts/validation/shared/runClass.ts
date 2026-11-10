@@ -111,7 +111,6 @@ export const ENTRY_LOCAL_VALIDATOR_NAMES = [
   "external-links",
   "static-field-overrides",
   "url-param-locale",
-  "nonlocalized-common-locale",
   "locale-slug-uniqueness",
   "slug-identity",
   "updated-at",

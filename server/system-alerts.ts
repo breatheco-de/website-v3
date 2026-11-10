@@ -524,13 +524,21 @@ export async function collectRenderGateAlerts(
   state?: import("./render-gate-state").RenderGateState | null,
 ): Promise<SystemAlert[]> {
   const gate = state === undefined ? (await import("./render-gate-state")).readRenderGateState() : state;
-  if (!gate || gate.result === "passed" || !gate.failing?.length) return [];
-  const worst = [...gate.failing].sort((a, b) => b.share - a.share)[0]!;
-  const share = `${Math.round(worst.share * 100)}% of ${worst.type} pages (${worst.empty}/${worst.total})`;
-  const others = gate.failing.length > 1 ? ` Also over the limit: ${gate.failing.filter((f) => f !== worst).map((f) => f.type).join(", ")}.` : "";
-  const pages = gate.empty_paths?.length
-    ? ` Empty pages include ${gate.empty_paths.slice(0, 5).join(", ")}${gate.empty_paths.length > 5 ? ", …" : ""}.`
-    : "";
+  const conflicts = gate?.conflicts ?? [];
+  if (!gate || gate.result === "passed" || (!gate.failing?.length && conflicts.length === 0)) return [];
+  const parts: string[] = [];
+  if (gate.failing?.length) {
+    const worst = [...gate.failing].sort((a, b) => b.share - a.share)[0]!;
+    const others = gate.failing.length > 1 ? ` Also over the limit: ${gate.failing.filter((f) => f !== worst).map((f) => f.type).join(", ")}.` : "";
+    const pages = gate.empty_paths?.length
+      ? ` Empty pages include ${gate.empty_paths.slice(0, 5).join(", ")}${gate.empty_paths.length > 5 ? ", …" : ""}.`
+      : "";
+    parts.push(`${Math.round(worst.share * 100)}% of ${worst.type} pages (${worst.empty}/${worst.total}) rendered empty.${others}${pages}`);
+  }
+  if (conflicts.length) {
+    const list = conflicts.slice(0, 5).map((c) => `${c.address} (${c.locales.join(", ")})`).join(", ");
+    parts.push(`Two languages share one address: ${list}${conflicts.length > 5 ? ", …" : ""}. Give one language its own slug.`);
+  }
   const deploy = gate.deploy_sha ? ` Deploy ${gate.deploy_sha.slice(0, 7)}.` : "";
   const run = gate.run_url ? ` Details: ${gate.run_url}` : "";
   if (gate.result === "failed") {
@@ -540,7 +548,7 @@ export async function collectRenderGateAlerts(
         severity: "critical",
         code: "render_gate_failed",
         title: "Deploy stopped before going live",
-        message: `${share} rendered empty. The live site is unchanged.${others}${pages}${deploy}${run}`,
+        message: `${parts.join(" ")} The live site is unchanged.${deploy}${run}`,
       },
     ];
   }
@@ -550,7 +558,7 @@ export async function collectRenderGateAlerts(
       severity: "warning",
       code: "render_gate_skipped",
       title: "Deploy went live with the page render check skipped",
-      message: `${share} rendered empty and the check was overridden.${others}${pages}${deploy}${run}`,
+      message: `${parts.join(" ")} The check was overridden.${deploy}${run}`,
     },
   ];
 }
