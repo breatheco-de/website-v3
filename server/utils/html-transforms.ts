@@ -1,23 +1,15 @@
 /**
  * Public-page modulepreload policy.
  *
- * With SSR HTML, first paint depends on CSS (+ images). JS is for hydration and
- * can arrive slightly later. Vite injects <link rel="modulepreload"> for every
- * static dependency of the entry; on mobile that storms the connection and
- * competes with render-blocking CSS / LCP.
+ * SSR HTML paints from CSS (+ images). Hydration JS must still arrive in parallel
+ * or the navbar stays dead until the entry parses and then discovers its static
+ * deps in a second wave (production blink / TTI gap).
  *
- * Keep only the entry + tiny runtime preloads. Drop admin/heavy split chunks
- * (framer, charts, …) and other static deps — the browser still loads them when
- * the entry graph executes; we just stop hinting them early.
+ * Keep every Vite-injected `/assets/*.js` modulepreload (the entry's static graph).
+ * Do NOT mark them fetchpriority=low — that demotes hydrate behind image preloads.
+ * Admin-only routes stay out of this graph via code-splitting, not by stripping
+ * tags the entry actually needs (framer, lucide, tanstack, …).
  */
-
-/** Allowlist: entry shell + bundler runtime only. */
-const KEEP_MODULEPRELOAD_HREF =
-  /\/assets\/(?:index|rolldown-runtime|vite|modulepreload-polyfill)(?:-[^/"'\s>]*)?\.(?:mjs|js)\b/i;
-
-/** Explicit denylist for named manualChunks (belt-and-suspenders vs allowlist). */
-const DROP_MODULEPRELOAD_HREF =
-  /\/assets\/(?:framer|charts|icons-react|forms|date|carousel|markdown)(?:-[^/"'\s>]*)?\.js\b/i;
 
 function modulepreloadHref(tag: string): string {
   return /href=["']([^"']+)["']/i.exec(tag)?.[1] ?? "";
@@ -25,23 +17,21 @@ function modulepreloadHref(tag: string): string {
 
 function shouldKeepModulePreload(href: string): boolean {
   if (!href) return false;
-  if (DROP_MODULEPRELOAD_HREF.test(href)) return false;
-  return KEEP_MODULEPRELOAD_HREF.test(href);
+  return /\/assets\/[^/"'\s>]+\.(?:mjs|js)\b/i.test(href);
 }
 
 function modulepreloadTag(href: string): string {
-  return `<link rel="modulepreload" crossorigin href="${href}" fetchpriority="low">`;
+  return `<link rel="modulepreload" crossorigin href="${href}">`;
 }
 
 /**
- * Demote / trim Vite entry modulepreloads so they do not starve CSS paint.
- * Also ensures the main entry script has a low-priority modulepreload.
+ * Normalize Vite entry modulepreloads: keep the static graph, dedupe, ensure the
+ * main entry script has a modulepreload when missing.
  */
 export function applyEntryModulePreload(html: string): string {
   html = html.replace(
     /(<script type="module" crossorigin src="(\/assets\/index-[^"]+\.js)"><\/script>)/g,
     (match, _full, src) => {
-      // Avoid duplicating if Vite (or a prior pass) already preloaded the entry.
       if (
         new RegExp(
           `<link\\b[^>]*\\brel=["']modulepreload["'][^>]*\\bhref=["']${src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`,

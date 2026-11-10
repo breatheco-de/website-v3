@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
 import { IS_SERVER, shouldSuppressFullPageLoader, isSsrHydrateWindow } from "@/lib/initialData";
 import { useLocation } from "wouter";
 import { SectionRenderer } from "@/components/SectionRenderer";
@@ -17,9 +16,9 @@ import { useAlternateUrls } from "@/hooks/useAlternateUrls";
 import { useScrollToLocationHashWhenReady } from "@/hooks/useScrollToLocationHashWhenReady";
 import { useVariableDefinitions, useVariableContext } from "@/hooks/useVariables";
 import { resolveDeep } from "@/lib/variable-manager";
-import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import LazyRender from "@/components/LazyRender";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 import MenuSlotPlaceholder from "@/components/editing/MenuSlotPlaceholder";
 import { MenuVisualContextProvider } from "@/contexts/MenuVisualContext";
 import { useMenuConfig } from "@/hooks/useMenuConfig";
@@ -45,8 +44,6 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
       i18n.changeLanguage(locale);
     }
   }, [locale, i18n]);
-  const { menuConfig: defaultHeaderMenuConfig, isLoading: isDefaultHeaderLoading } = useMenuConfig("main-navbar", locale);
-
   const segments = location.split("?")[0].split("/").filter(Boolean);
   const slug = segments[segments.length - 1] || "";
   const _searchParams = new URLSearchParams(location.split("?")[1] ?? "");
@@ -138,13 +135,21 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
 
   useScrollToLocationHashWhenReady(!!page && !isLoading);
 
+  const pageLayout = (page as any)?.layout as { menu?: { top?: string | null; bottom?: string | null } } | undefined;
   const {
     topMenuId,
     bottomMenuId,
     topMenuConfig,
-    isTopMenuLoading,
     sectionBackgroundOverlapsMenu,
-  } = useMenuConfig({ layout: (page as any)?.layout, locale });
+  } = useMenuConfig({
+    layout: {
+      menu: {
+        top: "main-navbar",
+        bottom: pageLayout?.menu?.bottom ?? null,
+      },
+    },
+    locale,
+  });
   const topChromeHeights = getMenuChromeHeights(topMenuConfig);
 
   const sectionsReady = useEagerSectionsReady(
@@ -167,7 +172,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
         className="min-h-screen flex items-center justify-center"
         data-testid="loading-database-single"
       >
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <LoadingSpinner />
       </div>
     );
   }
@@ -183,13 +188,12 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
           className="min-h-screen flex items-center justify-center"
           data-testid="loading-database-single"
         >
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <LoadingSpinner />
         </div>
       );
     }
     return (
       <div data-testid="error-database-single">
-        <Header menuConfig={defaultHeaderMenuConfig} isLoading={isDefaultHeaderLoading} />
         <div className="min-h-screen flex items-center justify-center">
           <div className="text-center w-full max-w-lg px-4">
             <h1 className="text-2xl font-bold text-foreground mb-2">
@@ -227,7 +231,7 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
         }}
       >
         <div className="group relative">
-          {topMenuId && <Header menuConfig={topMenuConfig} isLoading={isTopMenuLoading} />}
+          {/* Experiment: Header lives in App PublicShellHeader (always main-navbar). */}
           <MenuSlotPlaceholder
             position="top"
             currentMenuId={topMenuId ?? null}

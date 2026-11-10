@@ -15,7 +15,6 @@ import { getVariableManager } from "./variable-manager";
 import { loadImageRegistry } from "./image-registry";
 import { getMergedImageRegistry } from "./image-registry-resolver";
 import type { SiteContext } from "./site-manager";
-import { readNavigationEagerManifest } from "./navigation-eager-manifest";
 import { getDefaultLocale, normalizeLocale, resolveEffectiveRobots } from "./settings";
 import { getApiPath } from "../shared/api-paths";
 import { toOgLocale } from "../shared/locale";
@@ -981,13 +980,9 @@ export async function resolveInitialData(
     });
   }
 
-  const navigationManifest = readNavigationEagerManifest(ci.contentRoot);
-  if (navigationManifest) {
-    queries.push({
-      queryKey: ["navigation-eager-manifest"],
-      data: navigationManifest,
-    });
-  }
+  // navigation-eager-manifest (~20–30KB) is hover-prefetch only — do not inline it
+  // in __INITIAL_DATA__. Prefetch no-ops until a later idle fetch if needed; keeping
+  // it out of the HTML shortens parse + hydrate before the navbar is interactive.
 
   const pageData = pageQuery?.data as Record<string, unknown> | undefined;
   const httpStatus =
