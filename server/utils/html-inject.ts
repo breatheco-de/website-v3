@@ -17,6 +17,22 @@ export function insertBefore(html: string, marker: string, fragment: string): st
   return html.replace(marker, () => fragment + marker);
 }
 
+/**
+ * Remove `<link rel="…">` tags without swallowing neighboring `<link>`s.
+ *
+ * Must stop at the tag's own `>` or `/>`. A lookahead of only `(?!\/>)` lets the
+ * match cross non-self-closing links (Vite's `<link rel="stylesheet" …>`) and
+ * delete the stylesheet when replacing canonical — the workshop FOUC bug.
+ */
+export function removeLinkTagsByRel(html: string, rel: string): string {
+  const escaped = rel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(
+    `<link\\b(?:(?!\\/?>)[\\s\\S])*?\\brel\\s*=\\s*["']${escaped}["'](?:(?!\\/?>)[\\s\\S])*?\\/?>\\s*`,
+    "gi",
+  );
+  return html.replace(re, "");
+}
+
 const PAGE_VERSION_SCRIPT_RE = /<script id="__AB_PAGE_VERSION__">[\s\S]*?<\/script>\n?/g;
 const GTM_MARKER = "<!-- Google Tag Manager";
 

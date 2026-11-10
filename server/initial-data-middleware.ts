@@ -39,6 +39,7 @@ import {
   injectPageTrackingDataLayer,
   injectPageVersionDataLayer,
   insertBefore,
+  removeLinkTagsByRel,
   replaceLiteral,
 } from "./utils/html-inject";
 import { isLlmHtmlAudience } from "../shared/runtime-issues";
@@ -771,10 +772,7 @@ export function injectSsrMetaTags(
       const escaped = escapeAttr(canonicalHref);
       const canonicalTag = `<link rel="canonical" href="${escaped}" />`;
       if (/\brel\s*=\s*["']canonical["']/i.test(html)) {
-        html = html.replace(
-          /<link\b(?:(?!\/>)[\s\S])*?\brel\s*=\s*["']canonical["'](?:(?!\/>)[\s\S])*?\/?>\s*/gi,
-          "",
-        );
+        html = removeLinkTagsByRel(html, "canonical");
       }
       html = insertBefore(html, "</head>", `${canonicalTag}\n`);
 

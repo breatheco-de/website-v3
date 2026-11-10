@@ -18,7 +18,7 @@ import {
 } from "@shared/faq-listing";
 import { child } from "./logger";
 import { loadRawYaml, parseRoute } from "./ssr-route";
-import { insertBefore } from "./utils/html-inject";
+import { insertBefore, removeLinkTagsByRel } from "./utils/html-inject";
 import {
   collectDatabaseRecordSchemas,
   collectStaticPageSchemas,
@@ -71,7 +71,7 @@ export function injectSsrSchemaHtml(html: string, ssrSchemaHtml: string): string
     html = html.replace(/<title\b[^>]*>[\s\S]*?<\/title>\s*/i, "");
   }
   if (/\brel\s*=\s*["']canonical["']/i.test(ssrSchemaHtml)) {
-    html = html.replace(/<link\b(?:(?!\/>)[\s\S])*?\brel\s*=\s*["']canonical["'](?:(?!\/>)[\s\S])*?\/?>\s*/gi, "");
+    html = removeLinkTagsByRel(html, "canonical");
   }
 
   return insertBefore(html, "</head>", `${ssrSchemaHtml}\n`);
