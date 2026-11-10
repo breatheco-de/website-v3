@@ -12,7 +12,7 @@ interface HeroCredibilityProps {
   data: HeroCredibilityData;
 }
 
-// ─── PillLogo ─────────────────────────────────────────────────────────────────
+// ─── PillLogo ────────────────────────────────────────────────────────────────
 
 function PillLogo({ imageId, colored, pillIndex, logoIndex }: { 
   imageId: string; 
