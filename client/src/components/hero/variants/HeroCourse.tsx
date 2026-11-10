@@ -88,7 +88,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
       cancelled = true;
     };
   }, [isEditMode, data, contentType, slug, funnel]);
-  
+  // test
   const handleCtaClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     const cta = data.signup_card?.cta_button as
       | { url?: string; tracking?: string }
