@@ -25,7 +25,25 @@ vi.mock("./html-page-cache", () => ({
   snapshotHotHtmlPages: () => [],
 }));
 
-import { scheduleHotHtmlRebuild, scheduleStoredHtmlPaths } from "./html-rebuild";
+import { scheduleHotHtmlRebuild, scheduleSavedHtmlPaths, scheduleStoredHtmlPaths } from "./html-rebuild";
+
+describe("scheduleSavedHtmlPaths", () => {
+  beforeEach(() => {
+    enqueueJob.mockClear();
+    listStoredHtmlCacheKeys.mockClear();
+  });
+
+  it("lists stored copies once for several saved paths", async () => {
+    scheduleSavedHtmlPaths("site_a", ["/en/home", "/en/about", "/es/inicio"], "/tmp/site_a");
+    expect(listStoredHtmlCacheKeys).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(enqueueJob).toHaveBeenCalledTimes(3));
+    expect(enqueueJob).toHaveBeenCalledWith(
+      "html_page_rebuild",
+      expect.objectContaining({ siteId: "site_a", pathname: "/en/about", variantKey: "live" }),
+      expect.anything(),
+    );
+  });
+});
 
 describe("scheduleHotHtmlRebuild", () => {
   beforeEach(() => {

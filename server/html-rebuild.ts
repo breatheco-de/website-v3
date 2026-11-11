@@ -121,10 +121,11 @@ export function scheduleSavedHtmlPaths(
 ): void {
   const deleteIfSlow = opts?.deleteIfSlow !== false;
   const root = contentRootForSite(siteId, contentRoot);
+  const allStored = listStoredHtmlCacheKeys(siteId);
   for (const pathname of pathnames) {
     const clean = pathname.split("?")[0].split("#")[0] || "/";
     const marker = `::${siteId}::${clean}::`;
-    const stored = listStoredHtmlCacheKeys(siteId).filter((key) => key.includes(marker));
+    const stored = allStored.filter((key) => key.includes(marker));
     const targets = stored.length > 0 ? stored : [buildHtmlCacheKey(siteId, clean, "live")];
     let queuedLive = false;
     for (const key of targets) {

@@ -53,6 +53,7 @@ import { getOptimizationSettings } from "./settings";
 import { BOOT_ID, BOOT_TIME, getLastSoftReload, registerShutdownHandler } from "./server-control";
 import { beginRequest, endRequest, flushTick, noteApi, resolveApiRoute, startTick } from "./process-stats";
 import logger from "./logger";
+import { applyServerTiming, markTiming, startServerTiming } from "./server-timing";
 
 // Only this process may enqueue ContentIndex index_refresh (see enqueueIndexRefresh).
 process.env.WEBLIFY_PROCESS = "web";
@@ -74,6 +75,11 @@ process.on("unhandledRejection", (reason) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const app = express();
+
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  startServerTiming(res);
+  next();
+});
 
 app.use(cookieParser());
 
@@ -491,7 +497,18 @@ app.use((req, res, next) => {
       rehydrateHtmlPageCache,
     } = await import("./html-page-cache");
     const { urlBakesStoredPageQuery } = await import("./initial-data-middleware");
-    rehydrateHtmlPageCache();
+    const rehydrated = rehydrateHtmlPageCache();
+    logger.info(
+      {
+        files: rehydrated.files,
+        loaded: rehydrated.loaded,
+        skippedForSpace: rehydrated.skippedForSpace,
+        usedMb: Math.round(rehydrated.usedBytes / (1024 * 1024)),
+        budgetMb: Math.round(rehydrated.budgetBytes / (1024 * 1024)),
+      },
+      `HTML cache loaded ${rehydrated.loaded} of ${rehydrated.files} pages, ` +
+        `${Math.round(rehydrated.usedBytes / (1024 * 1024))} of ${Math.round(rehydrated.budgetBytes / (1024 * 1024))}MB`,
+    );
     const { resolveHtmlVariantKey } = await import("./html-variant-key");
     const { injectPageBoot, needsPageBoot, pageBootKey, resolvePageBootForResponse } = await import("./ads/ads-first");
     app.use(async (req, res, next) => {
@@ -506,6 +523,7 @@ app.use((req, res, next) => {
         return next();
       }
       if (shouldBypassHtmlCache(req) || isEditDocumentRequest(req.originalUrl || req.url)) return next();
+      markTiming(res, "pre");
 
       const site = (res.locals as any).site;
       const siteId =
@@ -519,6 +537,8 @@ app.use((req, res, next) => {
       const baked = urlBakesStoredPageQuery(req.originalUrl || req.url || "/", site?.contentIndex);
       if (llmHit && !baked) {
         logHtmlRender({ url: cleanUrl, ms: 0, cache: "HIT" });
+        markTiming(res, "lookup");
+        applyServerTiming(res);
         sendCachedHtmlPage(req, res, llmHit, LLM_HTML_CACHE_CONTROL);
         return;
       }
@@ -537,6 +557,7 @@ app.use((req, res, next) => {
       const cacheKey = buildHtmlCacheKey(siteId, cachePath, variantKey);
       const started = performance.now();
       const cached = getCachedHtml(cacheKey);
+      markTiming(res, "lookup");
       if (!cached) return next();
       if (urlBakesStoredPageQuery(req.originalUrl || req.url || "/", site?.contentIndex)) {
         return next();
@@ -562,6 +583,7 @@ app.use((req, res, next) => {
       } else {
         body = encoding === "br" ? cached.br : encoding === "gzip" ? cached.gzip : cached.html;
       }
+      markTiming(res, "boot");
       logHtmlRender({
         url: cleanUrl,
         ms: Math.round(performance.now() - started),
@@ -576,6 +598,7 @@ app.use((req, res, next) => {
       res.setHeader("X-HTML-Cache", "HIT");
       res.setHeader("Vary", "Accept-Encoding");
       if (encoding !== "identity") res.setHeader("Content-Encoding", encoding);
+      applyServerTiming(res);
       res.send(body);
     });
   }
