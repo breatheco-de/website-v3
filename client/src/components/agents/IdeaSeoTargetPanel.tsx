@@ -14,9 +14,19 @@ export type IdeaSeoTarget = {
     | { mode: "standalone"; reason: string };
   kw_monthly_volume?: number;
   kw_difficulty?: number;
+  /** Country research market id the numbers describe (spain, usa, …). */
+  market?: string;
 };
 
 type ClusterMode = IdeaSeoTarget["cluster"]["mode"];
+
+function marketLabel(id: string): string {
+  if (id.length <= 3) return id.toUpperCase();
+  return id
+    .split("-")
+    .map((p) => (p.length <= 3 && p !== "es" ? p.toUpperCase() : p.charAt(0).toUpperCase() + p.slice(1)))
+    .join(" ");
+}
 
 type SeoOverviewClusters = {
   clusters: Array<{ pillarUrl: string; clusterCount: number; keyword?: string | null }>;
@@ -107,6 +117,7 @@ export function IdeaSeoTargetPanel(props: {
   const [reason, setReason] = useState("");
   const [volumeRaw, setVolumeRaw] = useState("");
   const [difficultyRaw, setDifficultyRaw] = useState("");
+  const [marketRaw, setMarketRaw] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [editing, setEditing] = useState(false);
 
@@ -114,6 +125,7 @@ export function IdeaSeoTargetPanel(props: {
     setKeyword(target?.main_keyword ?? "");
     setVolumeRaw(target?.kw_monthly_volume != null ? String(target.kw_monthly_volume) : "");
     setDifficultyRaw(target?.kw_difficulty != null ? String(target.kw_difficulty) : "");
+    setMarketRaw(target?.market ?? "");
     setMode(target?.cluster.mode ?? "join");
     setPillarPath(target?.cluster.mode === "join" ? target.cluster.pillar_path : "");
     setMembersRaw(
@@ -144,6 +156,7 @@ export function IdeaSeoTargetPanel(props: {
   const members = parseMembers(membersRaw);
   const volume = parseMetricInput(volumeRaw);
   const difficulty = parseMetricInput(difficultyRaw, 100);
+  const market = marketRaw.trim().toLowerCase();
   const canSave =
     !pending &&
     keyword.trim().length > 0 &&
@@ -167,6 +180,7 @@ export function IdeaSeoTargetPanel(props: {
       cluster,
       ...(volume != null ? { kw_monthly_volume: volume } : {}),
       ...(difficulty != null ? { kw_difficulty: difficulty } : {}),
+      ...(market ? { market } : {}),
     });
   };
 
@@ -207,7 +221,11 @@ export function IdeaSeoTargetPanel(props: {
             <TargetStat label="Cluster" testId="meta-idea-seo-cluster" {...clusterStat(target.cluster)} />
             <TargetStat
               label="Search volume"
-              value={target.kw_monthly_volume != null ? `${target.kw_monthly_volume.toLocaleString()}/mo` : null}
+              value={
+                target.kw_monthly_volume != null
+                  ? `${target.market ? `${marketLabel(target.market)}: ` : ""}${target.kw_monthly_volume.toLocaleString()}/mo`
+                  : null
+              }
               testId="meta-idea-seo-volume"
             />
             <TargetStat
@@ -221,6 +239,12 @@ export function IdeaSeoTargetPanel(props: {
               {locked
                 ? "This idea was accepted without both numbers. Check the evidence in the idea brief."
                 : "Ask the author for both numbers from their keyword research before accepting."}
+            </p>
+          ) : !target.market ? (
+            <p className="text-xs text-muted-foreground" data-testid="text-idea-seo-market-missing">
+              {locked
+                ? "These numbers were saved without a country, so it is unclear which market they describe."
+                : "Ask the author which country these numbers are from before accepting."}
             </p>
           ) : null}
         </div>
@@ -286,10 +310,22 @@ export function IdeaSeoTargetPanel(props: {
               data-testid="input-idea-seo-difficulty"
             />
           </div>
-          <p className="self-end text-xs text-muted-foreground @xl:pb-2">
+          <div className="space-y-1">
+            <Label htmlFor="idea-seo-market" className="text-xs">
+              Country of these numbers
+            </Label>
+            <Input
+              id="idea-seo-market"
+              value={marketRaw}
+              onChange={(e) => setMarketRaw(e.target.value)}
+              placeholder="spain"
+              data-testid="input-idea-seo-market"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground @xl:col-span-3">
             {volume === null || difficulty === null
               ? "Use whole numbers; difficulty goes up to 100."
-              : "Copy both from keyword research. Don't estimate."}
+              : "Copy both from keyword research, plus the country market they came from (spain, usa, mexico…). Don't estimate."}
           </p>
           <div className="space-y-1">
             <Label htmlFor="idea-seo-mode" className="text-xs">
@@ -418,6 +454,10 @@ export function IdeaSeoTargetPanel(props: {
             Volume and difficulty are stored as <code className="font-mono">kw_monthly_volume</code> and{" "}
             <code className="font-mono">kw_difficulty</code> on the idea only. They are not copied into the page;
             the page&apos;s own numbers come from SEO research.
+          </p>
+          <p>
+            The country is stored as <code className="font-mono">market</code>, a market id from Settings → SEO &amp; GEO →
+            Search Console markets. LatAm and Worldwide are refused because keyword tools score one country at a time.
           </p>
           <p>
             Accept checks the hub is live and in the same language, and that no live page or other accepted idea

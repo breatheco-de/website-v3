@@ -222,6 +222,7 @@ export function buildPotentialClusterMetrics(opts: {
       keyword: hub?.main_keyword,
       contentRoot: opts.contentRoot,
       contentFolder: opts.contentFolder,
+      locale: hub?.locale,
       yamlVolume: hub?.kw_monthly_volume ?? null,
       yamlDifficulty: hub?.kw_difficulty ?? null,
     });
@@ -231,6 +232,7 @@ export function buildPotentialClusterMetrics(opts: {
         keyword: row?.main_keyword,
         contentRoot: opts.contentRoot,
         contentFolder: opts.contentFolder,
+        locale: row?.locale,
         yamlVolume: row?.kw_monthly_volume ?? null,
         yamlDifficulty: row?.kw_difficulty ?? null,
       });

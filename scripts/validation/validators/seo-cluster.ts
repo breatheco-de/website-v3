@@ -159,6 +159,7 @@ export const seoClusterValidator: Validator = {
           keyword,
           contentRoot,
           contentFolder,
+          locale: file.locale,
           yamlVolume: seo.kw_monthly_volume,
           yamlDifficulty: seo.kw_difficulty,
         });

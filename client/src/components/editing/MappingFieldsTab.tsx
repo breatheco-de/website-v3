@@ -36,7 +36,11 @@ import type { EditorHint } from "@/components/editing/EditorTypeDialog";
 import type { SeoModalSavedDetail } from "@/components/editing/seoModalSaved";
 import { notifySeoModalSaved } from "@/components/editing/seoModalSaved";
 import { NotMetaFieldBadge } from "@/components/editing/NotMetaFieldBadge";
-import { OpenRushFetchControl } from "@/components/seo/OpenRushFetchControl";
+import {
+  OpenRushFetchControl,
+  keywordProviderLabel,
+  type KeywordMetricsProvider,
+} from "@/components/seo/OpenRushFetchControl";
 import { SeoIndexReindexControl } from "@/components/seo/SeoIndexReindexControl";
 import { getSessionHeaders } from "@/lib/sessionHeaders";
 import { cn } from "@/lib/utils";
@@ -550,9 +554,14 @@ function SeoFieldsEditor({
   const { data: entryKeywordMetrics } = useQuery<{
     keyword_metrics?: {
       openrush_configured: boolean;
+      keyword_provider?: KeywordMetricsProvider | null;
       source: string;
       kw_monthly_volume: number | null;
       kw_difficulty: number | null;
+      kw_difficulty_source?: string | null;
+      volume_provider?: KeywordMetricsProvider | null;
+      difficulty_provider?: KeywordMetricsProvider | null;
+      market?: { id: string | null; label: string; location: string; language: string } | null;
       may_not_be_recent: boolean;
       notes: string | null;
       fetched_at: string | null;
@@ -614,6 +623,12 @@ function SeoFieldsEditor({
     !openrushHasBothMetrics;
   const showResearchIncompleteHint =
     researchIncomplete && !(openrushConfigured && metricsFormEmpty && !metricsManualEditing);
+  const refreshProviderName = keywordProviderLabel(resolvedKm?.keyword_provider);
+  const cacheProviderName = keywordProviderLabel(
+    resolvedKm?.difficulty_provider ?? resolvedKm?.volume_provider ?? resolvedKm?.keyword_provider,
+  );
+  const cacheMarketLabel = resolvedKm?.market?.label ?? null;
+  const difficultyIsAdEstimate = resolvedKm?.kw_difficulty_source === "derived_from_competition";
 
   type KeywordOwnerRow = { contentType: string; slug: string; locale: string; path: string };
   const {
@@ -803,6 +818,10 @@ function SeoFieldsEditor({
         error?: string;
         kw_monthly_volume?: number | null;
         kw_difficulty?: number | null;
+        volume_provider?: KeywordMetricsProvider | null;
+        difficulty_provider?: KeywordMetricsProvider | null;
+        market?: { id: string | null; label: string; location: string; language: string } | null;
+        mode?: "live" | "sandbox" | null;
         fetched_at?: string | null;
         notes?: string | null;
       };
@@ -819,9 +838,13 @@ function SeoFieldsEditor({
           ...(prev ?? {}),
           keyword_metrics: {
             openrush_configured: true,
+            keyword_provider: prev?.keyword_metrics?.keyword_provider ?? null,
             source: "openrush_cache",
             kw_monthly_volume: volume,
             kw_difficulty: difficulty,
+            volume_provider: body.volume_provider ?? null,
+            difficulty_provider: body.difficulty_provider ?? null,
+            market: body.market ?? prev?.keyword_metrics?.market ?? null,
             may_not_be_recent: false,
             notes: body.notes ?? null,
             fetched_at: body.fetched_at ?? new Date().toISOString(),
@@ -833,11 +856,13 @@ function SeoFieldsEditor({
         title:
           volume != null || difficulty != null
             ? "Keyword metrics updated"
-            : "OpenRush finished — no metrics",
+            : `${refreshProviderName} finished — no metrics`,
         description:
           volume != null || difficulty != null
-            ? "Volume and difficulty were refreshed from OpenRush into the shared cache."
-            : "OpenRush ran but returned no volume or difficulty for this keyword.",
+            ? `Volume and difficulty were refreshed from ${refreshProviderName}${body.market?.label ? ` (${body.market.label})` : ""} into the shared cache.` +
+              (difficulty == null ? " No difficulty score for this keyword — it stays unknown." : "") +
+              (body.mode === "sandbox" ? " Sandbox: sample data only." : "")
+            : `${refreshProviderName} ran but returned no volume or difficulty for this keyword.`,
       });
       await queryClient.invalidateQueries({
         queryKey: ["/api/seo/entry", contentType, slug, locale],
@@ -1299,6 +1324,8 @@ function SeoFieldsEditor({
                     loading={refreshingKeyword}
                     data-testid="button-seo-metrics-openrush-refresh"
                     dialogTestId="dialog-seo-metrics-openrush-refresh"
+                    provider={resolvedKm?.keyword_provider}
+                    marketLabel={cacheMarketLabel}
                     onConfirm={handleRefreshKeyword}
                   />
                 </div>
@@ -1318,23 +1345,25 @@ function SeoFieldsEditor({
                       className="h-5 px-1.5 text-[10px] font-normal"
                       data-testid="badge-seo-metrics-source"
                     >
-                      From OpenRush
+                      From {cacheProviderName}
+                      {cacheMarketLabel ? ` · ${cacheMarketLabel}` : ""}
                     </Badge>
                   ) : null}
                 </div>
                 {metricsSourceKind === "none" ? (
                   <p className="text-xs text-muted-foreground" data-testid="text-seo-metrics-openrush-auto">
-                    Download from OpenRush to fill volume and difficulty for this keyword (shared cache —
-                    not page YAML until you set them manually).
+                    Download from {refreshProviderName} to fill volume and difficulty for this keyword
+                    {cacheMarketLabel ? ` in ${cacheMarketLabel}` : ""} (shared cache — not page YAML until you
+                    set them manually).
                   </p>
                 ) : (
                   <>
                     <p className="text-xs text-muted-foreground" data-testid="text-seo-metrics-openrush-auto">
                       {metricsSourceKind === "manual"
-                        ? "Showing values saved on this page. OpenRush cache is not used while these are set — clear them or choose “Use OpenRush only” to switch."
+                        ? "Showing values saved on this page. The research cache is not used while these are set — clear them or choose “Use OpenRush only” to switch."
                         : metricsSourceKind === "openrush_empty"
-                          ? "OpenRush ran for this keyword but returned no volume or difficulty. Try refresh again, or set values manually."
-                          : "Showing shared OpenRush cache for this keyword (not saved to page YAML unless you set them manually)."}
+                          ? `${cacheProviderName} ran for this keyword but returned no volume or difficulty. Try refresh again, or set values manually.`
+                          : `Showing the shared research cache for this keyword (not saved to page YAML unless you set them manually).`}
                     </p>
                     <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-foreground">
                       <div>
@@ -1348,7 +1377,15 @@ function SeoFieldsEditor({
                       <div>
                         <dt className="text-[11px] text-muted-foreground">Keyword difficulty</dt>
                         <dd data-testid="text-seo-metrics-card-difficulty">
-                          {typeof displayCardDifficulty === "number" ? displayCardDifficulty : "—"}
+                          {typeof displayCardDifficulty === "number" ? displayCardDifficulty : "Unknown"}
+                          {metricsSourceKind === "openrush" && difficultyIsAdEstimate ? (
+                            <span
+                              className="ml-1.5 text-[11px] text-muted-foreground"
+                              data-testid="text-seo-metrics-difficulty-estimate"
+                            >
+                              (ad-competition estimate — refresh for a real score)
+                            </span>
+                          ) : null}
                         </dd>
                       </div>
                     </dl>

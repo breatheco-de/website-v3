@@ -15,13 +15,24 @@ export type OrganicMarketDraft = {
   label: string;
   kind: "rollup" | "country";
   countries: string[];
+  /** Search language keyword research uses for this market. */
+  language?: string;
 };
 
 type MarketsResponse = {
   markets: OrganicMarketDraft[];
   rollups?: OrganicMarketDraft[];
   countries?: OrganicMarketDraft[];
+  research_market_defaults?: Record<string, string>;
+  researchable_market_ids?: string[];
 };
+
+const DEFAULT_LOCALE_LABELS: Record<string, string> = { en: "English pages", es: "Spanish pages" };
+
+/** Keyword tools score one country at a time — rollups and Worldwide are traffic-only. */
+function isResearchableDraft(m: OrganicMarketDraft): boolean {
+  return m.id !== "worldwide" && m.countries.length === 1;
+}
 
 export function SearchConsoleOrganicMarketsCard({ canEdit }: { canEdit: boolean }) {
   const { toast } = useToast();
@@ -29,6 +40,7 @@ export function SearchConsoleOrganicMarketsCard({ canEdit }: { canEdit: boolean 
   const [saving, setSaving] = useState(false);
   const [reloadHint, setReloadHint] = useState(false);
   const [draft, setDraft] = useState<OrganicMarketDraft[]>([]);
+  const [researchDefaults, setResearchDefaults] = useState<Record<string, string>>({ en: "usa", es: "spain" });
 
   const { data, isLoading } = useQuery<MarketsResponse>({
     queryKey: ["/api/settings/search-console/organic-markets"],
@@ -46,13 +58,20 @@ export function SearchConsoleOrganicMarketsCard({ canEdit }: { canEdit: boolean 
     if (data?.markets) {
       setDraft(data.markets.map((m) => ({ ...m, countries: [...m.countries] })));
     }
+    if (data?.research_market_defaults) {
+      setResearchDefaults({ ...data.research_market_defaults });
+    }
   }, [data]);
+
+  const researchable = draft.filter(isResearchableDraft);
+  const defaultLocales = Array.from(new Set(["en", "es", ...Object.keys(researchDefaults)]));
 
   async function handleSave() {
     setSaving(true);
     try {
       await apiRequestWithAuth("PUT", "/api/settings/search-console/organic-markets", {
         organic_markets: draft,
+        research_market_defaults: researchDefaults,
       });
       await queryClient.invalidateQueries({
         queryKey: ["/api/settings/search-console/organic-markets"],
@@ -117,6 +136,10 @@ export function SearchConsoleOrganicMarketsCard({ canEdit }: { canEdit: boolean 
           Markets filter Cluster Map Search traffic by country. Empty country list means Worldwide
           (all rows). LatAm is a rollup that includes its listed countries.
         </p>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Keyword research uses these markets too. Pick the language each market searches in and which
+          market English and Spanish pages use by default. LatAm and Worldwide are for traffic reports only.
+        </p>
         {isLoading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading markets…
@@ -126,7 +149,7 @@ export function SearchConsoleOrganicMarketsCard({ canEdit }: { canEdit: boolean 
             {draft.map((row, index) => (
               <div
                 key={`${row.id}-${index}`}
-                className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-[1fr_1fr_2fr_auto]"
+                className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-[1fr_1fr_2fr_1fr_auto]"
                 data-testid={`organic-market-row-${row.id || index}`}
               >
                 <div className="space-y-1">
@@ -167,6 +190,17 @@ export function SearchConsoleOrganicMarketsCard({ canEdit }: { canEdit: boolean 
                     data-testid={`input-market-countries-${index}`}
                   />
                 </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Search language</Label>
+                  <Input
+                    value={row.language ?? ""}
+                    disabled={!canEdit || !isResearchableDraft(row)}
+                    placeholder={isResearchableDraft(row) ? "Spanish" : "traffic only"}
+                    onChange={(e) => updateRow(index, { language: e.target.value })}
+                    className="h-8 text-xs"
+                    data-testid={`input-market-language-${index}`}
+                  />
+                </div>
                 <div className="flex items-end">
                   <Button
                     type="button"
@@ -182,6 +216,44 @@ export function SearchConsoleOrganicMarketsCard({ canEdit }: { canEdit: boolean 
                 </div>
               </div>
             ))}
+            <div
+              className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-2"
+              data-testid="organic-markets-research-defaults"
+            >
+              {defaultLocales.map((locale) => (
+                <div key={locale} className="space-y-1">
+                  <Label className="text-xs" htmlFor={`research-default-${locale}`}>
+                    {DEFAULT_LOCALE_LABELS[locale] ?? `${locale.toUpperCase()} pages`} use
+                  </Label>
+                  <select
+                    id={`research-default-${locale}`}
+                    className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground"
+                    value={researchDefaults[locale] ?? ""}
+                    disabled={!canEdit}
+                    onChange={(e) =>
+                      setResearchDefaults((prev) => {
+                        const next = { ...prev };
+                        if (e.target.value) next[locale] = e.target.value;
+                        else delete next[locale];
+                        return next;
+                      })
+                    }
+                    data-testid={`select-research-default-${locale}`}
+                  >
+                    <option value="">No default (OpenRush location)</option>
+                    {researchDefaults[locale] && !researchable.some((m) => m.id === researchDefaults[locale]) ? (
+                      <option value={researchDefaults[locale]}>{researchDefaults[locale]} (not a country market)</option>
+                    ) : null}
+                    {researchable.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                        {m.language ? ` · ${m.language}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
             {canEdit ? (
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -253,6 +325,14 @@ export function SearchConsoleOrganicMarketsCard({ canEdit }: { canEdit: boolean 
               drill-downs, not additive. Saving markets does not rewrite{" "}
               <code className="font-mono">.cache/…/gsc-organic-days</code>; use Re-load Search traffic after
               changing codes. Day ingest prefers configured-market countries when near the row cap.
+            </p>
+            <p>
+              Keyword research (DataForSEO / OpenRush) needs one country per market, so only single-country
+              markets can be research defaults or an agent&apos;s <code className="font-mono">market</code>. Stored as{" "}
+              <code className="font-mono">search_console.organic_markets[].language</code> and{" "}
+              <code className="font-mono">search_console.research_market_defaults</code> (page locale → market id).
+              Keywords already cached for another market are not moved; the new market is looked up on the next
+              refresh.
             </p>
           </CollapsibleContent>
         </Collapsible>

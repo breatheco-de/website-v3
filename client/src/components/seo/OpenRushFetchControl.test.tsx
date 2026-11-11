@@ -34,4 +34,36 @@ describe("OpenRushFetchControl", () => {
     expect(html).toContain("OpenRush");
     expect(html).toContain('data-testid="button-openrush-smoke"');
   });
+
+  it("labels keyword refresh with DataForSEO when it owns keyword metrics", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <OpenRushFetchControl
+          kind="keyword"
+          provider="dataforseo"
+          openrushConfigured
+          onConfirm={async () => {}}
+          data-testid="button-keyword-smoke"
+        />
+      </QueryClientProvider>,
+    );
+    expect(html).toContain("DataForSEO");
+    expect(html).toContain("Refresh volume &amp; difficulty from DataForSEO");
+  });
+
+  it("keeps SERP on OpenRush even when DataForSEO is the keyword provider", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={client}>
+        <OpenRushFetchControl kind="serp" provider="dataforseo" openrushConfigured onConfirm={async () => {}} />
+      </QueryClientProvider>,
+    );
+    expect(html).toContain("OpenRush");
+    expect(html).not.toContain("DataForSEO");
+  });
 });

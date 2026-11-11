@@ -24,14 +24,24 @@ describe("openrush-keyword-cache", () => {
     vi.doMock("./site-config", () => ({
       getDefaultContentFolder: () => contentFolder,
     }));
-    vi.doMock("./settings", () => ({
-      getOpenRushSettings: () => ({
-        enabled: true,
-        location: "United States",
-        language: "English",
-        serp_top_n: 20,
-      }),
-    }));
+    vi.doMock("./settings", async () => {
+      const markets = await vi.importActual<typeof import("./gsc-organic-markets")>(
+        "./gsc-organic-markets",
+      );
+      return {
+        getOpenRushSettings: () => ({
+          enabled: true,
+          location: "United States",
+          language: "English",
+          serp_top_n: 20,
+        }),
+        getDataForSeoSettings: () => ({ enabled: false }),
+        getSearchConsoleSettings: () => ({
+          organic_markets: markets.DEFAULT_ORGANIC_MARKETS,
+          research_market_defaults: { en: "usa", es: "spain" },
+        }),
+      };
+    });
     return import("./openrush-keyword-cache");
   }
 
@@ -123,6 +133,116 @@ describe("openrush-keyword-cache", () => {
     expect(
       mod.keywordDifficultySourceOf({ ...base, kw_difficulty: 55, payload: { competition: "LOW" } }),
     ).toBeNull();
+  });
+
+  it("clears an ad-competition estimate when a provider checks and has no score", async () => {
+    const mod = await loadCacheModule();
+    mod.upsertKeywordEntry(
+      {
+        keyword: "niche kw",
+        location: "Spain",
+        language: "Spanish",
+        monthly_volume: 90,
+        kw_difficulty: 20,
+        kw_difficulty_source: "derived_from_competition",
+        competition_level: "LOW",
+        provider: "openrush",
+      },
+      contentFolder,
+    );
+    const second = mod.upsertKeywordEntry(
+      {
+        keyword: "niche kw",
+        location: "Spain",
+        language: "Spanish",
+        monthly_volume: 110,
+        kw_difficulty: null,
+        provider: "dataforseo",
+        difficulty_checked: true,
+      },
+      contentFolder,
+    );
+    expect(second.kw_difficulty).toBeNull();
+    expect(mod.keywordDifficultySourceOf(second)).toBeNull();
+    expect(second.monthly_volume).toBe(110);
+    expect(second.volume_provider).toBe("dataforseo");
+    expect(second.notes).toMatch(/ad-competition estimate cleared/);
+  });
+
+  it("keeps a prior reported score when a provider checks and has no score", async () => {
+    const mod = await loadCacheModule();
+    mod.upsertKeywordEntry(
+      {
+        keyword: "kw2",
+        location: "Spain",
+        language: "Spanish",
+        monthly_volume: 100,
+        kw_difficulty: 28,
+        kw_difficulty_source: "reported",
+        provider: "dataforseo",
+        difficulty_checked: true,
+      },
+      contentFolder,
+    );
+    const second = mod.upsertKeywordEntry(
+      {
+        keyword: "kw2",
+        location: "Spain",
+        language: "Spanish",
+        monthly_volume: null,
+        kw_difficulty: null,
+        provider: "dataforseo",
+        difficulty_checked: true,
+      },
+      contentFolder,
+    );
+    expect(second.kw_difficulty).toBe(28);
+    expect(mod.keywordDifficultySourceOf(second)).toBe("reported");
+    expect(mod.difficultyProviderOf(second)).toBe("dataforseo");
+  });
+
+  it("treats legacy entries without provider fields as OpenRush", async () => {
+    const mod = await loadCacheModule();
+    const entry = mod.upsertKeywordEntry(
+      { keyword: "legacy", location: "United States", language: "English", monthly_volume: 5, kw_difficulty: 9 },
+      contentFolder,
+    );
+    const legacy = { ...entry, volume_provider: undefined, difficulty_provider: undefined };
+    expect(mod.volumeProviderOf(legacy)).toBe("openrush");
+    expect(mod.difficultyProviderOf(legacy)).toBe("openrush");
+  });
+
+  it("resolveKeywordMetrics reads the page language's default market", async () => {
+    vi.stubEnv("OPENRUSH_API_KEY", "test-key");
+    const mod = await loadCacheModule();
+    mod.upsertKeywordEntry(
+      {
+        keyword: "tipos de inteligencia artificial",
+        location: "Spain",
+        language: "Spanish",
+        monthly_volume: 2900,
+        kw_difficulty: 18,
+        kw_difficulty_source: "reported",
+        provider: "dataforseo",
+      },
+      contentFolder,
+    );
+    const es = mod.resolveKeywordMetrics({
+      keyword: "tipos de inteligencia artificial",
+      contentFolder,
+      locale: "es",
+    });
+    expect(es.source).toBe("openrush_cache");
+    expect(es.kw_difficulty).toBe(18);
+    expect(es.difficulty_provider).toBe("dataforseo");
+    expect(es.market?.id).toBe("spain");
+
+    const en = mod.resolveKeywordMetrics({
+      keyword: "tipos de inteligencia artificial",
+      contentFolder,
+      locale: "en",
+    });
+    expect(en.source).toBe("none");
   });
 
   it("resolveKeywordMetrics prefers cache when OpenRush configured", async () => {

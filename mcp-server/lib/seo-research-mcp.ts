@@ -1,6 +1,7 @@
 /**
  * MCP SEO research: get_or_refresh_seo_research (cache + paid fetch with budget).
- * Vendor-neutral agent envelopes — no "openrush" in codes/messages.
+ * Vendor-neutral agent envelopes — no vendor names in codes/messages (provider ids appear only
+ * as data values). Keyword metrics route to DataForSEO when configured, otherwise OpenRush.
  */
 
 import { loadPage, resolveContentType } from "./content.js";
@@ -17,7 +18,10 @@ export type SeoResearchOk = {
   ok: true;
   action: SeoResearchAction;
   outcome: "cache_hit" | "fetched";
+  /** Provider credits spent (credit-billed providers); 0 for USD-billed lookups. */
   credits_spent: number;
+  /** USD spent (USD-billed providers); present when such a provider ran. */
+  cost_usd?: number;
   credits_note?: string;
   budget: Record<string, unknown>;
   data: Record<string, unknown>;
@@ -112,7 +116,33 @@ function difficultyProvenanceWarnings(
       message:
         `kw_difficulty was not reported by the provider — it is mapped from ${label} ` +
         "(low→20, medium→50, high→80, very high→90; 0–1 scores ×100). Competition measures ad bidding, " +
-        "not how hard the keyword is to rank for. Treat kw_difficulty as a rough proxy and say so to staff.",
+        "not how hard the keyword is to rank for. Treat kw_difficulty as a rough proxy and say so to staff. " +
+        "Pass force: true to refetch from the current keyword provider (may return a real score or unknown).",
+    },
+  ];
+}
+
+function difficultyUnavailableWarnings(difficulty: number | null, volume: number | null): McpWarning[] {
+  if (difficulty != null) return [];
+  return [
+    {
+      code: "seo_research_difficulty_unavailable",
+      message:
+        "The provider has no ranking-difficulty score for this keyword in this market" +
+        (volume == null ? " (and no volume)" : "") +
+        ". Leave kw_difficulty unknown — do not estimate it from competition, CPC or volume.",
+    },
+  ];
+}
+
+function sandboxWarnings(mode: string | null): McpWarning[] {
+  if (mode !== "sandbox") return [];
+  return [
+    {
+      code: "seo_research_sandbox",
+      message:
+        "This server uses the keyword provider's free sandbox (not the live server): numbers are sample data. " +
+        "Never file ideas or claim demand from them.",
     },
   ];
 }
@@ -125,6 +155,8 @@ export async function runSeoResearch(opts: {
   slug?: string;
   locale?: string;
   keyword?: string;
+  /** Country market id (spain, mexico, usa, …). Default: the page locale's research market. */
+  market?: string;
   seed?: string;
   mode?: string;
   domain?: string;
@@ -141,19 +173,21 @@ export async function runSeoResearch(opts: {
   staffMode?: boolean;
 }): Promise<SeoResearchOk | SeoResearchFail> {
   const {
-    isOpenRushConfigured,
-    inspectKeywordQuery,
     inspectSerpQuery,
     researchKeywordsQuery,
     discoverCompetitorsQuery,
     compareKeywordCoverageQuery,
-    OPENRUSH_INSPECT_KEYWORD_CREDITS,
     OPENRUSH_INSPECT_SERP_CREDITS,
     OPENRUSH_RESEARCH_KEYWORDS_CREDITS,
     OPENRUSH_DISCOVER_COMPETITORS_CREDITS,
     OPENRUSH_COMPARE_KEYWORD_COVERAGE_CREDITS,
   } = await import("../../server/openrush-client.js");
-  const { getOpenRushSettings } = await import("../../server/settings.js");
+  const { providerFor, fetchKeywordMetrics, estimateKeywordMetricsCost } = await import(
+    "../../server/seo-research-providers.js"
+  );
+  const { resolveSiteResearchMarket, marketSummary } = await import(
+    "../../server/seo-research-market.js"
+  );
   const {
     wouldSpend,
     recordSpend,
@@ -162,9 +196,6 @@ export async function runSeoResearch(opts: {
   } = await import("../../server/seo-research-budget.js");
   const { resolveSeoResearchDomain } = await import("../../server/seo-research-domain.js");
 
-  const settings = getOpenRushSettings(opts.contentPath);
-  const location = settings.location || "United States";
-  const language = settings.language || "English";
   const sessionKey = opts.staffMode
     ? STAFF_BUDGET_SESSION_KEY
     : opts.agent_session_id.trim() || STAFF_BUDGET_SESSION_KEY;
@@ -172,7 +203,8 @@ export async function runSeoResearch(opts: {
   const sArg = siteArg(opts.site);
   const toolName = "get_or_refresh_seo_research";
 
-  if (!isOpenRushConfigured(opts.contentPath)) {
+  const provider = providerFor(opts.action, opts.contentPath);
+  if (!provider) {
     return {
       ok: false,
       code: "seo_research_inactive",
@@ -183,7 +215,7 @@ export async function runSeoResearch(opts: {
       warnings: [
         {
           code: "seo_research_inactive",
-          message: "SEO research disabled or API key missing — get_or_refresh_seo_research cannot run.",
+          message: `No research provider is configured for ${opts.action} — get_or_refresh_seo_research cannot run.`,
         },
       ],
       next_actions: [
@@ -204,15 +236,47 @@ export async function runSeoResearch(opts: {
     };
   }
 
+  const marketRes = resolveSiteResearchMarket({
+    contentRoot: opts.contentPath,
+    marketId: opts.market,
+    locale: opts.locale || "en",
+  });
+  if (!marketRes.ok) {
+    const suggestion = marketRes.country_markets[0];
+    return {
+      ok: false,
+      code: marketRes.code === "unknown_market" ? "unknown_market" : "market_not_researchable",
+      message: marketRes.message,
+      details: { market: opts.market ?? null, country_markets: marketRes.country_markets },
+      warnings: [],
+      next_actions: suggestion
+        ? [
+            {
+              tool: toolName,
+              priority: "recommended",
+              reason: `Re-call with one country market (${marketRes.country_markets.join(", ")}); keyword tools score one country at a time.`,
+              args_hint: { action: opts.action, market: suggestion, ...sArg },
+            },
+          ]
+        : [],
+    };
+  }
+  const market = marketRes.market;
+  const { location, language } = market;
+  const marketOut = marketSummary(market);
+  const marketWarnings: McpWarning[] = marketRes.warning
+    ? [{ code: "seo_research_market_fallback", message: marketRes.warning }]
+    : [];
+
   const gatePaid = (cost: number): SeoResearchFail | null => {
     const gate = wouldSpend({
+      provider,
       contentFolder: opts.contentFolder,
       contentRoot: opts.contentPath,
       sessionKey,
       applySessionCap,
       cost,
       confirm: opts.confirm_seo_research_budget === true,
-      settings,
     });
     if (gate.ok) return null;
     return {
@@ -220,7 +284,11 @@ export async function runSeoResearch(opts: {
       code: gate.code,
       action_required: gate.code,
       message: gate.message,
-      details: { budget: gate.snapshot, credits_estimated: cost, force: Boolean(opts.force) },
+      details: {
+        budget: gate.snapshot,
+        ...(gate.snapshot.unit === "usd" ? { cost_usd_estimated: cost } : { credits_estimated: cost }),
+        force: Boolean(opts.force),
+      },
       warnings: [],
       next_actions:
         gate.code === "confirm_seo_research_budget"
@@ -233,6 +301,7 @@ export async function runSeoResearch(opts: {
                   action: opts.action,
                   confirm_seo_research_budget: true,
                   force: opts.force === true,
+                  ...(opts.market ? { market: opts.market } : {}),
                   ...sArg,
                 },
               },
@@ -243,11 +312,20 @@ export async function runSeoResearch(opts: {
 
   const snap = () =>
     budgetSnapshot({
+      provider,
       contentFolder: opts.contentFolder,
       contentRoot: opts.contentPath,
       sessionKey,
       applySessionCap,
-      settings,
+    });
+
+  const spend = (cost: number) =>
+    recordSpend({
+      provider,
+      contentFolder: opts.contentFolder,
+      contentRoot: opts.contentPath,
+      sessionKey,
+      cost,
     });
 
   // —— keyword_metrics ——
@@ -257,7 +335,10 @@ export async function runSeoResearch(opts: {
       keywordMetricsCompleteAndFresh,
       keywordDifficultySourceOf,
       competitionLevelOf,
+      volumeProviderOf,
+      difficultyProviderOf,
     } = await import("../../server/openrush-keyword-cache.js");
+    const { dataForSeoMode } = await import("../../server/dataforseo-client.js");
 
     const keyword = await resolveEntryKeyword({
       contentPath: opts.contentPath,
@@ -287,6 +368,18 @@ export async function runSeoResearch(opts: {
       };
     }
 
+    const entrySeoNext: NextAction = {
+      tool: "get_entry_seo",
+      priority: "optional",
+      reason: "Confirm keyword_metrics on the entry.",
+      args_hint: {
+        contentType: opts.contentType,
+        slug: opts.slug,
+        locale: opts.locale,
+        ...sArg,
+      },
+    };
+
     const cached = getKeywordEntry(keyword, location, language, opts.contentFolder);
     if (!opts.force && keywordMetricsCompleteAndFresh(cached)) {
       const difficultySource = keywordDifficultySourceOf(cached);
@@ -303,7 +396,8 @@ export async function runSeoResearch(opts: {
           kw_difficulty: cached!.kw_difficulty,
           kw_difficulty_source: difficultySource,
           competition_level: competition,
-          market: { location, language },
+          market: marketOut,
+          providers: { volume: volumeProviderOf(cached), difficulty: difficultyProviderOf(cached) },
           fetched_at: cached!.fetched_at,
           notes: cached!.notes,
           source: "seo_research_cache",
@@ -311,41 +405,58 @@ export async function runSeoResearch(opts: {
         warnings: [
           {
             code: "seo_research_cache_hit",
-            message: "Returned fresh keyword metrics from cache (no credits spent).",
+            message: "Returned fresh keyword metrics from cache (no spend).",
           },
+          ...marketWarnings,
           ...difficultyProvenanceWarnings(difficultySource, competition),
+          ...difficultyUnavailableWarnings(cached!.kw_difficulty, cached!.monthly_volume),
         ],
         side_effects: [],
-        next_actions: [
-          {
-            tool: "get_entry_seo",
-            priority: "optional",
-            reason: "Confirm keyword_metrics on the entry.",
-            args_hint: {
-              contentType: opts.contentType,
-              slug: opts.slug,
-              locale: opts.locale,
-              ...sArg,
-            },
-          },
-        ],
+        next_actions: [entrySeoNext],
       };
     }
 
-    const blocked = gatePaid(OPENRUSH_INSPECT_KEYWORD_CREDITS);
+    const estimate = estimateKeywordMetricsCost(provider, 1);
+    const blocked = gatePaid(estimate);
     if (blocked) return blocked;
 
-    const inspected = await inspectKeywordQuery({
-      keyword,
+    const fetched = await fetchKeywordMetrics({
+      provider,
+      keywords: [keyword],
+      market,
       contentRoot: opts.contentPath,
       contentFolder: opts.contentFolder,
     });
-    if (!inspected.ok || !inspected.metrics) {
+    const row = fetched.rows[0];
+    if (!row || !row.ok) {
+      const error = row && !row.ok ? row.error : "Keyword research lookup failed";
+      if (fetched.fatal) {
+        return {
+          ok: false,
+          code: "seo_research_provider_unavailable",
+          message: error,
+          details: {
+            keyword,
+            provider,
+            error_kind: fetched.fatal.error_kind,
+            market: marketOut,
+          },
+          warnings: [
+            {
+              code: "seo_research_provider_unavailable",
+              message:
+                "The keyword provider is unavailable (login, funds or outage). Do not retry this session and do not " +
+                "switch to another source or estimate metrics — tell staff the message above. Local budget not charged.",
+            },
+          ],
+          next_actions: [],
+        };
+      }
       return {
         ok: false,
         code: "seo_research_keyword_failed",
-        message: inspected.error || "Keyword research lookup failed",
-        details: { keyword },
+        message: error,
+        details: { keyword, provider, market: marketOut },
         warnings: [
           {
             code: "seo_research_pull_failed",
@@ -357,46 +468,37 @@ export async function runSeoResearch(opts: {
             tool: toolName,
             priority: "optional",
             reason: "Retry keyword_metrics after fixing config/credits.",
-            args_hint: { action: "keyword_metrics", keyword, ...sArg },
+            args_hint: { action: "keyword_metrics", keyword, ...(opts.market ? { market: opts.market } : {}), ...sArg },
           },
         ],
       };
     }
 
-    const volume = inspected.entry?.monthly_volume ?? inspected.metrics.monthly_volume;
-    const difficulty = inspected.entry?.kw_difficulty ?? inspected.metrics.kw_difficulty;
-    if (volume == null && difficulty == null && !inspected.entry) {
-      return {
-        ok: false,
-        code: "seo_research_metrics_empty",
-        message: "Provider returned no volume or difficulty for this keyword",
-        details: { keyword, metrics: inspected.metrics },
-        next_actions: [],
-      };
-    }
-
-    const budget = recordSpend({
-      contentFolder: opts.contentFolder,
-      sessionKey,
-      cost: OPENRUSH_INSPECT_KEYWORD_CREDITS,
-    });
+    const budget = spend(fetched.cost);
+    const entry = row.entry;
+    const difficultySource = keywordDifficultySourceOf(entry);
+    const competition = competitionLevelOf(entry);
+    const mode = provider === "dataforseo" ? dataForSeoMode() : null;
 
     return {
       ok: true,
       action: "keyword_metrics",
       outcome: "fetched",
-      credits_spent: OPENRUSH_INSPECT_KEYWORD_CREDITS,
-      credits_note: inspected.credits_note,
+      credits_spent: provider === "openrush" ? fetched.cost : 0,
+      ...(provider === "dataforseo" ? { cost_usd: fetched.cost } : {}),
       budget: budget as unknown as Record<string, unknown>,
       data: {
-        keyword: inspected.metrics.keyword,
-        kw_monthly_volume: volume ?? null,
-        kw_difficulty: difficulty ?? null,
-        kw_difficulty_source: inspected.metrics.kw_difficulty_source ?? null,
-        competition_level: inspected.metrics.competition_level ?? null,
-        market: { location, language },
-        fetched_at: inspected.entry?.fetched_at ?? null,
-        notes: inspected.entry?.notes ?? null,
+        keyword: entry.keyword,
+        kw_monthly_volume: entry.monthly_volume,
+        kw_difficulty: entry.kw_difficulty,
+        kw_difficulty_source: difficultySource,
+        competition_level: competition,
+        market: marketOut,
+        providers: { volume: volumeProviderOf(entry), difficulty: difficultyProviderOf(entry) },
+        provider_had_data: row.found,
+        ...(mode ? { mode } : {}),
+        fetched_at: entry.fetched_at,
+        notes: entry.notes,
         source: "seo_research_cache",
       },
       warnings: [
@@ -405,28 +507,22 @@ export async function runSeoResearch(opts: {
           message:
             "Refreshed keyword research cache only — did not write seo.kw_monthly_volume / seo.kw_difficulty YAML.",
         },
-        ...difficultyProvenanceWarnings(
-          inspected.metrics.kw_difficulty_source ?? null,
-          inspected.metrics.competition_level ?? null,
-        ),
+        ...marketWarnings,
+        ...sandboxWarnings(mode),
+        ...difficultyProvenanceWarnings(difficultySource, competition),
+        ...difficultyUnavailableWarnings(entry.kw_difficulty, entry.monthly_volume),
       ],
       side_effects: [
         {
           kind: "seo_research_keyword_cache",
-          summary: `Upserted keyword cache for "${inspected.metrics.keyword}" (no locale YAML change).`,
+          summary: `Upserted keyword cache for "${entry.keyword}" in ${market.label} (no locale YAML change).`,
         },
       ],
       next_actions: [
         {
-          tool: "get_entry_seo",
+          ...entrySeoNext,
           priority: "recommended",
           reason: "Confirm keyword_metrics.source with both metrics.",
-          args_hint: {
-            contentType: opts.contentType,
-            slug: opts.slug,
-            locale: opts.locale,
-            ...sArg,
-          },
         },
       ],
     };
@@ -461,9 +557,10 @@ export async function runSeoResearch(opts: {
         outcome: "cache_hit",
         credits_spent: 0,
         budget: snap() as unknown as Record<string, unknown>,
-        data: { ...entry, query },
+        data: { ...entry, query, market: marketOut },
         warnings: [
           { code: "seo_research_cache_hit", message: "Returned fresh SERP from cache (no credits spent)." },
+          ...marketWarnings,
         ],
         side_effects: [],
         next_actions: [],
@@ -477,13 +574,14 @@ export async function runSeoResearch(opts: {
       query,
       contentRoot: opts.contentPath,
       contentFolder: opts.contentFolder,
+      market: { location, language },
     });
     if (!inspected.ok || !inspected.entry) {
       return {
         ok: false,
         code: "seo_research_serp_failed",
         message: inspected.error || "SERP lookup failed",
-        details: { query },
+        details: { query, market: marketOut },
         warnings: [
           {
             code: "seo_research_pull_failed",
@@ -494,11 +592,7 @@ export async function runSeoResearch(opts: {
       };
     }
 
-    const budget = recordSpend({
-      contentFolder: opts.contentFolder,
-      sessionKey,
-      cost: OPENRUSH_INSPECT_SERP_CREDITS,
-    });
+    const budget = spend(OPENRUSH_INSPECT_SERP_CREDITS);
 
     return {
       ok: true,
@@ -507,10 +601,10 @@ export async function runSeoResearch(opts: {
       credits_spent: OPENRUSH_INSPECT_SERP_CREDITS,
       credits_note: inspected.credits_note,
       budget: budget as unknown as Record<string, unknown>,
-      data: { ...inspected.entry, query },
-      warnings: [],
+      data: { ...inspected.entry, query, market: marketOut },
+      warnings: [...marketWarnings],
       side_effects: [
-        { kind: "seo_research_serp_cache", summary: `Upserted SERP cache for "${query}".` },
+        { kind: "seo_research_serp_cache", summary: `Upserted SERP cache for "${query}" in ${market.label}.` },
       ],
       next_actions: [],
     };
@@ -561,9 +655,10 @@ export async function runSeoResearch(opts: {
         outcome: "cache_hit",
         credits_spent: 0,
         budget: snap() as unknown as Record<string, unknown>,
-        data: cached!.payload,
+        data: { ...cached!.payload, market: marketOut },
         warnings: [
           { code: "seo_research_cache_hit", message: "Returned keyword ideas from cache (no credits spent)." },
+          ...marketWarnings,
         ],
         side_effects: [],
         next_actions: [],
@@ -580,6 +675,7 @@ export async function runSeoResearch(opts: {
       limit,
       min_volume: opts.min_volume,
       intent: opts.intent,
+      market: { location, language },
     });
     if (!result.ok || !result.data) {
       return {
@@ -600,11 +696,7 @@ export async function runSeoResearch(opts: {
       { key, location, language, payload: result.data },
       opts.contentFolder,
     );
-    const budget = recordSpend({
-      contentFolder: opts.contentFolder,
-      sessionKey,
-      cost: OPENRUSH_RESEARCH_KEYWORDS_CREDITS,
-    });
+    const budget = spend(OPENRUSH_RESEARCH_KEYWORDS_CREDITS);
 
     return {
       ok: true,
@@ -613,9 +705,9 @@ export async function runSeoResearch(opts: {
       credits_spent: OPENRUSH_RESEARCH_KEYWORDS_CREDITS,
       credits_note: result.credits_note,
       budget: budget as unknown as Record<string, unknown>,
-      data: result.data,
-      warnings: [],
-      side_effects: [{ kind: "seo_research_ideas_cache", summary: `Cached keyword ideas for seed "${seed}".` }],
+      data: { ...result.data, market: marketOut },
+      warnings: [...marketWarnings],
+      side_effects: [{ kind: "seo_research_ideas_cache", summary: `Cached keyword ideas for seed "${seed}" in ${market.label}.` }],
       next_actions: [],
     };
   }
@@ -664,9 +756,10 @@ export async function runSeoResearch(opts: {
         outcome: "cache_hit",
         credits_spent: 0,
         budget: snap() as unknown as Record<string, unknown>,
-        data: cached!.payload,
+        data: { ...cached!.payload, market: marketOut },
         warnings: [
           { code: "seo_research_cache_hit", message: "Returned competitors from cache (no credits spent)." },
+          ...marketWarnings,
         ],
         side_effects: [],
         next_actions: [],
@@ -681,6 +774,7 @@ export async function runSeoResearch(opts: {
       domain: domain || undefined,
       seed_keywords: seeds.length ? seeds : undefined,
       limit,
+      market: { location, language },
     });
     if (!result.ok || !result.data) {
       return {
@@ -701,11 +795,7 @@ export async function runSeoResearch(opts: {
       { key, location, language, payload: result.data },
       opts.contentFolder,
     );
-    const budget = recordSpend({
-      contentFolder: opts.contentFolder,
-      sessionKey,
-      cost: OPENRUSH_DISCOVER_COMPETITORS_CREDITS,
-    });
+    const budget = spend(OPENRUSH_DISCOVER_COMPETITORS_CREDITS);
 
     return {
       ok: true,
@@ -714,8 +804,8 @@ export async function runSeoResearch(opts: {
       credits_spent: OPENRUSH_DISCOVER_COMPETITORS_CREDITS,
       credits_note: result.credits_note,
       budget: budget as unknown as Record<string, unknown>,
-      data: result.data,
-      warnings: [],
+      data: { ...result.data, market: marketOut },
+      warnings: [...marketWarnings],
       side_effects: [{ kind: "seo_research_competitors_cache", summary: "Cached competitor discovery result." }],
       next_actions: [
         {
@@ -782,9 +872,10 @@ export async function runSeoResearch(opts: {
         outcome: "cache_hit",
         credits_spent: 0,
         budget: snap() as unknown as Record<string, unknown>,
-        data: cached!.payload,
+        data: { ...cached!.payload, market: marketOut },
         warnings: [
           { code: "seo_research_cache_hit", message: "Returned keyword gaps from cache (no credits spent)." },
+          ...marketWarnings,
         ],
         side_effects: [],
         next_actions: [],
@@ -799,6 +890,7 @@ export async function runSeoResearch(opts: {
       domain,
       competitors,
       limit,
+      market: { location, language },
     });
     if (!result.ok || !result.data) {
       return {
@@ -816,11 +908,7 @@ export async function runSeoResearch(opts: {
     }
 
     upsertGapsEntry({ key, location, language, payload: result.data }, opts.contentFolder);
-    const budget = recordSpend({
-      contentFolder: opts.contentFolder,
-      sessionKey,
-      cost: OPENRUSH_COMPARE_KEYWORD_COVERAGE_CREDITS,
-    });
+    const budget = spend(OPENRUSH_COMPARE_KEYWORD_COVERAGE_CREDITS);
 
     return {
       ok: true,
@@ -829,9 +917,9 @@ export async function runSeoResearch(opts: {
       credits_spent: OPENRUSH_COMPARE_KEYWORD_COVERAGE_CREDITS,
       credits_note: result.credits_note,
       budget: budget as unknown as Record<string, unknown>,
-      data: result.data,
-      warnings: [],
-      side_effects: [{ kind: "seo_research_gaps_cache", summary: `Cached keyword gaps for ${domain}.` }],
+      data: { ...result.data, market: marketOut },
+      warnings: [...marketWarnings],
+      side_effects: [{ kind: "seo_research_gaps_cache", summary: `Cached keyword gaps for ${domain} in ${market.label}.` }],
       next_actions: [],
     };
   }

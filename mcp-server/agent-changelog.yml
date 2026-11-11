@@ -6,6 +6,31 @@ window_days: 6
 
 entries:
   - date: "2026-11-10"
+    summary: "Ideas: idea_seo_target.market records which country the kw_* numbers describe"
+    agent_impact:
+      - "propose_change / update_proposal set_idea_seo_target accept optional idea_seo_target.market (copy data.market.id from get_or_refresh_seo_research, e.g. spain). Unknown ids and rollups (latam, worldwide) → idea_seo_target_market_invalid. Send it whenever you send kw_*."
+      - "Review warnings: idea_seo_target_market_missing (numbers without a market → reviewer add_blocker naming the market); idea_seo_target_market_not_default (market differs from the page language's default, e.g. es→spain) is informational — justify it in the brief. Ideas filed earlier stay valid."
+    tools_changed: false
+    paths:
+      - server/content-proposals/idea-seo-target.ts
+      - server/content-proposals/review-context.ts
+      - mcp-server/tools/proposals.ts
+      - mcp-server/explain/proposals.md
+  - date: "2026-11-10"
+    summary: "SEO research: keyword_metrics now return real ranking difficulty (DataForSEO) in per-country markets; new market arg"
+    agent_impact:
+      - "get_or_refresh_seo_research keyword_metrics routes to DataForSEO when staff enabled it (else OpenRush): kw_difficulty_source reported = real ranking difficulty (DataForSEO 0–100 log scale, not 1:1 with other tools). No score → kw_difficulty null + seo_research_difficulty_unavailable (never estimate). data.providers {volume, difficulty}; cost_usd when DataForSEO ran (budget.unit usd, separate caps from OpenRush credits). serp / keyword_ideas / competitors / keyword_gaps stay OpenRush."
+      - "New optional market (usa, spain, mexico, …) on every action; default = page locale's research market (en→usa, es→spain). latam / worldwide → market_not_researchable (one country per call). data.market says which market answered. get_entry_seo.keyword_metrics reads the page locale's market too."
+      - "Stop rules: seo_research_provider_unavailable (login / funds / outage) → do not retry or switch source, tell staff. seo_research_sandbox → sample data off the live server, never file ideas from it. Older ad-competition estimates stay cached until expiry; force: true refetches."
+    tools_changed: false
+    paths:
+      - server/dataforseo-client.ts
+      - server/seo-research-providers.ts
+      - server/seo-research-market.ts
+      - mcp-server/lib/seo-research-mcp.ts
+      - mcp-server/tools/seo-clusters.ts
+      - mcp-server/explain/seo.md
+  - date: "2026-11-10"
     summary: "Render review: no false horizontal_overflow for scroll-snap tracks (overflow auto/scroll), e.g. syllabus program-modules"
     agent_impact:
       - "review_page_render / get_render_review: content inside a container that scrolls horizontally on its own (overflow-x auto/scroll) is no longer reported as section overflow when that container fits the viewport — syllabus program-modules (174 sections), testimonials, bento_cards, list_workshops_carousel, dynamic_table. Do not edit content to fix these; re-run the review to clear old findings."

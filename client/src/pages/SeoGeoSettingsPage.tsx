@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   IconBrandGoogle,
+  IconChartBar,
   IconPhoto,
   IconCode,
   IconSearch,
@@ -13,9 +14,10 @@ import { OgImageTab } from "@/components/settings/OgImageTab";
 import { SchemaOrgTab } from "@/components/settings/SchemaOrgTab";
 import { SearchConsoleTab } from "@/components/settings/SearchConsoleTab";
 import { OpenRushTab } from "@/components/settings/OpenRushTab";
+import { DataForSeoTab } from "@/components/settings/DataForSeoTab";
 import { IndexNowTab } from "@/components/settings/IndexNowTab";
 
-type SeoGeoTab = "og" | "schema" | "search-console" | "indexnow" | "openrush";
+type SeoGeoTab = "og" | "schema" | "search-console" | "indexnow" | "openrush" | "dataforseo";
 
 const SEO_TABS: SettingsSecondaryTab<SeoGeoTab>[] = [
   { id: "og", href: "/private/settings/seo/og", label: "OG Image", Icon: IconPhoto },
@@ -23,6 +25,7 @@ const SEO_TABS: SettingsSecondaryTab<SeoGeoTab>[] = [
   { id: "search-console", href: "/private/settings/seo/search-console", label: "Search Console", Icon: IconBrandGoogle },
   { id: "indexnow", href: "/private/settings/seo/indexnow", label: "IndexNow", Icon: IconWorldUpload },
   { id: "openrush", href: "/private/settings/seo/openrush", label: "OpenRush", Icon: IconWorldSearch },
+  { id: "dataforseo", href: "/private/settings/seo/dataforseo", label: "DataForSEO", Icon: IconChartBar },
 ];
 
 function resolveSeoTab(pathname: string): SeoGeoTab | null {
@@ -31,6 +34,7 @@ function resolveSeoTab(pathname: string): SeoGeoTab | null {
   if (pathname === "/private/settings/seo/search-console") return "search-console";
   if (pathname === "/private/settings/seo/indexnow") return "indexnow";
   if (pathname === "/private/settings/seo/openrush") return "openrush";
+  if (pathname === "/private/settings/seo/dataforseo") return "dataforseo";
   return null;
 }
 
@@ -62,7 +66,7 @@ export default function SeoGeoSettingsPage() {
       description={
         <>
           Open Graph capture credentials, Schema.org site definitions, Search Console inspection,
-          IndexNow notices to Bing, and OpenRush SERP snapshots. Brand logos, social links, and the default social image stay under{" "}
+          IndexNow notices to Bing, OpenRush SERP snapshots, and DataForSEO keyword metrics. Brand logos, social links, and the default social image stay under{" "}
           <Link href="/private/settings/brand" className="underline underline-offset-2 hover:text-foreground">
             General → Brand
           </Link>
@@ -82,6 +86,7 @@ export default function SeoGeoSettingsPage() {
         {activeTab === "search-console" && <SearchConsoleTab />}
         {activeTab === "indexnow" && <IndexNowTab />}
         {activeTab === "openrush" && <OpenRushTab />}
+        {activeTab === "dataforseo" && <DataForSeoTab />}
       </div>
     </SettingsShell>
   );

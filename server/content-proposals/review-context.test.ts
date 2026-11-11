@@ -1149,6 +1149,38 @@ describe("classifyProposalReview", () => {
     expect(labeled.staff_summary.situation_description).toMatch(/search demand|SERP|weight/i);
   });
 
+  it("asks for the market behind idea keyword numbers and flags a non-default market", () => {
+    const lookups = [
+      { contentType: "blog", slug: "tipos-de-ia", locale: "es", existence: "missing" as const, draftExists: false },
+    ];
+    const ideaWith = (market?: string) =>
+      baseProposal({
+        kind: "idea",
+        title: "Tipos de inteligencia artificial",
+        summary: "Explainer for people searching the types of artificial intelligence in Spanish. ".repeat(2),
+        related_entries: [{ contentType: "blog", slug: "tipos-de-ia", locale: "es" }],
+        idea_seo_target: {
+          main_keyword: "tipos de inteligencia artificial",
+          cluster: { mode: "join", pillar_path: "/es/blog/ia/hub-ia" },
+          kw_monthly_volume: 2900,
+          kw_difficulty: 18,
+          ...(market ? { market } : {}),
+        },
+      });
+    const defaultFor = (locale: string) => (locale === "es" ? "spain" : "usa");
+    const codes = (market?: string) =>
+      classifyProposalReview({
+        proposal: ideaWith(market),
+        lookups,
+        ideaResearchDefaultMarket: defaultFor,
+      }).agent_preview.warnings.map((w) => w.code);
+
+    expect(codes()).toContain("idea_seo_target_market_missing");
+    expect(codes("spain")).not.toContain("idea_seo_target_market_missing");
+    expect(codes("spain")).not.toContain("idea_seo_target_market_not_default");
+    expect(codes("mexico")).toContain("idea_seo_target_market_not_default");
+  });
+
   it("warns idea_funnel_missing for new-URL ideas without structured funnel", () => {
     const ctx = classifyProposalReview({
       proposal: baseProposal({

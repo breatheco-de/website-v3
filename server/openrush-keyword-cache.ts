@@ -1,6 +1,7 @@
 /**
- * Local per-keyword OpenRush inspect_keyword snapshots on persistent `.cache` (no GCS).
- * Shared by phrase + market (keyword|location|language). Partial merges keep prior non-null metrics.
+ * Local per-keyword research snapshots on persistent `.cache` (no GCS), shared by every provider
+ * (OpenRush, DataForSEO): a fresh entry is used no matter who filled it.
+ * Keyed by phrase + market (keyword|location|language). Partial merges keep prior non-null metrics.
  */
 
 import fs from "fs";
@@ -9,8 +10,12 @@ import { CACHE_DIR } from "./db-cache";
 import { getDefaultContentFolder } from "./site-config";
 import { getOpenRushSettings } from "./settings";
 import { readKeywordDifficulty, type KeywordDifficultySource } from "./openrush-keyword-difficulty";
+import { isDataForSeoConfigured } from "./dataforseo-client";
+import { marketSummary, resolveSiteResearchMarket } from "./seo-research-market";
 
 export const KEYWORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export type KeywordMetricsProvider = "openrush" | "dataforseo";
 
 export type OpenRushKeywordEntry = {
   keyword: string;
@@ -22,9 +27,14 @@ export type OpenRushKeywordEntry = {
   /** Absent on entries written before the source was tracked — use keywordDifficultySourceOf. */
   kw_difficulty_source?: KeywordDifficultySource | null;
   competition_level?: string | number | null;
+  /** Which provider supplied each metric (display only; freshness ignores it). Absent on legacy entries = openrush. */
+  volume_provider?: KeywordMetricsProvider | null;
+  difficulty_provider?: KeywordMetricsProvider | null;
+  /** Last provider that answered a lookup for this keyword (missing metrics are then a real unknown). */
+  checked_by?: KeywordMetricsProvider | null;
   /** Human-readable merge / partial-pull note for UI + MCP. */
   notes: string | null;
-  /** Full last OpenRush data payload (best-effort). */
+  /** Last provider payload (best-effort). */
   payload: Record<string, unknown> | null;
 };
 
@@ -36,11 +46,18 @@ export type OpenRushKeywordCacheFile = {
 export type KeywordMetricsSource = "openrush_cache" | "yaml_fallback" | "none";
 
 export type ResolvedKeywordMetrics = {
+  /** Keyword research (any provider) is configured. Legacy name kept for clients. */
   openrush_configured: boolean;
+  /** Provider a keyword-metrics refresh would call (DataForSEO when on, else OpenRush). */
+  keyword_provider: KeywordMetricsProvider | null;
   source: KeywordMetricsSource;
   kw_monthly_volume: number | null;
   kw_difficulty: number | null;
   kw_difficulty_source: KeywordDifficultySource | null;
+  volume_provider: KeywordMetricsProvider | null;
+  difficulty_provider: KeywordMetricsProvider | null;
+  /** Market the cache lookup used (null for YAML fallback / none). */
+  market: { id: string | null; label: string; location: string; language: string } | null;
   fetched_at: string | null;
   stale: boolean;
   may_not_be_recent: boolean;
@@ -94,13 +111,17 @@ export function keywordEntryFresh(
   return now - t < KEYWORD_TTL_MS;
 }
 
-/** Fresh TTL and both volume + difficulty present (skip re-fetch for research tool). */
+/**
+ * Fresh TTL and either both metrics present or a provider already answered within the TTL
+ * (skip re-fetch for research tool; a known "no data" is not worth paying for again).
+ */
 export function keywordMetricsCompleteAndFresh(
   entry: OpenRushKeywordEntry | undefined,
   now = Date.now(),
 ): boolean {
   if (!keywordEntryFresh(entry, now)) return false;
-  return entry!.monthly_volume != null && entry!.kw_difficulty != null;
+  if (entry!.monthly_volume != null && entry!.kw_difficulty != null) return true;
+  return entry!.checked_by != null;
 }
 
 export function getKeywordEntry(
@@ -121,6 +142,12 @@ export type IncomingKeywordMetrics = {
   kw_difficulty: number | null;
   kw_difficulty_source?: KeywordDifficultySource | null;
   competition_level?: string | number | null;
+  provider?: KeywordMetricsProvider;
+  /**
+   * Provider was asked for difficulty and answered. A null answer then clears a prior
+   * ad-competition estimate (a prior reported score is still kept).
+   */
+  difficulty_checked?: boolean;
   payload?: Record<string, unknown> | null;
 };
 
@@ -144,6 +171,16 @@ export function competitionLevelOf(entry: OpenRushKeywordEntry | undefined): str
   return readKeywordDifficulty(entry.payload).competition_level;
 }
 
+export function volumeProviderOf(entry: OpenRushKeywordEntry | undefined): KeywordMetricsProvider | null {
+  if (!entry || entry.monthly_volume == null) return null;
+  return entry.volume_provider ?? "openrush";
+}
+
+export function difficultyProviderOf(entry: OpenRushKeywordEntry | undefined): KeywordMetricsProvider | null {
+  if (!entry || entry.kw_difficulty == null) return null;
+  return entry.difficulty_provider ?? "openrush";
+}
+
 /**
  * Partial merge: non-null incoming metrics overwrite; nulls keep prior values.
  * Always updates fetched_at and rebuilds notes for UI/MCP.
@@ -153,18 +190,37 @@ export function mergeKeywordEntry(
   incoming: IncomingKeywordMetrics,
   fetchedAt = new Date().toISOString(),
 ): OpenRushKeywordEntry {
+  const provider = incoming.provider ?? "openrush";
   const volume =
     incoming.monthly_volume != null
       ? incoming.monthly_volume
       : (prior?.monthly_volume ?? null);
-  const difficulty =
-    incoming.kw_difficulty != null
-      ? incoming.kw_difficulty
-      : (prior?.kw_difficulty ?? null);
-  const difficultySource =
-    incoming.kw_difficulty != null
-      ? (incoming.kw_difficulty_source ?? null)
-      : keywordDifficultySourceOf(prior);
+  const volumeProvider =
+    incoming.monthly_volume != null ? provider : volumeProviderOf(prior);
+
+  const priorSource = keywordDifficultySourceOf(prior);
+  const clearDerived =
+    incoming.kw_difficulty == null &&
+    incoming.difficulty_checked === true &&
+    prior?.kw_difficulty != null &&
+    priorSource === "derived_from_competition";
+
+  let difficulty: number | null;
+  let difficultySource: KeywordDifficultySource | null;
+  let difficultyProvider: KeywordMetricsProvider | null;
+  if (incoming.kw_difficulty != null) {
+    difficulty = incoming.kw_difficulty;
+    difficultySource = incoming.kw_difficulty_source ?? null;
+    difficultyProvider = provider;
+  } else if (clearDerived) {
+    difficulty = null;
+    difficultySource = null;
+    difficultyProvider = null;
+  } else {
+    difficulty = prior?.kw_difficulty ?? null;
+    difficultySource = priorSource;
+    difficultyProvider = difficultyProviderOf(prior);
+  }
   const competitionLevel =
     incoming.competition_level != null
       ? incoming.competition_level
@@ -180,6 +236,8 @@ export function mergeKeywordEntry(
   }
   if (incoming.kw_difficulty != null) {
     noteParts.push("difficulty refreshed");
+  } else if (clearDerived) {
+    noteParts.push("difficulty unavailable from provider; ad-competition estimate cleared");
   } else if (prior?.kw_difficulty != null) {
     noteParts.push("difficulty kept from earlier pull");
   } else {
@@ -195,6 +253,9 @@ export function mergeKeywordEntry(
     kw_difficulty: difficulty,
     kw_difficulty_source: difficultySource,
     competition_level: competitionLevel,
+    volume_provider: volumeProvider,
+    difficulty_provider: difficultyProvider,
+    checked_by: incoming.difficulty_checked ? provider : (prior?.checked_by ?? null),
     notes: noteParts.join("; ") + ".",
     payload:
       incoming.payload && typeof incoming.payload === "object"
@@ -221,32 +282,47 @@ function yamlMetric(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function openRushConfigured(contentRoot?: string): boolean {
+/** Provider that serves keyword metrics on this site (mirrors seo-research-providers.providerFor). */
+export function keywordMetricsProvider(contentRoot?: string): KeywordMetricsProvider | null {
+  if (isDataForSeoConfigured(contentRoot)) return "dataforseo";
   const settings = getOpenRushSettings(contentRoot);
-  return Boolean(settings.enabled && (process.env.OPENRUSH_API_KEY || "").trim());
+  return settings.enabled && (process.env.OPENRUSH_API_KEY || "").trim() ? "openrush" : null;
+}
+
+/** Keyword metrics research is on when any provider that can serve it is configured. */
+export function keywordResearchConfigured(contentRoot?: string): boolean {
+  return keywordMetricsProvider(contentRoot) != null;
 }
 
 /**
- * Prefer OpenRush cache when configured; otherwise YAML fallback (may not be recent).
+ * Prefer the shared research cache (market from the page locale) when configured; otherwise YAML
+ * fallback (may not be recent).
  */
 export function resolveKeywordMetrics(opts: {
   keyword: string | null | undefined;
   contentRoot?: string;
   contentFolder?: string;
+  /** Page locale → default research market (en → usa, es → spain, …). */
+  locale?: string | null;
   yamlVolume?: unknown;
   yamlDifficulty?: unknown;
   now?: number;
 }): ResolvedKeywordMetrics {
   const keyword = typeof opts.keyword === "string" ? opts.keyword.trim() : "";
-  const openrush_configured = openRushConfigured(opts.contentRoot);
+  const keyword_provider = keywordMetricsProvider(opts.contentRoot);
+  const openrush_configured = keyword_provider != null;
   const yamlVol = yamlMetric(opts.yamlVolume);
   const yamlDiff = yamlMetric(opts.yamlDifficulty);
   const empty: ResolvedKeywordMetrics = {
     openrush_configured,
+    keyword_provider,
     source: "none",
     kw_monthly_volume: null,
     kw_difficulty: null,
     kw_difficulty_source: null,
+    volume_provider: null,
+    difficulty_provider: null,
+    market: null,
     fetched_at: null,
     stale: false,
     may_not_be_recent: false,
@@ -256,40 +332,39 @@ export function resolveKeywordMetrics(opts: {
   if (!keyword) return empty;
 
   if (openrush_configured) {
-    const settings = getOpenRushSettings(opts.contentRoot);
-    const entry = getKeywordEntry(
-      keyword,
-      settings.location || "United States",
-      settings.language || "English",
-      opts.contentFolder,
-    );
-    if (entry) {
-      const now = opts.now ?? Date.now();
-      return {
-        openrush_configured: true,
-        source: "openrush_cache",
-        kw_monthly_volume: entry.monthly_volume,
-        kw_difficulty: entry.kw_difficulty,
-        kw_difficulty_source: keywordDifficultySourceOf(entry),
-        fetched_at: entry.fetched_at,
-        stale: !keywordEntryFresh(entry, now),
-        may_not_be_recent: false,
-        notes: entry.notes,
-      };
+    const resolved = resolveSiteResearchMarket({ contentRoot: opts.contentRoot, locale: opts.locale });
+    if (resolved.ok) {
+      const market = resolved.market;
+      const entry = getKeywordEntry(keyword, market.location, market.language, opts.contentFolder);
+      if (entry) {
+        const now = opts.now ?? Date.now();
+        const summary = marketSummary(market);
+        return {
+          openrush_configured: true,
+          keyword_provider,
+          source: "openrush_cache",
+          kw_monthly_volume: entry.monthly_volume,
+          kw_difficulty: entry.kw_difficulty,
+          kw_difficulty_source: keywordDifficultySourceOf(entry),
+          volume_provider: volumeProviderOf(entry),
+          difficulty_provider: difficultyProviderOf(entry),
+          market: { id: summary.id, label: summary.label, location: summary.location, language: summary.language },
+          fetched_at: entry.fetched_at,
+          stale: !keywordEntryFresh(entry, now),
+          may_not_be_recent: false,
+          notes: entry.notes,
+        };
+      }
     }
   }
 
   if (yamlVol != null || yamlDiff != null) {
     return {
-      openrush_configured,
+      ...empty,
       source: "yaml_fallback",
       kw_monthly_volume: yamlVol,
       kw_difficulty: yamlDiff,
-      kw_difficulty_source: null,
-      fetched_at: null,
-      stale: false,
       may_not_be_recent: true,
-      notes: null,
     };
   }
 

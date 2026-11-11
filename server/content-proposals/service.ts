@@ -12,6 +12,7 @@ import type { SiteContext } from "../site-manager";
 import { entryRefFailureMessage, resolveEntryRef, type EntryRefResult } from "../entry-ref";
 import { canonicalizePillarPath, entryCanonicalPath } from "../seo-fields";
 import { assertMainKeywordAvailable, readSeoIndexFile, seoEntryId } from "../seo-index";
+import { resolveSiteResearchMarket } from "../seo-research-market";
 import { isSeoMonitoringEnabled } from "../seo-monitoring";
 import { agentOptOutAllowed, findOriginIdeaForEntry, isSeoClusterOptOutOp } from "./idea-origin";
 import { fingerprintEdits, fingerprintNotes, fingerprintIdeas, stableJson } from "./fingerprint";
@@ -1996,6 +1997,11 @@ export type IdeaSeoTargetDeps = {
     slug: string,
     locale: string,
   ) => { live: boolean; monitored: boolean; pillar_path: string | null };
+  /** Keyword research markets: validate an idea's market and read the page-language default. */
+  researchMarket?: {
+    check: (marketId: string) => { ok: true } | { ok: false; message: string };
+    defaultFor: (locale: string) => string | null;
+  };
 };
 
 export type ProposalStats = {
@@ -4404,6 +4410,9 @@ export function createProposalService(deps: ProposalServiceDeps) {
       countsAsLeadForm,
       variableDefinitions: variableDefs(),
       ...(deps.seoTarget ? { ideaSeoTargetMonitored: deps.seoTarget.isMonitored } : {}),
+      ...(deps.seoTarget?.researchMarket
+        ? { ideaResearchDefaultMarket: deps.seoTarget.researchMarket.defaultFor }
+        : {}),
       ...(proposal.kind === "edits" && proposal.implements_proposal_id
         ? (() => {
             const implemented = loadProposal(dbFor(site), proposal.implements_proposal_id);
@@ -6460,6 +6469,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       const seoCheck = validateIdeaSeoTarget(input.idea_seo_target, {
         demandLabel: label,
         enforceDemand: true,
+        checkMarket: deps.seoTarget?.researchMarket?.check,
       });
       if (!seoCheck.ok) return { ok: false, code: seoCheck.code, error: seoCheck.error };
       ideaSeoTargetJson = JSON.stringify(seoCheck.target);
@@ -7862,6 +7872,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
       const seoCheck = validateIdeaSeoTarget(caller.idea_seo_target, {
         demandLabel: ideaDemandLabel(proposal.review_situations),
         enforceDemand: true,
+        checkMarket: deps.seoTarget?.researchMarket?.check,
       });
       if (!seoCheck.ok) {
         return { ok: false, code: seoCheck.code, error: seoCheck.error };
@@ -10670,6 +10681,16 @@ export function ideaSeoTargetDepsForSite(ctx: SiteContext): IdeaSeoTargetDeps {
         monitored: isSeoMonitoringEnabled(contentType, ctx.contentRoot),
         pillar_path: row?.pillar_path ?? null,
       };
+    },
+    researchMarket: {
+      check: (marketId) => {
+        const r = resolveSiteResearchMarket({ contentRoot: ctx.contentRoot, marketId });
+        return r.ok ? { ok: true } : { ok: false, message: r.message };
+      },
+      defaultFor: (locale) => {
+        const r = resolveSiteResearchMarket({ contentRoot: ctx.contentRoot, locale });
+        return r.ok ? r.market.id : null;
+      },
     },
   };
 }

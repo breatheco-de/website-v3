@@ -407,6 +407,7 @@ export function enrichClusterBucketRowsWithKeywordMetrics(
       keyword: row.main_keyword,
       contentRoot: opts.contentRoot,
       contentFolder: opts.contentFolder,
+      locale: row.locale,
       yamlVolume: row.kw_monthly_volume,
       yamlDifficulty: row.kw_difficulty,
     });

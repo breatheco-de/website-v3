@@ -299,6 +299,7 @@ export const THINK_TEMPLATES: Record<ChecklistId, ThinkTemplate> = {
       "new-URL ideas: structured idea_funnel (stage + products) required before accept — missing → add_blocker; do not invent funnel for the author; products \"all\" only with awareness",
       "new-URL ideas on SEO-monitored types: idea_seo_target required (accept refuses without it) — main_keyword matches the brief's search claim (not a broader head term); join hub fits the topic; hub-mode members are real live posts that belong under it; standalone only for fast_decay_news / broken_url with a credible reason — weak fit → add_blocker naming the better hub",
       "idea_seo_target.kw_monthly_volume + kw_difficulty both set from the author's keyword research — missing either → add_blocker (volume in the brief text alone does not count)",
+      "idea_seo_target.market names the country the numbers describe — numbers without a market → add_blocker naming the market to use; a market other than the page language's default (idea_seo_target_market_not_default) → judge the case in the brief, not an automatic blocker",
       "follow-up edits use implements_proposal_id matching this idea",
       "if the accepted_entry type is layout_owner entry (landing, downloadable…), the brief should describe the page structure; missing structure → add_blocker",
       "do not report the page as live after accept",

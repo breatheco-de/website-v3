@@ -301,12 +301,14 @@ export function registerSeoClusterTools(
     "get_or_refresh_seo_research",
     "Get or refresh SEO research (cache-first; paid fetch when stale/missing or force:true). " +
       "Actions: keyword_metrics (volume/difficulty), serp, keyword_ideas, competitors, keyword_gaps. " +
-      "keyword_metrics.kw_difficulty_source: reported | derived_from_competition (rough proxy mapped from competition) | null. " +
-      "Results use the site's configured research market (data.market), not a per-call location. " +
+      "keyword_metrics.kw_difficulty_source: reported (real ranking difficulty) | derived_from_competition (rough proxy mapped from ad competition) | null (unknown — never estimate). " +
+      "Market: optional country market id (usa, spain, mexico, …); default = the page locale's research market (en→usa, es→spain unless staff changed it). " +
+      "LatAm / Worldwide rollups → market_not_researchable (one country per call). data.market + data.providers say where numbers came from. " +
       "Needs why only (read; no highlights). " +
-      "Does NOT write seo.kw_* YAML. Cache hits spend 0 credits. " +
-      "Session + daily budgets apply (warn % → confirm_seo_research_budget; 100% → exhausted). " +
+      "Does NOT write seo.kw_* YAML. Cache hits spend 0. " +
+      "Session + daily budgets per provider (credits or USD; warn % → confirm_seo_research_budget; 100% → exhausted). " +
       "force skips TTL only — never budget. keyword_gaps requires non-empty competitors[]. " +
+      "seo_research_provider_unavailable = login/funds/outage: stop, do not retry or estimate. " +
       "When research inactive → seo_research_inactive. Requires seo_edit. " +
       MULTI_SITE_TOOL_BLURB,
     {
@@ -317,6 +319,12 @@ export function registerSeoClusterTools(
       slug: z.string().optional().describe("Page slug (entry-scoped)"),
       locale: z.string().default("en").describe("Locale code"),
       keyword: z.string().optional().describe("Keyword/query override (default seo.main_keyword)"),
+      market: z
+        .string()
+        .optional()
+        .describe(
+          "Country market id (usa, spain, mexico, …). Default: page locale's research market. Rollups (latam, worldwide) are refused.",
+        ),
       seed: z.string().optional().describe("Seed for keyword_ideas"),
       mode: z.string().optional().describe("keyword_ideas mode: ideas|suggestions|related"),
       domain: z.string().optional().describe("Our or target domain (competitors/gaps); default from Search Console / sites.yml"),
@@ -343,6 +351,7 @@ export function registerSeoClusterTools(
         slug,
         locale,
         keyword,
+        market,
         seed,
         mode,
         domain,
@@ -402,6 +411,7 @@ export function registerSeoClusterTools(
           slug,
           locale,
           keyword,
+          market,
           force,
           confirm_seo_research_budget,
           agent_session_id,
@@ -439,6 +449,7 @@ export function registerSeoClusterTools(
             action: result.action,
             outcome: result.outcome,
             credits_spent: result.credits_spent,
+            ...(result.cost_usd !== undefined ? { cost_usd: result.cost_usd } : {}),
             credits_note: result.credits_note,
             budget: result.budget,
             data: result.data,
@@ -465,6 +476,7 @@ export function registerSeoClusterTools(
         slug,
         locale,
         keyword,
+        market,
         seed,
         mode,
         domain,
@@ -510,6 +522,7 @@ export function registerSeoClusterTools(
           action: result.action,
           outcome: result.outcome,
           credits_spent: result.credits_spent,
+          ...(result.cost_usd !== undefined ? { cost_usd: result.cost_usd } : {}),
           credits_note: result.credits_note,
           budget: result.budget,
           data: result.data,

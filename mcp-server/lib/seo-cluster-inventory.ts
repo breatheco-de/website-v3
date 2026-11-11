@@ -69,6 +69,7 @@ function memberFromId(
       keyword: row.main_keyword,
       contentRoot,
       contentFolder: folder,
+      locale: row.locale,
       yamlVolume: yamlVol,
       yamlDifficulty: yamlDiff,
     });
