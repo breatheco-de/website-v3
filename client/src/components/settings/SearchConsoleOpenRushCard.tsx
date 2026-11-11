@@ -15,6 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
+import { Link } from "wouter";
 
 type OpenRushConfigResponse = {
   configured: boolean;
@@ -132,6 +133,14 @@ export function SearchConsoleOpenRushCard({ canEdit }: { canEdit: boolean }) {
           Optional live SERP snapshots for the Organic dashboard. Credits are charged per inspect.
           This does not start a Search Console export or change URL Inspection.
         </p>
+        <p className="text-xs text-muted-foreground" data-testid="text-openrush-markets-note">
+          OpenRush keeps search result snapshots, keyword ideas and competitors. When DataForSEO is on, it
+          supplies keyword volume and difficulty instead. Which country each lookup uses now comes from{" "}
+          <Link href="/private/settings/seo/search-console" className="underline underline-offset-2 hover:text-foreground">
+            Search Console → Organic markets
+          </Link>
+          ; the location and language below are only used when no market applies.
+        </p>
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-medium text-foreground">Enable OpenRush</p>
@@ -179,7 +188,7 @@ export function SearchConsoleOpenRushCard({ canEdit }: { canEdit: boolean }) {
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-foreground" htmlFor="openrush-location">
-              Location
+              Fallback location
             </label>
             <Input
               id="openrush-location"
@@ -194,7 +203,7 @@ export function SearchConsoleOpenRushCard({ canEdit }: { canEdit: boolean }) {
           </div>
           <div className="space-y-1.5">
             <label className="text-sm font-medium text-foreground" htmlFor="openrush-language">
-              Language
+              Fallback language
             </label>
             <Input
               id="openrush-language"

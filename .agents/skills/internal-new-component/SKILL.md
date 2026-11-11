@@ -153,6 +153,9 @@ Common `EditorType` values (reuse; only add a new editor when the user asks):
 | `boolean-toggle`, `string-picker:a,b,c` | Flags and fixed options |
 | `cta-picker`, `cta-tracking` | CTA button; ecommerce CTA intent |
 | `font-size-picker`, `form-settings` | Theme font size; lead form config |
+| `form-appearance:<role>` | How a form looks and what it says, grouped in one Props tab Form box |
+
+Components with a form tag their look-and-copy keys with `form-appearance:<role>` instead of loose pickers. Roles (catalog: `shared/form-appearance.ts`): content `title`, `subtitle`, `disclaimer`, `image`, `submit-label`, `login-link`, `cta-text`, `cta-url`, `cta-style`, `cta-icon`; style `background`, `text-color`, `terms-color`, `button-style`, `layout`, `vertical-align`. Example: `"form_background": "form-appearance:background"`, `"form.button_variant": "form-appearance:button-style"`. Conversion config stays on `form-settings` (Forms tab); never tag it with a role. Skip `layout` when one `form.variant` key drives more than one placement, or when `variant` is the section variant (lead_form).
 
 Key paths: bare key for top-level (`layout`), `"items[].icon"` for array children, `"variant:items[].icon"` or `"variant:title"` to scope to one variant. Dot-star (`items.*.icon`) and plain dots into arrays are silently ignored; array-of-array is unsupported.
 

@@ -194,12 +194,14 @@ export function ChatWidget() {
         onClick={isOpen ? () => setIsOpen(false) : handleOpen}
         className="fixed bottom-4 right-4 p-3 rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105"
         style={{ zIndex: 9999 }}
+        aria-label={isOpen ? "Close chat" : "Open chat"}
+        aria-expanded={isOpen}
         data-testid="button-chat-bubble"
       >
         {isOpen ? (
-          <X className="h-6 w-6" />
+          <X className="h-6 w-6" aria-hidden="true" />
         ) : (
-          <MessageCircle className="h-6 w-6" />
+          <MessageCircle className="h-6 w-6" aria-hidden="true" />
         )}
       </button>
     </>

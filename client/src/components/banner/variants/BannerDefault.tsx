@@ -148,7 +148,13 @@ export function Banner({ data }: BannerProps) {
 
           {cta && (
             <Button
-              variant={cta.variant === "outline" ? "outline" : "secondary"}
+              variant={
+                cta.variant === "outline"
+                  ? "outline"
+                  : cta.variant === "accent"
+                    ? "accent"
+                    : "secondary"
+              }
               size="lg"
               asChild
               className={cta.variant === "outline" ? "border-white text-white hover:bg-white/10" : ""}

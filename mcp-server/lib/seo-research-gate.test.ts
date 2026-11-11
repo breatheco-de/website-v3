@@ -7,13 +7,13 @@ import {
   touchesKwMetrics,
 } from "./seo-research-gate";
 
-vi.mock("../../server/openrush-client.js", () => ({
-  isOpenRushConfigured: vi.fn(),
+vi.mock("../../server/seo-research-providers.js", () => ({
+  isSeoResearchConfigured: vi.fn(),
 }));
 
-import { isOpenRushConfigured } from "../../server/openrush-client.js";
+import { isSeoResearchConfigured } from "../../server/seo-research-providers.js";
 
-const mockedConfigured = vi.mocked(isOpenRushConfigured);
+const mockedConfigured = vi.mocked(isSeoResearchConfigured);
 
 afterEach(() => {
   vi.clearAllMocks();

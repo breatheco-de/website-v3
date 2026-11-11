@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   IDEA_SEO_TARGET_HUB_MEMBERS_REQUIRED,
   IDEA_SEO_TARGET_INCOMPLETE,
+  IDEA_SEO_TARGET_MARKET_INVALID,
   IDEA_SEO_TARGET_STANDALONE_NOT_ALLOWED,
   SEO_TARGET_OVERRIDE_INVALID,
   hasSeoTargetFieldOps,
@@ -27,6 +28,32 @@ const join: IdeaSeoTarget = {
 describe("validateIdeaSeoTarget", () => {
   it("accepts a join target", () => {
     expect(validateIdeaSeoTarget(join)).toEqual({ ok: true, target: join });
+  });
+
+  it("keeps a lowercase market id with the numbers", () => {
+    const r = validateIdeaSeoTarget({ ...join, kw_monthly_volume: 2900, kw_difficulty: 18, market: " Spain " });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.target.market).toBe("spain");
+  });
+
+  it("refuses a malformed market and a market the site check rejects", () => {
+    expect(validateIdeaSeoTarget({ ...join, market: "Spain / LatAm" })).toMatchObject({
+      ok: false,
+      code: IDEA_SEO_TARGET_MARKET_INVALID,
+    });
+    const r = validateIdeaSeoTarget(
+      { ...join, market: "latam" },
+      { checkMarket: (id) => (id === "latam" ? { ok: false, message: "rollup" } : { ok: true }) },
+    );
+    expect(r).toMatchObject({ ok: false, code: IDEA_SEO_TARGET_MARKET_INVALID });
+    expect(
+      validateIdeaSeoTarget({ ...join, market: "mexico" }, { checkMarket: () => ({ ok: true }) }),
+    ).toMatchObject({ ok: true });
+  });
+
+  it("treats a market change as a different target", () => {
+    expect(ideaSeoTargetsEqual({ ...join, market: "spain" }, { ...join, market: "mexico" })).toBe(false);
+    expect(parseIdeaSeoTarget({ ...join, market: 42 })?.market).toBeUndefined();
   });
 
   it("requires main_keyword", () => {

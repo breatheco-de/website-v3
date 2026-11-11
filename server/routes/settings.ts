@@ -2068,13 +2068,15 @@ export function registerSettingsRoutes(app: Express): void {
     const auth = await requireCapability(req, res, "seo_settings");
     if (!auth.authorized) return;
     const { getSearchConsoleSettings } = await import("../settings");
-    const { marketsForUi } = await import("../gsc-organic-markets");
+    const { marketsForUi, researchableMarketIds } = await import("../gsc-organic-markets");
     const sc = getSearchConsoleSettings(getContentRoot(res));
     const grouped = marketsForUi(sc.organic_markets);
     res.json({
       markets: sc.organic_markets,
       rollups: grouped.rollups,
       countries: grouped.countries,
+      research_market_defaults: sc.research_market_defaults,
+      researchable_market_ids: researchableMarketIds(sc.organic_markets),
     });
   });
 
@@ -2088,8 +2090,15 @@ export function registerSettingsRoutes(app: Express): void {
       }
       const contentRoot = getContentRoot(res);
       const { updateSearchConsoleOrganicMarkets } = await import("../settings");
-      const { marketsForUi } = await import("../gsc-organic-markets");
-      const updated = updateSearchConsoleOrganicMarkets(body, contentRoot);
+      const { marketsForUi, researchableMarketIds } = await import("../gsc-organic-markets");
+      const researchDefaults = req.body?.research_market_defaults;
+      if (
+        researchDefaults !== undefined &&
+        (!researchDefaults || typeof researchDefaults !== "object" || Array.isArray(researchDefaults))
+      ) {
+        return res.status(400).json({ error: "research_market_defaults must be an object of locale → market id" });
+      }
+      const updated = updateSearchConsoleOrganicMarkets(body, contentRoot, researchDefaults);
       markFileAsModified("settings.yml", undefined, undefined, contentRoot);
       const grouped = marketsForUi(updated.organic_markets);
       res.json({
@@ -2097,6 +2106,8 @@ export function registerSettingsRoutes(app: Express): void {
         markets: updated.organic_markets,
         rollups: grouped.rollups,
         countries: grouped.countries,
+        research_market_defaults: updated.research_market_defaults,
+        researchable_market_ids: researchableMarketIds(updated.organic_markets),
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
@@ -2152,6 +2163,59 @@ export function registerSettingsRoutes(app: Express): void {
       });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  api.get(app, "/api/settings/dataforseo", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    const { getDataForSeoSettings } = await import("../settings");
+    const { dataForSeoCredentialsConfigured, dataForSeoMode } = await import("../dataforseo-client");
+    const settings = getDataForSeoSettings(getContentRoot(res));
+    const credentials_configured = dataForSeoCredentialsConfigured();
+    res.json({
+      configured: Boolean(settings.enabled && credentials_configured),
+      credentials_configured,
+      mode: dataForSeoMode(),
+      settings,
+    });
+  });
+
+  api.put(app, "/api/settings/dataforseo", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    try {
+      const body = req.body?.dataforseo ?? req.body;
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return res.status(400).json({ error: "Request body must be a dataforseo object" });
+      }
+      const contentRoot = getContentRoot(res);
+      const { updateDataForSeoSettings } = await import("../settings");
+      const { dataForSeoCredentialsConfigured, dataForSeoMode } = await import("../dataforseo-client");
+      const settings = updateDataForSeoSettings(body, contentRoot);
+      markFileAsModified("settings.yml", auth.username ?? undefined, undefined, contentRoot);
+      const credentials_configured = dataForSeoCredentialsConfigured();
+      res.json({
+        success: true,
+        configured: Boolean(settings.enabled && credentials_configured),
+        credentials_configured,
+        mode: dataForSeoMode(),
+        settings,
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  api.post(app, "/api/settings/dataforseo/test", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireCapability(req, res, "seo_settings");
+    if (!auth.authorized) return;
+    try {
+      const { testDataForSeoConnection } = await import("../dataforseo-client");
+      const result = await testDataForSeoConnection(getContentRoot(res));
+      res.status(result.ok ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err?.message || String(err), elapsed_ms: 0 });
     }
   });
 

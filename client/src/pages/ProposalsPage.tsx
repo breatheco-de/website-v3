@@ -1615,6 +1615,8 @@ export function ProposalDetailPanel({
           "These edits change the idea's keyword or hub. Match the idea, or give a reason for the change.",
         idea_seo_target_hub_gone:
           "The idea's hub was deleted. Nothing was published — pick another live hub and give a reason.",
+        idea_seo_target_market_invalid:
+          "That country is not a keyword research market. Use one country market (for example spain or usa), not LatAm or Worldwide.",
         locale_seo_target_required:
           "This new language needs its own keyword and a hub in the same language before it goes live.",
         seo_index_unavailable: "The SEO index could not be read. Nothing changed — try again shortly.",

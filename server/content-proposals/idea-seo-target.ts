@@ -27,6 +27,8 @@ export type IdeaSeoTarget = {
   cluster: IdeaSeoCluster;
   kw_monthly_volume?: number;
   kw_difficulty?: number;
+  /** Country research market id (spain, usa, …) the kw_* numbers describe. */
+  market?: string;
 };
 
 /** Edits proposal: why its seo.* ops differ from the implemented idea's locked target. */
@@ -34,6 +36,9 @@ export type SeoTargetOverride = { reason: string };
 
 export const IDEA_SEO_TARGET_MISSING_WARN = "idea_seo_target_missing";
 export const IDEA_SEO_TARGET_METRICS_MISSING_WARN = "idea_seo_target_metrics_missing";
+export const IDEA_SEO_TARGET_MARKET_MISSING_WARN = "idea_seo_target_market_missing";
+export const IDEA_SEO_TARGET_MARKET_NOT_DEFAULT_WARN = "idea_seo_target_market_not_default";
+export const IDEA_SEO_TARGET_MARKET_INVALID = "idea_seo_target_market_invalid";
 export const IDEA_SEO_TARGET_INCOMPLETE = "idea_seo_target_incomplete";
 export const IDEA_SEO_TARGET_REQUIRED = "idea_seo_target_required";
 export const IDEA_SEO_TARGET_FROZEN = "idea_seo_target_frozen";
@@ -118,14 +123,25 @@ function parseMetric(v: unknown, field: MetricField): number | null | "invalid" 
   return n;
 }
 
+/** Market id shape (lowercase slug); missing/empty → null; anything else → "invalid". */
+function parseMarket(v: unknown): string | null | "invalid" {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v !== "string") return "invalid";
+  const id = v.trim().toLowerCase();
+  if (!id) return null;
+  return /^[a-z0-9][a-z0-9-]{0,63}$/.test(id) ? id : "invalid";
+}
+
 function withMetrics(
   base: { main_keyword: string; cluster: IdeaSeoCluster },
   volume: number | null,
   difficulty: number | null,
+  market: string | null = null,
 ): IdeaSeoTarget {
   const out: IdeaSeoTarget = { ...base };
   if (volume != null) out.kw_monthly_volume = volume;
   if (difficulty != null) out.kw_difficulty = difficulty;
+  if (market) out.market = market;
   return out;
 }
 
@@ -138,10 +154,12 @@ export function parseIdeaSeoTarget(raw: unknown): IdeaSeoTarget | null {
   if (!main_keyword || !cluster) return null;
   const vol = parseMetric(rec.kw_monthly_volume, "kw_monthly_volume");
   const kd = parseMetric(rec.kw_difficulty, "kw_difficulty");
+  const market = parseMarket(rec.market);
   return withMetrics(
     { main_keyword, cluster },
     vol === "invalid" ? null : vol,
     kd === "invalid" ? null : kd,
+    market === "invalid" ? null : market,
   );
 }
 
@@ -159,7 +177,12 @@ export type IdeaSeoTargetValidation =
  */
 export function validateIdeaSeoTarget(
   raw: unknown,
-  opts?: { demandLabel?: string | null; enforceDemand?: boolean },
+  opts?: {
+    demandLabel?: string | null;
+    enforceDemand?: boolean;
+    /** Site check for `market` (country research market; rollups / unknown ids refused). */
+    checkMarket?: (marketId: string) => { ok: true } | { ok: false; message: string };
+  },
 ): IdeaSeoTargetValidation {
   if (!raw || typeof raw !== "object") {
     return {
@@ -238,7 +261,22 @@ export function validateIdeaSeoTarget(
       error: "idea_seo_target.kw_difficulty must be a whole number from 0 to 100.",
     };
   }
-  return { ok: true, target: withMetrics({ main_keyword, cluster }, vol, kd) };
+  const market = parseMarket(rec.market);
+  if (market === "invalid") {
+    return {
+      ok: false,
+      code: IDEA_SEO_TARGET_MARKET_INVALID,
+      error:
+        "idea_seo_target.market must be a country market id (e.g. spain, usa, mexico) — the market your kw_* numbers came from.",
+    };
+  }
+  if (market && opts?.checkMarket) {
+    const check = opts.checkMarket(market);
+    if (!check.ok) {
+      return { ok: false, code: IDEA_SEO_TARGET_MARKET_INVALID, error: `idea_seo_target.market: ${check.message}` };
+    }
+  }
+  return { ok: true, target: withMetrics({ main_keyword, cluster }, vol, kd, market) };
 }
 
 export function standaloneNotAllowed(label: string | null | undefined): {
@@ -264,7 +302,7 @@ export function ideaSeoTargetsEqual(a: IdeaSeoTarget, b: IdeaSeoTarget): boolean
 }
 
 function canonical(t: IdeaSeoTarget): unknown {
-  const m = { v: t.kw_monthly_volume ?? null, d: t.kw_difficulty ?? null };
+  const m = { v: t.kw_monthly_volume ?? null, d: t.kw_difficulty ?? null, mk: t.market ?? null };
   if (t.cluster.mode === "hub") {
     const members = [...t.cluster.members]
       .map((m) => `${m.contentType}/${m.slug}`)
@@ -388,7 +426,26 @@ export function parseSeoTargetOverride(raw: unknown): SeoTargetOverride | null {
 function describeMetrics(t: IdeaSeoTarget): string {
   const vol = t.kw_monthly_volume != null ? `${t.kw_monthly_volume}/mo` : "volume not set";
   const kd = t.kw_difficulty != null ? `KD ${t.kw_difficulty}` : "difficulty not set";
-  return ` (${vol}, ${kd})`;
+  const where = t.market ? `${t.market}: ` : "";
+  return ` (${where}${vol}, ${kd})`;
+}
+
+/** Page locale an idea targets: accepted entry → first new related entry → hub path prefix. */
+export function ideaTargetLocale(opts: {
+  acceptedLocale?: string | null;
+  relatedLocales?: ReadonlyArray<string | null | undefined>;
+  target?: IdeaSeoTarget | null;
+}): string | null {
+  if (opts.acceptedLocale?.trim()) return opts.acceptedLocale.trim();
+  for (const l of opts.relatedLocales ?? []) {
+    if (l?.trim()) return l.trim();
+  }
+  const c = opts.target?.cluster;
+  if (c?.mode === "join") {
+    const prefix = c.pillar_path.split("/").filter(Boolean)[0] ?? "";
+    if (/^[a-z]{2}$/.test(prefix)) return prefix;
+  }
+  return null;
 }
 
 /** Human one-liner for review surfaces and events. */

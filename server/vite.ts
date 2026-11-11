@@ -54,6 +54,7 @@ import {
 import { buildAnonymousPageHtml } from "./render-hub-html";
 import { injectGtmWebContainerId } from "./gtm-web-inject";
 import { applyPageBoot } from "./ads/ads-first";
+import { applyServerTiming, hasTimingSteps, markTiming } from "./server-timing";
 import { precompressedStatic } from "./static-precompressed";
 import { child as loggerChild } from "./logger";
 import { notePage, pagePatternForStats } from "./process-stats";
@@ -404,6 +405,7 @@ export function serveStatic(app: Express) {
 
     const url = _req.originalUrl;
     const tHtml = Date.now();
+    markTiming(res, hasTimingSteps(res) ? "data" : "pre");
     let pageOutcome = "client_fallback";
     let recordPage = true;
 
@@ -524,6 +526,7 @@ export function serveStatic(app: Express) {
           return { kind: "html" as const, html: built.html, status: nextStatus, fromCache: false };
         });
         const renderMs = Math.round(performance.now() - renderStarted);
+        markTiming(res, "render");
 
         if (built.kind === "skip") {
           status = built.status;
@@ -567,6 +570,8 @@ export function serveStatic(app: Express) {
           }
           maybeRecordPublicNotFound(_req, res, status);
           const bootedHtml = applyPageBoot(built.html, _req, res);
+          markTiming(res, "boot");
+          applyServerTiming(res);
           res
             .status(status)
             .set({
@@ -616,6 +621,8 @@ export function serveStatic(app: Express) {
         html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
         if (!clientShellOnly) html = applyPageBoot(html, _req, res);
         maybeRecordPublicNotFound(_req, res, status);
+        markTiming(res, "shell");
+        applyServerTiming(res);
         res.status(status).set({ "Content-Type": "text/html" }).send(html);
         return;
       } catch {
@@ -631,6 +638,8 @@ export function serveStatic(app: Express) {
       html = injectGtmWebContainerId(html, (res.locals as any).site?.contentRoot);
       if (!clientShellOnly) html = applyPageBoot(html, _req, res);
       maybeRecordPublicNotFound(_req, res, status);
+      markTiming(res, "shell");
+      applyServerTiming(res);
       res.status(status).set({ "Content-Type": "text/html" }).send(html);
     } catch {
       maybeRecordPublicNotFound(_req, res, status);

@@ -180,6 +180,7 @@ props:
               - primary
               - secondary
               - outline
+              - accent
           tracking:
             type: string
             required: false
@@ -419,6 +420,7 @@ props:
               - primary
               - secondary
               - outline
+              - accent
           tracking:
             type: string
             required: false
@@ -592,6 +594,7 @@ props:
           - primary
           - secondary
           - outline
+          - accent
         description: Visual style of the button
       tracking:
         type: string

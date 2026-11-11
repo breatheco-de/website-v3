@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../server/openrush-client.js", () => ({
-  isOpenRushConfigured: vi.fn(),
-  inspectKeywordQuery: vi.fn(),
   inspectSerpQuery: vi.fn(),
   researchKeywordsQuery: vi.fn(),
   discoverCompetitorsQuery: vi.fn(),
@@ -14,15 +12,47 @@ vi.mock("../../server/openrush-client.js", () => ({
   OPENRUSH_COMPARE_KEYWORD_COVERAGE_CREDITS: 12,
 }));
 
-vi.mock("../../server/settings.js", () => ({
-  getOpenRushSettings: vi.fn(() => ({
-    enabled: true,
-    serp_top_n: 20,
-    location: "United States",
-    language: "English",
-    session_credit_limit: 50,
-    daily_credit_limit: 200,
-    budget_warn_percent: 80,
+vi.mock("../../server/seo-research-providers.js", () => ({
+  providerFor: vi.fn(),
+  fetchKeywordMetrics: vi.fn(),
+  estimateKeywordMetricsCost: vi.fn((provider: string, n: number) =>
+    provider === "dataforseo" ? 0.0101 * n : 5 * n,
+  ),
+}));
+
+vi.mock("../../server/dataforseo-client.js", () => ({
+  dataForSeoMode: vi.fn(() => "live"),
+}));
+
+const markets = {
+  usa: { id: "usa", label: "USA", country: "usa", location: "United States", language: "English" },
+  spain: { id: "spain", label: "Spain", country: "esp", location: "Spain", language: "Spanish" },
+  mexico: { id: "mexico", label: "Mexico", country: "mex", location: "Mexico", language: "Spanish" },
+} as const;
+
+vi.mock("../../server/seo-research-market.js", () => ({
+  resolveSiteResearchMarket: vi.fn((opts: { marketId?: string; locale?: string }) => {
+    if (opts.marketId === "latam") {
+      return {
+        ok: false,
+        code: "market_not_researchable",
+        message: 'Market "LatAm" cannot be used for keyword research.',
+        country_markets: ["spain", "usa", "mexico"],
+      };
+    }
+    if (opts.marketId) {
+      const m = markets[opts.marketId as keyof typeof markets];
+      return { ok: true, market: { ...m, source: "explicit" } };
+    }
+    const m = opts.locale === "es" ? markets.spain : markets.usa;
+    return { ok: true, market: { ...m, source: "locale_default" } };
+  }),
+  marketSummary: vi.fn((m: Record<string, unknown>) => ({
+    id: m.id,
+    label: m.label,
+    location: m.location,
+    language: m.language,
+    source: m.source,
   })),
 }));
 
@@ -31,42 +61,31 @@ vi.mock("../../server/openrush-keyword-cache.js", () => ({
   keywordMetricsCompleteAndFresh: vi.fn(),
   keywordDifficultySourceOf: vi.fn((e?: { kw_difficulty_source?: string | null }) => e?.kw_difficulty_source ?? null),
   competitionLevelOf: vi.fn((e?: { competition_level?: string | number | null }) => e?.competition_level ?? null),
+  volumeProviderOf: vi.fn((e?: { monthly_volume?: number | null; volume_provider?: string | null }) =>
+    e?.monthly_volume == null ? null : (e.volume_provider ?? "openrush"),
+  ),
+  difficultyProviderOf: vi.fn((e?: { kw_difficulty?: number | null; difficulty_provider?: string | null }) =>
+    e?.kw_difficulty == null ? null : (e.difficulty_provider ?? "openrush"),
+  ),
 }));
 
+const snapshot = {
+  provider: "openrush",
+  unit: "credits",
+  session_used: 0,
+  session_limit: 50,
+  daily_used: 0,
+  daily_limit: 200,
+  warn_percent: 80,
+  session_pct: 0,
+  daily_pct: 0,
+  apply_session_cap: true,
+};
+
 vi.mock("../../server/seo-research-budget.js", () => ({
-  wouldSpend: vi.fn(() => ({
-    ok: true,
-    snapshot: {
-      session_used: 0,
-      session_limit: 50,
-      daily_used: 0,
-      daily_limit: 200,
-      warn_percent: 80,
-      session_pct: 0,
-      daily_pct: 0,
-      apply_session_cap: true,
-    },
-  })),
-  recordSpend: vi.fn(() => ({
-    session_used: 5,
-    session_limit: 50,
-    daily_used: 5,
-    daily_limit: 200,
-    warn_percent: 80,
-    session_pct: 10,
-    daily_pct: 2.5,
-    apply_session_cap: true,
-  })),
-  budgetSnapshot: vi.fn(() => ({
-    session_used: 0,
-    session_limit: 50,
-    daily_used: 0,
-    daily_limit: 200,
-    warn_percent: 80,
-    session_pct: 0,
-    daily_pct: 0,
-    apply_session_cap: true,
-  })),
+  wouldSpend: vi.fn(() => ({ ok: true, snapshot })),
+  recordSpend: vi.fn(() => snapshot),
+  budgetSnapshot: vi.fn(() => snapshot),
   STAFF_BUDGET_SESSION_KEY: "staff",
 }));
 
@@ -75,172 +94,222 @@ vi.mock("./content.js", () => ({
   resolveContentType: vi.fn(() => ({ contentType: "blog" })),
 }));
 
-import { isOpenRushConfigured, inspectKeywordQuery } from "../../server/openrush-client.js";
-import {
-  getKeywordEntry,
-  keywordMetricsCompleteAndFresh,
-} from "../../server/openrush-keyword-cache.js";
-import { wouldSpend } from "../../server/seo-research-budget.js";
+import { providerFor, fetchKeywordMetrics } from "../../server/seo-research-providers.js";
+import { getKeywordEntry, keywordMetricsCompleteAndFresh } from "../../server/openrush-keyword-cache.js";
+import { recordSpend, wouldSpend } from "../../server/seo-research-budget.js";
+import { dataForSeoMode } from "../../server/dataforseo-client.js";
 import { runSeoResearch } from "./seo-research-mcp";
 
-const mockedConfigured = vi.mocked(isOpenRushConfigured);
-const mockedInspect = vi.mocked(inspectKeywordQuery);
+const mockedProvider = vi.mocked(providerFor);
+const mockedFetch = vi.mocked(fetchKeywordMetrics);
 const mockedGetEntry = vi.mocked(getKeywordEntry);
 const mockedFresh = vi.mocked(keywordMetricsCompleteAndFresh);
 const mockedWouldSpend = vi.mocked(wouldSpend);
+const mockedRecordSpend = vi.mocked(recordSpend);
+const mockedMode = vi.mocked(dataForSeoMode);
+
+const baseArgs = {
+  action: "keyword_metrics" as const,
+  contentPath: "/tmp",
+  contentFolder: "site_x",
+  contentType: "blog",
+  slug: "a",
+  locale: "en",
+  keyword: "test kw",
+  agent_session_id: "s1",
+};
+
+function entry(overrides: Record<string, unknown> = {}) {
+  return {
+    keyword: "test kw",
+    location: "United States",
+    language: "English",
+    fetched_at: new Date().toISOString(),
+    monthly_volume: 100,
+    kw_difficulty: 20,
+    notes: null,
+    payload: null,
+    ...overrides,
+  };
+}
 
 describe("runSeoResearch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockedConfigured.mockReturnValue(true);
-    mockedWouldSpend.mockReturnValue({
-      ok: true,
-      snapshot: {
-        session_used: 0,
-        session_limit: 50,
-        daily_used: 0,
-        daily_limit: 200,
-        warn_percent: 80,
-        session_pct: 0,
-        daily_pct: 0,
-        apply_session_cap: true,
-      },
-    });
+    mockedProvider.mockReturnValue("openrush");
+    mockedMode.mockReturnValue("live");
+    mockedWouldSpend.mockReturnValue({ ok: true, snapshot } as never);
   });
 
-  it("returns seo_research_inactive when not configured", async () => {
-    mockedConfigured.mockReturnValue(false);
-    const r = await runSeoResearch({
-      action: "keyword_metrics",
-      contentPath: "/tmp",
-      contentFolder: "site_x",
-      contentType: "blog",
-      slug: "a",
-      locale: "en",
-      keyword: "test kw",
-      agent_session_id: "s1",
-    });
+  it("returns seo_research_inactive when no provider is configured", async () => {
+    mockedProvider.mockReturnValue(null);
+    const r = await runSeoResearch(baseArgs);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe("seo_research_inactive");
   });
 
   it("returns cache_hit without calling provider when fresh", async () => {
     mockedFresh.mockReturnValue(true);
-    mockedGetEntry.mockReturnValue({
-      keyword: "test kw",
-      location: "United States",
-      language: "English",
-      fetched_at: new Date().toISOString(),
-      monthly_volume: 100,
-      kw_difficulty: 20,
-      notes: null,
-      payload: null,
-    });
-    const r = await runSeoResearch({
-      action: "keyword_metrics",
-      contentPath: "/tmp",
-      contentFolder: "site_x",
-      contentType: "blog",
-      slug: "a",
-      locale: "en",
-      keyword: "test kw",
-      agent_session_id: "s1",
-    });
+    mockedGetEntry.mockReturnValue(entry() as never);
+    const r = await runSeoResearch(baseArgs);
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.outcome).toBe("cache_hit");
       expect(r.credits_spent).toBe(0);
+      expect(r.data.providers).toEqual({ volume: "openrush", difficulty: "openrush" });
+      expect((r.data.market as { id: string }).id).toBe("usa");
     }
-    expect(mockedInspect).not.toHaveBeenCalled();
+    expect(mockedFetch).not.toHaveBeenCalled();
   });
 
-  it("fetches when force even if fresh", async () => {
-    mockedFresh.mockReturnValue(true);
-    mockedGetEntry.mockReturnValue({
-      keyword: "test kw",
-      location: "United States",
-      language: "English",
-      fetched_at: new Date().toISOString(),
-      monthly_volume: 100,
-      kw_difficulty: 20,
-      notes: null,
-      payload: null,
-    });
-    mockedInspect.mockResolvedValue({
-      ok: true,
-      metrics: {
-        keyword: "test kw",
-        monthly_volume: 200,
-        kw_difficulty: 30,
-        kw_difficulty_source: "reported",
-        competition_level: null,
-        intent: null,
-      },
-      entry: {
-        keyword: "test kw",
-        location: "United States",
-        language: "English",
-        fetched_at: new Date().toISOString(),
-        monthly_volume: 200,
-        kw_difficulty: 30,
-        notes: "ok",
-        payload: null,
-      },
-      credits_note: "inspect_keyword uses 5 research credits",
-    });
+  it("fetches from DataForSEO in the Spanish page's market and reports USD", async () => {
+    mockedProvider.mockReturnValue("dataforseo");
+    mockedFresh.mockReturnValue(false);
+    mockedGetEntry.mockReturnValue(undefined);
+    mockedFetch.mockResolvedValue({
+      provider: "dataforseo",
+      mode: "live",
+      cost: 0.0101,
+      rows: [
+        {
+          keyword: "tipos de inteligencia artificial",
+          ok: true,
+          found: true,
+          entry: entry({
+            keyword: "tipos de inteligencia artificial",
+            location: "Spain",
+            language: "Spanish",
+            monthly_volume: 2900,
+            kw_difficulty: 18,
+            kw_difficulty_source: "reported",
+            volume_provider: "dataforseo",
+            difficulty_provider: "dataforseo",
+          }),
+        },
+      ],
+    } as never);
     const r = await runSeoResearch({
-      action: "keyword_metrics",
-      contentPath: "/tmp",
-      contentFolder: "site_x",
-      contentType: "blog",
-      slug: "a",
-      locale: "en",
-      keyword: "test kw",
-      agent_session_id: "s1",
-      force: true,
+      ...baseArgs,
+      locale: "es",
+      keyword: "tipos de inteligencia artificial",
     });
+    expect(mockedFetch.mock.calls[0]![0].market).toMatchObject({ location: "Spain", language: "Spanish" });
+    expect(mockedWouldSpend.mock.calls[0]![0]).toMatchObject({ provider: "dataforseo", cost: 0.0101 });
+    expect(mockedRecordSpend.mock.calls[0]![0]).toMatchObject({ provider: "dataforseo", cost: 0.0101 });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.outcome).toBe("fetched");
-      expect(r.credits_spent).toBe(5);
+      expect(r.cost_usd).toBe(0.0101);
+      expect(r.credits_spent).toBe(0);
+      expect(r.data.kw_difficulty).toBe(18);
       expect(r.data.kw_difficulty_source).toBe("reported");
+      expect(r.data.providers).toEqual({ volume: "dataforseo", difficulty: "dataforseo" });
+      expect((r.data.market as { id: string }).id).toBe("spain");
       expect(r.warnings.map((w) => w.code)).not.toContain("seo_research_difficulty_derived");
     }
-    expect(mockedInspect).toHaveBeenCalled();
+  });
+
+  it("warns when the provider has no difficulty score", async () => {
+    mockedProvider.mockReturnValue("dataforseo");
+    mockedFresh.mockReturnValue(false);
+    mockedGetEntry.mockReturnValue(undefined);
+    mockedFetch.mockResolvedValue({
+      provider: "dataforseo",
+      mode: "live",
+      cost: 0.01,
+      rows: [{ keyword: "test kw", ok: true, found: false, entry: entry({ monthly_volume: 40, kw_difficulty: null }) }],
+    } as never);
+    const r = await runSeoResearch(baseArgs);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.data.kw_difficulty).toBeNull();
+      expect(r.warnings.map((w) => w.code)).toContain("seo_research_difficulty_unavailable");
+    }
+  });
+
+  it("flags sandbox results as sample data", async () => {
+    mockedProvider.mockReturnValue("dataforseo");
+    mockedMode.mockReturnValue("sandbox");
+    mockedFresh.mockReturnValue(false);
+    mockedGetEntry.mockReturnValue(undefined);
+    mockedFetch.mockResolvedValue({
+      provider: "dataforseo",
+      mode: "sandbox",
+      cost: 0,
+      rows: [{ keyword: "test kw", ok: true, found: true, entry: entry({ kw_difficulty_source: "reported" }) }],
+    } as never);
+    const r = await runSeoResearch(baseArgs);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.data.mode).toBe("sandbox");
+      expect(r.warnings.map((w) => w.code)).toContain("seo_research_sandbox");
+    }
+  });
+
+  it("stops with provider_unavailable on a fatal provider error, without charging", async () => {
+    mockedProvider.mockReturnValue("dataforseo");
+    mockedFresh.mockReturnValue(false);
+    mockedGetEntry.mockReturnValue(undefined);
+    mockedFetch.mockResolvedValue({
+      provider: "dataforseo",
+      mode: "live",
+      cost: 0,
+      rows: [
+        {
+          keyword: "test kw",
+          ok: false,
+          fatal: true,
+          error_kind: "funds",
+          error: "DataForSEO is out of funds or hit its account cost limit. Top up the DataForSEO account.",
+        },
+      ],
+      fatal: { error: "out of funds", error_kind: "funds" },
+    } as never);
+    const r = await runSeoResearch(baseArgs);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("seo_research_provider_unavailable");
+      expect(r.details?.error_kind).toBe("funds");
+      expect(r.next_actions).toEqual([]);
+    }
+    expect(mockedRecordSpend).not.toHaveBeenCalled();
+  });
+
+  it("refuses rollup markets with country markets to use instead", async () => {
+    const r = await runSeoResearch({ ...baseArgs, market: "latam" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("market_not_researchable");
+      expect(r.details?.country_markets).toContain("spain");
+      expect(r.next_actions?.[0]?.args_hint).toMatchObject({ market: "spain" });
+    }
+    expect(mockedFetch).not.toHaveBeenCalled();
   });
 
   it("flags difficulty mapped from a competition label on cache hit", async () => {
     mockedFresh.mockReturnValue(true);
-    mockedGetEntry.mockReturnValue({
-      keyword: "tipos de inteligencia artificial",
-      location: "Mexico",
-      language: "Spanish",
-      fetched_at: new Date().toISOString(),
-      monthly_volume: 3600,
-      kw_difficulty: 20,
-      kw_difficulty_source: "derived_from_competition",
-      competition_level: "LOW",
-      notes: null,
-      payload: { competition: "LOW", search_volume: 3600 },
-    });
+    mockedGetEntry.mockReturnValue(
+      entry({
+        keyword: "tipos de inteligencia artificial",
+        location: "Spain",
+        language: "Spanish",
+        monthly_volume: 3600,
+        kw_difficulty: 20,
+        kw_difficulty_source: "derived_from_competition",
+        competition_level: "LOW",
+      }) as never,
+    );
     const r = await runSeoResearch({
-      action: "keyword_metrics",
-      contentPath: "/tmp",
-      contentFolder: "site_x",
-      contentType: "blog",
-      slug: "a",
+      ...baseArgs,
       locale: "es",
       keyword: "tipos de inteligencia artificial",
-      agent_session_id: "s1",
     });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.data.kw_difficulty).toBe(20);
       expect(r.data.kw_difficulty_source).toBe("derived_from_competition");
       expect(r.data.competition_level).toBe("LOW");
-      expect(r.data.market).toEqual({ location: "United States", language: "English" });
       const derived = r.warnings.find((w) => w.code === "seo_research_difficulty_derived");
       expect(derived?.message).toContain('competition "LOW"');
+      expect(derived?.message).toContain("force: true");
     }
   });
 
@@ -265,30 +334,12 @@ describe("runSeoResearch", () => {
     mockedWouldSpend.mockReturnValue({
       ok: false,
       code: "confirm_seo_research_budget",
-      snapshot: {
-        session_used: 42,
-        session_limit: 50,
-        daily_used: 42,
-        daily_limit: 200,
-        warn_percent: 80,
-        session_pct: 84,
-        daily_pct: 21,
-        apply_session_cap: true,
-      },
+      snapshot: { ...snapshot, session_used: 42, session_pct: 84 },
       message: "confirm needed",
-    });
-    const r = await runSeoResearch({
-      action: "keyword_metrics",
-      contentPath: "/tmp",
-      contentFolder: "site_x",
-      contentType: "blog",
-      slug: "a",
-      locale: "en",
-      keyword: "test kw",
-      agent_session_id: "s1",
-    });
+    } as never);
+    const r = await runSeoResearch(baseArgs);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe("confirm_seo_research_budget");
-    expect(mockedInspect).not.toHaveBeenCalled();
+    expect(mockedFetch).not.toHaveBeenCalled();
   });
 });

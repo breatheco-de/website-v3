@@ -14,7 +14,7 @@ export const ctaButtonSchema = z.object({
     .describe(
       "Link target: path (/en/…), https://…, #section_id (modal if type:modal else scroll), #top/#bottom, or inline#section_id. Agents: explain_site topic sections.",
     ),
-  variant: z.enum(["primary", "secondary", "outline"]),
+  variant: z.enum(["primary", "secondary", "outline", "accent"]),
   /**
    * Ecommerce CTA intent. Required on field-editor `cta-tracking` paths (save-time).
    * Optional in Zod so legacy YAML still parses until migration; use `none` when unbound intent.
@@ -327,7 +327,7 @@ export const leadFormDataSchema = z.object({
   show_terms: z.boolean().optional(),
   className: z.string().optional(),
   button_className: z.string().optional(),
-  button_variant: z.enum(["primary", "secondary", "outline"]).optional(),
+  button_variant: z.enum(["primary", "secondary", "outline", "accent"]).optional(),
   terms_className: z.string().optional(),
 });
 

@@ -56,15 +56,18 @@ function px(v: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+const CONTAINS_OVERFLOW = /hidden|clip|auto|scroll/;
+
 /**
- * True when an ancestor between `child` and its section wrapper clips horizontal
- * overflow and itself ends inside the viewport — a carousel track, not page scroll.
+ * True when an ancestor between `child` and its section wrapper clips or scrolls
+ * horizontal overflow and itself ends inside the viewport — a carousel or
+ * scroll-snap track, not page scroll.
  */
 function clippedWithinViewport(child: HTMLElement, wrapper: HTMLElement, vw: number): boolean {
   let node = child.parentElement;
   while (node) {
     const cs = getComputedStyle(node);
-    const clips = /hidden|clip/.test(cs.overflowX || "") || /hidden|clip/.test(cs.overflow || "");
+    const clips = CONTAINS_OVERFLOW.test(cs.overflowX || "") || CONTAINS_OVERFLOW.test(cs.overflow || "");
     if (clips && node.getBoundingClientRect().right <= vw + 1) return true;
     if (node === wrapper) return false;
     node = node.parentElement;

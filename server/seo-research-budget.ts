@@ -1,5 +1,6 @@
 /**
- * Local SEO research credit ledger (success-only). Shared daily pot; agent session caps.
+ * Local SEO research spend ledger (success-only), one ledger per provider: OpenRush in credits,
+ * DataForSEO in USD. Each has a shared daily pot plus agent session caps.
  * Path: .cache/{contentFolder}/seo-research-budget.json
  */
 
@@ -7,19 +8,33 @@ import fs from "fs";
 import path from "path";
 import { CACHE_DIR } from "./db-cache";
 import { getDefaultContentFolder } from "./site-config";
-import { getOpenRushSettings, type OpenRushSettings } from "./settings";
+import {
+  getDataForSeoSettings,
+  getOpenRushSettings,
+  type DataForSeoSettings,
+  type OpenRushSettings,
+} from "./settings";
 
 export const STAFF_BUDGET_SESSION_KEY = "staff";
 
-export type SeoResearchBudgetFile = {
-  updated_at: string;
-  /** UTC YYYY-MM-DD → credits spent that day (all actors). */
+export type SeoResearchBudgetProvider = "openrush" | "dataforseo";
+export type SeoResearchBudgetUnit = "credits" | "usd";
+
+export type SeoResearchLedger = {
+  /** UTC YYYY-MM-DD → spend that day (all actors). */
   daily: Record<string, number>;
-  /** agent_session_id or staff → credits spent in that session. */
+  /** agent_session_id or staff → spend in that session. */
   sessions: Record<string, number>;
 };
 
+export type SeoResearchBudgetFile = {
+  updated_at: string;
+  providers: Record<SeoResearchBudgetProvider, SeoResearchLedger>;
+};
+
 export type SeoResearchBudgetSnapshot = {
+  provider: SeoResearchBudgetProvider;
+  unit: SeoResearchBudgetUnit;
   session_used: number;
   session_limit: number;
   daily_used: number;
@@ -39,6 +54,50 @@ export type SeoResearchBudgetGate =
       message: string;
     };
 
+export type BudgetLimits = {
+  unit: SeoResearchBudgetUnit;
+  session_limit: number;
+  daily_limit: number;
+  warn_percent: number;
+};
+
+export function unitFor(provider: SeoResearchBudgetProvider): SeoResearchBudgetUnit {
+  return provider === "dataforseo" ? "usd" : "credits";
+}
+
+export function openRushBudgetLimits(settings: OpenRushSettings): BudgetLimits {
+  return {
+    unit: "credits",
+    session_limit: settings.session_credit_limit,
+    daily_limit: settings.daily_credit_limit,
+    warn_percent: settings.budget_warn_percent,
+  };
+}
+
+export function dataForSeoBudgetLimits(settings: DataForSeoSettings): BudgetLimits {
+  return {
+    unit: "usd",
+    session_limit: settings.session_usd_limit,
+    daily_limit: settings.daily_usd_limit,
+    warn_percent: settings.budget_warn_percent,
+  };
+}
+
+export function budgetLimitsFor(
+  provider: SeoResearchBudgetProvider,
+  contentRoot?: string,
+): BudgetLimits {
+  return provider === "dataforseo"
+    ? dataForSeoBudgetLimits(getDataForSeoSettings(contentRoot))
+    : openRushBudgetLimits(getOpenRushSettings(contentRoot));
+}
+
+/** Credits are whole numbers; USD keeps 4 decimals. */
+function normalizeCost(cost: number, unit: SeoResearchBudgetUnit): number {
+  const n = Math.max(0, Number.isFinite(cost) ? cost : 0);
+  return unit === "usd" ? Math.round(n * 10_000) / 10_000 : Math.round(n);
+}
+
 function utcDay(now = Date.now()): string {
   return new Date(now).toISOString().slice(0, 10);
 }
@@ -48,19 +107,47 @@ export function seoResearchBudgetPath(contentFolder?: string): string {
   return path.join(CACHE_DIR, folder, "seo-research-budget.json");
 }
 
+function emptyLedger(): SeoResearchLedger {
+  return { daily: {}, sessions: {} };
+}
+
+function parseLedger(raw: unknown): SeoResearchLedger {
+  if (!raw || typeof raw !== "object") return emptyLedger();
+  const o = raw as Record<string, unknown>;
+  return {
+    daily: o.daily && typeof o.daily === "object" ? (o.daily as Record<string, number>) : {},
+    sessions: o.sessions && typeof o.sessions === "object" ? (o.sessions as Record<string, number>) : {},
+  };
+}
+
+function emptyBudgetFile(): SeoResearchBudgetFile {
+  return { updated_at: "", providers: { openrush: emptyLedger(), dataforseo: emptyLedger() } };
+}
+
+/** Legacy flat files ({ daily, sessions }) are OpenRush credit ledgers. */
 export function loadSeoResearchBudget(contentFolder?: string): SeoResearchBudgetFile {
   const p = seoResearchBudgetPath(contentFolder);
-  if (!fs.existsSync(p)) return { updated_at: "", daily: {}, sessions: {} };
+  if (!fs.existsSync(p)) return emptyBudgetFile();
   try {
-    const parsed = JSON.parse(fs.readFileSync(p, "utf-8")) as SeoResearchBudgetFile;
-    if (!parsed || typeof parsed !== "object") return { updated_at: "", daily: {}, sessions: {} };
+    const parsed = JSON.parse(fs.readFileSync(p, "utf-8")) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") return emptyBudgetFile();
+    const updated_at = typeof parsed.updated_at === "string" ? parsed.updated_at : "";
+    const providers = parsed.providers as Record<string, unknown> | undefined;
+    if (providers && typeof providers === "object") {
+      return {
+        updated_at,
+        providers: {
+          openrush: parseLedger(providers.openrush),
+          dataforseo: parseLedger(providers.dataforseo),
+        },
+      };
+    }
     return {
-      updated_at: typeof parsed.updated_at === "string" ? parsed.updated_at : "",
-      daily: parsed.daily && typeof parsed.daily === "object" ? parsed.daily : {},
-      sessions: parsed.sessions && typeof parsed.sessions === "object" ? parsed.sessions : {},
+      updated_at,
+      providers: { openrush: parseLedger(parsed), dataforseo: emptyLedger() },
     };
   } catch {
-    return { updated_at: "", daily: {}, sessions: {} };
+    return emptyBudgetFile();
   }
 }
 
@@ -70,32 +157,55 @@ export function saveSeoResearchBudget(file: SeoResearchBudgetFile, contentFolder
   fs.writeFileSync(p, JSON.stringify(file), "utf-8");
 }
 
-export function budgetSnapshot(opts: {
-  contentFolder?: string;
+type LimitsInput = {
+  provider?: SeoResearchBudgetProvider;
   contentRoot?: string;
-  sessionKey: string;
-  applySessionCap: boolean;
+  /** OpenRush settings override (legacy callers / tests). */
   settings?: OpenRushSettings;
-  now?: number;
-}): SeoResearchBudgetSnapshot {
-  const settings = opts.settings ?? getOpenRushSettings(opts.contentRoot);
-  const file = loadSeoResearchBudget(opts.contentFolder);
+  limits?: BudgetLimits;
+};
+
+function resolveLimits(opts: LimitsInput): { provider: SeoResearchBudgetProvider; limits: BudgetLimits } {
+  const provider = opts.provider ?? "openrush";
+  if (opts.limits) return { provider, limits: opts.limits };
+  if (provider === "openrush" && opts.settings) {
+    return { provider, limits: openRushBudgetLimits(opts.settings) };
+  }
+  return { provider, limits: budgetLimitsFor(provider, opts.contentRoot) };
+}
+
+export function budgetSnapshot(
+  opts: LimitsInput & {
+    contentFolder?: string;
+    sessionKey: string;
+    applySessionCap: boolean;
+    now?: number;
+  },
+): SeoResearchBudgetSnapshot {
+  const { provider, limits } = resolveLimits(opts);
+  const ledger = loadSeoResearchBudget(opts.contentFolder).providers[provider];
   const day = utcDay(opts.now);
-  const daily_used = Math.max(0, Number(file.daily[day]) || 0);
-  const session_used = Math.max(0, Number(file.sessions[opts.sessionKey]) || 0);
-  const daily_limit = settings.daily_credit_limit;
-  const session_limit = settings.session_credit_limit;
-  const warn_percent = settings.budget_warn_percent;
+  const daily_used = normalizeCost(Number(ledger.daily[day]) || 0, limits.unit);
+  const session_used = normalizeCost(Number(ledger.sessions[opts.sessionKey]) || 0, limits.unit);
   return {
+    provider,
+    unit: limits.unit,
     session_used,
-    session_limit,
+    session_limit: limits.session_limit,
     daily_used,
-    daily_limit,
-    warn_percent,
-    session_pct: session_limit > 0 ? (session_used / session_limit) * 100 : 0,
-    daily_pct: daily_limit > 0 ? (daily_used / daily_limit) * 100 : 0,
+    daily_limit: limits.daily_limit,
+    warn_percent: limits.warn_percent,
+    session_pct: limits.session_limit > 0 ? (session_used / limits.session_limit) * 100 : 0,
+    daily_pct: limits.daily_limit > 0 ? (daily_used / limits.daily_limit) * 100 : 0,
     apply_session_cap: opts.applySessionCap,
   };
+}
+
+/** Remaining spend before the daily (and, for agents, session) cap. */
+export function remainingBudget(snap: SeoResearchBudgetSnapshot): number {
+  const daily = Math.max(0, snap.daily_limit - snap.daily_used);
+  if (!snap.apply_session_cap) return normalizeCost(daily, snap.unit);
+  return normalizeCost(Math.min(daily, Math.max(0, snap.session_limit - snap.session_used)), snap.unit);
 }
 
 function afterSpendPct(used: number, cost: number, limit: number): number {
@@ -103,29 +213,26 @@ function afterSpendPct(used: number, cost: number, limit: number): number {
   return ((used + cost) / limit) * 100;
 }
 
+function unitLabel(unit: SeoResearchBudgetUnit, cost: number): string {
+  return unit === "usd" ? `$${cost.toFixed(4)}` : `${cost} research credits`;
+}
+
 /**
  * Gate a paid research call. Cache hits should not call this.
  * Agents: session + daily. Staff: daily only (applySessionCap false).
  */
-export function wouldSpend(opts: {
-  contentFolder?: string;
-  contentRoot?: string;
-  sessionKey: string;
-  applySessionCap: boolean;
-  cost: number;
-  confirm?: boolean;
-  settings?: OpenRushSettings;
-  now?: number;
-}): SeoResearchBudgetGate {
-  const cost = Math.max(0, Math.round(opts.cost));
-  const snap = budgetSnapshot({
-    contentFolder: opts.contentFolder,
-    contentRoot: opts.contentRoot,
-    sessionKey: opts.sessionKey,
-    applySessionCap: opts.applySessionCap,
-    settings: opts.settings,
-    now: opts.now,
-  });
+export function wouldSpend(
+  opts: LimitsInput & {
+    contentFolder?: string;
+    sessionKey: string;
+    applySessionCap: boolean;
+    cost: number;
+    confirm?: boolean;
+    now?: number;
+  },
+): SeoResearchBudgetGate {
+  const snap = budgetSnapshot(opts);
+  const cost = normalizeCost(opts.cost, snap.unit);
 
   if (cost <= 0) return { ok: true, snapshot: snap };
 
@@ -155,7 +262,7 @@ export function wouldSpend(opts: {
       code: "confirm_seo_research_budget",
       snapshot: snap,
       message:
-        `This call would use ${cost} research credits and enter/stay in the warn band ` +
+        `This call would use about ${unitLabel(snap.unit, cost)} and enter/stay in the warn band ` +
         `(≥${warn}% of session and/or daily limit). Re-call with confirm_seo_research_budget: true.`,
     };
   }
@@ -166,21 +273,31 @@ export function wouldSpend(opts: {
 /** Success-only: increment daily + session after a paid fetch that returned usable data. */
 export function recordSpend(opts: {
   contentFolder?: string;
+  contentRoot?: string;
+  provider?: SeoResearchBudgetProvider;
   sessionKey: string;
   cost: number;
   now?: number;
 }): SeoResearchBudgetSnapshot {
-  const cost = Math.max(0, Math.round(opts.cost));
+  const provider = opts.provider ?? "openrush";
+  const unit = unitFor(provider);
+  const cost = normalizeCost(opts.cost, unit);
   const file = loadSeoResearchBudget(opts.contentFolder);
   const day = utcDay(opts.now);
   if (cost > 0) {
-    file.daily[day] = (Number(file.daily[day]) || 0) + cost;
-    file.sessions[opts.sessionKey] = (Number(file.sessions[opts.sessionKey]) || 0) + cost;
+    const ledger = file.providers[provider];
+    ledger.daily[day] = normalizeCost((Number(ledger.daily[day]) || 0) + cost, unit);
+    ledger.sessions[opts.sessionKey] = normalizeCost(
+      (Number(ledger.sessions[opts.sessionKey]) || 0) + cost,
+      unit,
+    );
     file.updated_at = new Date(opts.now ?? Date.now()).toISOString();
     saveSeoResearchBudget(file, opts.contentFolder);
   }
   return budgetSnapshot({
+    provider,
     contentFolder: opts.contentFolder,
+    contentRoot: opts.contentRoot,
     sessionKey: opts.sessionKey,
     applySessionCap: opts.sessionKey !== STAFF_BUDGET_SESSION_KEY,
     now: opts.now,

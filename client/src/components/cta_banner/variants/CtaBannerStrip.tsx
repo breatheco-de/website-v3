@@ -41,6 +41,7 @@ export function CtaBannerStrip({ data }: Props) {
           : resolvedVariant === "primary" ? "default"
           : resolvedVariant === "secondary" ? "secondary"
           : resolvedVariant === "outline" ? "outline"
+          : resolvedVariant === "accent" ? "accent"
           : "link";
         const BtnIcon = btn.icon ? (getIcon(btn.icon) ?? null) : null;
         return (

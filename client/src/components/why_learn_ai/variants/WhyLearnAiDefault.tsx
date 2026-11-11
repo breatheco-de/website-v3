@@ -43,7 +43,7 @@ export default function WhyLearnAIDefault({ data }: WhyLearnAIDefaultProps) {
             
             {data.cta && (
               <Button
-                variant={data.cta.variant === "primary" ? "default" : data.cta.variant === "outline" ? "outline" : "secondary"}
+                variant={data.cta.variant === "primary" ? "default" : data.cta.variant === "outline" ? "outline" : data.cta.variant === "accent" ? "accent" : "secondary"}
                 asChild
                 data-testid="button-why-learn-cta"
               >

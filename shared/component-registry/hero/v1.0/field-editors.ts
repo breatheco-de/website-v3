@@ -8,18 +8,26 @@
  *
  * Variant-specific fields use the format: "variantName:fieldPath"
  * Example: "productShowcase:left_images[].src" only applies to productShowcase variant
+ *
+ * "form-appearance:<role>" keys render together in the Props tab Form box
+ * (roles: shared/form-appearance.ts). Hero variants never tag `form.variant` (layout):
+ * on productShowcase one key drives both the form strip and the form card.
  */
 
 export type EditorType = string;
 
 export const fieldEditors: Record<string, EditorType> = {
-  // Global - applies to all variants that have this field
-  "signup_card.features[].icon": "icon-picker",
-  "signup_card.cta_button.text": "text-input",
-  "signup_card.cta_button.url": "link-picker",
-  "signup_card.cta_button.variant": "string-picker:primary,secondary,outline",
+  "course:signup_card.features[].icon": "icon-picker",
   "course:signup_card.cta_button": "cta-tracking",
-  "signup_card.cta_button.icon": "icon-picker",
+  "course:signup_card.title": "form-appearance:title",
+  "course:signup_card.description": "form-appearance:subtitle",
+  "course:signup_card.form.submit_label": "form-appearance:submit-label",
+  "course:signup_card.login_link.text": "form-appearance:login-link",
+  "course:signup_card.cta_button.text": "form-appearance:cta-text",
+  "course:signup_card.cta_button.url": "form-appearance:cta-url",
+  "course:signup_card.cta_button.variant": "form-appearance:cta-style",
+  "course:signup_card.cta_button.icon": "form-appearance:cta-icon",
+  "course:signup_card.form.button_variant": "form-appearance:button-style",
   "orbit:title": "rich-text-editor:custom-font-size,custom-letter-spacing,custom-line-height,custom-font-weight",
   "orbit:body": "rich-text-editor",
 
@@ -33,7 +41,7 @@ export const fieldEditors: Record<string, EditorType> = {
   "showcase:right_images[].src": "image-picker",
   "showcase:cta_button.text": "text-input",
   "showcase:cta_button.url": "link-picker",
-  "showcase:cta_button.variant": "string-picker:primary,secondary,outline" as EditorType,
+  "showcase:cta_button.variant": "string-picker:primary,secondary,outline,accent" as EditorType,
   "showcase:cta_button.icon": "icon-picker",
   "simpleTwoColumn:image": "image-with-style-picker",
   "simpleTwoColumn:title": "rich-text-editor:custom-font-size,custom-letter-spacing,custom-line-height,custom-font-weight",
@@ -50,14 +58,11 @@ export const fieldEditors: Record<string, EditorType> = {
   "course:badge.background": "color-picker",
   "course:badge.text_color": "color-picker:text",
   "course:description": "rich-text-editor",
-  "course:signup_card.login_link.text": "rich-text-editor",
   "course:video.url": "video-picker",
   "productShowcase:video.url": "video-picker",
   "simpleTwoColumn:video.url": "video-picker",
   "ApplyFormProductShowcase:video.url": "video-picker",
   "ApplyFormProductShowcase:image": "image-with-style-picker",
-  "productShowcase:form_vertical_align": "string-picker:top,center,bottom" as EditorType,
-  "ApplyFormProductShowcase:form_vertical_align": "string-picker:top,center,bottom" as EditorType,
   "productShowcase:title": "rich-text-editor:custom-font-size,custom-letter-spacing,custom-line-height,custom-font-weight",
   "productShowcase:brand_mark.prefix": "rich-text-editor",
   "productShowcase:brand_mark.highlight": "rich-text-editor",
@@ -71,18 +76,28 @@ export const fieldEditors: Record<string, EditorType> = {
   "ApplyFormProductShowcase:show_awards_marquee": "boolean-toggle",
   "productShowcase:awards_marquee.items[].logo": "image-picker:logo",
   "ApplyFormProductShowcase:awards_marquee.items[].logo": "image-picker:logo",
-  "productShowcase:form_card_background": "color-picker",
-  "ApplyFormProductShowcase:form_card_background": "color-picker",
-  "productShowcase:form_card_image": "image-with-style-picker",
-  "ApplyFormProductShowcase:form_card_image": "image-with-style-picker",
-  "productShowcase:form_card_subtitle": "rich-text-editor",
-  "productShowcase:form_card_text_color": "color-picker:text",
-  "productShowcase:form_terms_color": "color-picker",
   "productShowcase:awards_marquee_at_left_column": "boolean-toggle",
-  "ApplyFormProductShowcase:form_terms_color": "color-picker",
+  "productShowcase:form_card_title": "form-appearance:title",
+  "productShowcase:form_card_subtitle": "form-appearance:subtitle",
+  "productShowcase:form_card_image": "form-appearance:image",
+  "productShowcase:form.submit_label": "form-appearance:submit-label",
+  "productShowcase:form_card_background": "form-appearance:background",
+  "productShowcase:form_card_text_color": "form-appearance:text-color",
+  "productShowcase:form_terms_color": "form-appearance:terms-color",
+  "productShowcase:form.button_variant": "form-appearance:button-style",
+  "productShowcase:form_vertical_align": "form-appearance:vertical-align",
+  "ApplyFormProductShowcase:form_card_title": "form-appearance:title",
+  "ApplyFormProductShowcase:form_card_subtitle": "form-appearance:subtitle",
+  "ApplyFormProductShowcase:form_card_image": "form-appearance:image",
+  "ApplyFormProductShowcase:form.submit_label": "form-appearance:submit-label",
+  "ApplyFormProductShowcase:form_card_background": "form-appearance:background",
+  "ApplyFormProductShowcase:form_card_text_color": "form-appearance:text-color",
+  "ApplyFormProductShowcase:form_terms_color": "form-appearance:terms-color",
+  "ApplyFormProductShowcase:form.button_variant": "form-appearance:button-style",
+  "ApplyFormProductShowcase:form_vertical_align": "form-appearance:vertical-align",
   "ApplyFormProductShowcase:cta_button.text": "text-input",
   "ApplyFormProductShowcase:cta_button.url": "link-picker",
-  "ApplyFormProductShowcase:cta_button.variant": "string-picker:primary,secondary,outline" as EditorType,
+  "ApplyFormProductShowcase:cta_button.variant": "string-picker:primary,secondary,outline,accent" as EditorType,
   "ApplyFormProductShowcase:cta_button.icon": "icon-picker",
 
   // credibility variant
@@ -95,19 +110,20 @@ export const fieldEditors: Record<string, EditorType> = {
   "credibility:pills[].background_color": "color-picker",
   "credibility:pills_url": "link-picker",
   "productShowcase:form": "form-settings",
-  "productShowcase:form.button_variant": "string-picker:primary,secondary,outline",
   "ApplyFormProductShowcase:form": "form-settings",
-  "ApplyFormProductShowcase:form.button_variant": "string-picker:primary,secondary,outline",
   "course:signup_card.form": "form-settings",
-  "course:signup_card.form.button_variant": "string-picker:primary,secondary,outline",
 
   // exercise variant
   "exercise:description": "rich-text-editor",
   "exercise:features[].icon": "icon-picker",
   "exercise:stats[].icon": "icon-picker",
   "exercise:form": "form-settings",
-  "exercise:form.button_variant": "string-picker:primary,secondary,outline",
-  "exercise:form_card_image": "image-with-style-picker",
+  "exercise:form_card_title": "form-appearance:title",
+  "exercise:form_card_subtitle": "form-appearance:subtitle",
+  "exercise:form_card_disclaimer": "form-appearance:disclaimer",
+  "exercise:form_card_image": "form-appearance:image",
+  "exercise:form.submit_label": "form-appearance:submit-label",
+  "exercise:form.button_variant": "form-appearance:button-style",
 
   // workshop variant
   "workshop:title": "rich-text-editor:custom-font-size,custom-letter-spacing,custom-line-height,custom-font-weight",
@@ -122,7 +138,11 @@ export const fieldEditors: Record<string, EditorType> = {
   "workshop:host.socials[].url": "link-picker",
   "workshop:host.avatar_url": "image-picker",
   "workshop:form": "form-settings",
-  "workshop:form.button_variant": "string-picker:primary,secondary,outline",
+  "workshop:form_card_title": "form-appearance:title",
+  "workshop:form_card_subtitle": "form-appearance:subtitle",
+  "workshop:form_card_disclaimer": "form-appearance:disclaimer",
+  "workshop:form.submit_label": "form-appearance:submit-label",
+  "workshop:form.button_variant": "form-appearance:button-style",
   "workshop:calendar_cta": "cta-button",
   "workshop:calendar_cta.heading": "text-input",
   "workshop:calendar_cta.icon": "icon-picker",

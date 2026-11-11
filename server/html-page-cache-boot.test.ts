@@ -38,8 +38,18 @@ describe("getBootedHtmlBody", () => {
     expect(b.calls).toBe(1);
     expect(second).toBe(first);
     expect(zlib.brotliDecompressSync(first).toString("utf8")).toContain(`{"cm":"notice","t":"t1"}`);
-    expect(zlib.gunzipSync(getBootedHtmlBody(key, b, "gzip")!).toString("utf8")).toContain(`{"cm":"notice","t":"t1"}`);
-    expect(b.calls).toBe(1);
+    const gzip = getBootedHtmlBody(key, b, "gzip")!;
+    expect(zlib.gunzipSync(gzip).toString("utf8")).toContain(`{"cm":"notice","t":"t1"}`);
+    expect(getBootedHtmlBody(key, b, "gzip")).toBe(gzip);
+    expect(b.calls).toBe(2);
+  });
+
+  it("stores only the encoding that was asked for", () => {
+    const key = buildHtmlCacheKey("site", "/en/a");
+    setCachedHtml(key, HTML, 200);
+    const base = htmlPageCacheBytes();
+    const br = getBootedHtmlBody(key, boot("ask"), "br")!;
+    expect(htmlPageCacheBytes() - base).toBe(br.length);
   });
 
   it("keeps a separate body per consent mode", () => {
@@ -65,14 +75,30 @@ describe("getBootedHtmlBody", () => {
     expect(afterRollover - base).toBeGreaterThan(0);
   });
 
-  it("can push older pages out of the budget", () => {
+  it("frees boot copies before deleting any page", () => {
     const older = buildHtmlCacheKey("site", "/en/older");
     const newer = buildHtmlCacheKey("site", "/en/newer");
     setCachedHtml(older, HTML, 200);
     setCachedHtml(newer, HTML, 200);
-    const budget = htmlPageCacheBytes() + 10;
+    getBootedHtmlBody(older, boot("ask"), "br");
+    const pagesOnly = htmlPageCacheBytes() - getBootedHtmlBody(older, boot("ask"), "br")!.length;
+    setHtmlCacheBudgetForTests(pagesOnly + 10);
+    const body = getBootedHtmlBody(newer, boot("ask"), "br")!;
+    expect(zlib.brotliDecompressSync(body).toString("utf8")).toContain(`"cm":"ask"`);
+    expect(htmlPageCacheBytes()).toBeLessThanOrEqual(pagesOnly + 10);
+    expect(getCachedHtml(older)).not.toBeNull();
+    expect(getCachedHtml(newer)).not.toBeNull();
+  });
+
+  it("still deletes older pages when freeing boot copies is not enough", () => {
+    const older = buildHtmlCacheKey("site", "/en/older");
+    const newer = buildHtmlCacheKey("site", "/en/newer");
+    setCachedHtml(older, HTML, 200);
+    setCachedHtml(newer, HTML, 200);
+    const budget = htmlPageCacheBytes() - 1;
     setHtmlCacheBudgetForTests(budget);
-    getBootedHtmlBody(newer, boot("ask"), "br");
+    const body = getBootedHtmlBody(newer, boot("ask"), "br")!;
+    expect(zlib.brotliDecompressSync(body).toString("utf8")).toContain(`"cm":"ask"`);
     expect(htmlPageCacheBytes()).toBeLessThanOrEqual(budget);
     expect(getCachedHtml(older)).toBeNull();
     expect(getCachedHtml(newer)).not.toBeNull();

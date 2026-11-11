@@ -84,9 +84,10 @@ function ProfileCardItem({ profile, isRound, profileIndex }: { profile: ProfileC
             target="_blank"
             rel="noopener noreferrer"
             className="mt-2 text-muted-foreground transition-colors hover:text-foreground h-full flex items-end justify-center"
+            aria-label={`${profile.name} on LinkedIn`}
             data-testid="link-profile-linkedin"
           >
-            <Linkedin className="w-5 h-5" />
+            <Linkedin className="w-5 h-5" aria-hidden="true" />
           </a>
         )}
       </div>
@@ -126,9 +127,10 @@ function ProfileCardItem({ profile, isRound, profileIndex }: { profile: ProfileC
           target="_blank"
           rel="noopener noreferrer"
           className="mt-2 text-muted-foreground transition-colors hover:text-foreground"
+          aria-label={`${profile.name} on LinkedIn`}
           data-testid="link-profile-linkedin"
         >
-          <Linkedin className="w-5 h-5" />
+          <Linkedin className="w-5 h-5" aria-hidden="true" />
         </a>
       )}
     </div>
@@ -193,6 +195,8 @@ export default function ProfilesCarousel({ data }: ProfilesCarouselProps) {
                   "w-2.5 h-2.5 rounded-full transition-all duration-300",
                   i === currentPage ? "bg-primary scale-110" : "bg-border"
                 )}
+                aria-label={`Go to page ${i + 1}`}
+                aria-current={i === currentPage ? "true" : undefined}
                 data-testid={`button-dot-${i}`}
               />
             ))}
@@ -207,6 +211,7 @@ export default function ProfilesCarousel({ data }: ProfilesCarouselProps) {
               onClick={() => goTo(currentPage - 1)}
               disabled={currentPage === 0}
               className="flex-shrink-0"
+              aria-label="Previous page"
               data-testid="button-page-prev"
             >
               <ChevronLeft className="!w-7 !h-7" />
@@ -243,6 +248,7 @@ export default function ProfilesCarousel({ data }: ProfilesCarouselProps) {
               onClick={() => goTo(currentPage + 1)}
               disabled={currentPage === totalPages - 1}
               className="flex-shrink-0"
+              aria-label="Next page"
               data-testid="button-page-next"
             >
               <ChevronRight className="!w-7 !h-7" />

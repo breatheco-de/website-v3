@@ -52,6 +52,7 @@ describe("search_console settings.yml", () => {
       site_url: null,
       bigquery: { ...DEFAULT_SEARCH_CONSOLE_BIGQUERY },
       organic_markets: expect.any(Array),
+      research_market_defaults: { en: "usa", es: "spain" },
     });
     expect(getSearchConsoleSettings(tmp).organic_markets.some((m) => m.id === "worldwide")).toBe(
       true,

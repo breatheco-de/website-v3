@@ -98,6 +98,20 @@ describe("measurePage horizontal overflow", () => {
     expect(measure(root).filter((f) => f.code === "horizontal_overflow")).toEqual([]);
   });
 
+  it("ignores a scroll-snap track inside an overflow-x:auto container within the viewport", () => {
+    const track = new FakeEl("DIV", "track", { top: 0, right: VW + 1640, width: VW + 1640, height: 300 });
+    const scroller = new FakeEl("DIV", "scroller", { top: 0, right: VW, width: VW, height: 300 }, { overflowX: "auto" }).add(track);
+    const root = new FakeEl("DIV", "root", { top: 0, right: VW, width: VW, height: 500 }).add(section(0, "syllabus", 400, scroller));
+    expect(measure(root).filter((f) => f.code === "horizontal_overflow")).toEqual([]);
+  });
+
+  it("flags a scroll container that itself sticks out of the viewport", () => {
+    const track = new FakeEl("DIV", "track", { top: 0, right: VW + 200, width: VW + 200, height: 300 });
+    const scroller = new FakeEl("DIV", "scroller", { top: 0, right: VW + 40, width: VW + 40, height: 300 }, { overflowX: "auto" }).add(track);
+    const root = new FakeEl("DIV", "root", { top: 0, right: VW, width: VW, height: 500 }).add(section(0, "syllabus", 400, scroller));
+    expect(measure(root)).toContainEqual(expect.objectContaining({ code: "horizontal_overflow", section_path: "sections[0]" }));
+  });
+
   it("flags an unclipped child that sticks out of the viewport", () => {
     const wide = new FakeEl("DIV", "wide", { top: 0, right: VW + 50, width: VW + 50, height: 100 });
     const root = new FakeEl("DIV", "root", { top: 0, right: VW, width: VW, height: 500 }).add(section(0, "hero", 400, wide));

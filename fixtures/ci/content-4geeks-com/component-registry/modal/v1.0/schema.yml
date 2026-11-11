@@ -1006,6 +1006,7 @@ variant_props:
             - primary
             - secondary
             - outline
+            - accent
         terms_className:
           type: string
           required: false
@@ -1093,6 +1094,7 @@ variant_props:
                 - primary
                 - secondary
                 - outline
+                - accent
             icon:
               type: string
               required: false
@@ -1186,6 +1188,7 @@ variant_props:
                 - primary
                 - secondary
                 - outline
+                - accent
             icon:
               type: string
               required: false

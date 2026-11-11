@@ -48,7 +48,7 @@ export const modalCtaSchema = z.object({
     .string()
     .optional()
     .describe("Link target for a plain CTA. Omit when using items dropdown."),
-  variant: z.enum(["primary", "secondary", "outline"]).optional(),
+  variant: z.enum(["primary", "secondary", "outline", "accent"]).optional(),
   icon: z.string().optional(),
   items: z
     .array(

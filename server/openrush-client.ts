@@ -42,6 +42,18 @@ export function isOpenRushConfigured(contentRoot?: string): boolean {
   return Boolean(settings.enabled && getOpenRushApiKey());
 }
 
+/** Research market (location + language strings). Omitted → OpenRush settings location/language. */
+export type OpenRushMarket = { location: string; language: string };
+
+function marketOrSettings(market: OpenRushMarket | undefined, contentRoot?: string): OpenRushMarket {
+  if (market?.location && market?.language) return market;
+  const settings = getOpenRushSettings(contentRoot);
+  return {
+    location: settings.location || "United States",
+    language: settings.language || "English",
+  };
+}
+
 export type ParsedInspectSerp = {
   organic: OpenRushOrganicHit[];
   featured_snippet_url: string | null;
@@ -97,6 +109,7 @@ export async function inspectSerpQuery(opts: {
   contentFolder?: string;
   targetUrl?: string;
   ourHosts?: Set<string>;
+  market?: OpenRushMarket;
 }): Promise<InspectSerpResult> {
   const query = opts.query.trim();
   if (!query) return { ok: false, error: "query is required" };
@@ -104,6 +117,7 @@ export async function inspectSerpQuery(opts: {
   if (!key) return { ok: false, error: "OPENRUSH_API_KEY is not set" };
   const settings = getOpenRushSettings(opts.contentRoot);
   if (!settings.enabled) return { ok: false, error: "OpenRush is disabled in settings" };
+  const { location, language } = marketOrSettings(opts.market, opts.contentRoot);
 
   const depth = Math.min(100, Math.max(10, settings.serp_top_n || 20));
   try {
@@ -115,8 +129,8 @@ export async function inspectSerpQuery(opts: {
       },
       body: JSON.stringify({
         query,
-        location: settings.location || "United States",
-        language: settings.language || "English",
+        location,
+        language,
         depth,
       }),
     });
@@ -132,8 +146,6 @@ export async function inspectSerpQuery(opts: {
     const parsed = parseInspectSerpData(data);
     const target = opts.targetUrl || "";
     const ourRank = target ? rankOfUrlInOrganic(target, parsed.organic) : findOurRank(parsed.organic, opts.ourHosts);
-    const location = settings.location || "United States";
-    const language = settings.language || "English";
     const entry: OpenRushSerpEntry = {
       query,
       fetched_at: new Date().toISOString(),
@@ -215,6 +227,7 @@ export async function inspectKeywordQuery(opts: {
   keyword: string;
   contentRoot?: string;
   contentFolder?: string;
+  market?: OpenRushMarket;
 }): Promise<InspectKeywordResult> {
   const keyword = opts.keyword.trim();
   if (!keyword) return { ok: false, error: "keyword is required" };
@@ -225,8 +238,7 @@ export async function inspectKeywordQuery(opts: {
     return { ok: false, error: "OpenRush is disabled in settings", fatal: true };
   }
 
-  const location = settings.location || "United States";
-  const language = settings.language || "English";
+  const { location, language } = marketOrSettings(opts.market, opts.contentRoot);
 
   try {
     const res = await fetch(OPENRUSH_KEYWORD_URL, {
@@ -265,6 +277,8 @@ export async function inspectKeywordQuery(opts: {
         kw_difficulty: metrics.kw_difficulty,
         kw_difficulty_source: metrics.kw_difficulty_source,
         competition_level: metrics.competition_level,
+        provider: "openrush",
+        difficulty_checked: true,
         payload: dataRec,
       },
       opts.contentFolder,
@@ -411,12 +425,11 @@ export async function researchKeywordsQuery(opts: {
   limit?: number;
   min_volume?: number;
   intent?: string;
+  market?: OpenRushMarket;
 }): Promise<ResearchKeywordsResult> {
   const seed = opts.seed.trim();
   if (!seed) return { ok: false, error: "seed is required" };
-  const settings = getOpenRushSettings(opts.contentRoot);
-  const location = settings.location || "United States";
-  const language = settings.language || "English";
+  const { location, language } = marketOrSettings(opts.market, opts.contentRoot);
   const body: Record<string, unknown> = {
     seed,
     location,
@@ -452,16 +465,17 @@ export async function discoverCompetitorsQuery(opts: {
   domain?: string;
   seed_keywords?: string[];
   limit?: number;
+  market?: OpenRushMarket;
 }): Promise<DiscoverCompetitorsResult> {
   const domain = opts.domain?.trim() || "";
   const seeds = (opts.seed_keywords || []).map((s) => s.trim()).filter(Boolean);
   if (!domain && seeds.length === 0) {
     return { ok: false, error: "domain or seed_keywords is required" };
   }
-  const settings = getOpenRushSettings(opts.contentRoot);
+  const { location, language } = marketOrSettings(opts.market, opts.contentRoot);
   const body: Record<string, unknown> = {
-    location: settings.location || "United States",
-    language: settings.language || "English",
+    location,
+    language,
     limit: opts.limit ?? 10,
   };
   if (domain) body.domain = domain;
@@ -492,19 +506,20 @@ export async function compareKeywordCoverageQuery(opts: {
   domain: string;
   competitors: string[];
   limit?: number;
+  market?: OpenRushMarket;
 }): Promise<CompareKeywordCoverageResult> {
   const domain = opts.domain.trim();
   const competitors = opts.competitors.map((c) => c.trim()).filter(Boolean);
   if (!domain) return { ok: false, error: "domain is required" };
   if (competitors.length === 0) return { ok: false, error: "competitors is required" };
-  const settings = getOpenRushSettings(opts.contentRoot);
+  const { location, language } = marketOrSettings(opts.market, opts.contentRoot);
   const res = await openRushPost(
     OPENRUSH_COMPARE_KEYWORD_COVERAGE_URL,
     {
       domain,
       competitors,
-      location: settings.location || "United States",
-      language: settings.language || "English",
+      location,
+      language,
       limit: opts.limit ?? 50,
     },
     opts.contentRoot,

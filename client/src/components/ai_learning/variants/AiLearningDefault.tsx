@@ -301,7 +301,7 @@ function AILearningFeatureTabs({ data }: { data: AiLearningFeatureTabsSection })
                   
                   {displayedFeature.cta && (
                     <Button
-                      variant={displayedFeature.cta.variant === "primary" ? "default" : displayedFeature.cta.variant === "outline" ? "outline" : "secondary"}
+                      variant={displayedFeature.cta.variant === "primary" ? "default" : displayedFeature.cta.variant === "outline" ? "outline" : displayedFeature.cta.variant === "accent" ? "accent" : "secondary"}
                       asChild
                       data-testid="button-feature-cta"
                     >
@@ -375,7 +375,7 @@ function AILearningHighlight({ data }: { data: AiLearningHighlightSection }) {
             
             {data.cta && (
               <Button
-                variant={data.cta.variant === "primary" ? "default" : data.cta.variant === "outline" ? "outline" : "secondary"}
+                variant={data.cta.variant === "primary" ? "default" : data.cta.variant === "outline" ? "outline" : data.cta.variant === "accent" ? "accent" : "secondary"}
                 asChild
                 data-testid="button-highlight-cta"
               >

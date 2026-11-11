@@ -19,7 +19,7 @@ interface CommunityGroup {
   button?: {
     text: string;
     url: string;
-    variant?: "primary" | "secondary" | "outline";
+    variant?: "primary" | "secondary" | "outline" | "accent";
   };
 }
 

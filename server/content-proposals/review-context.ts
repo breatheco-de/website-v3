@@ -52,6 +52,9 @@ import {
 import { reviewIdeaContentTypes, type IdeaContentTypeStrategy } from "./idea-content-type";
 import {
   IDEA_SEO_TARGET_METRICS_MISSING_WARN,
+  IDEA_SEO_TARGET_MARKET_MISSING_WARN,
+  IDEA_SEO_TARGET_MARKET_NOT_DEFAULT_WARN,
+  ideaTargetLocale,
   IDEA_SEO_TARGET_MISSING_WARN,
   describeIdeaSeoTarget,
   ideaSeoTargetComplete,
@@ -250,6 +253,8 @@ export type ClassifyProposalReviewOpts = {
   lookups: EntryExistenceLookup[];
   /** Content type has SEO monitoring on. Absent → no idea_seo_target_missing warning. */
   ideaSeoTargetMonitored?: (contentType: string) => boolean;
+  /** Page locale → default keyword research market id (absent → no non-default market flag). */
+  ideaResearchDefaultMarket?: (locale: string) => string | null;
   /** Edits implementing an idea: that idea's locked keyword + cluster. */
   implementedIdeaSeoTarget?: IdeaSeoTarget | null;
   /** Edits implementing an idea: the language address it locked ({ locale, url_slug }). */
@@ -922,6 +927,32 @@ export function classifyProposalReview(opts: ClassifyProposalReviewOpts): Review
           code: IDEA_SEO_TARGET_METRICS_MISSING_WARN,
           message:
             "idea_seo_target has no kw_monthly_volume and/or kw_difficulty. Accept still works. Reviewer: add_blocker asking the author to copy both numbers from their keyword research into set_idea_seo_target (volume claimed only in the brief text is not enough). Metrics stay on the idea and are not written to the page.",
+        });
+      }
+      const target = proposal.idea_seo_target;
+      const hasAnyMetric = target.kw_monthly_volume != null || target.kw_difficulty != null;
+      if (hasAnyMetric && !target.market) {
+        warnings.push({
+          code: IDEA_SEO_TARGET_MARKET_MISSING_WARN,
+          message:
+            "idea_seo_target has keyword numbers but no market, so nobody can tell which country they describe. Accept still works. Reviewer: add_blocker asking the author to set idea_seo_target.market (spain, usa, mexico, …) to the market their research ran in.",
+        });
+      }
+      const targetLocale = ideaTargetLocale({
+        acceptedLocale: proposal.accepted_entry?.locale,
+        relatedLocales: relatedWithEx.filter((r) => r.existence === "missing").map((r) => r.locale),
+        target,
+      });
+      const defaultMarket =
+        target.market && targetLocale && opts.ideaResearchDefaultMarket
+          ? opts.ideaResearchDefaultMarket(targetLocale)
+          : null;
+      if (target.market && defaultMarket && target.market !== defaultMarket) {
+        warnings.push({
+          code: IDEA_SEO_TARGET_MARKET_NOT_DEFAULT_WARN,
+          message:
+            `idea_seo_target numbers are from market "${target.market}", but ${targetLocale} pages default to "${defaultMarket}". Not blocking. ` +
+            "Reviewer: judge whether the brief justifies that market; if not, ask for numbers from the default market.",
         });
       }
     }

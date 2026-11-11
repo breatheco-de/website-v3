@@ -24,6 +24,56 @@ export const OPENRUSH_FETCH_CREDITS = {
 
 export type OpenRushFetchKind = keyof typeof OPENRUSH_FETCH_CREDITS;
 
+/** Keyword metrics provider (server keyword_metrics.keyword_provider). */
+export type KeywordMetricsProvider = "openrush" | "dataforseo";
+
+/** Mirror server DataForSEO keyword_overview estimate for one keyword (task + keyword). */
+export const DATAFORSEO_KEYWORD_USD = 0.0101;
+
+export function keywordProviderLabel(provider: KeywordMetricsProvider | null | undefined): string {
+  return provider === "dataforseo" ? "DataForSEO" : "OpenRush";
+}
+
+export function DataForSeoBalanceLine({
+  cost,
+  balance,
+  loading,
+  error,
+}: {
+  cost: number;
+  balance: number | null;
+  loading: boolean;
+  error: boolean;
+}) {
+  if (loading) {
+    return (
+      <p className="text-xs text-muted-foreground flex items-center gap-1.5" data-testid="text-dataforseo-balance-loading">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading DataForSEO balance…
+      </p>
+    );
+  }
+  if (error || balance == null) {
+    return (
+      <p className="text-xs text-muted-foreground" data-testid="text-dataforseo-balance-unavailable">
+        DataForSEO balance could not be loaded.
+      </p>
+    );
+  }
+  const after = balance - cost;
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="text-dataforseo-balance-line">
+      Account balance:{" "}
+      <span className="font-medium text-foreground tabular-nums">${balance.toFixed(2)}</span>
+      {" → "}
+      <span className={cn("font-medium tabular-nums", after < 0 ? "text-destructive" : "text-foreground")}>
+        ${after.toFixed(2)}
+      </span>{" "}
+      after this request.
+    </p>
+  );
+}
+
 const KIND_COPY: Record<
   OpenRushFetchKind,
   {
@@ -36,7 +86,7 @@ const KIND_COPY: Record<
   keyword: {
     confirmTitle: "Refresh keyword metrics?",
     inactiveBody:
-      "Turn on OpenRush in Settings to refresh keyword volume and difficulty automatically from OpenRush. Until then, saved YAML estimates may not be recent.",
+      "Turn on DataForSEO or OpenRush in Settings → SEO/GEO to refresh keyword volume and difficulty automatically. Until then, saved YAML estimates may not be recent.",
     confirmBody: (queryLabel, credits, fetchedAge) => (
       <>
         This fetches volume and difficulty for{" "}
@@ -96,6 +146,10 @@ export type OpenRushFetchControlProps = {
   "data-testid"?: string;
   dialogTestId?: string;
   title?: string;
+  /** keyword kind only: which provider a refresh calls (default OpenRush). */
+  provider?: KeywordMetricsProvider | null;
+  /** keyword kind only: market label the refresh uses (e.g. "Spain"). */
+  marketLabel?: string | null;
 };
 
 export function OpenRushCreditsLine({
@@ -157,16 +211,44 @@ export function OpenRushFetchControl({
   "data-testid": dataTestId,
   dialogTestId,
   title,
+  provider,
+  marketLabel,
 }: OpenRushFetchControlProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const copy = KIND_COPY[kind];
   const credits = OPENRUSH_FETCH_CREDITS[kind];
   const fetchedAge = formatOpenRushFetchedAge(fetchedAt, stale);
+  const viaDataForSeo = kind === "keyword" && provider === "dataforseo";
+  const providerName = kind === "keyword" ? keywordProviderLabel(provider) : "OpenRush";
   const defaultTitle = openrushConfigured
     ? kind === "keyword"
-      ? "Refresh volume & difficulty from OpenRush"
+      ? `Refresh volume & difficulty from ${providerName}`
       : "Request SERP snapshot from OpenRush"
-    : "OpenRush must be active to refresh";
+    : kind === "keyword"
+      ? "Keyword research must be active to refresh"
+      : "OpenRush must be active to refresh";
+
+  const {
+    data: balanceData,
+    isFetching: balanceLoading,
+    isError: balanceError,
+  } = useQuery<{ ok: boolean; balance_usd: number | null }>({
+    queryKey: ["/api/seo/dataforseo/balance"],
+    enabled: confirmOpen && openrushConfigured && viaDataForSeo,
+    staleTime: 30_000,
+    retry: false,
+    queryFn: async () => {
+      const res = await fetch("/api/seo/dataforseo/balance", {
+        credentials: "include",
+        headers: getSessionHeaders(),
+      });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; balance_usd?: number | null; error?: string };
+      if (!res.ok || body.ok === false) {
+        throw new Error(body.error || "Could not load DataForSEO balance");
+      }
+      return { ok: true, balance_usd: typeof body.balance_usd === "number" ? body.balance_usd : null };
+    },
+  });
 
   const {
     data: creditsData,
@@ -174,7 +256,7 @@ export function OpenRushFetchControl({
     isError: creditsError,
   } = useQuery<{ ok: boolean; balance: number | null }>({
     queryKey: ["/api/seo/openrush/credits"],
-    enabled: confirmOpen && openrushConfigured,
+    enabled: confirmOpen && openrushConfigured && !viaDataForSeo,
     staleTime: 30_000,
     retry: false,
     queryFn: async () => {
@@ -222,7 +304,7 @@ export function OpenRushFetchControl({
         ) : (
           <Download className="h-3 w-3" />
         )}
-        <span className="text-[9px] leading-none font-medium">OpenRush</span>
+        <span className="text-[9px] leading-none font-medium">{providerName}</span>
         {fetchedAge ? (
           <span className="text-[9px] leading-none tabular-nums">{fetchedAge}</span>
         ) : null}
@@ -232,11 +314,37 @@ export function OpenRushFetchControl({
         <AlertDialogContent data-testid={dialogTestId ?? `dialog-openrush-fetch-${kind}`}>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {openrushConfigured ? copy.confirmTitle : "OpenRush is not active"}
+              {openrushConfigured
+                ? copy.confirmTitle
+                : kind === "keyword"
+                  ? "Keyword research is not active"
+                  : "OpenRush is not active"}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm text-muted-foreground">
-                {openrushConfigured ? (
+                {openrushConfigured && viaDataForSeo ? (
+                  <>
+                    <div>
+                      This fetches volume and ranking difficulty for{" "}
+                      <span className="font-medium text-foreground">{queryLabel || "this keyword"}</span> from
+                      DataForSEO{marketLabel ? <> in <span className="font-medium text-foreground">{marketLabel}</span></> : null}{" "}
+                      and updates the shared keyword cache (not the page YAML). It costs about{" "}
+                      <span className="font-medium text-foreground">${DATAFORSEO_KEYWORD_USD.toFixed(2)}</span>.
+                      {fetchedAge ? (
+                        <>
+                          {" "}
+                          Current cache age: <span className="font-medium text-foreground">{fetchedAge}</span>.
+                        </>
+                      ) : null}
+                    </div>
+                    <DataForSeoBalanceLine
+                      cost={DATAFORSEO_KEYWORD_USD}
+                      balance={balanceData?.balance_usd ?? null}
+                      loading={balanceLoading}
+                      error={balanceError}
+                    />
+                  </>
+                ) : openrushConfigured ? (
                   <>
                     <div>{copy.confirmBody(queryLabel || "this keyword", credits, fetchedAge)}</div>
                     <OpenRushCreditsLine

@@ -43,9 +43,12 @@ import {
 } from "@shared/authConversionEvents";
 import {
   DEFAULT_ORGANIC_MARKETS,
+  DEFAULT_RESEARCH_MARKET_DEFAULTS,
   parseOrganicMarkets,
+  parseResearchMarketDefaults,
   serializeOrganicMarkets,
   type OrganicMarket,
+  type ResearchMarketDefaults,
 } from "./gsc-organic-markets";
 
 export type { AuthSignupFieldMapEntry };
@@ -456,8 +459,10 @@ export const DEFAULT_SEARCH_CONSOLE_BIGQUERY: SearchConsoleBigQuerySettings = {
 export interface SearchConsoleSettings {
   site_url: string | null;
   bigquery: SearchConsoleBigQuerySettings;
-  /** Cluster Map organic markets (GSC country codes on day-cache rows). */
+  /** Cluster Map organic markets (GSC country codes on day-cache rows); also keyword research markets. */
   organic_markets: OrganicMarket[];
+  /** Page locale → country market id for keyword research when the caller names none. */
+  research_market_defaults: ResearchMarketDefaults;
 }
 
 export const DEFAULT_SEARCH_CONSOLE_SETTINGS: SearchConsoleSettings = {
@@ -467,6 +472,7 @@ export const DEFAULT_SEARCH_CONSOLE_SETTINGS: SearchConsoleSettings = {
     ...m,
     countries: [...m.countries],
   })),
+  research_market_defaults: { ...DEFAULT_RESEARCH_MARKET_DEFAULTS },
 };
 
 /** IndexNow notices (Bing and other IndexNow engines). The key is public by design. */
@@ -552,6 +558,51 @@ export function parseOpenRushSettings(
       1,
       1_000_000,
     ),
+    budget_warn_percent: clampPositiveInt(
+      o.budget_warn_percent,
+      defaults.budget_warn_percent,
+      1,
+      99,
+    ),
+  };
+}
+
+/** DataForSEO keyword metrics (non-secret). Login/password stay in DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD. */
+export interface DataForSeoSettings {
+  enabled: boolean;
+  /** Shared daily spend cap in USD (staff + agents). */
+  daily_usd_limit: number;
+  /** Agent session spend cap in USD (agents only). */
+  session_usd_limit: number;
+  /** Warn band start as percent of limit (1–99); confirm required until 100%. */
+  budget_warn_percent: number;
+}
+
+export const DEFAULT_DATAFORSEO_SETTINGS: DataForSeoSettings = {
+  enabled: false,
+  daily_usd_limit: 2,
+  session_usd_limit: 0.5,
+  budget_warn_percent: 80,
+};
+
+function clampUsd(raw: unknown, fallback: number, min: number, max: number): number {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.round(Math.min(max, Math.max(min, n)) * 100) / 100;
+}
+
+export function parseDataForSeoSettings(
+  raw: unknown,
+  defaults: DataForSeoSettings = DEFAULT_DATAFORSEO_SETTINGS,
+): DataForSeoSettings {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { ...defaults };
+  }
+  const o = raw as Record<string, unknown>;
+  return {
+    enabled: typeof o.enabled === "boolean" ? o.enabled : defaults.enabled,
+    daily_usd_limit: clampUsd(o.daily_usd_limit, defaults.daily_usd_limit, 0.01, 10_000),
+    session_usd_limit: clampUsd(o.session_usd_limit, defaults.session_usd_limit, 0.01, 10_000),
     budget_warn_percent: clampPositiveInt(
       o.budget_warn_percent,
       defaults.budget_warn_percent,
@@ -877,6 +928,7 @@ export function parseSearchConsoleSettings(raw: unknown): SearchConsoleSettings 
     site_url: siteUrl,
     bigquery: parseSearchConsoleBigQuerySettings(obj.bigquery),
     organic_markets: parseOrganicMarkets(obj.organic_markets),
+    research_market_defaults: parseResearchMarketDefaults(obj.research_market_defaults),
   };
 }
 
@@ -900,6 +952,7 @@ function writeSearchConsoleBlock(
   const block: Record<string, unknown> = {
     bigquery: serializeSearchConsoleBigQuery(sc.bigquery),
     organic_markets: serializeOrganicMarkets(sc.organic_markets),
+    research_market_defaults: { ...sc.research_market_defaults },
   };
   if (sc.site_url) {
     block.site_url = sc.site_url;
@@ -975,6 +1028,7 @@ interface SiteSettings {
   search_console: SearchConsoleSettings;
   indexnow: IndexNowSettings;
   openrush: OpenRushSettings;
+  dataforseo: DataForSeoSettings;
   funnel: FunnelSettings;
   proposals: ProposalSettings;
   auth: AuthSettings;
@@ -1106,6 +1160,7 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
     search_console: { ...DEFAULT_SEARCH_CONSOLE_SETTINGS },
     indexnow: { ...DEFAULT_INDEXNOW_SETTINGS },
     openrush: { ...DEFAULT_OPENRUSH_SETTINGS },
+    dataforseo: { ...DEFAULT_DATAFORSEO_SETTINGS },
     funnel: { ...DEFAULT_FUNNEL_SETTINGS },
     proposals: {
       withdraw: { ...DEFAULT_PROPOSAL_SETTINGS.withdraw },
@@ -1332,6 +1387,7 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
       search_console: parseSearchConsoleSettings(parsed.search_console),
       indexnow: parseIndexNowSettings(parsed.indexnow),
       openrush: parseOpenRushSettings(parsed.openrush),
+      dataforseo: parseDataForSeoSettings(parsed.dataforseo),
       funnel: parseFunnelSettings(parsed.funnel),
       proposals: parseProposalSettings(parsed.proposals),
       auth,
@@ -1707,6 +1763,10 @@ export function getIndexNowSettings(contentRoot?: string): IndexNowSettings {
 
 export function getOpenRushSettings(contentRoot?: string): OpenRushSettings {
   return loadSettings(contentRoot).openrush;
+}
+
+export function getDataForSeoSettings(contentRoot?: string): DataForSeoSettings {
+  return loadSettings(contentRoot).dataforseo;
 }
 
 export function getFunnelSettings(contentRoot?: string): FunnelSettings {
@@ -2179,6 +2239,7 @@ export function updateSearchConsoleBigQuerySettings(
 export function updateSearchConsoleOrganicMarkets(
   input: unknown,
   contentRoot?: string,
+  researchDefaults?: unknown,
 ): SearchConsoleSettings {
   const settingsPath = getSettingsPath(contentRoot);
   let existing: Record<string, unknown> = {};
@@ -2191,14 +2252,19 @@ export function updateSearchConsoleOrganicMarkets(
 
   const current = parseSearchConsoleSettings(existing.search_console);
   const organic_markets = parseOrganicMarkets(input);
-  const updated: SearchConsoleSettings = { ...current, organic_markets };
+  const research_market_defaults =
+    researchDefaults === undefined
+      ? current.research_market_defaults
+      : parseResearchMarketDefaults(researchDefaults);
+  const updated: SearchConsoleSettings = { ...current, organic_markets, research_market_defaults };
   writeSearchConsoleBlock(existing, updated);
 
   const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
   fs.writeFileSync(settingsPath, output, "utf-8");
   resetSettings(resolveSettingsRoot(contentRoot));
   log.info(
-    `[Settings] Updated search_console.organic_markets count=${organic_markets.length}`,
+    `[Settings] Updated search_console.organic_markets count=${organic_markets.length} ` +
+      `research_defaults=${JSON.stringify(research_market_defaults)}`,
   );
   return updated;
 }
@@ -2345,6 +2411,38 @@ export function updateOpenRushSettings(
   log.info(
     `[Settings] Updated openrush enabled=${merged.enabled} serp_top_n=${merged.serp_top_n} ` +
       `session=${merged.session_credit_limit} daily=${merged.daily_credit_limit} warn%=${merged.budget_warn_percent}`,
+  );
+  return merged;
+}
+
+export function updateDataForSeoSettings(
+  input: Partial<DataForSeoSettings>,
+  contentRoot?: string,
+): DataForSeoSettings {
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {}
+  }
+
+  const current = parseDataForSeoSettings(existing.dataforseo);
+  const merged = parseDataForSeoSettings({ ...current, ...input }, DEFAULT_DATAFORSEO_SETTINGS);
+  existing.dataforseo = {
+    enabled: merged.enabled,
+    daily_usd_limit: merged.daily_usd_limit,
+    session_usd_limit: merged.session_usd_limit,
+    budget_warn_percent: merged.budget_warn_percent,
+  };
+
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  log.info(
+    `[Settings] Updated dataforseo enabled=${merged.enabled} daily_usd=${merged.daily_usd_limit} ` +
+      `session_usd=${merged.session_usd_limit} warn%=${merged.budget_warn_percent}`,
   );
   return merged;
 }

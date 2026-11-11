@@ -628,7 +628,13 @@ function BenefitCardsVariant({ data }: TwoColumnProps) {
               <div className="mt-auto">
                 <a href={data.cta_button.url || "#"} onClick={handleLinkClick}>
                   <Button 
-                    variant={data.cta_button.variant === "outline" ? "outline" : "default"}
+                    variant={
+                      data.cta_button.variant === "outline"
+                        ? "outline"
+                        : data.cta_button.variant === "accent"
+                          ? "accent"
+                          : "default"
+                    }
                     size="lg"
                     data-testid="button-benefit-cards-cta"
                   >

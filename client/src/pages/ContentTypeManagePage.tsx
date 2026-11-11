@@ -6758,7 +6758,15 @@ export default function ContentTypeManagePage() {
     },
     staleTime: 60_000,
   });
-  const openrushConfigured = openrushSettings?.configured === true;
+  const { data: dataForSeoSettings } = useQuery<{ configured: boolean }>({
+    queryKey: ["/api/settings/dataforseo"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/settings/dataforseo");
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
+  const openrushConfigured = openrushSettings?.configured === true || dataForSeoSettings?.configured === true;
 
   const { data: entryPreviewQueueData } = useQuery<{
     configError: string | null;
@@ -11400,6 +11408,7 @@ export default function ContentTypeManagePage() {
               contentType,
               items: selectedSeoPairList,
               preview: false,
+              confirm_cost: true,
             });
             const body = await res.json().catch(() => ({}));
             if (!res.ok) {
@@ -11410,22 +11419,37 @@ export default function ContentTypeManagePage() {
               );
             }
             const data = body as {
+              provider?: "openrush" | "dataforseo" | null;
               keywords_fetched?: number;
               skipped_no_keyword?: number;
               skipped_already_fresh?: number;
               failed?: number;
               aborted?: number;
               credits_spent?: number;
+              usd_spent?: number;
+              stopped_at_cap?: boolean;
+              keywords_not_refreshed?: string[];
             };
+            const spent =
+              data.provider === "dataforseo"
+                ? data.usd_spent != null
+                  ? `($${data.usd_spent.toFixed(2)})`
+                  : null
+                : data.credits_spent != null
+                  ? `(${data.credits_spent} credits)`
+                  : null;
             toast({
-              title: "Keyword metrics updated",
+              title: data.stopped_at_cap ? "Stopped at the daily limit" : "Keyword metrics updated",
               description: [
+                data.stopped_at_cap
+                  ? `${data.keywords_not_refreshed?.length ?? 0} keyword(s) left — raise the limit or run again tomorrow`
+                  : null,
                 `Fetched ${data.keywords_fetched ?? 0}`,
                 `skipped no keyword ${data.skipped_no_keyword ?? 0}`,
                 `skipped fresh ${data.skipped_already_fresh ?? 0}`,
                 `failed ${data.failed ?? 0}`,
                 data.aborted ? `aborted ${data.aborted}` : null,
-                data.credits_spent != null ? `(${data.credits_spent} credits)` : null,
+                spent,
               ]
                 .filter(Boolean)
                 .join(" · "),
@@ -11445,6 +11469,7 @@ export default function ContentTypeManagePage() {
             });
             void queryClient.invalidateQueries({ queryKey: ["/api/seo/keyword-owners"] });
             void queryClient.invalidateQueries({ queryKey: ["/api/seo/openrush/credits"] });
+            void queryClient.invalidateQueries({ queryKey: ["/api/seo/dataforseo/balance"] });
           }
         }}
       />

@@ -3,7 +3,7 @@
  * SEO research on → reject YAML (use get_or_refresh_seo_research). Off → require provenance.
  */
 
-import { isOpenRushConfigured } from "../../server/openrush-client.js";
+import { isSeoResearchConfigured } from "../../server/seo-research-providers.js";
 import type { NextAction } from "./respond.js";
 
 export const SEO_KW_VOLUME = "seo.kw_monthly_volume";
@@ -81,7 +81,7 @@ export function seoResearchWriteGate(opts: {
   }
 
   const siteArg = opts.site ? { site: opts.site } : {};
-  const researchOn = isOpenRushConfigured(opts.contentRoot);
+  const researchOn = isSeoResearchConfigured("keyword_metrics", opts.contentRoot);
 
   if (researchOn) {
     return {

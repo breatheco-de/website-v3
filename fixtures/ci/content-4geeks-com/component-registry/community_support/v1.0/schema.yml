@@ -80,6 +80,7 @@ props:
               - primary
               - secondary
               - outline
+              - accent
   footer_description:
     type: string
     required: false

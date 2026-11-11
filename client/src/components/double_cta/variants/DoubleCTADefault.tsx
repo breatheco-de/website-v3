@@ -241,7 +241,9 @@ function CTABox({
                   ? "secondary"
                   : box.cta_variant === "outline"
                     ? "outline"
-                    : "default"
+                    : box.cta_variant === "accent"
+                      ? "accent"
+                      : "default"
               }
               data-testid={`${testId}-cta`}
             >

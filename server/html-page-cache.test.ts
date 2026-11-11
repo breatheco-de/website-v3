@@ -1,7 +1,8 @@
+import crypto from "crypto";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { describe, expect, it, beforeEach } from "vitest";
+import { afterEach, describe, expect, it, beforeEach, vi } from "vitest";
 import {
   buildHtmlCacheKey,
   canonicalHtmlCachePath,
@@ -11,6 +12,7 @@ import {
   listStoredHtmlCacheKeys,
   htmlLooksPersonalized,
   invalidateHtmlPageCache,
+  rehydrateHtmlPageCache,
   setHtmlCacheClockForTests,
   requestBakesQueryParamTemplate,
   resetHtmlPageCacheForTests,
@@ -220,6 +222,80 @@ describe("html page store", () => {
     expect(listStoredHtmlCacheKeys("site")).toContain(key);
     expect(listStoredHtmlCacheKeys("other")).not.toContain(key);
     invalidateHtmlPageCache();
+  });
+
+  describe("listing stored keys", () => {
+    const dir = () => path.join(os.tmpdir(), `website-v3-html-cache-${process.pid}`, "scanbuild");
+    const writeWorkerFile = (key: string) => {
+      const name = `${crypto.createHash("sha256").update(key).digest("hex")}.json`;
+      fs.mkdirSync(dir(), { recursive: true });
+      fs.writeFileSync(path.join(dir(), name), JSON.stringify({ v: 1, buildId: "scanbuild", key, br: "", gzip: "" }));
+      return path.join(dir(), name);
+    };
+
+    beforeEach(() => {
+      setHtmlBuildIdForTests("scanbuild");
+      invalidateHtmlPageCache();
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      invalidateHtmlPageCache();
+    });
+
+    it("reads each file once across listings", () => {
+      writeWorkerFile(buildHtmlCacheKey("site", "/en/a"));
+      writeWorkerFile(buildHtmlCacheKey("site", "/en/b"));
+      const read = vi.spyOn(fs, "readFileSync");
+      expect(listStoredHtmlCacheKeys("site")).toHaveLength(2);
+      expect(read).toHaveBeenCalledTimes(2);
+      read.mockClear();
+      expect(listStoredHtmlCacheKeys("site")).toHaveLength(2);
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it("does not read a file this process wrote", () => {
+      const key = buildHtmlCacheKey("site", "/en/own");
+      setCachedHtml(key, "<html><body>Own</body></html>", 200);
+      dropHtmlCacheMemoryForTests();
+      const read = vi.spyOn(fs, "readFileSync");
+      expect(listStoredHtmlCacheKeys("site")).toEqual([key]);
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it("picks up a file written after the last listing", () => {
+      const first = buildHtmlCacheKey("site", "/en/first");
+      writeWorkerFile(first);
+      expect(listStoredHtmlCacheKeys("site")).toEqual([first]);
+      const later = buildHtmlCacheKey("site", "/en/later");
+      writeWorkerFile(later);
+      expect(listStoredHtmlCacheKeys("site").sort()).toEqual([first, later].sort());
+    });
+
+    it("startup reads each file once and fills the index", () => {
+      const a = buildHtmlCacheKey("site", "/en/a");
+      const b = buildHtmlCacheKey("site", "/en/b");
+      setCachedHtml(a, "<html><body>A</body></html>", 200);
+      setCachedHtml(b, "<html><body>B</body></html>", 200);
+      resetHtmlPageCacheForTests();
+      setHtmlBuildIdForTests("scanbuild");
+      const read = vi.spyOn(fs, "readFileSync");
+      const result = rehydrateHtmlPageCache();
+      expect(result).toMatchObject({ files: 2, loaded: 2, skippedForSpace: 0 });
+      expect(read).toHaveBeenCalledTimes(2);
+      read.mockClear();
+      expect(listStoredHtmlCacheKeys("site").sort()).toEqual([a, b].sort());
+      expect(read).not.toHaveBeenCalled();
+      expect(getCachedHtml(a)?.html).toContain("A");
+    });
+
+    it("forgets a file that was deleted", () => {
+      const gone = buildHtmlCacheKey("site", "/en/gone");
+      const file = writeWorkerFile(gone);
+      expect(listStoredHtmlCacheKeys("site")).toEqual([gone]);
+      fs.rmSync(file);
+      expect(listStoredHtmlCacheKeys("site")).toEqual([]);
+    });
   });
 
   it("stores a page and refuses markup that looks per-visitor", () => {

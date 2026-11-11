@@ -47,6 +47,7 @@ export function CtaBannerPromotion({ data }: Props) {
                 : resolvedVariant === "primary" ? "default"
                 : resolvedVariant === "secondary" ? "secondary"
                 : resolvedVariant === "outline" ? "outline"
+                : resolvedVariant === "accent" ? "accent"
                 : "default";
               const isPrimary = resolvedVariant === "primary";
               return (

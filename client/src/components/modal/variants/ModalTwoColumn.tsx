@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
 export interface ModalCta {
   text: string;
   url?: string;
-  variant?: "primary" | "secondary" | "outline";
+  variant?: "primary" | "secondary" | "outline" | "accent";
   icon?: string;
   items?: Array<{ name: string; url: string }>;
 }
@@ -110,17 +110,18 @@ function renderIcon(iconName: string, className?: string) {
 }
 
 function buttonVariant(
-  variant?: "primary" | "secondary" | "outline",
-): "default" | "secondary" | "outline" {
+  variant?: "primary" | "secondary" | "outline" | "accent",
+): "default" | "secondary" | "outline" | "accent" {
   if (variant === "outline") return "outline";
   if (variant === "secondary") return "secondary";
+  if (variant === "accent") return "accent";
   return "default";
 }
 
 function normalizeCtas(raw: ModalCta[] | undefined): Array<{
   text: string;
   url: string;
-  variant: "default" | "secondary" | "outline";
+  variant: "default" | "secondary" | "outline" | "accent";
   icon?: string;
   items: Array<{ name: string; url: string }>;
 }> {

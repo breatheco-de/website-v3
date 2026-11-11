@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { AlertTriangle, ArrowDown, ArrowRight, ArrowRightLeft, ArrowUp, ArrowUpDown, Brain, Check, ChevronDown, Copy, Crosshair, Download, DownloadCloud, ExternalLink, Filter, Globe, History, Info, Loader2, MoreVertical, MousePointerClick, Network, Pencil, Plus, RefreshCw, ShieldCheck, Star, TrendingUp, Unlink, type LucideIcon } from "lucide-react";
-import { OpenRushFetchControl } from "@/components/seo/OpenRushFetchControl";
+import {
+  OpenRushFetchControl,
+  keywordProviderLabel,
+  type KeywordMetricsProvider,
+} from "@/components/seo/OpenRushFetchControl";
 import { RecentPageChangesCard } from "@/components/indexnow/RecentPageChangesCard";
 import { formatOpenRushFetchedAge } from "@/components/seo/openrushFetchAge";
 import { SeoIndexReindexControl } from "@/components/seo/SeoIndexReindexControl";
@@ -1198,9 +1202,13 @@ function sortClusterMembers(
 
 type KeywordMetricsInfo = {
   openrush_configured: boolean;
+  keyword_provider?: KeywordMetricsProvider | null;
   source: "openrush_cache" | "yaml_fallback" | "none";
   kw_monthly_volume: number | null;
   kw_difficulty: number | null;
+  kw_difficulty_source?: string | null;
+  difficulty_provider?: KeywordMetricsProvider | null;
+  market?: { id: string | null; label: string } | null;
   fetched_at: string | null;
   stale: boolean;
   may_not_be_recent: boolean;
@@ -2498,7 +2506,7 @@ function ClusterEntryPopover({
       }
       toast({
         title: "Keyword metrics updated",
-        description: "Volume and difficulty were refreshed from OpenRush into the shared cache.",
+        description: `Volume and difficulty were refreshed from ${keywordProviderLabel(metrics?.keyword_provider)} into the shared cache.`,
       });
       await refetch();
       invalidateClusterQueries(hubId);
@@ -2567,7 +2575,14 @@ function ClusterEntryPopover({
                     vol {hasVolume ? displayVolume!.toLocaleString() : "No data"}
                     {" · "}
                     KD {hasDifficulty ? displayDifficulty! : "No data"}
+                    {hasDifficulty && metrics?.kw_difficulty_source === "derived_from_competition" ? " (ad estimate)" : ""}
                   </p>
+                  {metrics?.source === "openrush_cache" ? (
+                    <p className="mt-0.5 text-[10px] text-muted-foreground" data-testid="text-cluster-entry-metrics-source">
+                      {keywordProviderLabel(metrics.difficulty_provider ?? metrics.keyword_provider)}
+                      {metrics.market?.label ? ` · ${metrics.market.label}` : ""}
+                    </p>
+                  ) : null}
                   {metrics?.may_not_be_recent ? (
                     <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-300">
                       May not be recent
@@ -2589,6 +2604,8 @@ function ClusterEntryPopover({
                   loading={refreshingKeyword}
                   data-testid={`button-cluster-refresh-keyword-${slug}`}
                   dialogTestId={`dialog-cluster-refresh-keyword-${slug}`}
+                  provider={metrics?.keyword_provider}
+                  marketLabel={metrics?.market?.label ?? null}
                   title={
                     !canEditSeo
                       ? `You need seo_edit for content type "${contentType}"`

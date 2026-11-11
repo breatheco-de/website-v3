@@ -2267,6 +2267,7 @@ export function registerPageTools(
         keyword: mainKw,
         contentRoot: contentPath,
         contentFolder,
+        locale: payload.locale,
         yamlVolume: seoBlock.kw_monthly_volume,
         yamlDifficulty: seoBlock.kw_difficulty,
       });
