@@ -188,6 +188,7 @@ variant_props:
             - primary
             - secondary
             - outline
+            - accent
         tracking:
           type: string
           required: false

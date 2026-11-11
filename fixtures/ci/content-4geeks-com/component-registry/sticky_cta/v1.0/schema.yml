@@ -886,6 +886,7 @@ props:
           - primary
           - secondary
           - outline
+          - accent
       terms_className:
         type: string
         required: false

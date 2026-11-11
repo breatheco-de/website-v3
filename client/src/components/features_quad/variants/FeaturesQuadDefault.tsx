@@ -87,6 +87,7 @@ export default function FeaturesQuadDefault({ data }: FeaturesQuadDefaultProps) 
   const getButtonVariant = (variant?: string) => {
     if (variant === "primary") return "default";
     if (variant === "outline") return "outline";
+    if (variant === "accent") return "accent";
     return "secondary";
   };
 

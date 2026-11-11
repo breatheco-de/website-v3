@@ -5,18 +5,17 @@
  * section root — the section IS the form. Use "." as the form-settings sentinel
  * so the Conversion tab resolves paths at the root (not under a nested `form` key).
  *
- * EditorType options: "icon-picker" | "color-picker" | "image-picker" | "link-picker" | "form-settings"
+ * "form-appearance:<role>" keys render together in the Props tab Form box
+ * (roles: shared/form-appearance.ts). Root `variant` (stacked / inline) is the
+ * section variant, switched by the variant picker, so it gets no layout role.
  */
 
-export type EditorType =
-  | "icon-picker"
-  | "color-picker"
-  | "image-picker"
-  | "link-picker"
-  | "form-settings"
-  | "string-picker:primary,secondary,outline";
+export type EditorType = string;
 
 export const fieldEditors: Record<string, EditorType> = {
   ".": "form-settings",
-  "button_variant": "string-picker:primary,secondary,outline",
+  "title": "form-appearance:title",
+  "subtitle": "form-appearance:subtitle",
+  "submit_label": "form-appearance:submit-label",
+  "button_variant": "form-appearance:button-style",
 };

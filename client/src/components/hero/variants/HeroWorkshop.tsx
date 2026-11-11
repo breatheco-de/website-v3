@@ -209,7 +209,7 @@ export interface HeroWorkshopData {
     /** Learn-like prompt above the dropdown button. */
     heading?: string;
     text?: string;
-    variant?: "primary" | "secondary" | "outline";
+    variant?: "primary" | "secondary" | "outline" | "accent";
     icon?: string;
     items?: Array<{ name?: string; url?: string }>;
   };
@@ -340,7 +340,9 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
       ? "outline"
       : data.calendar_cta?.variant === "secondary"
         ? "secondary"
-        : "default";
+        : data.calendar_cta?.variant === "accent"
+          ? "accent"
+          : "default";
 
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

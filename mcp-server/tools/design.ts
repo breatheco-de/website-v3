@@ -29,7 +29,7 @@ type Finding = {
 };
 
 const FINDING_FIX_HINTS: Record<string, string> = {
-  horizontal_overflow: "Something a visitor can scroll to is wider than the viewport (usually mobile): shorten long words/URLs, pick a variant with fewer columns, or reduce items. Carousel tracks clipped by their own container are not reported; a page-level finding (section_path null) means the whole page scrolls sideways.",
+  horizontal_overflow: "Something a visitor can scroll to is wider than the viewport (usually mobile): shorten long words/URLs, pick a variant with fewer columns, or reduce items. Carousel and scroll-snap tracks clipped or scrolled by their own container (overflow hidden/clip/auto/scroll, container inside the viewport) are not reported; a page-level finding (section_path null) means the whole page scrolls sideways.",
   color_edge_without_padding: "Two different backgrounds meet with content touching the edge: give the colored section vertical padding (paddingY) or use the neighbor's background.",
   heading_order: "Headings skip a level: adjust the section's heading level or pick a variant whose title fits the outline.",
   multiple_h1: "More than one H1: only the first hero should own the H1.",

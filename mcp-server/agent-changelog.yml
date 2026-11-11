@@ -6,6 +6,15 @@ window_days: 6
 
 entries:
   - date: "2026-11-10"
+    summary: "Render review: no false horizontal_overflow for scroll-snap tracks (overflow auto/scroll), e.g. syllabus program-modules"
+    agent_impact:
+      - "review_page_render / get_render_review: content inside a container that scrolls horizontally on its own (overflow-x auto/scroll) is no longer reported as section overflow when that container fits the viewport — syllabus program-modules (174 sections), testimonials, bento_cards, list_workshops_carousel, dynamic_table. Do not edit content to fix these; re-run the review to clear old findings."
+      - "A scroll container that itself sticks out of the viewport is still reported, and page-level overflow (section_path null) is always reported."
+    tools_changed: false
+    paths:
+      - client/src/lib/pageMeasurements.ts
+      - mcp-server/tools/design.ts
+  - date: "2026-11-10"
     summary: "Evidence banks (press_mentions…): server refuses duplicate / rejected / redirect links, warns on look-alike stories; staff-rejected rows stay hidden"
     agent_impact:
       - "add/update database item on evidence banks → 409 codes in fail details: duplicate_link (same link, same locale; next_actions update_database_item on existing_index), rejected_link (staff rejected the story, any locale; skip), redirect_link (news.google.com / t.co / bit.ly / lnkd.in…; use the publisher URL), similar_rows (retry with acknowledged_similar listing every similar[].index only if it is different coverage). Just add and handle the refusal — do not list the bank first."

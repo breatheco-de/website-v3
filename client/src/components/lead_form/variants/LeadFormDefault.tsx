@@ -311,7 +311,7 @@ export interface LeadFormData {
   privacy_url?: string;
   className?: string;
   button_className?: string;
-  button_variant?: "primary" | "secondary" | "outline";
+  button_variant?: "primary" | "secondary" | "outline" | "accent";
   terms_className?: string;
   turnstile?: {
     enabled?: boolean;
@@ -2162,7 +2162,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       ? "outline"
       : data.button_variant === "secondary"
         ? "secondary"
-        : "default";
+        : data.button_variant === "accent"
+          ? "accent"
+          : "default";
   const submitButtonVariant = formCopy.submit_disabled === true ? "secondary" : pickedButtonVariant;
 
   const showField = (name: keyof NonNullable<LeadFormData["fields"]>) => {

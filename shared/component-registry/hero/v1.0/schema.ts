@@ -598,7 +598,7 @@ export const heroWorkshopSchema = z.object({
     .object({
       heading: z.string().optional(),
       text: z.string(),
-      variant: z.enum(["primary", "secondary", "outline"]).optional(),
+      variant: z.enum(["primary", "secondary", "outline", "accent"]).optional(),
       icon: z.string().optional(),
       items: z
         .array(

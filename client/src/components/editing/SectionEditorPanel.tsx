@@ -67,6 +67,11 @@ import {
 import { FaqItemsPicker } from "./FaqItemsPicker";
 import { FaqSectionEditorField } from "./FaqSectionEditorField";
 import { ListCardsSectionEditorField } from "./ListCardsSectionEditorField";
+import { FormAppearanceEditorField } from "./FormAppearanceEditorField";
+import {
+  resolveFormAppearanceAnchor,
+  splitFormAppearanceEntries,
+} from "@shared/form-appearance";
 import type { ListCardsPreviewItem } from "./ListCardsItemsPicker";
 import { normalizeListingSearchConfig, type ListingDynamicMeta } from "@shared/listing-search-config";
 import { SchemaOrgSectionEditorField } from "./SchemaOrgSectionEditorField";
@@ -2526,7 +2531,7 @@ export function SectionEditorPanel({
   })();
 
   // Get configured fields for current section type, filtering by variant
-  const configuredFields = (() => {
+  const variantFieldEditors = (() => {
     const rawFields = allFieldEditors?.[sectionType] || {};
     const result: Record<string, EditorType> = {};
 
@@ -2552,6 +2557,40 @@ export function SectionEditorPanel({
     }
 
     return result;
+  })();
+
+  // form-appearance keys render only inside the Form box, never as loose Props rows.
+  const {
+    entries: formAppearanceEntries,
+    rest: configuredFields,
+    unknown: unknownFormAppearanceTags,
+  } = splitFormAppearanceEntries(variantFieldEditors);
+
+  useEffect(() => {
+    if (import.meta.env.DEV && unknownFormAppearanceTags.length > 0) {
+      console.warn("unknown form-appearance roles", unknownFormAppearanceTags);
+    }
+  }, [unknownFormAppearanceTags.join("|")]);
+
+  const formAppearanceAnchor = resolveFormAppearanceAnchor(
+    formAppearanceEntries.map((e) => e.path),
+    formSettingsPath,
+  );
+  const formAppearancePresent = (() => {
+    if (formAppearanceAnchor === "") return true;
+    const node = getValueAtFieldPath(parsedSection, formAppearanceAnchor);
+    return node != null && typeof node === "object" && !Array.isArray(node);
+  })();
+  const formAppearanceIsAuth = (() => {
+    if (formSettingsPath == null || !boundFormObjectPresent) return false;
+    if (getValueAtFieldPath(parsedSection, formProp("is_signup")) === true) return true;
+    const conversionName = getValueAtFieldPath(parsedSection, formProp("conversion_name"));
+    if (typeof conversionName !== "string" || !conversionName) return false;
+    const authCfg = parseAuthConversionEventConfig(
+      (trackingSettings ?? {}) as Record<string, unknown>,
+    );
+    const kind = resolveAuthConversionKind(conversionName, authCfg);
+    return kind === "signup" || kind === "login";
   })();
 
   // Render icon from name using shared icon utility
@@ -3460,6 +3499,7 @@ export function SectionEditorPanel({
                         { id: "primary", label: "Primary" },
                         { id: "secondary", label: "Secondary" },
                         { id: "outline", label: "Outline" },
+                        { id: "accent", label: "Accent" },
                       ]}
                     />
                   </div>
@@ -3797,6 +3837,34 @@ export function SectionEditorPanel({
               saveAs="id"
               testIdPrefix="props-background"
             />
+            {formAppearanceEntries.length > 0 && (
+              <div className="mt-3">
+                <FormAppearanceEditorField
+                  entries={formAppearanceEntries}
+                  section={parsedSection as Record<string, unknown> | null}
+                  onChange={(path, value) => updatePropertyWithValue(path, value)}
+                  onChangeMany={updatePropertiesWithValues}
+                  onPickIcon={(path, label, currentIcon) => {
+                    setIconPickerTarget({
+                      arrayField: "",
+                      index: 0,
+                      field: path,
+                      label,
+                      currentIcon,
+                      simpleFieldPath: path,
+                    });
+                    setIconPickerOpen(true);
+                  }}
+                  formPresent={formAppearancePresent}
+                  formPath={formSettingsPath}
+                  formObjectPresent={boundFormObjectPresent}
+                  isAuthForm={formAppearanceIsAuth}
+                  locale={locale}
+                  allSections={allSections}
+                  data-testid="props-form-appearance"
+                />
+              </div>
+            )}
             {/* Render top-level (non-array) color-picker field editors */}
             {Object.entries(configuredFields)
               .filter(([fieldPath, editorTypeRaw]) => {
@@ -6889,6 +6957,7 @@ export function SectionEditorPanel({
                                           <SelectItem value="primary">Primary</SelectItem>
                                           <SelectItem value="secondary">Secondary</SelectItem>
                                           <SelectItem value="outline">Outline</SelectItem>
+                                          <SelectItem value="accent">Accent</SelectItem>
                                         </SelectContent>
                                       </Select>
                                     </div>

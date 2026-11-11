@@ -11,18 +11,25 @@
  *                   | "variant-picker" | "rich-text-editor" | "cta-picker" | "form-settings"
  */
 
-export type EditorType = "icon-picker" | "color-picker" | "image-picker" | "link-picker" | "variant-picker" | "rich-text-editor" | "form-settings" | "cta-picker";
+export type EditorType = string;
 
 export const fieldEditors: Record<string, EditorType> = {
   // ── default / form variants ──────────────────────────────────────────
-  "form_background": "color-picker",
-  "terms_color": "color-picker",
   "buttons[].button_variant": "variant-picker",
   "buttons[].text_color": "color-picker:text" as EditorType,
   "buttons[].url": "link-picker",
   "cta_url": "link-picker",
   "form": "form-settings",
-  "form.button_variant": "string-picker:primary,secondary,outline" as EditorType,
+
+  // ── Form box (Props tab), roles: shared/form-appearance.ts ───────────
+  "form:form.submit_label": "form-appearance:submit-label" as EditorType,
+  "form:form_background": "form-appearance:background" as EditorType,
+  "form:terms_color": "form-appearance:terms-color" as EditorType,
+  "form:form.button_variant": "form-appearance:button-style" as EditorType,
+  "form:form.variant": "form-appearance:layout" as EditorType,
+  "resourceShowcase:form.submit_label": "form-appearance:submit-label" as EditorType,
+  "resourceShowcase:form.button_variant": "form-appearance:button-style" as EditorType,
+  "resourceShowcase:form.variant": "form-appearance:layout" as EditorType,
 
   // ── strip variant ────────────────────────────────────────────────────
   "strip:text": "rich-text-editor",

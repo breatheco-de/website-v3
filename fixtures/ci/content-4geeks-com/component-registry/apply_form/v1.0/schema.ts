@@ -73,7 +73,7 @@ export const applyFormLeadFormSchema = z.object({
   show_terms: z.boolean().optional(),
   className: z.string().optional(),
   button_className: z.string().optional(),
-  button_variant: z.enum(["primary", "secondary", "outline"]).optional(),
+  button_variant: z.enum(["primary", "secondary", "outline", "accent"]).optional(),
   terms_className: z.string().optional(),
   turnstile: turnstileSchema,
 });

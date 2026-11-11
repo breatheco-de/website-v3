@@ -23,9 +23,10 @@ function getCellCta(value: ComparisonTableCellValue): ComparisonTableCtaButton[]
   return value.cta;
 }
 
-function mapCtaVariant(variant?: string): "default" | "outline" | "ghost" | "secondary" {
+function mapCtaVariant(variant?: string): "default" | "outline" | "ghost" | "secondary" | "accent" {
   if (variant === "primary") return "default";
   if (variant === "outline") return "outline";
+  if (variant === "accent") return "accent";
   if (variant === "ghost") return "ghost";
   if (variant === "secondary") return "secondary";
   return "default";

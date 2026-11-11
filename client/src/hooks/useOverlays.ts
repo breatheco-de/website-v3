@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 
 export interface OverlayButton {
   label: string;
-  variant: "default" | "secondary" | "outline" | "ghost" | "destructive";
+  variant: "default" | "secondary" | "outline" | "accent" | "ghost" | "destructive";
   href: string;
 }
 

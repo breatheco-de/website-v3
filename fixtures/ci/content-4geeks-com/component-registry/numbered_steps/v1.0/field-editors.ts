@@ -10,6 +10,6 @@ export type EditorType = string;
 export const fieldEditors: Record<string, EditorType> = {
   "cta_button.text": "text-input",
   "cta_button.url": "link-picker",
-  "cta_button.variant": "string-picker:primary,secondary,outline",
+  "cta_button.variant": "string-picker:primary,secondary,outline,accent",
   "cta_button.icon": "icon-picker",
 };

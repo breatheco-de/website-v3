@@ -153,7 +153,9 @@ function SlideLeftCard({
                     ? "outline"
                     : slide.cta.variant === "secondary"
                       ? "secondary"
-                      : "default"
+                      : slide.cta.variant === "accent"
+                        ? "accent"
+                        : "default"
                 }
               >
                 <a href={slide.cta.url} onClick={handleLinkClick}>{slide.cta.text}</a>

@@ -213,6 +213,9 @@ function buttonChipClass(variant: OverlayButton["variant"]): string {
   if (variant === "secondary") {
     return "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-secondary text-secondary-foreground cursor-default select-none";
   }
+  if (variant === "accent") {
+    return "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium bg-accent text-accent-foreground cursor-default select-none";
+  }
   if (variant === "ghost") {
     return "inline-flex items-center rounded-md px-3 py-1.5 text-xs font-medium cursor-default select-none";
   }
@@ -1137,6 +1140,7 @@ export default function PrivateOverlays() {
                                         <SelectItem value="default">Primary</SelectItem>
                                         <SelectItem value="secondary">Secondary</SelectItem>
                                         <SelectItem value="outline">Outline</SelectItem>
+                                        <SelectItem value="accent">Accent</SelectItem>
                                         <SelectItem value="ghost">Ghost</SelectItem>
                                         <SelectItem value="destructive">Destructive</SelectItem>
                                       </SelectContent>

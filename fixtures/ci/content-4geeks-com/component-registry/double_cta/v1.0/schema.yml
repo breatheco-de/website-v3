@@ -80,6 +80,7 @@ props:
           - primary
           - secondary
           - outline
+          - accent
       sub_text:
         type: string
         required: false
@@ -134,6 +135,7 @@ props:
           - primary
           - secondary
           - outline
+          - accent
       sub_text:
         type: string
         required: false

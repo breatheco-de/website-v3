@@ -5,7 +5,10 @@ export type EditorType = string;
 
 export const fieldEditors: Record<string, EditorType> = {
   form: "form-settings",
-  "form.button_variant": "string-picker:primary,secondary,outline",
+  // Form box (Props tab), roles: shared/form-appearance.ts
+  "form.submit_label": "form-appearance:submit-label",
+  "form.button_variant": "form-appearance:button-style",
+  "form.variant": "form-appearance:layout",
   "twoColumn:left.image": "image-with-style-picker",
   "twoColumn:right.image": "image-with-style-picker",
   "twoColumn:left.heading":
@@ -20,12 +23,12 @@ export const fieldEditors: Record<string, EditorType> = {
   "twoColumn:right.bullet_icon": "icon-picker",
   "twoColumn:left.buttons[].text": "text-input",
   "twoColumn:left.buttons[].url": "link-picker",
-  "twoColumn:left.buttons[].variant": "string-picker:primary,secondary,outline",
+  "twoColumn:left.buttons[].variant": "string-picker:primary,secondary,outline,accent",
   "twoColumn:left.buttons[].icon": "icon-picker",
   "twoColumn:left.buttons[].items[].url": "link-picker",
   "twoColumn:right.buttons[].text": "text-input",
   "twoColumn:right.buttons[].url": "link-picker",
-  "twoColumn:right.buttons[].variant": "string-picker:primary,secondary,outline",
+  "twoColumn:right.buttons[].variant": "string-picker:primary,secondary,outline,accent",
   "twoColumn:right.buttons[].icon": "icon-picker",
   "twoColumn:right.buttons[].items[].url": "link-picker",
 };

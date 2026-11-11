@@ -155,7 +155,7 @@ export function CTABannerSection({ data }: CTABannerSectionProps) {
             <div className="flex flex-wrap justify-center gap-4">
               {filteredButtons!.map((button: CtaButton, index: number) => {
                 const resolvedVariant = button.button_variant || button.variant;
-                const variant = resolvedVariant === "primary" ? "default" : resolvedVariant === "secondary" ? "secondary" : resolvedVariant === "ghost" ? "ghost" : resolvedVariant === "link" ? "link" : resolvedVariant === "destructive" ? "destructive" : resolvedVariant === "outline" ? "outline" : "default";
+                const variant = resolvedVariant === "primary" ? "default" : resolvedVariant === "secondary" ? "secondary" : resolvedVariant === "ghost" ? "ghost" : resolvedVariant === "link" ? "link" : resolvedVariant === "destructive" ? "destructive" : resolvedVariant === "outline" ? "outline" : resolvedVariant === "accent" ? "accent" : "default";
                 const outlineStyles = resolvedVariant === "outline" ? "border-primary-foreground text-primary-foreground hover:bg-primary-foreground/10" : "";
                 const textColorStyle = button.text_color ? { color: button.text_color } : undefined;
                 return (

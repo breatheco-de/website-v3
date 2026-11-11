@@ -11,7 +11,7 @@ export const comparisonTableColumnSchema = z.object({
 export const comparisonTableCtaButtonSchema = z.object({
   text: z.string(),
   url: z.string(),
-  variant: z.enum(["primary", "outline", "ghost", "secondary"]).optional(),
+  variant: z.enum(["primary", "outline", "ghost", "secondary", "accent"]).optional(),
 });
 
 export const comparisonTableCellSchema = z.object({

@@ -95,6 +95,7 @@ props:
               - primary
               - secondary
               - outline
+              - accent
             description: Button visual variant
           tracking:
             type: string

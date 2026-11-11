@@ -387,7 +387,9 @@ export default function HeroCourse({ data }: HeroCourseProps) {
                         ? "outline"
                         : data.signup_card?.cta_button.variant === "secondary"
                           ? "secondary"
-                          : "default"
+                          : data.signup_card?.cta_button.variant === "accent"
+                            ? "accent"
+                            : "default"
                     }
                     data-testid="button-hero-cta"
                     asChild

@@ -103,7 +103,7 @@ export default function WhyLearnAILaptopEdge({ data }: WhyLearnAILaptopEdgeProps
 
         {data.cta && (
           <Button
-            variant={data.cta.variant === "primary" ? "default" : data.cta.variant === "outline" ? "outline" : "secondary"}
+            variant={data.cta.variant === "primary" ? "default" : data.cta.variant === "outline" ? "outline" : data.cta.variant === "accent" ? "accent" : "secondary"}
             asChild
             className="mb-6"
             data-testid="button-why-learn-cta-mobile"
@@ -151,7 +151,7 @@ export default function WhyLearnAILaptopEdge({ data }: WhyLearnAILaptopEdgeProps
 
             {data.cta && (
               <Button
-                variant={data.cta.variant === "primary" ? "default" : data.cta.variant === "outline" ? "outline" : "secondary"}
+                variant={data.cta.variant === "primary" ? "default" : data.cta.variant === "outline" ? "outline" : data.cta.variant === "accent" ? "accent" : "secondary"}
                 asChild
                 data-testid="button-why-learn-cta"
               >

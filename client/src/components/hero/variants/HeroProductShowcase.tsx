@@ -372,7 +372,9 @@ export default function HeroProductShowcase({
                     variant={
                       data.cta_button.variant === "outline"
                         ? "outline"
-                        : "default"
+                        : data.cta_button.variant === "accent"
+                          ? "accent"
+                          : "default"
                     }
                     size="lg"
                     asChild
