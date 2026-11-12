@@ -26,11 +26,24 @@ import { markFileAsModified } from "../sync-state";
 import { child } from "../logger";
 import { enrollmentCardIds } from "@shared/resolveProductScope";
 import { buildServerPageTracking } from "../tracking-page-context";
+import { entryRefFailureMessage, resolveEntryRef, type EntryRefResult } from "../entry-ref";
 
 const log = child({ module: "routes/funnel" });
 
 function getContentRoot(res: Response): string {
   return (res.locals.site as { contentRoot?: string } | undefined)?.contentRoot ?? getDefaultContentRoot();
+}
+
+function getCI(res: Response): typeof contentIndex {
+  return (res.locals.site as { contentIndex?: typeof contentIndex } | undefined)?.contentIndex ?? contentIndex;
+}
+
+/**
+ * Callers send URL slugs (e.g. `ai-engineering-for-devs`); `_common.yml` lives under the page ID
+ * folder (`ai-engineering-devs`). Joining the raw slug creates a stray folder that shadows the page.
+ */
+function resolveFunnelEntry(res: Response, contentType: string, slug: string): EntryRefResult {
+  return resolveEntryRef(getCI(res), { contentType, ref: slug });
 }
 
 const funnelBindingSchema = z.union([
@@ -136,7 +149,8 @@ export function registerFunnelRoutes(app: Express): void {
   app.get("/api/content-types/:type/funnel/:slug", async (req: Request, res: Response) => {
     try {
       const contentType = req.params.type;
-      const slug = req.params.slug;
+      const entry = resolveFunnelEntry(res, contentType, req.params.slug);
+      const slug = entry.ok ? entry.entryId : req.params.slug;
       const contentRoot = getContentRoot(res);
       const filePath = commonYmlPath(contentType, slug, contentRoot);
       const funnel = readFunnelBlockFromFile(filePath);
@@ -144,7 +158,7 @@ export function registerFunnelRoutes(app: Express): void {
       const bindings = effectiveBindings(funnel, { contentType, contentSlug: slug });
 
       const enrollmentWarnings: { code: string; message: string; ids: string[] }[] = [];
-      const merged = contentIndex.loadMergedContent(contentType, slug, "en");
+      const merged = getCI(res).loadMergedContent(contentType, slug, "en");
       const sections = (merged.data as { sections?: unknown[] } | null)?.sections;
       if (Array.isArray(sections)) {
         const allCardIds: string[] = [];
@@ -214,7 +228,14 @@ export function registerFunnelRoutes(app: Express): void {
 
     try {
       const contentType = req.params.type;
-      const slug = req.params.slug;
+      const entry = resolveFunnelEntry(res, contentType, req.params.slug);
+      if (!entry.ok) {
+        return res.status(entry.reason === "ambiguous" ? 409 : 404).json({
+          error: entryRefFailureMessage(contentType, req.params.slug, entry),
+          code: entry.reason === "ambiguous" ? "ambiguous_slug" : "entry_not_found",
+        });
+      }
+      const slug = entry.entryId;
       const contentRoot = getContentRoot(res);
       // Path-touched merge: omitted keys leave current; null clears.
       const body = parsed.data;
