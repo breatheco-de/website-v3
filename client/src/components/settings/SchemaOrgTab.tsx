@@ -9,6 +9,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { Link } from "wouter";
+import { Braces, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -18,7 +19,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
-import { ChevronDown } from "lucide-react";
+import { TemplateCodeInput } from "@/components/editing/TemplateCodeInput";
+import { VariableDetailModal } from "@/components/editing/VariableDetailModal";
 
 const SchemaOrgYmlEditorPanel = lazy(() => import("@/components/editing/SchemaOrgYmlEditorPanel"));
 
@@ -183,25 +185,25 @@ export function SchemaOrgTab() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Type" value={org.type} onChange={(v) => setOrg({ ...org, type: v })} disabled={!canEdit} testId="input-org-type" />
-            <Field label="Name" value={org.name} onChange={(v) => setOrg({ ...org, name: v })} disabled={!canEdit} testId="input-org-name" />
-            <Field label="URL" value={org.url} onChange={(v) => setOrg({ ...org, url: v })} disabled={!canEdit} testId="input-org-url" className="sm:col-span-2" />
-            <Field label="Founding date" value={org.founding_date} onChange={(v) => setOrg({ ...org, founding_date: v })} disabled={!canEdit} testId="input-org-founding" />
-            <Field
+            <VariableField label="Type" value={org.type} onChange={(v) => setOrg({ ...org, type: v })} disabled={!canEdit} testId="input-org-type" />
+            <VariableField label="Name" value={org.name} onChange={(v) => setOrg({ ...org, name: v })} disabled={!canEdit} testId="input-org-name" />
+            <VariableField label="URL" value={org.url} onChange={(v) => setOrg({ ...org, url: v })} disabled={!canEdit} testId="input-org-url" className="sm:col-span-2" />
+            <VariableField label="Founding date" value={org.founding_date} onChange={(v) => setOrg({ ...org, founding_date: v })} disabled={!canEdit} testId="input-org-founding" />
+            <VariableField
               label="Contact type"
               value={org.contact_point.contact_type}
               onChange={(v) => setOrg({ ...org, contact_point: { ...org.contact_point, contact_type: v } })}
               disabled={!canEdit}
               testId="input-org-contact-type"
             />
-            <Field
+            <VariableField
               label="Contact email"
               value={org.contact_point.email}
               onChange={(v) => setOrg({ ...org, contact_point: { ...org.contact_point, email: v } })}
               disabled={!canEdit}
               testId="input-org-contact-email"
             />
-            <Field
+            <VariableField
               label="Address country"
               value={org.address.address_country}
               onChange={(v) => setOrg({ ...org, address: { address_country: v } })}
@@ -270,19 +272,21 @@ export function SchemaOrgTab() {
             ))}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t">
-            <Field
+            <VariableField
               label="Rating"
               value={org.aggregate_rating.rating_value}
               onChange={(v) => setOrg({ ...org, aggregate_rating: { ...org.aggregate_rating, rating_value: v } })}
               disabled={!canEdit}
               testId="input-org-rating"
+              placeholder="{{ global.global_review_rating }}"
             />
-            <Field
+            <VariableField
               label="Review count"
               value={org.aggregate_rating.review_count}
               onChange={(v) => setOrg({ ...org, aggregate_rating: { ...org.aggregate_rating, review_count: v } })}
               disabled={!canEdit}
               testId="input-org-reviews"
+              placeholder="{{ global.global_review_count }}"
             />
             <Field
               label="Best"
@@ -317,9 +321,9 @@ export function SchemaOrgTab() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Type" value={website.type} onChange={(v) => setWebsite({ ...website, type: v })} disabled={!canEdit} testId="input-web-type" />
-            <Field label="Name" value={website.name} onChange={(v) => setWebsite({ ...website, name: v })} disabled={!canEdit} testId="input-web-name" />
-            <Field label="URL" value={website.url} onChange={(v) => setWebsite({ ...website, url: v })} disabled={!canEdit} testId="input-web-url" className="sm:col-span-2" />
+            <VariableField label="Type" value={website.type} onChange={(v) => setWebsite({ ...website, type: v })} disabled={!canEdit} testId="input-web-type" />
+            <VariableField label="Name" value={website.name} onChange={(v) => setWebsite({ ...website, name: v })} disabled={!canEdit} testId="input-web-name" />
+            <VariableField label="URL" value={website.url} onChange={(v) => setWebsite({ ...website, url: v })} disabled={!canEdit} testId="input-web-url" className="sm:col-span-2" />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-muted-foreground">Description (en)</label>
@@ -416,6 +420,66 @@ function Field({
         disabled={disabled}
         className="font-mono text-sm"
         data-testid={testId}
+      />
+    </div>
+  );
+}
+
+/** One-line template field with site-global variable picker (same pills as section editors). */
+function VariableField({
+  label,
+  value,
+  onChange,
+  disabled,
+  testId,
+  placeholder,
+  className,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  testId: string;
+  placeholder?: string;
+  className?: string;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  return (
+    <div className={`space-y-1 ${className ?? ""}`}>
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      <div className="flex items-center gap-1">
+        <div className={disabled ? "pointer-events-none opacity-60 flex-1 min-w-0" : "flex-1 min-w-0"}>
+          <TemplateCodeInput
+            value={value}
+            onChange={onChange}
+            placeholder={placeholder}
+            testId={testId}
+          />
+        </div>
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="h-8 w-7 shrink-0"
+          title="Insert site variable"
+          disabled={disabled}
+          onClick={() => setPickerOpen(true)}
+          data-testid={`${testId}-insert-variable`}
+        >
+          <Braces className="h-3.5 w-3.5 text-primary" />
+        </Button>
+      </div>
+      <VariableDetailModal
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        variableName=""
+        inlineDefault=""
+        mode="create"
+        onCreated={(_name, syntax) => {
+          onChange(syntax);
+          setPickerOpen(false);
+        }}
       />
     </div>
   );

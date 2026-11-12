@@ -1,46 +1,20 @@
-- name: Course companion
-  description: Leading Course JSON-LD for a program page (provider refs site Organization)
-  yaml: |
-    type: schema_org
-    schema_type: Course
-    properties:
-      name: Full Stack Development with AI
-      description: Become a Full Stack Developer with mentorship and career support.
-      provider: "@organization"
-      educational_level: Beginner to Advanced
-      time_required: PT384H
-      teaches:
-        - HTML5
-        - JavaScript
-        - React
-        - Python
-      locales:
-        es:
-          name: Desarrollador Full Stack
-          description: Conviértete en Desarrollador Full Stack con mentoría ilimitada.
-- name: LocalBusiness campus
-  description: Campus LocalBusiness with parent Organization ref
-  yaml: |
-    type: schema_org
-    schema_type: LocalBusiness
-    properties:
-      name: 4Geeks Academy Miami
-      url: https://4geeksacademy.com/en/location/miami-usa
-      telephone: "+1 786-416-6640"
-      parent_organization: "@organization"
-      address:
-        type: PostalAddress
-        street_address: 1395 Brickell Ave
-        address_locality: Miami
-        address_region: FL
-        postal_code: "33131"
-        address_country: US
-- name: WebSite (page-local)
-  description: Prefills from site schema-org.yml website template; edits stay page-local
-  yaml: |
-    type: schema_org
-    schema_type: WebSite
-    properties:
-      name: 4Geeks Academy
-      url: https://4geeksacademy.com
-      description: Learn to code with AI-powered tools and mentorship.
+name: Course companion
+description: Leading Course JSON-LD for a program page (provider refs site Organization)
+yaml: |
+  type: schema_org
+  schema_type: Course
+  properties:
+    name: Full Stack Development with AI
+    description: Become a Full Stack Developer with mentorship and career support.
+    provider: "@organization"
+    educational_level: Beginner to Advanced
+    time_required: PT384H
+    teaches:
+      - HTML5
+      - JavaScript
+      - React
+      - Python
+    locales:
+      es:
+        name: Desarrollador Full Stack
+        description: Conviértete en Desarrollador Full Stack con mentoría ilimitada.

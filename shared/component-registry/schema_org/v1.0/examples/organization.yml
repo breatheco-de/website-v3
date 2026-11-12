@@ -1,0 +1,8 @@
+name: Organization (prefill from schema-org.yml)
+description: >-
+  Empty properties so add_section prefills from site schema-org.yml organization template.
+  Edits stay page-local; schema-org.yml is not updated.
+yaml: |
+  type: schema_org
+  schema_type: Organization
+  properties: {}

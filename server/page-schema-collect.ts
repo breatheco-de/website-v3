@@ -202,15 +202,15 @@ export async function collectStaticPageSchemas(
     let pageData = merged.data ?? loadRawYaml(route.contentType, route.slug, route.locale, ci, contentRoot);
     if (!pageData) return emptyResult();
 
-    if (merged.data && merged.isSharedTemplate) {
-      pageData = resolveAllTemplateVars(pageData, {
-        singleEntry: pageData,
-        contentType: route.contentType,
-        contentRoot,
-        context: { locale: route.locale },
-        skipSiteVars: false,
-      }) as Record<string, unknown>;
-    }
+    // Resolve {{vars}} for JSON-LD emit on every static page (not only shared templates).
+    // Prefills / YAML on disk stay raw; this is the SSR emit path only.
+    pageData = resolveAllTemplateVars(pageData, {
+      singleEntry: pageData,
+      contentType: route.contentType,
+      contentRoot,
+      context: { locale: route.locale },
+      skipSiteVars: false,
+    }) as Record<string, unknown>;
 
     const sections = pageData.sections as Array<Record<string, unknown>> | undefined;
     if (!Array.isArray(sections)) return emptyResult();

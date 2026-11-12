@@ -65,8 +65,11 @@ const ci = {
   getContentTypeConfig: () => ({ directory: "blog" }),
   getAlternateUrls: () => ({ en: "/en/blog/news/post" }),
   buildUrl: () => "/en/blog/news/post",
-  getVariableUsage: (name: string) =>
-    name === "brand.title" ? ["site_test/blog/post/en.yml"] : [],
+  getVariableUsage: (name: string) => {
+    if (name === "brand.title") return ["site_test/blog/post/en.yml"];
+    if (name === "global.global_review_rating") return ["site_test/schema-org.yml"];
+    return [];
+  },
   getContentTypes: () => [] as string[],
   refresh: vi.fn(),
   listAttachedEntries: () => [],
@@ -162,6 +165,16 @@ describe("scheduleHtmlFromEvent", () => {
       "/tmp/site_test",
     );
     expect(scheduleHotHtmlRebuild).not.toHaveBeenCalled();
+  });
+
+  it("hot-rebuilds when a named variable is used in schema-org.yml", () => {
+    scheduleHtmlFromEvent(
+      event("variables_changed", { payload: { names: ["global.global_review_rating"] } }),
+      site,
+    );
+    expect(scheduleHotHtmlRebuild).toHaveBeenCalledWith("variables-schema-org", {
+      siteIds: ["site_test"],
+    });
   });
 
   it("rebuilds stored pages of this site when variable names are unknown", () => {

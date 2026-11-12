@@ -1,0 +1,17 @@
+name: LocalBusiness campus
+description: Campus LocalBusiness with parent Organization ref
+yaml: |
+  type: schema_org
+  schema_type: LocalBusiness
+  properties:
+    name: 4Geeks Academy Miami
+    url: https://4geeksacademy.com/en/location/miami-usa
+    telephone: "+1 786-416-6640"
+    parent_organization: "@organization"
+    address:
+      type: PostalAddress
+      street_address: 1395 Brickell Ave
+      address_locality: Miami
+      address_region: FL
+      postal_code: "33131"
+      address_country: US

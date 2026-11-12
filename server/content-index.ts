@@ -530,6 +530,7 @@ export class ContentIndex {
       }
     }
 
+    this.scanSchemaOrgVariableReferences(baseDir);
     this.scanCustomRedirects(baseDir, nextRedirects);
     this.warnMissingSlugMappings();
 
@@ -665,6 +666,18 @@ export class ContentIndex {
   private extractVariableReferences(rawContent: string, filePath: string): void {
     for (const name of extractTemplateVariableNames(rawContent)) {
       this.addVariableRef(name, filePath);
+    }
+  }
+
+  /** Index `{{ }}` tokens in site-root schema-org.yml (Organization / Website). */
+  private scanSchemaOrgVariableReferences(baseDir: string): void {
+    const schemaPath = path.join(baseDir, "schema-org.yml");
+    if (!fs.existsSync(schemaPath)) return;
+    try {
+      const raw = fs.readFileSync(schemaPath, "utf-8");
+      this.extractVariableReferences(raw, `${this.contentRootName}/schema-org.yml`);
+    } catch (err) {
+      log.warn({ err }, "[ContentIndex] Failed to scan schema-org.yml variable refs");
     }
   }
 
