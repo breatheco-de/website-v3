@@ -270,7 +270,9 @@ const CONFIG_HEADER = `# Content Types Configuration
 # entry_filters (optional, database-backed types):
 #   Which cached rows are pages (listings, sitemap, and the entry URL).
 #   Same shape as a section filter: item_property_slug + value, all must match.
-#   Values are fixed text (boolean true matches "true"). Not a section filter
+#   Values are fixed text (boolean true matches "true"); a list means any of them.
+#   item_property_slug may be a computed field_mapping field (e.g. a function
+#   returning "true"/"false" for a date window). Not a section filter
 #   and not field_mapping rows_filters. The database screen still shows the
 #   full cache. A row that fails has no URL (404 once the type is indexed).
 #

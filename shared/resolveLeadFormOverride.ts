@@ -249,10 +249,19 @@ export function resolveLeadFormOverride(
   overrides: LeadFormOverride[] | null | undefined,
   options?: ResolveLeadFormOverrideOptions,
 ): LeadFormOverrideOutcome | null {
+  return resolveLeadFormOverrideMatch(values, overrides, options)?.outcome ?? null;
+}
+
+/** Same as resolveLeadFormOverride, plus the matched entry's index in `overrides`. */
+export function resolveLeadFormOverrideMatch(
+  values: Record<string, unknown>,
+  overrides: LeadFormOverride[] | null | undefined,
+  options?: ResolveLeadFormOverrideOptions,
+): { index: number; outcome: LeadFormOverrideOutcome } | null {
   if (!overrides?.length) return null;
 
-  for (const override of overrides) {
-    const { conditions, ...outcome } = override;
+  for (let index = 0; index < overrides.length; index++) {
+    const { conditions, ...outcome } = overrides[index]!;
     if (!conditions?.length) continue;
 
     const matches = conditions.every((c) =>
@@ -260,9 +269,12 @@ export function resolveLeadFormOverride(
     );
     if (!matches) continue;
 
-    return Object.fromEntries(
-      Object.entries(outcome).filter(([, v]) => v !== undefined),
-    ) as LeadFormOverrideOutcome;
+    return {
+      index,
+      outcome: Object.fromEntries(
+        Object.entries(outcome).filter(([, v]) => v !== undefined),
+      ) as LeadFormOverrideOutcome,
+    };
   }
 
   return null;
