@@ -485,7 +485,23 @@ export type EnqueueJobResult = {
   queued: boolean;
   /** True when Sidequest uniqueness rejected a duplicate within the uniqueness window. */
   deduped?: boolean;
+  /** True when SQLite lock contention skipped the enqueue — job was not queued. */
+  busy?: boolean;
 };
+
+/** Transient Sidequest SQLite writer contention — must not crash the web process. */
+export function isSqliteBusyError(err: unknown): boolean {
+  if (err == null) return false;
+  const code =
+    typeof err === "object" && err !== null && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
+  if (code === "SQLITE_BUSY" || code === "SQLITE_BUSY_SNAPSHOT" || code === "SQLITE_LOCKED") {
+    return true;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  return /database is locked|SQLITE_BUSY|SQLITE_LOCKED/i.test(message);
+}
 
 export async function enqueueJob(
   jobType: string,
@@ -526,6 +542,10 @@ export async function enqueueJob(
     if (opts?.uniqueKey && err instanceof DuplicatedJobError) {
       log.debug({ jobType, uniqueKey: opts.uniqueKey }, "[JobQueue] Job already queued (deduped)");
       return { queued: false, deduped: true };
+    }
+    if (isSqliteBusyError(err)) {
+      log.warn({ err, jobType }, "[JobQueue] Enqueue skipped — database locked");
+      return { queued: false, busy: true };
     }
     throw err;
   }
