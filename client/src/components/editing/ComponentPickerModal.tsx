@@ -99,6 +99,7 @@ interface RegistryOverview {
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   hero: Rocket,
+  hero_split_form: Rocket,
   two_column: Columns2,
   two_column_accordion_card: Columns,
   comparison_table: Table,

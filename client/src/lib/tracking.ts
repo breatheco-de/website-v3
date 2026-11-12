@@ -32,6 +32,17 @@ export function isPageContextSet(pathname: string): boolean {
   return pageContextPath === pathname;
 }
 
+/** True when the page on screen has product / persona context (switch on, not cleared). */
+export function hasPageTrackingContext(): boolean {
+  return pageContext !== null && pageContextPath === currentPathname();
+}
+
+/** Called every time a page sets or clears its context. Returns an unsubscribe. */
+export function subscribePageContext(listener: (pathname: string) => void): () => void {
+  contextListeners.add(listener);
+  return () => contextListeners.delete(listener);
+}
+
 /**
  * Set the product / persona values for the page at `pathname` (null = this page has none).
  * Pushes every key, with `undefined` for missing ones, so GTM drops the previous page's values.
@@ -385,6 +396,7 @@ export interface TrackingSettingsResponse {
   login_event_name?: string;
   signup_event_aliases?: string[];
   login_event_aliases?: string[];
+  gtm_payload?: { skip_domains: string[] };
 }
 
 // Extend Window to include dataLayer

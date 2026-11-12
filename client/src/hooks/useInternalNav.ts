@@ -5,6 +5,7 @@ import { isDeviceEmbedPreview, notifyDeviceEmbedNavBlocked, shouldAllowDeviceEmb
 import { scrollToSectionWhenReady } from "@/hooks/useScrollToLocationHashWhenReady";
 import { isNonNavigableHref } from "@shared/safe-href";
 import { awaitNavigationReady } from "@/lib/prefetchNavigation";
+import { getExternalRedirectHost, withGtmPayload, withRedirectGtmPayload } from "@/lib/gtmPayload";
 
 function isInternalHref(href: string): boolean {
   return href.startsWith("/") && !href.startsWith("//");
@@ -242,6 +243,21 @@ function withUtmParams(href: string): string {
   return `${base}${join}${additions.join("&")}${hash}`;
 }
 
+/** UTMs plus `gtm_payload` on the checkout path (outbound links and internal redirects off-site).
+ *  `rawHref` is the authored href, before `{qs:}` tokens resolve. */
+export function withOutboundParams(rawHref: string, prepared: string): string {
+  return withRedirectGtmPayload(withGtmPayload(rawHref, withUtmParams(prepared)));
+}
+
+function isExternalHttpHref(href: string): boolean {
+  if (!/^https?:\/\//i.test(href) || typeof window === "undefined") return false;
+  try {
+    return new URL(href).host !== window.location.host;
+  } catch {
+    return false;
+  }
+}
+
 export type CallbackLabels = { en?: string; es?: string };
 
 export type UseInternalNavOptions = {
@@ -284,7 +300,7 @@ export function useInternalNav(
         if (!shouldAllowDeviceEmbedHref(raw)) e.preventDefault();
         return;
       }
-      const resolved = withUtmParams(prepareHref(raw));
+      const resolved = withOutboundParams(raw, prepareHref(raw));
       if (resolved === raw) return;
       e.preventDefault();
       window.open(resolved, "_blank", "noopener,noreferrer");
@@ -302,13 +318,13 @@ export function useInternalNav(
       return;
     }
 
-    const href = withUtmParams(
-      withCallbackParam(
-        prepareHref(rawHref),
-        appendCallback,
-        appendCallback ? getCallbackLabels?.() : undefined,
-      ),
+    const prepared = withCallbackParam(
+      prepareHref(rawHref),
+      appendCallback,
+      appendCallback ? getCallbackLabels?.() : undefined,
     );
+    const href = withOutboundParams(rawHref, prepared);
+    const onlyPayloadAdded = href !== rawHref && withUtmParams(prepared) === rawHref;
 
     if (isDeviceEmbedPreview() && !shouldAllowDeviceEmbedHref(href)) {
       e.preventDefault();
@@ -354,6 +370,15 @@ export function useInternalNav(
       return;
     }
 
+    if (isInternalHref(href) && getExternalRedirectHost(href)) {
+      // The server redirects this path off-site; an in-app route change would never reach it.
+      e.preventDefault();
+      if (anchor.target === "_blank") window.open(href, "_blank", "noopener,noreferrer");
+      else window.location.assign(href);
+      onNavigate?.();
+      return;
+    }
+
     if (isInternalHref(href)) {
       e.preventDefault();
       const hashIdx = href.indexOf("#");
@@ -367,6 +392,10 @@ export function useInternalNav(
         }
         onNavigate?.();
       })();
+    } else if (onlyPayloadAdded) {
+      // Swap the href for this click so the link keeps its own target (same tab or new tab).
+      anchor.setAttribute("href", href);
+      setTimeout(() => anchor.setAttribute("href", rawHref), 0);
     } else if (href !== rawHref) {
       // External URL had {qs:} tokens and/or callback — browser would use the raw href.
       e.preventDefault();
@@ -389,7 +418,7 @@ export function useInternalNav(
   ): Record<string, unknown> | null => {
     if (!url || isNonNavigableHref(url)) return null;
 
-    const resolved = withUtmParams(prepareHref(url));
+    const resolved = withOutboundParams(url, prepareHref(url));
 
     if (isDeviceEmbedPreview() && !shouldAllowDeviceEmbedHref(resolved)) {
       notifyDeviceEmbedNavBlocked();
@@ -426,6 +455,12 @@ export function useInternalNav(
       return null;
     }
 
+    if (isInternalHref(resolved) && getExternalRedirectHost(resolved)) {
+      window.location.assign(resolved);
+      onNavigate?.();
+      return null;
+    }
+
     if (isInternalHref(resolved)) {
       const hashIdx = resolved.indexOf("#");
       const hashId = hashIdx === -1 ? "" : resolved.slice(hashIdx + 1).split("?")[0];
@@ -453,8 +488,17 @@ export function useInternalNav(
     const anchor = e.currentTarget;
     const rawHref = anchor.getAttribute("href");
     if (!rawHref) return;
-    if (!appendCallback && !rawHref.includes("{qs:") && !rawHref.includes("{{")) return;
-    const href = withUtmParams(
+    if (
+      !appendCallback &&
+      !rawHref.includes("{qs:") &&
+      !rawHref.includes("{{") &&
+      !isExternalHttpHref(rawHref) &&
+      !getExternalRedirectHost(rawHref)
+    ) {
+      return;
+    }
+    const href = withOutboundParams(
+      rawHref,
       withCallbackParam(
         prepareHref(rawHref),
         appendCallback,

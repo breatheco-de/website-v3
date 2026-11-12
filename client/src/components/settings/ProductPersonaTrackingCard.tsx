@@ -14,13 +14,18 @@ import {
   IconListCheck,
   IconLoader2,
   IconPlugConnected,
+  IconPlus,
   IconTags,
+  IconX,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
-import { apiFetch } from "@/lib/queryClient";
+import { apiFetch, apiRequest } from "@/lib/queryClient";
+import type { TrackingSettingsResponse } from "@/lib/tracking";
+import { normalizeSkipDomain } from "@shared/gtm-payload";
 import { ProductPersonaSetupDialog } from "./ProductPersonaSetupDialog";
 
 type Readiness = {
@@ -194,6 +199,8 @@ export function ProductPersonaTrackingCard() {
           </div>
         )}
 
+        <CheckoutLinksBlock canEdit={canMutateMetrics} />
+
         <details className="text-xs text-muted-foreground">
           <summary className="cursor-pointer select-none">Read more (advanced)</summary>
           <ul className="mt-2 list-disc pl-5 space-y-1 leading-relaxed">
@@ -220,6 +227,30 @@ export function ProductPersonaTrackingCard() {
             </li>
             <li>Tag Manager is set up by hand: see Setup instructions.</li>
             <li className="font-mono">_product.yml → short_key, personas[].short_key, retired_short_keys</li>
+            <li>
+              Links leaving the checkout path carry <code>gtm_payload</code>: URL-encoded JSON with <code>v: 1</code>,{" "}
+              <code>product</code>, <code>persona</code>, <code>product_persona</code> (short codes, same keys older
+              links used), <code>funnel_stage</code>, <code>content_key</code>, <code>experiment_id</code> /{" "}
+              <code>variant</code>, <code>ts</code> and <code>is_staff</code> (staff sessions only).
+            </li>
+            <li>
+              Checkout path = decision pages, plus pages with no stage for 30 minutes after one (per browser tab). An
+              awareness, consideration or post-enrollment page clears it. A broader decision page (for example one
+              listing every product) keeps the more specific context it received.
+            </li>
+            <li>
+              Hand-written <code>gtm_payload</code> on a link (<code>{"{{ funnel.products }}"}</code>,{" "}
+              <code>{"{qs:gtm_payload|…}"}</code>, encoded ids) is replaced on the checkout path; other keys typed in it
+              win key by key. A <code>gtm_payload</code> arriving in the page URL is remembered.
+            </li>
+            <li>
+              Sent whatever the visitor chose in the cookie banner; never while this switch is off. Internal links that
+              redirect off-site carry it through the redirect. Right-click &quot;Copy link&quot; and links inside rich
+              text don&apos;t.
+            </li>
+            <li className="font-mono">
+              settings.yml → tracking.gtm_payload.skip_domains · shared/gtm-payload.ts · docs/gtm-analytics-setup.md
+            </li>
           </ul>
         </details>
       </CardContent>
@@ -230,5 +261,110 @@ export function ProductPersonaTrackingCard() {
         dimensionsReady={ga4?.ok}
       />
     </Card>
+  );
+}
+
+const TRACKING_SETTINGS_KEY = ["/api/settings/tracking"];
+
+function errorText(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  const body = msg.replace(/^\d{3}:\s*/, "");
+  try {
+    const parsed = JSON.parse(body) as { error?: string };
+    return parsed.error ?? body;
+  } catch {
+    return body;
+  }
+}
+
+/** Links leaving the checkout path: domains whose links are never changed. */
+function CheckoutLinksBlock({ canEdit }: { canEdit: boolean }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState("");
+  const { data: settings } = useQuery<TrackingSettingsResponse>({ queryKey: TRACKING_SETTINGS_KEY });
+  const domains = settings?.gtm_payload?.skip_domains ?? [];
+
+  const save = useMutation({
+    mutationFn: async (next: string[]) =>
+      (await apiRequest("PUT", "/api/settings/tracking", { gtm_payload: { skip_domains: next } })).json(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: TRACKING_SETTINGS_KEY });
+      toast({ title: "Saved", description: "Visitors get the change from their next visit." });
+    },
+    onError: (err) => toast({ title: "Couldn't save", description: errorText(err), variant: "destructive" }),
+  });
+
+  const add = () => {
+    const domain = normalizeSkipDomain(draft);
+    if (!domain) {
+      toast({ title: "Not a domain", description: "Use a domain like pay.example.com.", variant: "destructive" });
+      return;
+    }
+    setDraft("");
+    if (!domains.includes(domain)) save.mutate([...domains, domain]);
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3" data-testid="block-checkout-links">
+      <p className="text-sm font-medium">Links leaving the checkout path</p>
+      <p className="text-sm text-muted-foreground leading-relaxed">
+        On the checkout path, links to other sites carry the visitor&apos;s product and persona, so checkout can report
+        them. Add a domain below if its links must stay exactly as written (for example, payment links). Changes apply
+        from a visitor&apos;s next visit.
+      </p>
+      {domains.length === 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="text-skip-domains-empty">
+          No domains excluded: every link to another site gets the context.
+        </p>
+      ) : (
+        <ul className="flex flex-wrap gap-1.5" data-testid="list-skip-domains">
+          {domains.map((d) => (
+            <li
+              key={d}
+              className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 font-mono text-xs"
+            >
+              {d}
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+                aria-label={`Remove ${d}`}
+                disabled={!canEdit || save.isPending}
+                onClick={() => save.mutate(domains.filter((x) => x !== d))}
+                data-testid={`button-remove-skip-domain-${d}`}
+              >
+                <IconX className="h-3 w-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form
+        className="flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          add();
+        }}
+      >
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="pay.example.com"
+          className="h-8 max-w-xs text-sm"
+          disabled={!canEdit || save.isPending}
+          data-testid="input-skip-domain"
+        />
+        <Button
+          type="submit"
+          size="sm"
+          variant="secondary"
+          disabled={!canEdit || save.isPending || !draft.trim()}
+          data-testid="button-add-skip-domain"
+        >
+          {save.isPending ? <IconLoader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <IconPlus className="mr-1.5 h-4 w-4" />}
+          Exclude domain
+        </Button>
+      </form>
+    </div>
   );
 }

@@ -3,6 +3,7 @@ import { normalizeFunnelBlock } from "@shared/funnel";
 import { buildFunnelTrackingContext, type PageTrackingContext } from "@shared/tracking-context";
 import { ensureTrackingKeys } from "@/lib/ecommerceProductMap";
 import { setPageTrackingContext } from "@/lib/tracking";
+import { setPageExternalRedirects } from "@/lib/gtmPayload";
 
 /**
  * Report the page's product / persona tracking values (codes) for every event on this page.
@@ -18,6 +19,7 @@ export function usePageTrackingContext(
   useEffect(() => {
     if (!record || typeof window === "undefined") return;
     const pathname = window.location.pathname;
+    setPageExternalRedirects(opts.skip ? null : record._external_redirects, pathname);
     if (opts.skip) {
       setPageTrackingContext(null, pathname);
       return;

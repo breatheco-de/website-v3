@@ -991,7 +991,7 @@ export default function VariablesPage() {
                 {
                   title: "Funnel",
                   syntax: "{{ funnel.products }}",
-                  body: "The list saved on this page (Funnel tab). In a link, use {{ entry.funnel_products_encoded_ids }} — those ids in one encoded string, on program, landing, and page.",
+                  body: "The list saved on this page (Funnel tab). Links leaving the checkout path get gtm_payload with this page's product and persona automatically; add gtm_payload to a link only to override specific keys, e.g. gtm_payload={\"persona\":\"cc\"}.",
                 },
                 {
                   title: "Globals",

@@ -62,6 +62,7 @@ import { isSiteThemedPath, type ThemePaint } from "@shared/theme-palette";
 import { loadSiteTheme } from "./theme-config";
 import { injectThemeOverrides } from "./theme-html";
 import { buildServerPageTracking } from "./tracking-page-context";
+import { collectExternalRedirects, isCheckoutPathContext, siteOwnHosts } from "./outbound-redirects";
 
 const DEFAULT_SRCSET_SIZES =
   "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw";
@@ -149,7 +150,16 @@ export async function resolvePageQuery(
           data,
         })
       : null;
-    if (tracking) query.data = { ...data, _tracking: tracking };
+    if (tracking) {
+      const externalRedirects = isCheckoutPathContext(tracking)
+        ? collectExternalRedirects(data, ci, siteOwnHosts(site))
+        : {};
+      query.data = {
+        ...data,
+        _tracking: tracking,
+        ...(Object.keys(externalRedirects).length > 0 ? { _external_redirects: externalRedirects } : {}),
+      };
+    }
   }
   return query;
 }

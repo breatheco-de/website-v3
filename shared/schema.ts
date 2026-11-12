@@ -1074,7 +1074,7 @@ export const featureQuadCtaSchema = commonCtaButtonSchema;
 export const featureQuadSectionSchema = z.object({
   type: z.literal("features_quad"),
   version: z.string().optional(),
-  variant: z.enum(["default", "laptopEdge"]).optional(),
+  variant: z.enum(["default", "laptopEdge", "bulletLaptop"]).optional(),
   compact: z.boolean().optional(),
   heading: z.string().optional(),
   description: z.string().optional(),
@@ -1109,6 +1109,18 @@ export const featureQuadSectionSchema = z.object({
     image_id: z.string(),
     alt: z.string().optional(),
   }).optional(),
+  // bulletLaptop variant
+  heading_highlight: z.string().optional(),
+  screen_image: z.object({
+    image_id: z.string(),
+    alt: z.string().optional(),
+  }).optional(),
+  laptop_badges: z.array(z.object({
+    text: z.string(),
+    dot: z.enum(["primary", "green"]).optional(),
+    image_id: z.string().optional(),
+    alt: z.string().optional(),
+  })).optional(),
 });
 
 export type FeatureQuadCard = z.infer<typeof featureQuadCardSchema>;

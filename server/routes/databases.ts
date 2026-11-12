@@ -870,6 +870,7 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
     filePath: string;
     resultsPath: string | undefined;
   } {
+    dbm.assertOwned(dbName);
     const config = dbm.get(dbName);
     if (config.source.type !== "local") {
       throw new Error("Only local databases support item editing");

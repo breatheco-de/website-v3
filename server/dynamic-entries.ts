@@ -285,6 +285,7 @@ export async function resolveDynamicEntries(
       );
       const useSearch =
         Boolean(resolvedDatabase) &&
+        db.exists(resolvedDatabase!) &&
         searchPhrase.length >= MIN_SEARCH_CHARS;
 
       let items: Record<string, unknown>[];

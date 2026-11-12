@@ -9,6 +9,7 @@ import { getQueueStats, enqueueOptimization, getPendingOptimizations, getFailedE
 
 import * as fs from "fs";
 import * as path from "path";
+import { createHash } from "crypto";
 import * as yaml from "js-yaml";
 import { execSync as _execSync, execFile } from "child_process";
 import {
@@ -279,12 +280,12 @@ export function registerMediaRoutes(app: Express): void {
       res.status(500).json({ error: "Failed to load image registry" });
       return;
     }
-    // Full registry for editors / client refetch. Long cache + weak ETag so
-    // revisits after SSR subset hydration are cheap when content is unchanged.
+    // Full registry for editors / client refetch. no-cache (always revalidate) so a
+    // refetch right after an upload sees the new image; unchanged content is a cheap 304.
     const body = JSON.stringify(registry);
-    const etag = `W/"imgreg-${body.length.toString(16)}-${Buffer.byteLength(body).toString(16)}"`;
+    const etag = `W/"imgreg-${createHash("sha1").update(body).digest("hex").slice(0, 16)}"`;
     res.setHeader("ETag", etag);
-    res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=3600");
+    res.setHeader("Cache-Control", "no-cache");
     if (_req.headers["if-none-match"] === etag) {
       res.status(304).end();
       return;

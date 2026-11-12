@@ -1268,18 +1268,23 @@ export function registerSettingsRoutes(app: Express): void {
         login_event_name,
         signup_event_aliases,
         login_event_aliases,
+        gtm_payload,
       } = req.body;
       if (
         conversion_events === undefined && webhook === undefined &&
         leads_expected_conversion_names === undefined && leads_expected_tags === undefined &&
         bigquery === undefined &&
         signup_event_name === undefined && login_event_name === undefined &&
-        signup_event_aliases === undefined && login_event_aliases === undefined
+        signup_event_aliases === undefined && login_event_aliases === undefined &&
+        gtm_payload === undefined
       ) {
         return res.status(400).json({
           error:
-            "Request body must contain conversion_events, webhook, leads_expected_*, bigquery, or signup/login_event_*",
+            "Request body must contain conversion_events, webhook, leads_expected_*, bigquery, gtm_payload, or signup/login_event_*",
         });
+      }
+      if (gtm_payload !== undefined && (typeof gtm_payload !== "object" || gtm_payload === null || Array.isArray(gtm_payload))) {
+        return res.status(400).json({ error: "gtm_payload must be an object with skip_domains" });
       }
       if (conversion_events !== undefined && !Array.isArray(conversion_events)) {
         return res.status(400).json({ error: "conversion_events must be an array" });
@@ -1303,6 +1308,7 @@ export function registerSettingsRoutes(app: Express): void {
         ...(login_event_name !== undefined ? { login_event_name } : {}),
         ...(signup_event_aliases !== undefined ? { signup_event_aliases } : {}),
         ...(login_event_aliases !== undefined ? { login_event_aliases } : {}),
+        ...(gtm_payload !== undefined ? { gtm_payload } : {}),
       }, res, auth.author);
       res.json({ success: true, ...getTrackingSettings(getContentRoot(res)) });
     } catch (err: any) {

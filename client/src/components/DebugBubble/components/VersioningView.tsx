@@ -134,14 +134,18 @@ function formatRelativeUpdatedAt(iso: string): { relative: string; absolute: str
 function UnregisteredVariantsNotice({
   variants,
   canRegister,
+  canDelete,
   registering,
   onRegister,
+  onDelete,
   onPreview,
 }: {
   variants: Array<{ locale: string; slug: string; fileName: string }>;
   canRegister: boolean;
+  canDelete: boolean;
   registering: string | null;
   onRegister: (locale: string, slug: string) => void;
+  onDelete: (locale: string, slug: string) => void;
   onPreview: (locale: string, slug: string) => void;
 }) {
   return (
@@ -177,19 +181,35 @@ function UnregisteredVariantsNotice({
                   Not registered
                 </Badge>
               </div>
-              {canRegister && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 px-2 text-[11px] flex-shrink-0"
-                  disabled={registering !== null}
-                  onClick={() => onRegister(v.locale, v.slug)}
-                  data-testid={`button-register-variant-${v.locale}-${v.slug}`}
-                >
-                  {registering === key ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
-                  Add to versions
-                </Button>
-              )}
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {canRegister && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[11px]"
+                    disabled={registering !== null}
+                    onClick={() => onRegister(v.locale, v.slug)}
+                    data-testid={`button-register-variant-${v.locale}-${v.slug}`}
+                  >
+                    {registering === key ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                    Add to versions
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                    disabled={registering !== null}
+                    onClick={() => onDelete(v.locale, v.slug)}
+                    title="Delete this draft"
+                    aria-label={`Delete draft ${v.slug} (${v.locale})`}
+                    data-testid={`button-delete-unregistered-${v.locale}-${v.slug}`}
+                  >
+                    <IconTrash className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
             </div>
           );
         })}
@@ -489,7 +509,9 @@ export function VersioningView({
   });
   const [isPromoting, setIsPromoting] = useState(false);
 
-  const [deleteTarget, setDeleteTarget] = useState<{ locale: string; slug: string; allocation: number } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<
+    { locale: string; slug: string; allocation: number; unregistered?: boolean } | null
+  >(null);
   const deleteInfoQuery = useVariantInfo({
     contentType: contentInfo.type,
     versioningSlug: versioningWriteSlug,
@@ -1768,8 +1790,10 @@ export function VersioningView({
             <UnregisteredVariantsNotice
               variants={versioningData!.unregisteredVariants!}
               canRegister={hasCapability("content_create_variant", contentInfo.type ?? undefined)}
+              canDelete={hasCapability("content_delete_variant", contentInfo.type ?? undefined)}
               registering={registeringVariant}
               onRegister={handleRegisterVariant}
+              onDelete={(locale, slug) => setDeleteTarget({ locale, slug, allocation: 0, unregistered: true })}
               onPreview={handlePreviewUnregistered}
             />
           )}
@@ -2632,7 +2656,11 @@ export function VersioningView({
                 <DialogDescription>
                   This will permanently remove the variant file for{" "}
                   <code className="text-xs bg-muted px-1 py-0.5 rounded">{deleteTarget?.slug}</code>{" "}
-                  ({deleteTarget?.locale}) and remove it from the versioning list. This action cannot be undone.
+                  ({deleteTarget?.locale})
+                  {deleteTarget?.unregistered
+                    ? ". It isn't in the versions list, so nothing else changes."
+                    : " and remove it from the versioning list."}{" "}
+                  This action cannot be undone.
                 </DialogDescription>
               </DialogHeader>
               {deleteInfoQuery.isLoading ? (

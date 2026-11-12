@@ -139,7 +139,7 @@ export function suggestionForMissingField(opts: {
       case "datePublished":
         return "Set published_at on the blog entry (database field or YAML)";
       case "author":
-        return 'Map authors on the article section (e.g. authors: "{{ single.authors }}")';
+        return "Set authors on the blog entry (the article section's authors only drive the visible byline)";
       default:
         break;
     }
