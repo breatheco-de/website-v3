@@ -93,18 +93,19 @@ export default function HeroCourse({ data }: HeroCourseProps) {
       | { url?: string; tracking?: string }
       | undefined;
     const tracking = cta?.tracking;
+    let sent: Promise<void> | null = null;
     if (isCtaTrackingValue(tracking) && tracking !== "none") {
       const programId = programIdFromHeroData(data, cta?.url, scopeCtx);
-      void ensureEcommerceProductLookup().then(() => {
+      sent = ensureEcommerceProductLookup().then(() =>
         trackEcommerce(tracking, {
           program_id: programId,
           component_type: "hero",
           component_variant: "course",
           path: typeof window !== "undefined" ? window.location.pathname : undefined,
-        });
-      });
+        }),
+      );
     }
-    handleLinkClick(e);
+    handleLinkClick(e, { beforeLeave: sent });
   };
 
   return (

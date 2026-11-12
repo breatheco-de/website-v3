@@ -24,6 +24,8 @@ export const pageStatsSchema = z
     refresh: z.enum(["0", "1"]).optional(),
     source: z.enum(["ga4", "first_party"]).optional(),
     view: z.enum(["test"]).optional(),
+    /** view=test on a finished test: read results by another goal without saving it. */
+    goal: z.enum(["leads", "enrollment_clicks", "both"]).optional(),
   })
   .refine((q) => q.view !== "test" || q.scope === "url", {
     message: "view=test needs scope=url: tests run per language.",
@@ -132,6 +134,7 @@ export function registerAnalyticsRoutes(app: Express): void {
       refresh: req.query.refresh,
       source: req.query.source,
       view: req.query.view,
+      goal: req.query.goal,
     });
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid query", details: parsed.error.flatten() });
@@ -152,7 +155,7 @@ export function registerAnalyticsRoutes(app: Express): void {
     try {
       const report =
         parsed.data.view === "test"
-          ? await getPageTestStats(common)
+          ? await getPageTestStats({ ...common, previewGoal: parsed.data.goal })
           : await getPageStats({ ...common, scope: parsed.data.scope });
       res.json(report);
     } catch (err) {

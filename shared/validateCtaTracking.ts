@@ -94,6 +94,19 @@ export function validateCtaTracking(
   return null;
 }
 
+/** Bound CTAs whose tracking fires an enrollment click (anything but `none`). */
+export function countTrackedCtas(section: Record<string, unknown>, ctaPaths: string[]): number {
+  let n = 0;
+  for (const path of ctaPaths) {
+    const raw = getByPath(section, path);
+    if (raw === undefined) continue;
+    for (const { cta } of flattenCtaTargets(raw)) {
+      if (isCtaTrackingValue(cta.tracking) && cta.tracking !== "none") n++;
+    }
+  }
+  return n;
+}
+
 export type ProductResolveFn = (programId: string) => { product_id: string; active: boolean } | undefined;
 
 /**

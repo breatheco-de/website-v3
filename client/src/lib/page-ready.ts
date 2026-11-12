@@ -9,7 +9,7 @@
  */
 
 import { CLICK_ID_PARAMS } from "@shared/paid-traffic";
-import { getCurrentPageVersion, isStaffSession, onTrack } from "./tracking";
+import { getCurrentPageVersion, isEnrollmentClickEvent, isStaffSession, onTrack } from "./tracking";
 import { scrollPercent } from "./section-tracking";
 
 const ARRIVAL_ENDPOINT = "/api/page-ready";
@@ -91,6 +91,8 @@ type View = {
   forms: number;
   videoStarts: number;
   videoCompletes: number;
+  /** add_to_cart / click_begin_checkout clicks (A/B test "Enrollment clicks" goal). */
+  enroll: number;
   formsSeen: WeakSet<Element>;
   flagged: boolean;
 };
@@ -178,6 +180,7 @@ function sendSummary(v: View, s: State, nextPath: string | null): void {
     f: v.forms,
     vs: v.videoStarts,
     vc: v.videoCompletes,
+    ec: v.enroll,
     nx: nextPath,
   });
 }
@@ -199,6 +202,7 @@ function beginView(s: State, path: string, nav: NavCode, pp: string | null, cb: 
     forms: 0,
     videoStarts: 0,
     videoCompletes: 0,
+    enroll: 0,
     formsSeen: new WeakSet(),
     flagged: false,
   };
@@ -298,6 +302,8 @@ export function startPageReady(): void {
       v.videoStarts += 1;
     } else if (name === "video_complete") {
       v.videoCompletes += 1;
+    } else if (isEnrollmentClickEvent(name)) {
+      v.enroll += 1;
     }
   });
 }

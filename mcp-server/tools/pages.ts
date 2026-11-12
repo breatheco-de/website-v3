@@ -5442,6 +5442,7 @@ export function registerPageTools(
     "versioning.yml is created by create_variant, not by hand; extra versions start at 0% traffic. " +
     "unregistered_variants lists variant files versioning.yml is missing (no traffic until staff register them). " +
     "started_at gives each locale's test run date. " +
+    "test_goal (per locale with a running test): leads | enrollment_clicks | both — what decides the winner; enrollment clicks = add_to_cart / click_begin_checkout button clicks (intent, not purchases); staff-only to change. " +
     "Each variant row also has created_at, updated_at, age_state (new | active | stale | unknown; stale = created and last edited more than 30 days ago), " +
     "verdict (cannot_delete | check_first | probably_safe) with reasons[{code,message}], behind_live, changes_vs_live (null when no live file) and sibling_locales (same slug in other languages; delete is per locale). " +
     "cleanup {tier, flagged_at, deletes_at} is set when the daily abandoned-draft cleanup will delete the draft (warning draft_scheduled_for_cleanup); any content edit resets it. " +
@@ -5578,6 +5579,7 @@ export function registerPageTools(
             .filter(([, localeData]) => typeof localeData.started_at === "string")
             .map(([locale, localeData]) => [locale, localeData.started_at as string]),
         );
+        const test_goal = data.test_goals as Record<string, string> | undefined;
         const abWarnings = abTestingWarnings({
           versioning,
           ab_testing: data.ab_testing as { set_up?: boolean; latest_check_ok?: boolean } | undefined,
@@ -5593,6 +5595,7 @@ export function registerPageTools(
             live_locales,
             variants,
             ...(Object.keys(started_at).length ? { started_at } : {}),
+            ...(test_goal && Object.keys(test_goal).length ? { test_goal } : {}),
             unregistered_variants,
           },
           { warnings: [...unregisteredWarnings, ...abWarnings, ...verdictWarnings], next_actions: [] },

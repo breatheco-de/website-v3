@@ -19,6 +19,7 @@ import { windowFacts } from "./first-party-flow";
 import { PageStatsNotFoundError, PageTestNotFoundError } from "./errors";
 import { getVersioningManager, type VersioningManager } from "../../versioning/VersioningManager";
 import { isTemplateVersioningSlug, listAttachedEntries, versioningContentSlug } from "../../shared-layout-entry";
+import { trackedEnrollButtonsByVersion } from "../../versioning/enroll-buttons";
 import {
   PAGE_STATS_MIN_SESSIONS,
   TEST_DEFAULT_VERSION,
@@ -29,6 +30,7 @@ import {
   type PageStatsTestView,
   type PageTestInfo,
   type Section,
+  type TestGoal,
   type TestNotice,
   type TrafficFacts,
   type TrafficSource,
@@ -87,6 +89,8 @@ export function resolvePageTest(opts: {
       ended_at: run.ended_at,
       versions: [TEST_DEFAULT_VERSION, ...run.versions.filter((v) => v !== TEST_DEFAULT_VERSION)],
       split_changes: run.split_changes,
+      goal: ("goal" in run && run.goal) || "leads",
+      goal_changes: ("goal_changes" in run && run.goal_changes) || [],
       shared_template: isTemplateVersioningSlug(slug)
         ? { pages: listAttachedEntries(opts.entry.content_type, opts.entry.locale, opts.contentRoot).length }
         : null,
@@ -141,6 +145,11 @@ type RowInput = {
   primary: number | null;
   leadsHere: number;
   leadsAll: number;
+  enroll: number;
+  leadOrEnroll: number;
+  enrollVisits: number;
+  reachedCheckout: number | null;
+  purchased: number | null;
   paidVisits: number;
   paidLeads: number;
 };
@@ -156,18 +165,29 @@ function rowInput(f: VersionFacts): RowInput {
     primary: f.objective?.primary.value ?? null,
     leadsHere: f.leads.data?.converted_here.count ?? 0,
     leadsAll: f.leads.data?.all_from_test ?? 0,
+    enroll: t?.enroll_sessions ?? 0,
+    leadOrEnroll: t?.lead_or_enroll ?? 0,
+    enrollVisits: t?.enroll_visits ?? 0,
+    reachedCheckout: t ? t.reached_checkout ?? null : null,
+    purchased: t ? t.purchased ?? null : null,
     paidVisits: f.paid_summary.paid_visits,
     paidLeads: f.paid_summary.paid_leads,
   };
 }
 
-/** Compare table rows; `best` only on rates and times, and only once every version has `minVisits`. */
+/**
+ * Compare table rows; `best` only on rates and times, and only once every version has `minVisits`.
+ * The goal decides which conversion rate can be marked best; the other goal's rows show without a mark.
+ * Payment-site rows (reached checkout, purchased) are information only.
+ */
 export function buildCompareRows(opts: {
   versions: string[];
   byVersion: Record<string, VersionFacts>;
   primary: { label: string; target: number | null } | null;
   minVisits: number;
+  goal?: TestGoal;
 }): CompareRow[] {
+  const goal = opts.goal ?? "leads";
   const inputs = new Map(opts.versions.map((v) => [v, opts.byVersion[v] ? rowInput(opts.byVersion[v]!) : null]));
   const enough = opts.versions.length > 1 && opts.versions.every((v) => (inputs.get(v)?.sessions ?? 0) >= opts.minVisits);
   const ratio = (n: number, d: number) => (d > 0 ? n / d : null);
@@ -194,22 +214,87 @@ export function buildCompareRows(opts: {
     }
     return { id, label, format, values, target: opt.target ?? null, higher_is_better: higher, best };
   };
+  const leadsGoal = goal === "leads";
+  const enrollRate = (r: RowInput) => ratio(r.enroll, r.enrollVisits);
+  const anyEnroll = opts.versions.some((v) => (inputs.get(v)?.enroll ?? 0) > 0);
+  const anyMeasured = (pick: (r: RowInput) => number | null) => opts.versions.some((v) => {
+    const r = inputs.get(v);
+    return r ? pick(r) !== null : false;
+  });
+
   const rows: CompareRow[] = [row("visits", "Visits", "count", (r) => r.sessions)];
-  if (opts.primary) {
+  if (goal === "enrollment_clicks") {
+    rows.push(row("enroll_rate", "Enrollment clicks, per visit", "rate", enrollRate, { best: true }));
+    rows.push(row("enroll", "Enrollment clicks", "count", (r) => r.enroll));
+  } else if (goal === "both") {
+    rows.push(
+      row("lead_or_enroll_rate", "Leads or enrollment clicks, per visit", "rate", (r) => ratio(r.leadOrEnroll, r.enrollVisits), {
+        best: true,
+      }),
+      row("enroll", "Enrollment clicks", "count", (r) => r.enroll),
+      row("enroll_rate", "Enrollment clicks, per visit", "rate", enrollRate),
+    );
+  } else if (opts.primary) {
     rows.push(row("primary", opts.primary.label, "rate", (r) => r.primary, { best: true, target: opts.primary.target }));
   }
   rows.push(
     row("leads_here", "Leads sent on this page", "count", (r) => r.leadsHere),
-    row("leads_here_rate", "Leads sent on this page, per visit", "rate", (r) => ratio(r.leadsHere, r.sessions), { best: true }),
+    row("leads_here_rate", "Leads sent on this page, per visit", "rate", (r) => ratio(r.leadsHere, r.sessions), { best: leadsGoal }),
     row("leads_all", "All leads from visitors who saw it", "count", (r) => r.leadsAll),
-    row("leads_all_rate", "All leads from visitors who saw it, per visit", "rate", (r) => ratio(r.leadsAll, r.sessions), { best: true }),
+    row("leads_all_rate", "All leads from visitors who saw it, per visit", "rate", (r) => ratio(r.leadsAll, r.sessions), {
+      best: leadsGoal,
+    }),
+  );
+  if (leadsGoal && anyEnroll) {
+    rows.push(
+      row("enroll", "Enrollment clicks", "count", (r) => r.enroll),
+      row("enroll_rate", "Enrollment clicks, per visit", "rate", enrollRate),
+    );
+  }
+  rows.push(
     row("engaged_rate", "Engaged visits", "rate", (r) => ratio(r.engaged, r.sessions), { best: true }),
     row("median_seconds", "Median time on page", "seconds", (r) => r.medianSeconds, { best: true }),
     row("bounce_rate", "Bounce rate", "rate", (r) => ratio(r.bounces, r.sessions), { best: true, higher: false }),
+  );
+  if (!leadsGoal || anyEnroll) {
+    if (anyMeasured((r) => r.reachedCheckout)) {
+      rows.push(row("reached_checkout", "Reached checkout (payment site)", "count", (r) => r.reachedCheckout));
+    }
+    if (anyMeasured((r) => r.purchased)) {
+      rows.push(row("purchased", "Purchased (payment site)", "count", (r) => r.purchased));
+    }
+  }
+  rows.push(
     row("paid_visits", "Paid visits", "count", (r) => r.paidVisits),
     row("paid_leads", "Paid leads", "count", (r) => r.paidLeads),
   );
   return rows;
+}
+
+/** Notices for enrollment-click goals: tracked buttons per version, and when clicks started being recorded. */
+export function enrollNotices(opts: {
+  goal: TestGoal;
+  savedGoal: TestGoal;
+  ended: boolean;
+  versions: string[];
+  enrollButtons: Record<string, number> | null;
+  source: TrafficSource;
+  enrollSince: string | null;
+  window: { start: string; end: string };
+}): TestNotice[] {
+  const out: TestNotice[] = [];
+  if (opts.ended && opts.goal !== opts.savedGoal) out.push({ kind: "goal_preview", saved: opts.savedGoal, viewing: opts.goal });
+  if (opts.goal === "leads") return out;
+  if (opts.enrollButtons) {
+    const without = opts.versions.filter((v) => (opts.enrollButtons![v] ?? 0) === 0);
+    if (without.length === opts.versions.length) out.push({ kind: "no_enroll_buttons" });
+    else if (without.length > 0) out.push({ kind: "enroll_buttons_partial", versions: without });
+  }
+  if (opts.source === "first_party") {
+    if (!opts.enrollSince || opts.enrollSince > opts.window.end) out.push({ kind: "enroll_not_recorded" });
+    else if (opts.enrollSince > opts.window.start) out.push({ kind: "enroll_counted_since", day: opts.enrollSince });
+  }
+  return out;
 }
 
 function emptyTraffic(status: Section<TrafficFacts>["status"], message?: string): Section<TrafficFacts> {
@@ -225,6 +310,8 @@ export async function getPageTestStats(opts: {
   source?: TrafficSource;
   versioningManager?: VersioningManager;
   now?: Date;
+  /** Finished tests only: read the results by another goal without saving it. */
+  previewGoal?: TestGoal;
 }): Promise<PageStatsTestView> {
   const index = getPathStageIndex(opts.site, opts.ci);
   const page = resolvePage({ site: opts.site, ci: opts.ci, path: opts.path, scope: "url", index });
@@ -244,7 +331,8 @@ export async function getPageTestStats(opts: {
   // No explicit choice: the site's own counts win whenever they cover part of the test, even if the switch is off today.
   const source: TrafficSource =
     !opts.source && resolved.source === "ga4" && firstPartyCoversTest(windows, test, now.getTime()) ? "first_party" : resolved.source;
-  const key = `test|${opts.site}|${source}|${test.experiment_id}|${test.ended_at ?? "running"}|${page.path}`;
+  const viewingGoal: TestGoal = test.status === "ended" && opts.previewGoal ? opts.previewGoal : test.goal;
+  const key = `test|${opts.site}|${source}|${test.experiment_id}|${test.ended_at ?? "running"}|${test.goal}|${viewingGoal}|${page.path}`;
   const hit = cache.get(key);
   if (!opts.refresh && hit && hit.expires > Date.now()) return hit.payload;
 
@@ -350,6 +438,29 @@ export async function getPageTestStats(opts: {
   }
 
   const firstObjective = test.versions.map((v) => byVersion[v]?.objective).find(Boolean) ?? null;
+  const enrollButtons = page.entry
+    ? trackedEnrollButtonsByVersion({
+        vm,
+        contentType: page.entry.content_type,
+        slug: versioningContentSlug(page.entry.content_type, page.entry.slug, opts.contentRoot),
+        locale: page.entry.locale,
+        versions: test.versions,
+        contentFolder: opts.site,
+      })
+    : null;
+  const enrollSince = test.versions.map((v) => traffic.get(v)?.data?.current.enroll_since).find((d) => !!d) ?? null;
+  notices.push(
+    ...enrollNotices({
+      goal: viewingGoal,
+      savedGoal: test.goal,
+      ended: test.status === "ended",
+      versions: test.versions,
+      enrollButtons,
+      source,
+      enrollSince,
+      window,
+    }),
+  );
   const payload: PageStatsTestView = {
     path: page.path,
     test,
@@ -359,16 +470,19 @@ export async function getPageTestStats(opts: {
     cap_days: TEST_VIEW_CAP_DAYS,
     min_visits: PAGE_STATS_MIN_SESSIONS,
     notices,
+    viewing_goal: viewingGoal,
+    enroll_buttons: enrollButtons,
     compare: buildCompareRows({
       versions: test.versions,
       byVersion,
       primary: firstObjective ? { label: firstObjective.primary.label, target: firstObjective.primary.target } : null,
       minVisits: PAGE_STATS_MIN_SESSIONS,
+      goal: viewingGoal,
     }),
     by_version: byVersion,
     generated_at: new Date().toISOString(),
   };
   cache.set(key, { expires: Date.now() + TTL_MS, payload });
-  log.info({ site: opts.site, path: page.path, source, experiment: test.experiment_id }, "[page-stats] test view built");
+  log.info({ site: opts.site, path: page.path, source, experiment: test.experiment_id, goal: viewingGoal }, "[page-stats] test view built");
   return payload;
 }

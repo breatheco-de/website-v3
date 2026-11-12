@@ -61,6 +61,8 @@ export const pageMessageSchema = z.object({
   f: count,
   vs: count,
   vc: count,
+  /** add_to_cart / click_begin_checkout clicks. */
+  ec: count,
   nx: str(512),
   tk: z.string().max(80),
 });
@@ -111,6 +113,7 @@ export type PageViewRow = {
   form_starts: number;
   video_starts: number;
   video_completes: number;
+  enroll_clicks: number;
   prev_path: string | null;
   next_path: string | null;
 };
@@ -207,6 +210,7 @@ export function rowFromMessage(
     form_starts: forms,
     video_starts: isSummary ? (msg.vs ?? 0) : 0,
     video_completes: isSummary ? (msg.vc ?? 0) : 0,
+    enroll_clicks: isSummary ? (msg.ec ?? 0) : 0,
     prev_path: prev,
     next_path: next,
   };
@@ -274,12 +278,12 @@ const VIEW_COLUMNS: Array<keyof PageViewRow> = [
   "view_key", "arrived_at", "day", "nav_type", "counted_visit", "summary_received", "low_quality", "never_visible",
   "path", "content_type", "page_version", "entrance", "channel", "source", "medium", "campaign", "utm_id", "utm_term",
   "utm_content", "click_id_type", "referrer_host", "device", "country", "engaged", "seconds", "max_scroll", "interacted",
-  "cta_clicks", "task_clicks", "form_starts", "video_starts", "video_completes", "prev_path", "next_path",
+  "cta_clicks", "task_clicks", "form_starts", "video_starts", "video_completes", "enroll_clicks", "prev_path", "next_path",
 ];
 
 const SUMMARY_COLUMNS: Array<keyof PageViewRow> = [
   "summary_received", "low_quality", "never_visible", "engaged", "seconds", "max_scroll", "interacted", "cta_clicks",
-  "task_clicks", "form_starts", "video_starts", "video_completes", "next_path",
+  "task_clicks", "form_starts", "video_starts", "video_completes", "enroll_clicks", "next_path",
 ];
 
 /** Write one site's buffered rows in a single transaction. Returns rows written. */

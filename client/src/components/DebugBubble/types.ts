@@ -65,6 +65,8 @@ export interface VersioningResponse {
   versioning: Record<string, VersioningLocale> | null;
   ab_testing?: AbTestingStatus;
   split_health?: Record<string, SplitHealthLocale>;
+  /** `{locale: {version: n}}` buttons whose tracking reports enrollment clicks (`default` = live page; null = check failed). */
+  enroll_buttons?: Record<string, Record<string, number> | null>;
   hasVersioningFile: boolean;
   filePath: string;
   availableLocales?: string[];
