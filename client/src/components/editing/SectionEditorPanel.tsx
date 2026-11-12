@@ -82,6 +82,9 @@ import { VariableTypeChooserModal } from "./VariableTypeChooserModal";
 import { SingleVariablePickerModal } from "./SingleVariablePickerModal";
 import { VariableDetailModal } from "./VariableDetailModal";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
+import { FormLocationBox } from "@/components/editing/FormLocationBox";
+import { resolveBoundFormSettingsPath } from "@shared/wipeOnDuplicate";
+import { formSetsLocation } from "@shared/formLocationPolicy";
 import { RichTextArea } from "./RichTextArea";
 import { MarkdownEditorField } from "./MarkdownEditorField";
 import { SectionBindingDialog } from "./SectionBindingDialog";
@@ -756,7 +759,6 @@ export function SectionEditorPanel({
   const [bindingConfirmOpen, setBindingConfirmOpen] = useState(false);
   const [exampleDialogOpen, setExampleDialogOpen] = useState(false);
   const [exampleCopied, setExampleCopied] = useState(false);
-  const [locationsPickerOpen, setLocationsPickerOpen] = useState(false);
   const [conversionNameEditing, setConversionNameEditing] = useState(false);
   const [newConversionEventConfirmOpen, setNewConversionEventConfirmOpen] = useState(false);
   const [tocShareApplying, setTocShareApplying] = useState(false);
@@ -2433,6 +2435,21 @@ export function SectionEditorPanel({
     }
     return globalPath;
   })();
+
+  // Other forms on this page that set their own location (offered for clearing on "Whole page").
+  const otherFormLocationOverrideIndexes = useMemo(() => {
+    const out: number[] = [];
+    (allSections ?? []).forEach((raw, i) => {
+      if (i === sectionIndex || !raw || typeof raw !== "object") return;
+      const sec = raw as Record<string, unknown>;
+      const editors = (allFieldEditors?.[String(sec.type ?? "")] ?? {}) as Record<string, string>;
+      const path = resolveBoundFormSettingsPath(editors, typeof sec.variant === "string" ? sec.variant : undefined);
+      if (path == null) return;
+      const form = path ? getValueAtFieldPath(sec, path) : sec;
+      if (form && typeof form === "object" && formSetsLocation(form as Record<string, unknown>)) out.push(i);
+    });
+    return out;
+  }, [allSections, allFieldEditors, sectionIndex]);
 
   const sectionFieldEditors = allFieldEditors?.[sectionType] || {};
   const currentEditorVariant = (parsedSection as Record<string, unknown>)?.variant as
@@ -8442,6 +8459,32 @@ export function SectionEditorPanel({
                   </div>
                 );
               })()}
+              <FormLocationBox
+                contentType={contentType ?? ""}
+                slug={slug ?? ""}
+                locale={locale ?? ""}
+                variant={variant ?? null}
+                section={{
+                  index: sectionIndex,
+                  id:
+                    typeof (parsedSection as Record<string, unknown> | null)?.section_id === "string"
+                      ? ((parsedSection as Record<string, unknown>).section_id as string)
+                      : null,
+                  type: sectionType,
+                }}
+                formLocation={getValueAtFieldPath(parsedSection, formProp("fields.location"))}
+                singleEntry={singleEntry}
+                otherOverrideIndexes={otherFormLocationOverrideIndexes}
+                formOptions={formOptions}
+                formOptionsLoading={formOptionsLoading}
+                onFormLocationChange={(next) =>
+                  updatePropertiesWithValues({
+                    [formProp("fields.location")]: next,
+                    // Legacy Locations-box list (never read by the form).
+                    [formProp("locations")]: undefined,
+                  })
+                }
+              />
               {(() => {
                 const formNode =
                   formSettingsPath === ""
@@ -9124,87 +9167,6 @@ export function SectionEditorPanel({
                     />
                   );
                 })()}
-
-              {/* Locations */}
-              {(() => {
-                const rawLocs = getValueAtFieldPath(parsedSection, formProp("locations"));
-                const selectedLocs: string[] = Array.isArray(rawLocs)
-                  ? (rawLocs as string[])
-                  : rawLocs
-                  ? [String(rawLocs)]
-                  : [];
-                // Purely data-driven: auto when no locations stored
-                const isAutoDetect = selectedLocs.length === 0;
-
-                const locationOptions = (formOptions?.locations ?? []).map((loc) => ({
-                  value: loc.slug,
-                  label: `${loc.name} — ${loc.city}`,
-                  group: loc.region,
-                  badgeLabel: loc.city,
-                  searchTerms: [loc.city, loc.country, loc.slug, loc.name],
-                }));
-
-                const groupLabels = Object.fromEntries(
-                  (formOptions?.regions ?? []).map((r) => [r.slug, r.label])
-                );
-
-                return (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <Label className="text-sm font-medium" data-testid="label-conversion-locations">
-                        Locations
-                      </Label>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          {isAutoDetect ? "Auto-detect" : "Manual"}
-                        </span>
-                        <Switch
-                          checked={isAutoDetect}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              // ON → clear locations, back to auto-detect
-                              updatePropertyWithValue(formProp("locations"), undefined);
-                              setLocationsPickerOpen(false);
-                            } else {
-                              // OFF → open picker so user can choose campuses immediately
-                              setLocationsPickerOpen(true);
-                            }
-                          }}
-                          data-testid="switch-locations-auto-detect"
-                        />
-                      </div>
-                    </div>
-                    {isAutoDetect && !locationsPickerOpen ? (
-                      <p className="text-xs text-muted-foreground">
-                        Location is auto-detected from the visitor's IP address.
-                      </p>
-                    ) : (
-                      <SearchableMultiSelect
-                        options={locationOptions}
-                        value={selectedLocs}
-                        onChange={(vals) => {
-                          updatePropertyWithValue(
-                            formProp("locations"),
-                            vals.length > 0 ? vals : undefined
-                          );
-                          if (vals.length === 0) setLocationsPickerOpen(false);
-                        }}
-                        open={locationsPickerOpen && isAutoDetect ? locationsPickerOpen : undefined}
-                        onOpenChange={(o) => {
-                          // Only manage externally when in the transient "picker open, no selections" state
-                          if (isAutoDetect) setLocationsPickerOpen(o);
-                        }}
-                        label="Select campuses"
-                        searchPlaceholder="Search locations…"
-                        groupLabels={groupLabels}
-                        isLoading={formOptionsLoading}
-                        testIdPrefix="location"
-                        emptyMessage="No locations found"
-                      />
-                    )}
-                  </div>
-                );
-              })()}
 
               {/* Webhook */}
               {(() => {

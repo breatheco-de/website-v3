@@ -8,6 +8,37 @@ import {
   type SignupFieldMapResolveContext,
 } from "@shared/authSignupFieldMap";
 import type { Session, UTMParams } from "@shared/session";
+import { REGION_WIDE_LOCATION_SLUGS } from "@shared/formLocationPolicy";
+
+export interface SignupLocationDetail {
+  slug: string;
+  city: string;
+  country: string;
+  region: string;
+}
+
+/**
+ * City / country / region for `form.location.*` signup sources: the chosen campus,
+ * or the visitor's detected city/country when the location is remote, region-wide
+ * or itself came from detection.
+ */
+export function buildSignupLocationDetail(input: {
+  slug: string | undefined;
+  location: { city?: string; country?: string; region?: string } | undefined;
+  detected: boolean;
+  geo: { city?: string; country?: string } | null | undefined;
+}): SignupLocationDetail | null {
+  const slug = input.slug?.trim();
+  if (!slug) return null;
+  const useGeo = input.detected || REGION_WIDE_LOCATION_SLUGS.has(slug) || !input.location;
+  const country = input.location?.country && input.location.country !== "Unknown" ? input.location.country : "";
+  return {
+    slug,
+    city: useGeo ? input.geo?.city || "" : input.location?.city || "",
+    country: useGeo ? input.geo?.country || country : country,
+    region: input.location?.region || "",
+  };
+}
 
 export interface BuildSignupFieldMapContextInput {
   /** Raw react-hook-form values. */
@@ -24,6 +55,8 @@ export interface BuildSignupFieldMapContextInput {
   fieldMap: AuthSignupFieldMapEntry[];
   /** Resolves `global.*`; null while variable definitions are not loaded (globals → ""). */
   resolveGlobal: ((name: string) => string) | null;
+  /** Chosen location details for `form.location.city|country|region`. */
+  locationDetail?: SignupLocationDetail | null;
 }
 
 export function buildSignupFieldMapContext(
@@ -36,6 +69,7 @@ export function buildSignupFieldMapContext(
     consent_email: consents.consent_email,
     consent_sms: consents.consent_sms,
     consent_whatsapp: consents.consent_whatsapp,
+    location_detail: input.locationDetail ?? {},
   };
   const sessionCtx: Record<string, unknown> = {
     language: session.language,

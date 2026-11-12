@@ -36,6 +36,37 @@ import { getDefaultContentRoot } from "../../../server/site-config";
 import { FORMS_ISSUE_CODES } from "./forms.issueCodes";
 import { checkTrackingOverride, type TrackingOverride } from "../../../shared/tracking-context";
 import { loadTrackingKeyIndex } from "../../../server/product/tracking-key-index";
+import {
+  FORM_LOCATION_HIDDEN_CODE,
+  FORM_LOCATION_MISMATCH_CODE,
+  FORM_LOCATION_MISSING_CODE,
+  FORM_LOCATION_UNKNOWN_CODE,
+  runFormLocationGate,
+} from "../../../server/form-location-gate";
+import { locationNameIndex } from "../../../server/location-catalog";
+import {
+  formOwnLocation,
+  parseFormLocationPolicy,
+  resolveFormLocationSource,
+} from "../../../shared/formLocationPolicy";
+
+const LOCATION_ISSUE_CODES: Record<string, string> = {
+  [FORM_LOCATION_MISSING_CODE]: "FORM_LOCATION_MISSING",
+  [FORM_LOCATION_UNKNOWN_CODE]: "FORM_LOCATION_UNKNOWN",
+  [FORM_LOCATION_MISMATCH_CODE]: "FORM_LOCATION_PAGE_MISMATCH",
+  [FORM_LOCATION_HIDDEN_CODE]: "FORM_LOCATION_HIDDEN_CAMPUS",
+};
+
+/** The page's Locations field gives this form a location (signup map `form.location` is then satisfied). */
+function pageSetsFormLocation(
+  config: unknown,
+  entry: Record<string, unknown>,
+  form: Record<string, unknown> | null,
+): boolean {
+  const policy = parseFormLocationPolicy(config);
+  if (!policy || !form) return false;
+  return resolveFormLocationSource({ form, entry, policy }).layer === "entry";
+}
 
 function isYamlFile(name: string): boolean {
   return name.endsWith(".yml") || name.endsWith(".yaml");
@@ -105,7 +136,7 @@ export const formsValidator: Validator = {
   name: "forms",
   issueCodes: FORMS_ISSUE_CODES,
   description:
-    "Validates form conversion_name and fields.*.source.related_field (publish rules)",
+    "Validates form conversion_name, fields.*.source.related_field (publish rules) and form locations",
   apiExposed: true,
   estimatedDuration: "fast",
   category: "forms",
@@ -123,6 +154,9 @@ export const formsValidator: Validator = {
     const consentFallback = getConsentFallback(root);
     const trackingKeys = loadTrackingKeyIndex(root);
     let formsRelyingOnDefault = 0;
+    const locationIndex = locationNameIndex(root);
+    const reportedPageHidden = new Set<string>();
+    const formLocationsByForm = new Map<string, Map<string, string>>();
 
     for (const [entryDir, ct] of Array.from(collectEntryDirs(context, root))) {
       if (!fs.existsSync(entryDir)) continue;
@@ -236,7 +270,9 @@ export const formsValidator: Validator = {
                 });
               }
             }
-            const signupErr = validateSignupFormFields(formObj, signupFieldMap, formLabel);
+            const signupErr = validateSignupFormFields(formObj, signupFieldMap, formLabel, {
+              pageSetsLocation: pageSetsFormLocation(config, singleEntry, formObj),
+            });
             if (signupErr) {
               errors.push({
                 type: "error",
@@ -248,7 +284,65 @@ export const formsValidator: Validator = {
             }
           }
         }
+
+        if (sections.length > 0) {
+          const locationGate = runFormLocationGate({
+            pageData: singleEntry,
+            contentType: ct,
+            contentRoot: root,
+            index: locationIndex,
+            editors: allFieldEditors as Record<string, Record<string, unknown>>,
+          });
+          const entryField = locationGate.entryField;
+          for (const issue of [...locationGate.errors, ...locationGate.warnings]) {
+            const onPageField = !!entryField && issue.property_path === entryField;
+            // Wrong names on the page field are FIELD_RELATION_TARGET_MISSING (relation-targets).
+            if (onPageField && issue.code === FORM_LOCATION_UNKNOWN_CODE) continue;
+            if (onPageField && reportedPageHidden.has(entryDir)) continue;
+            if (onPageField) reportedPageHidden.add(entryDir);
+            const code = LOCATION_ISSUE_CODES[issue.code];
+            if (!code) continue;
+            const isError = locationGate.errors.includes(issue) && !isDraft;
+            (isError ? errors : warnings).push({
+              type: isError ? "error" : "warning",
+              code,
+              message: `${issue.message} File: ${relativePath}`,
+              file: relativePath,
+              suggestion: FORMS_ISSUE_CODES[code]?.suggestion,
+            });
+          }
+          if (!isDraft && !base.startsWith("template.") && !base.startsWith("single.")) {
+            const locale = base.replace(/\.ya?ml$/, "");
+            for (const idx of locationGate.formSectionIndexes) {
+              const sec = sections[idx] as Record<string, unknown>;
+              const editors = allFieldEditors[String(sec.type ?? "")] ?? {};
+              const variant = typeof sec.variant === "string" ? sec.variant : undefined;
+              const formObj = formObjectAtPath(sec, resolveBoundFormSettingsPath(editors, variant));
+              const key = typeof sec.section_id === "string" ? sec.section_id : `${idx}:${String(sec.type ?? "")}`;
+              const own = formOwnLocation(formObj);
+              const perLocale = formLocationsByForm.get(key) ?? new Map<string, string>();
+              perLocale.set(locale, own ? own.values.slice().sort().join(",") : "");
+              formLocationsByForm.set(key, perLocale);
+            }
+          }
+        }
       }
+
+      for (const [key, perLocale] of Array.from(formLocationsByForm)) {
+        const distinct = new Set(perLocale.values());
+        if (perLocale.size < 2 || distinct.size < 2) continue;
+        const detail = Array.from(perLocale)
+          .map(([loc, v]) => `${loc}: ${v || "page / detected"}`)
+          .join("; ");
+        warnings.push({
+          type: "warning",
+          code: "FORM_LOCATION_LANGUAGE_MISMATCH",
+          message: `Form "${key}" has a different location per language (${detail}). Folder: ${path.relative(process.cwd(), entryDir)}`,
+          file: path.relative(process.cwd(), entryDir),
+          suggestion: FORMS_ISSUE_CODES.FORM_LOCATION_LANGUAGE_MISMATCH?.suggestion,
+        });
+      }
+      formLocationsByForm.clear();
     }
 
     if (!normalizeConsentFallbackKey(consentFallback)) {

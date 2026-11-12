@@ -42,6 +42,8 @@ export function resolveSignupGateStatus(input: {
   authSettingsLoading: boolean;
   /** Form section data (is_signup, allow_signup, fields, consent). */
   formData: Record<string, unknown>;
+  /** The page's Locations field gives this form its location (forms.location). */
+  pageSetsLocation?: boolean;
 }): SignupGateStatus {
   const { isSignupRequested, allowSignup, authSettings, authSettingsLoading, formData } = input;
   if (!isSignupRequested) return { kind: "off" };
@@ -57,7 +59,9 @@ export function resolveSignupGateStatus(input: {
   if (!isSignupFieldMapReady(fieldMap)) errors.push({ code: "field_map_empty" });
   if (errors.length > 0) return { kind: "error", errors, runtimeActive: false };
 
-  const formError = validateSignupFormFields(formData, fieldMap);
+  const formError = validateSignupFormFields(formData, fieldMap, "form", {
+    pageSetsLocation: input.pageSetsLocation === true,
+  });
   if (formError) {
     return {
       kind: "error",

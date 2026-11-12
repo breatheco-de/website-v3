@@ -10,6 +10,20 @@ import { getTrackingSettings, getAuthSettings, getAuthConversionEventConfig } fr
 import { loadAllFieldEditors, getComponentInfo } from "./component-registry";
 import { ecommerceManager } from "./ecommerce/ecommerce-manager";
 import { contentIndex } from "./content-index";
+import { getContentTypeConfig } from "./content-types";
+import { loadYamlWithTemplateVars } from "./yaml-parse-cache";
+import { parseFormLocationPolicy, resolveFormLocationSource } from "@shared/formLocationPolicy";
+import fs from "fs";
+
+function readCommonYml(filePath: string): Record<string, unknown> {
+  try {
+    if (!fs.existsSync(filePath)) return {};
+    const data = loadYamlWithTemplateVars(fs.readFileSync(filePath, "utf-8"));
+    return data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
 
 function makeProductResolver() {
   return (programId: string) => {
@@ -44,7 +58,14 @@ export function validateDocIdentity(
   const funnel = normalizeFunnelBlock(
     readFunnelBlockFromFile(commonYmlPath(opts.contentType, opts.contentSlug, root)),
   );
+  const locationPolicy = parseFormLocationPolicy(getContentTypeConfig(opts.contentType, root));
+  const pageEntry = locationPolicy
+    ? { ...readCommonYml(commonYmlPath(opts.contentType, opts.contentSlug, root)), ...doc }
+    : null;
   return validateDocumentSectionsIdentity(doc, {
+    pageSetsLocation: locationPolicy
+      ? (form) => !!form && resolveFormLocationSource({ form, entry: pageEntry, policy: locationPolicy }).layer === "entry"
+      : undefined,
     fieldEditorsByType: allFieldEditors,
     hasEcommerceBehavior: (sectionType) =>
       Boolean(getComponentInfo(sectionType)?.behaviors?.includes("ecommerce")),

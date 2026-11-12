@@ -72,7 +72,9 @@ import { cn } from "@/lib/utils";
 import { createVariableWidgetPlugin } from "@/lib/cm-variable-widgets";
 import {
   AUTH_SIGNUP_FORM_FIELD_PRESETS,
+  AUTH_SIGNUP_LOCATION_DETAIL_PRESETS,
   AUTH_SIGNUP_SESSION_FIELD_PRESETS,
+  SIGNUP_LOCATION_KEYS,
   DEFAULT_AUTH_SIGNUP_FIELD_MAP,
   buildSignupPayloadPreviewJson,
   buildSignupTestPayloadFromFieldMap,
@@ -309,7 +311,7 @@ function SignupFromCombobox({
   const [search, setSearch] = useState("");
 
   const formPresets = useMemo(
-    () => AUTH_SIGNUP_FORM_FIELD_PRESETS.map((name) => `form.${name}`),
+    () => [...AUTH_SIGNUP_FORM_FIELD_PRESETS, ...AUTH_SIGNUP_LOCATION_DETAIL_PRESETS].map((name) => `form.${name}`),
     [],
   );
   const sessionPresets = useMemo(
@@ -1457,6 +1459,16 @@ export function AuthTab() {
                                   data-testid={`text-auth-signup-global-empty-${index}`}
                                 >
                                   Select a global.* variable
+                                </p>
+                              ) : null}
+                              {(isConstantEntry(row) || isGlobalEntry(row)) &&
+                              SIGNUP_LOCATION_KEYS.has(row.key.trim().toLowerCase()) ? (
+                                <p
+                                  className="text-[10px] text-amber-600 dark:text-amber-400 ml-[7.5rem]"
+                                  data-testid={`text-auth-signup-fixed-location-${index}`}
+                                >
+                                  This replaces the location chosen on each form for signup accounts. Use
+                                  form.location / form.location.city to follow the form.
                                 </p>
                               ) : null}
                             </div>

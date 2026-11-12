@@ -8,6 +8,23 @@ import {
 } from "../../shared/internalLinkGate.js";
 import { actionRequired, type McpTextResult, type McpWarning, type NextAction } from "./respond.js";
 
+/**
+ * Non-blocking `form_location_warnings` from saves (missing location on a draft / untouched form,
+ * wrong or hidden location slugs, form overriding the page's Locations). Paths are update_fields dot paths.
+ */
+export function formLocationMcpWarnings(raw: unknown): McpWarning[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (w): w is { code: string; message: string; fix_field_path?: string } =>
+        !!w && typeof w === "object" && typeof (w as { message?: unknown }).message === "string",
+    )
+    .map((w) => ({
+      code: w.code,
+      message: w.fix_field_path ? `${w.message} Fix: ${w.fix_field_path}` : w.message,
+    }));
+}
+
 /** `sections[2].data.content` → `sections.2.data.content` (update_fields field_path). */
 export function toUpdateFieldPath(fieldPath: string): string {
   return fieldPath.replace(/\[(\d+)\]/g, ".$1");

@@ -4,7 +4,7 @@ import {
   isGlobalEntry,
   type AuthSignupFieldMapEntry,
 } from "@shared/authSignupFieldMap";
-import { buildSignupFieldMapContext } from "./signupFieldMapContext";
+import { buildSignupFieldMapContext, buildSignupLocationDetail } from "./signupFieldMapContext";
 
 const fieldMap: AuthSignupFieldMapEntry[] = [
   { key: "email", from: "form.email", required: true },
@@ -100,5 +100,47 @@ describe("buildSignupFieldMapContext", () => {
       resolveGlobal: null,
     });
     expect(ctx.globals).toEqual({ "global.default_free_signup_plan": "" });
+  });
+
+  it("fills form.location.* from the chosen campus", () => {
+    const locationMap: AuthSignupFieldMapEntry[] = [
+      { key: "city", from: "form.location.city" },
+      { key: "country", from: "form.location.country" },
+      { key: "region", from: "form.location.region" },
+    ];
+    const ctx = buildSignupFieldMapContext({
+      values,
+      fields,
+      consents,
+      session,
+      sessionLocation,
+      utm,
+      fieldMap: locationMap,
+      resolveGlobal: null,
+      locationDetail: buildSignupLocationDetail({
+        slug: "madrid-spain",
+        location: { city: "Madrid", country: "Spain", region: "europe" },
+        detected: false,
+        geo: { city: "Miami", country: "US" },
+      }),
+    });
+    expect(buildSignupPayloadFromFieldMap(locationMap, ctx, {})).toMatchObject({
+      city: "Madrid",
+      country: "Spain",
+      region: "europe",
+    });
+  });
+});
+
+describe("buildSignupLocationDetail", () => {
+  const geo = { city: "Fort Lauderdale", country: "US" };
+  it("uses the visitor's city/country for remote, region-wide or detected locations", () => {
+    expect(
+      buildSignupLocationDetail({ slug: "remote", location: { city: "", country: "Unknown", region: "online" }, detected: false, geo }),
+    ).toEqual({ slug: "remote", city: "Fort Lauderdale", country: "US", region: "online" });
+    expect(
+      buildSignupLocationDetail({ slug: "miami-usa", location: { city: "Miami", country: "United States", region: "usa-canada" }, detected: true, geo }),
+    ).toMatchObject({ city: "Fort Lauderdale", country: "US" });
+    expect(buildSignupLocationDetail({ slug: "", location: undefined, detected: false, geo })).toBeNull();
   });
 });

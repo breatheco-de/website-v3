@@ -61,6 +61,13 @@ import {
   parseAuthConversionEventConfig,
 } from "@shared/authConversionEvents";
 import { resolveFormDefaults } from "@shared/resolveFormDefaults";
+import {
+  effectiveFormLocationPolicy,
+  formPageLocationMismatch,
+  pageLocationValues,
+  parseFormLocationPolicy,
+  resolveFormLocationSource,
+} from "@shared/formLocationPolicy";
 import { isUsVisitor } from "@shared/usVisitor";
 import { resolveConsentCopy, extraConsentYamlFieldsFromObject, consentKeyFromYamlField, isBlankConsentHtml, parseConsentSettingsResponse, resolveConsentRequirement } from "@shared/consent-settings";
 import { RichTextContent } from "@/components/ui/rich-text-content";
@@ -98,12 +105,13 @@ import {
   resolveFormFieldRelationSource,
   type FormFieldOption as RelationFormFieldOption,
 } from "@shared/resolveFormFieldRelationSource";
-import type { RelationEditorHint } from "@shared/relation-field";
+import { deslugifyLabel, type RelationEditorHint } from "@shared/relation-field";
 import {
   isNonEmptyLeadFormWireScalar,
   resolveLeadFormDefault,
   resolveLeadFormFieldValue,
   resolveLeadFormFieldValues,
+  resolveLeadFormLocationSource,
   type LeadFormFieldDefault,
   type LeadFormFieldResolveContext,
 } from "@/components/lead_form/resolveLeadFormFieldValues";
@@ -117,7 +125,10 @@ import type {
   HiddenBadgeDetail,
   LeadFormOverrideBadge,
 } from "@/components/lead_form/hiddenFieldsNoticeTypes";
-import { buildSignupFieldMapContext } from "@/components/lead_form/signupFieldMapContext";
+import {
+  buildSignupFieldMapContext,
+  buildSignupLocationDetail,
+} from "@/components/lead_form/signupFieldMapContext";
 import { resolveSignupGateStatus } from "@/components/lead_form/signupGateStatus";
 
 const StaffLeadConfirmDialog = lazy(() => import("@/components/lead_form/StaffLeadConfirmDialog"));
@@ -777,7 +788,6 @@ function buildEffectiveSubmitConfig(
 }
 
 export default function LeadForm({ data, termsStyle }: LeadFormProps) {
-  const landingLocations = undefined as string[] | undefined;
   const { slug, contentType, singleEntry, locale: sectionLocale } = useSectionContext();
   const programContext = contentType === "program" ? slug : undefined;
   const pageFunnel = usePageFunnel();
@@ -991,21 +1001,38 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const effectiveTermsUrl = resolvedData.terms_url || null;
   const effectivePrivacyUrl = resolvedData.privacy_url || null;
 
-  const hasLandingLocations = landingLocations && landingLocations.length > 0;
-  const singleLandingLocation = hasLandingLocations && landingLocations.length === 1 ? landingLocations[0] : null;
-  const multipleLandingLocations = hasLandingLocations && landingLocations.length > 1 ? landingLocations : null;
-
   const { data: formOptions, isLoading: formOptionsLoading } = useQuery<FormOptions>({
     queryKey: ["/api/form-options", locale],
   });
 
   const { data: contentTypeConfig } = useQuery<{
     editor?: Record<string, { type?: string } & RelationEditorHint>;
+    forms?: { location?: { entry_field?: string; autodetect?: boolean } } | null;
   }>({
     queryKey: [`/api/content-types/${contentType}/config`],
     enabled: !!contentType,
     staleTime: 5 * 60 * 1000,
   });
+
+  // forms.location on the content type: the form's own setting, then the page field, then detection.
+  const locationPolicy = useMemo(
+    () => effectiveFormLocationPolicy({ fields }, parseFormLocationPolicy(contentTypeConfig)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [contentTypeConfig, data.fields],
+  );
+  const locationResolution = locationPolicy
+    ? resolveFormLocationSource({ form: { fields }, entry: singleEntry, policy: locationPolicy })
+    : null;
+  const plannedLocations =
+    locationResolution && (locationResolution.layer === "form" || locationResolution.layer === "entry")
+      ? locationResolution.locations
+      : [];
+  const locationPicker = locationResolution?.own?.mode === "picker";
+  const singleLandingLocation = !locationPicker && plannedLocations.length === 1 ? plannedLocations[0] : null;
+  const multipleLandingLocations =
+    plannedLocations.length > 1 || (locationPicker && plannedLocations.length > 0) ? plannedLocations : null;
+  const hasLandingLocations = !!(singleLandingLocation || multipleLandingLocations);
+  const locationRegionOf = (slug: string) => formOptions?.locations.find((l) => l.slug === slug)?.region;
 
   const programSourceRaw = fields.program?.source;
   const programSource = programSourceRaw
@@ -1122,7 +1149,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   const landingRegions = (() => {
     if (!hasLandingLocations || !formOptions?.locations) return null;
     const regionSlugs = new Set<string>();
-    for (const locSlug of landingLocations!) {
+    for (const locSlug of plannedLocations) {
       const found = formOptions.locations.find(l => l.slug === locSlug);
       if (found) regionSlugs.add(found.region);
     }
@@ -1172,6 +1199,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       if (multipleLandingLocations) {
         return { ...baseConfig, visible: true, required: true, default: "", hiddenReason: undefined };
       }
+    }
+    if (fieldName === "location" && locationPicker) {
+      return { ...baseConfig, visible: true, required: true, hiddenReason: undefined };
+    }
+
+    // Region follows the chosen location once the form or page sets one.
+    if (fieldName === "region" && locationPolicy && (hasLandingLocations || locationPicker)) {
+      return { ...baseConfig, visible: false, required: false, hiddenReason: "landing_location" };
     }
 
     if (fieldName === "region" && hasLandingLocations) {
@@ -1421,21 +1456,34 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
   });
 
   useEffect(() => {
+    // With forms.location, detection only fills in when the content type allows it
+    // (or pre-selects a detected city that is on the form/page list).
+    const detectionPrefill = !locationPolicy || locationResolution?.layer === "autodetect" || locationPicker;
     if (singleLandingLocation) {
       form.setValue("location", singleLandingLocation);
     } else if (sessionLocation && !form.getValues("location")) {
-      // Only autofill when the session campus is among listed form options
-      // (Florida etc. hide most campuses — a foreign slug blanks the Select).
-      const listed = formOptions?.locations;
-      const sessionSlugOk =
-        !listed || listed.some((loc) => loc.slug === sessionLocation.slug);
-      if (sessionSlugOk) {
-        form.setValue("location", sessionLocation.slug);
+      if (multipleLandingLocations) {
+        if (multipleLandingLocations.includes(sessionLocation.slug)) {
+          form.setValue("location", sessionLocation.slug);
+        }
+      } else if (detectionPrefill) {
+        // Only autofill when the session campus is among listed form options
+        // (Florida etc. hide most campuses — a foreign slug blanks the Select).
+        const listed = formOptions?.locations;
+        const sessionSlugOk =
+          !listed || listed.some((loc) => loc.slug === sessionLocation.slug);
+        if (sessionSlugOk) {
+          form.setValue("location", sessionLocation.slug);
+        }
       }
     }
     if (singleLandingRegion) {
       form.setValue("region", singleLandingRegion);
-    } else if (sessionLocation?.region && !form.getValues("region")) {
+    } else if (
+      sessionLocation?.region &&
+      !form.getValues("region") &&
+      (!locationPolicy || locationResolution?.layer === "autodetect")
+    ) {
       const listedRegions = formOptions?.locations?.map((loc) => loc.region) ?? [];
       const sessionRegionOk =
         listedRegions.length === 0 || listedRegions.includes(sessionLocation.region);
@@ -1453,7 +1501,19 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     if (programContext && !form.getValues("program")) {
       form.setValue("program", programContext);
     }
-  }, [sessionLocation, utm, programContext, form, singleLandingLocation, singleLandingRegion, formOptions?.locations]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    sessionLocation,
+    utm,
+    programContext,
+    form,
+    singleLandingLocation,
+    singleLandingRegion,
+    formOptions?.locations,
+    locationPolicy,
+    locationResolution?.layer,
+    multipleLandingLocations?.join(","),
+  ]);
 
   useEffect(() => {
     if (programSource?.related_field || programCatalogKey) {
@@ -1531,6 +1591,17 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         formOptions: formOptionsLoading,
         programOptions: programQueryOptionsLoading,
       },
+      locationPlan: locationResolution
+        ? {
+            layer: locationResolution.layer,
+            locations: locationResolution.locations,
+            preselected:
+              multipleLandingLocations && sessionLocation?.slug && multipleLandingLocations.includes(sessionLocation.slug)
+                ? sessionLocation.slug
+                : null,
+          }
+        : null,
+      locationRegionOf,
     };
   };
 
@@ -1553,6 +1624,15 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       sessionLocation,
       utm,
       fieldMap,
+      locationDetail: (() => {
+        const slug = typeof fields.location === "string" ? fields.location : undefined;
+        return buildSignupLocationDetail({
+          slug,
+          location: slug ? formOptions?.locations.find((l) => l.slug === slug) : undefined,
+          detected: resolveLeadFormLocationSource(buildFieldResolveContext(values)) === "detected",
+          geo: session.geo,
+        });
+      })(),
       resolveGlobal: variableDefinitions
         ? (name) => resolveVariable(name, variableDefinitions, variableContext)?.value ?? ""
         : null,
@@ -1654,6 +1734,9 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       ...(leadTracking.codes ?? {}),
       submission_id: submissionId,
     };
+    // Analytics only: the CRM payload is built from `fields`, which never carries this.
+    const locationSource = resolveLeadFormLocationSource(buildFieldResolveContext(formValues));
+    if (locationSource) tracking.location_source = locationSource;
     await trackFormSubmission(eventName, tracking);
   };
 
@@ -2015,17 +2098,25 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
     getFieldConfig("region").options,
   );
 
+  // Hidden campuses (unlisted) stay valid on a form or page list but are not in form options.
+  const hiddenListedLocations = formOptions?.locations
+    ? (multipleLandingLocations ?? []).filter((slug) => !formOptions.locations.some((l) => l.slug === slug))
+    : [];
+
   const locationChoiceOptions = mergeLeadFormOptions(
-    filteredLocations.map((loc) => {
-      const region = formOptions?.regions.find((r) => r.slug === loc.region);
-      const countryLabel =
-        loc.country && loc.country !== "Unknown" ? loc.country : region?.label || "";
-      return {
-        value: loc.slug,
-        label: countryLabel ? `${loc.name} - ${countryLabel}` : loc.name,
-        group: region?.label,
-      };
-    }),
+    [
+      ...filteredLocations.map((loc) => {
+        const region = formOptions?.regions.find((r) => r.slug === loc.region);
+        const countryLabel =
+          loc.country && loc.country !== "Unknown" ? loc.country : region?.label || "";
+        return {
+          value: loc.slug,
+          label: countryLabel ? `${loc.name} - ${countryLabel}` : loc.name,
+          group: region?.label,
+        };
+      }),
+      ...hiddenListedLocations.map((slug) => ({ value: slug, label: deslugifyLabel(slug) })),
+    ],
     getFieldConfig("location").options,
   );
 
@@ -2343,6 +2434,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
       authSettings,
       authSettingsLoading,
       formData: data as Record<string, unknown>,
+      pageSetsLocation: locationResolution?.layer === "entry",
     });
 
     const matchedConditions = overrideMatch
@@ -2360,9 +2452,17 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
         }
       : null;
 
+    const pageLocs = pageLocationValues(singleEntry, locationPolicy?.entryField);
+    const locationStatus =
+      locationResolution?.layer === "missing"
+        ? { status: "missing" as const }
+        : locationResolution?.layer === "form" && formPageLocationMismatch(locationResolution.locations, pageLocs)
+          ? { status: "mismatch" as const, formValues: locationResolution.locations, pageValues: pageLocs }
+          : null;
+
     const renderOverlay = (withHiddenFields: boolean) => {
       const hidden = withHiddenFields && top.length > 0 ? { top, rest, resolveBadge } : null;
-      if (gate.kind === "off" && !override && !hidden) return null;
+      if (gate.kind === "off" && !override && !hidden && !locationStatus) return null;
       return (
         <Suspense fallback={null}>
           <LeadFormStatusBadges
@@ -2370,6 +2470,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
             anchorRef={formRootRef}
             gate={gate}
             override={override}
+            location={locationStatus}
             hiddenFields={hidden}
           />
         </Suspense>

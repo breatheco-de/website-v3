@@ -58,10 +58,23 @@ export const NOTICE_COPY = {
 const SOURCE_COPY: Record<LeadFormFieldSourceKind, Copy> = {
   form_state: { en: "Prefilled on load", es: "Prellenado al cargar" },
   signed_in_profile: { en: "The signed-in account", es: "La cuenta con sesión iniciada" },
-  page_single_location: { en: "The page's only campus", es: "La única sede de la página" },
+  page_single_location: {
+    en: "From this page's Locations (Page Meta → Fields)",
+    es: "De las ubicaciones de esta página (Page Meta → Fields)",
+  },
   page_single_region: { en: "The page's only region", es: "La única región de la página" },
   visitor_location: { en: "Detected from your location", es: "Detectado de tu ubicación" },
   visitor_region: { en: "Region detected from your location", es: "Región detectada de tu ubicación" },
+  form_location: { en: "Set on this form", es: "Configurado en este formulario" },
+  location_region: { en: "The chosen campus's region", es: "La región de la sede elegida" },
+  visitor_location_fallback: {
+    en: "Detected from the visitor because this page has no location. Set one before the next save.",
+    es: "Detectado del visitante porque esta página no tiene ubicación. Configúrala antes de guardar.",
+  },
+  location_missing: {
+    en: "No location: set one on this form or in the page's Locations",
+    es: "Sin ubicación: configúrala en este formulario o en las ubicaciones de la página",
+  },
   program_page_catalog: { en: "This program page (catalog id)", es: "Esta página de programa (id de catálogo)" },
   program_page: { en: "This program page", es: "Esta página de programa" },
   url_coupon: { en: "The link's ?coupon= parameter", es: "El parámetro ?coupon= del enlace" },
@@ -108,8 +121,8 @@ const HIDDEN_REASON_COPY: Record<LeadFormHiddenReason, Copy> = {
     es: "Oculto porque su lista no tiene opciones.",
   },
   landing_location: {
-    en: "Hidden because this page has only one campus.",
-    es: "Oculto porque esta página tiene una sola sede.",
+    en: "Hidden because only one campus is set (this form, or Page Meta → Fields → Locations).",
+    es: "Oculto porque hay una sola sede configurada (este formulario, o Page Meta → Fields → Locations).",
   },
   collapsed_after_login: {
     en: "Optional field hidden once a signed-in visitor has filled the required fields.",
@@ -170,6 +183,23 @@ const GATE_ERROR_COPY: Record<SignupGateErrorCode, Copy> = {
     es: "A este formulario le falta un campo que pide el mapa de registro. Corrígelo en los campos del formulario o en Settings → Consumer Auth.",
   },
 };
+
+export const LOCATION_COPY = {
+  missingBadge: { en: "Location missing", es: "Falta ubicación" },
+  mismatchBadge: { en: "Location override", es: "Ubicación propia" },
+  missingBody: {
+    en: "This page type doesn't allow location detection, and neither this form nor the page sets a location. Visitors still get a detected location for now, but saving or publishing is blocked.",
+    es: "Este tipo de página no permite detectar la ubicación, y ni este formulario ni la página la configuran. Por ahora los visitantes reciben una ubicación detectada, pero guardar o publicar está bloqueado.",
+  },
+  mismatchBody: (form: string, page: string): Copy => ({
+    en: `This form sets its own location (${form}), different from the page's (${page}). The form's wins.`,
+    es: `Este formulario tiene su propia ubicación (${form}), distinta de la de la página (${page}). Gana la del formulario.`,
+  }),
+  fix: {
+    en: "Fix it in the section editor: Forms tab → Location (whole page or this form).",
+    es: "Corrígelo en el editor de la sección: pestaña Forms → Location (toda la página o este formulario).",
+  },
+} satisfies Record<string, Copy | ((...args: never[]) => Copy)>;
 
 export const OVERRIDE_COPY = {
   badge: (n: number): Copy => ({ en: `Override ${n} active`, es: `Override ${n} activo` }),

@@ -3,8 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./sync-state", () => ({
   getSyncConfig: () => ({ commitIntervalSeconds: 5 }),
   updateSyncStateAfterCommit: vi.fn(),
+  updateFileAfterPull: vi.fn(),
+  flushAllPendingSyncStateWrites: vi.fn(),
   computeFileSha: () => "sha",
-  loadSyncState: () => ({ lastSyncedCommit: null, lastSyncedAt: null, files: {} }),
+  computeGitBlobSha: () => "blob",
+  // GitHub still has the version this server last synced, so the delete may be pushed.
+  loadSyncState: () => ({
+    lastSyncedCommit: null,
+    lastSyncedAt: null,
+    files: { "site_x/blog/a/en.yml": { sha: "", remoteSha: "sha", lastModified: 0 } },
+  }),
   saveSyncState: vi.fn(),
   shouldTrackFile: () => true,
 }));
@@ -57,6 +65,7 @@ beforeEach(() => {
         return json({ sha: "new-commit" });
       }
       if (url.includes("/git/refs/heads/")) return json({ object: { sha: "new-commit" } });
+      if (url.includes("/contents/")) return new Response("remote copy", { status: 200 });
       return json({});
     }),
   );

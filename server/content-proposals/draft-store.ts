@@ -14,7 +14,7 @@ import { getAtPath } from "@shared/object-path";
 import { LIVE_SHELL_BASENAME_RE } from "@shared/sharedLayoutPaths";
 import type { SiteContext } from "../site-manager";
 import { applyFieldUpdates } from "../field-write-router";
-import { urlParamsForContentType } from "../field-scope-config";
+import { fieldScopeOptionsForContentType } from "../field-scope-config";
 import {
   attachedOverlayStructureError,
   isEntryDetached,
@@ -251,7 +251,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
 
     liveValue(entry, fieldPath) {
       const filePath =
-        fieldScope(fieldPath, { urlParams: urlParamsForContentType(entry.contentType, contentRoot) }) === "common"
+        fieldScope(fieldPath, fieldScopeOptionsForContentType(entry.contentType, contentRoot)) === "common"
           ? commonPathOf({ ...entry, contentRoot })
           : livePathOf({ ...entry, contentRoot });
       if (!fs.existsSync(filePath)) return undefined;
@@ -412,9 +412,7 @@ export function draftStoreForSite(ctx: SiteContext): ProposalDraftStore {
     carriesCommon(ref) {
       const data = readVariantData(draftPathOf(withRoot(ref)));
       if (!data) return false;
-      const { common } = splitByFieldScope(data, {
-        urlParams: urlParamsForContentType(ref.contentType, contentRoot),
-      });
+      const { common } = splitByFieldScope(data, fieldScopeOptionsForContentType(ref.contentType, contentRoot));
       return Object.keys(common).length > 0;
     },
 

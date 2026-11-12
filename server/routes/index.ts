@@ -240,6 +240,7 @@ import { registerContentRoutes } from "./content";
 import { registerDatabasesRoutes } from "./databases";
 import { registerListingsRoutes } from "./listings";
 import { registerSectionsRoutes } from "./sections";
+import { registerFormLocationRoutes } from "./form-location";
 import { registerSeoRoutes } from "./seo";
 import { registerAdminRoutes } from "./admin";
 import { registerSidequestDashboardRoutes } from "./sidequest-dashboard";
@@ -344,6 +345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerDatabasesRoutes(app);
   registerListingsRoutes(app);
   registerSectionsRoutes(app);
+  registerFormLocationRoutes(app);
   registerSeoRoutes(app);
   registerIndexNowRoutes(app);
   registerAdminRoutes(app);

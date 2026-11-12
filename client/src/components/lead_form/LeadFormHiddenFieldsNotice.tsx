@@ -210,23 +210,32 @@ export function HiddenBadgeDetailBody({
 }
 
 // The panel carries the warning tint; chips stay neutral so names read easily.
-function badgeClassName(empty: boolean) {
+function badgeClassName(empty: boolean, error = false) {
   return cn(
-    badgeVariants({ variant: "secondary" }),
+    badgeVariants({ variant: error ? "destructive" : "secondary" }),
     "cursor-pointer gap-1 px-2 py-0.5 font-medium",
-    "border-amber-500/40 bg-background text-foreground hover:bg-amber-500/10",
-    empty && "text-muted-foreground line-through decoration-muted-foreground/70",
+    !error && "border-amber-500/40 bg-background text-foreground hover:bg-amber-500/10",
+    empty && !error && "text-muted-foreground line-through decoration-muted-foreground/70",
   );
+}
+
+/** Location the content type requires but nothing sets (live still detects as a fallback). */
+function isLocationProblem(detail: HiddenBadgeDetail): boolean {
+  if (detail.kind !== "field" || detail.name !== "location") return false;
+  const src = detail.resolved.source;
+  return src === "visitor_location_fallback" || (src === null && detail.resolved.candidates.some((c) => c.source === "location_missing"));
 }
 
 function HiddenBadge({ locale, detail }: { locale: HiddenFieldsNoticeLocale; detail: HiddenBadgeDetail }) {
   const { pending, viewerDependent, empty } = detailState(detail);
+  const locationError = isLocationProblem(detail);
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={badgeClassName(empty && !pending)}
+          className={badgeClassName(empty && !pending, locationError)}
+          data-location-error={locationError ? "true" : undefined}
           onClick={stop}
           data-testid={`hidden-field-badge-${detail.id}`}
           title={empty && !pending ? noticeText(locale, NOTICE_COPY.nothingSent) : undefined}

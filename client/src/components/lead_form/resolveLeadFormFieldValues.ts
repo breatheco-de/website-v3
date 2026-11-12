@@ -10,6 +10,7 @@ import {
   resolveSubmitValueFromOptions,
   type FormFieldOption,
 } from "@shared/resolveFormFieldRelationSource";
+import type { FormLocationLayer } from "@shared/formLocationPolicy";
 
 /** Hidden payload defaults may be numbers/bools after resolveDeep (e.g. entry.id). */
 export type LeadFormFieldDefault = string | number | boolean;
@@ -44,6 +45,14 @@ export type LeadFormFieldSourceKind =
   | "page_single_region"
   | "visitor_location"
   | "visitor_region"
+  /** The form's own single location (`fields.location.default`). */
+  | "form_location"
+  /** Region of the chosen location (region follows location). */
+  | "location_region"
+  /** Detection used only because nothing sets a location yet (content type disallows it). */
+  | "visitor_location_fallback"
+  /** Nothing sets a location and detection is off (save/publish is blocked). */
+  | "location_missing"
   /** Program page slug resolved through the form-options catalog. */
   | "program_page_catalog"
   | "program_page"
@@ -118,12 +127,31 @@ export interface LeadFormFieldResolveContext {
   /** Signup prefill from the logged-in profile (name/email/phone). */
   identityPrefill?: Record<string, string | undefined>;
   loading?: Partial<Record<LeadFormLoadingKey, boolean>>;
+  /**
+   * Set when the content type opted into `forms.location`. Absent = today's order
+   * (page single location, form state, detected, default).
+   */
+  locationPlan?: LeadFormLocationPlan | null;
+  /** Region of a location slug (from form options), for "region follows location". */
+  locationRegionOf?: (slug: string) => string | undefined;
 }
+
+export interface LeadFormLocationPlan {
+  layer: FormLocationLayer;
+  /** Locations offered by the form or the page (empty for picker / autodetect / missing). */
+  locations: string[];
+  /** Detected city pre-selected in a several-locations dropdown, when on the list. */
+  preselected?: string | null;
+}
+
+/** How the submitted location was chosen (analytics only). */
+export type LeadFormLocationSource = "visitor_picked" | "preselected" | "page" | "form" | "detected";
 
 const VIEWER_DEPENDENT_SOURCES = new Set<LeadFormFieldSourceKind>([
   "signed_in_profile",
   "visitor_location",
   "visitor_region",
+  "visitor_location_fallback",
   "url_coupon",
   "url_referral_key",
   "url_referral",
@@ -203,8 +231,55 @@ function defaultCandidate(
   return { source: "configured_default", value, ...(auto ? { auto } : {}), ...(loadingKey ? { loadingKey } : {}) };
 }
 
+/** Location order for content types with `forms.location`: form, then page, then detection when allowed. */
+function plannedLocationCandidates(
+  plan: LeadFormLocationPlan,
+  ctx: LeadFormFieldResolveContext,
+): LeadFormFieldCandidate[] {
+  const { values, sessionLocation } = ctx;
+  const current = str(values.location);
+  if (plan.layer === "form" || plan.layer === "entry") {
+    if (plan.locations.length === 1) {
+      return [{ source: plan.layer === "form" ? "form_location" : "page_single_location", value: plan.locations[0] }];
+    }
+    // Several locations: only a value on the list counts (picker = every location).
+    const onList = plan.locations.length === 0 || (!!current && plan.locations.includes(current));
+    return [{ source: "form_state", value: onList ? current : "" }];
+  }
+  if (plan.layer === "autodetect") {
+    return [
+      { source: "form_state", value: current },
+      { source: "visitor_location", value: sessionLocation?.slug, loadingKey: "session" },
+      { source: "location_missing", value: "" },
+    ];
+  }
+  return [
+    { source: "form_state", value: current },
+    { source: "visitor_location_fallback", value: sessionLocation?.slug, loadingKey: "session" },
+    { source: "location_missing", value: "" },
+  ];
+}
+
+function plannedRegionCandidates(ctx: LeadFormFieldResolveContext): LeadFormFieldCandidate[] {
+  const { values, sessionLocation } = ctx;
+  const location = resolveLeadFormFieldValue("location", ctx).value;
+  const fromLocation =
+    typeof location === "string" && location ? ctx.locationRegionOf?.(location) : undefined;
+  const detectionAllowed = ctx.locationPlan?.layer === "autodetect" || ctx.locationPlan?.layer === "missing";
+  return [
+    { source: "location_region", value: fromLocation },
+    { source: "form_state", value: str(values.region) },
+    ...(detectionAllowed
+      ? [{ source: "visitor_region" as const, value: sessionLocation?.region, loadingKey: "session" as const }]
+      : []),
+    defaultCandidate("region", ctx),
+  ];
+}
+
 function chainCandidates(name: string, ctx: LeadFormFieldResolveContext): LeadFormFieldCandidate[] {
   const { values, sessionLocation, utm } = ctx;
+  if (ctx.locationPlan && name === "location") return plannedLocationCandidates(ctx.locationPlan, ctx);
+  if (ctx.locationPlan && name === "region") return plannedRegionCandidates(ctx);
   switch (name) {
     case "program":
       return [
@@ -286,7 +361,8 @@ export function resolveLeadFormFieldValue(
 
   // Any fields.* default not already filled (extras like event_id).
   const cfg = ctx.fields[name];
-  if (!isNonEmptyLeadFormWireScalar(value) && cfg && typeof cfg === "object") {
+  const plannedGeo = !!ctx.locationPlan && (name === "location" || name === "region");
+  if (!plannedGeo && !isNonEmptyLeadFormWireScalar(value) && cfg && typeof cfg === "object") {
     const rawDefault = cfg.default;
     if (isNonEmptyLeadFormWireScalar(rawDefault)) {
       let fallback: LeadFormFieldDefault = rawDefault;
@@ -347,6 +423,29 @@ export function resolveLeadFormFieldValue(
     viewerDependent,
     ...(programRawValue !== undefined ? { programRawValue } : {}),
   };
+}
+
+/** How the location that will be sent was chosen (analytics `location_source`), or null when none. */
+export function resolveLeadFormLocationSource(
+  ctx: LeadFormFieldResolveContext,
+): LeadFormLocationSource | null {
+  const r = resolveLeadFormFieldValue("location", ctx);
+  if (typeof r.value !== "string" || !r.value) return null;
+  switch (r.source) {
+    case "form_location":
+      return "form";
+    case "page_single_location":
+      return "page";
+    case "visitor_location":
+    case "visitor_location_fallback":
+      return "detected";
+    case "configured_default":
+      return r.auto === "visitor_location" ? "detected" : r.auto === "page_single_location" ? "page" : "form";
+    default: {
+      const pre = ctx.locationPlan?.preselected;
+      return pre && r.value === pre ? "preselected" : "visitor_picked";
+    }
+  }
 }
 
 function resolvedFallbackSource(

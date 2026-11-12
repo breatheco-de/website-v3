@@ -26,7 +26,7 @@ import {
 import { assertFunnelAudienceGates } from "./product/funnel-audience-gates";
 import { isKnownSeoFieldPath, SEO_YAML_KEY } from "./seo-field-defs";
 import { LEGACY_SEO_PILLAR_KEY } from "./content-types";
-import { urlParamsForContentType } from "./field-scope-config";
+import { fieldScopeOptionsForContentType, urlParamsForContentType } from "./field-scope-config";
 import { writeSeoFields } from "./seo-index";
 import { markFileAsModified } from "./sync-state";
 import {
@@ -197,7 +197,7 @@ export async function applyFieldUpdates(opts: {
     });
   }
 
-  const scopeOpts: FieldScopeOptions = { urlParams: urlParamsForContentType(contentType, contentRoot) };
+  const scopeOpts: FieldScopeOptions = fieldScopeOptionsForContentType(contentType, contentRoot);
   const byScope = (scope: FieldWriteScope) =>
     updates.filter((u) => classifyFieldPath(u.field_path, scopeOpts) === scope);
   const funnelUpdates = byScope("funnel");

@@ -18,11 +18,14 @@ import * as path from 'path';
 import {
   getSyncConfig,
   updateSyncStateAfterCommit,
+  updateFileAfterPull,
+  flushAllPendingSyncStateWrites,
   computeFileSha,
   loadSyncState,
   saveSyncState,
   shouldTrackFile,
 } from './sync-state';
+import { checkRemoteOverlap, decideRemoteOverlap, fetchRemoteBlob, githubHeaders } from './auto-commit-overlap';
 import { getAllFolders } from './content-types';
 import { getSiteConfigs, type SiteConfig } from './site-config';
 import { child } from "./logger";
@@ -487,41 +490,8 @@ async function commitBatch(
 
   if (existingFiles.length === 0 && deletedFiles.length === 0) return;
 
-  const fileNames = files.map(f => stripContentFolderPrefix(f)).join(', ');
-  const message = withSuffix(formatAutoSyncCommitMessage(author, fileNames, agentLabel), messageSuffix);
-
-  const result = await commitFilesViaTreeAPI(
-    config,
-    message,
-    existingFiles,
-    deletedFiles,
-    commitAuthor,
-  );
-
-  if (result.success && result.commitSha) {
-    if (messageSuffix) for (const f of files) servicePushedFiles.add(f);
-    recordLastCommitSha(result.commitSha);
-    updateSyncStateAfterCommit(result.commitSha, files, contentRootForLog);
-    try {
-      const { attachCommitShaForCommittedFiles } = await import("./events/event-store");
-      attachCommitShaForCommittedFiles(result.commitSha, files, contentRootForLog);
-    } catch (err) {
-      log.warn({ err }, "[AutoCommit] Failed to attach commitSha to events after batch commit");
-    }
-    log.info(`[AutoCommit] Committed ${files.length} file(s) by ${author}: ${result.commitSha.substring(0, 7)}`);
-    const { logSync, refreshGithubCommit } = await import("./sync-log");
-    logSync('COMMIT', `Auto-commit ${result.commitSha.substring(0, 7)} by ${author}: ${fileNames}`, author, undefined, contentRootForLog);
-    refreshGithubCommit();
-  } else if (result.error?.includes('422') || result.error?.includes('conflict') || result.error?.includes('Update is not a fast forward')) {
-    log.warn(`[AutoCommit] Conflict detected for batch by ${author}, retrying individual files...`);
-    const { logSync } = await import("./sync-log");
-    logSync('CONFLICT', `Auto-commit conflict by ${author}, retrying individually: ${fileNames}`, author, undefined, contentRootForLog);
-    await retryIndividualFiles(config, author, existingFiles, deletedFiles, contentRootForLog, agentLabel, messageSuffix);
-  } else {
-    lastError = result.error || 'Unknown commit error';
-    log.error(`[AutoCommit] Batch commit failed: ${lastError}`);
-    const { logSync } = await import("./sync-log");
-    logSync('ERROR', `Auto-commit failed by ${author}: ${lastError}`, author, undefined, contentRootForLog);
+  const requeue = (error: string) => {
+    lastError = error;
     for (const filePath of files) {
       pendingChanges.set(filePath, {
         filePath,
@@ -530,6 +500,139 @@ async function commitBatch(
         ...(agentLabel ? { agentLabel } : {}),
       });
     }
+  };
+
+  // Only push files whose GitHub copy is still the version this server last synced.
+  const head = await fetchHeadSha(config);
+  if ("error" in head) {
+    requeue(head.error);
+    log.error(`[AutoCommit] Batch commit failed: ${head.error}`);
+    return;
+  }
+  const overlap = await checkRemoteOverlap(
+    config,
+    head.sha,
+    [
+      ...existingFiles.map((f) => ({ path: f.path, content: f.content as string | null })),
+      ...deletedFiles.map((p) => ({ path: p, content: null })),
+    ],
+    baselineReader(),
+  );
+  if ("error" in overlap) {
+    requeue(overlap.error);
+    log.error(`[AutoCommit] Could not compare with GitHub, will retry: ${overlap.error}`);
+    return;
+  }
+  await markRemoteOverlap(overlap, head.sha, author, contentRootForLog);
+
+  const pushFiles = existingFiles.filter((f) => overlap.push.has(f.path));
+  const pushDeletes = deletedFiles.filter((p) => overlap.push.has(p));
+  const pushed = [...pushFiles.map((f) => f.path), ...pushDeletes];
+  if (pushed.length === 0) return;
+
+  const fileNames = pushed.map(f => stripContentFolderPrefix(f)).join(', ');
+  const message = withSuffix(formatAutoSyncCommitMessage(author, fileNames, agentLabel), messageSuffix);
+
+  const result = await commitFilesViaTreeAPI(
+    config,
+    message,
+    pushFiles,
+    pushDeletes,
+    commitAuthor,
+    head.sha,
+  );
+
+  if (result.success && result.commitSha) {
+    if (messageSuffix) for (const f of pushed) servicePushedFiles.add(f);
+    recordLastCommitSha(result.commitSha);
+    updateSyncStateAfterCommit(result.commitSha, pushed, contentRootForLog);
+    try {
+      const { attachCommitShaForCommittedFiles } = await import("./events/event-store");
+      attachCommitShaForCommittedFiles(result.commitSha, pushed, contentRootForLog);
+    } catch (err) {
+      log.warn({ err }, "[AutoCommit] Failed to attach commitSha to events after batch commit");
+    }
+    log.info(`[AutoCommit] Committed ${pushed.length} file(s) by ${author}: ${result.commitSha.substring(0, 7)}`);
+    const { logSync, refreshGithubCommit } = await import("./sync-log");
+    logSync('COMMIT', `Auto-commit ${result.commitSha.substring(0, 7)} by ${author}: ${fileNames}`, author, undefined, contentRootForLog);
+    refreshGithubCommit();
+  } else if (result.error?.includes('422') || result.error?.includes('conflict') || result.error?.includes('Update is not a fast forward')) {
+    log.warn(`[AutoCommit] Conflict detected for batch by ${author}, retrying individual files...`);
+    const { logSync } = await import("./sync-log");
+    logSync('CONFLICT', `Auto-commit conflict by ${author}, retrying individually: ${fileNames}`, author, undefined, contentRootForLog);
+    await retryIndividualFiles(config, author, pushFiles, pushDeletes, contentRootForLog, agentLabel, messageSuffix);
+  } else {
+    lastError = result.error || 'Unknown commit error';
+    log.error(`[AutoCommit] Batch commit failed: ${lastError}`);
+    const { logSync } = await import("./sync-log");
+    logSync('ERROR', `Auto-commit failed by ${author}: ${lastError}`, author, undefined, contentRootForLog);
+    for (const filePath of pushed) {
+      pendingChanges.set(filePath, {
+        filePath,
+        author,
+        timestamp: Date.now(),
+        ...(agentLabel ? { agentLabel } : {}),
+      });
+    }
+  }
+}
+
+function siteFolderForFile(filePath: string, fallback?: string): string | undefined {
+  return (
+    getSiteConfigs().find((site) => filePath.startsWith(site.contentFolder.replace(/\/$/, '') + '/'))?.contentFolder ??
+    fallback
+  );
+}
+
+/** Sync-state `remoteSha` per path, read once per batch after pending writes are flushed. */
+function baselineReader(): (filePath: string) => string | undefined {
+  flushAllPendingSyncStateWrites();
+  const states = new Map<string, ReturnType<typeof loadSyncState>>();
+  return (filePath) => {
+    const site = siteFolderForFile(filePath);
+    const key = site ?? '';
+    if (!states.has(key)) states.set(key, loadSyncState(site));
+    return states.get(key)!.files[filePath]?.remoteSha;
+  };
+}
+
+async function markRemoteOverlap(
+  overlap: { inSync: string[]; conflicts: Array<{ path: string; reason: string }> },
+  headSha: string,
+  author: string,
+  contentRootForLog?: string,
+): Promise<void> {
+  for (const filePath of overlap.inSync) {
+    updateFileAfterPull(filePath, headSha, undefined, siteFolderForFile(filePath, contentRootForLog));
+  }
+  if (overlap.conflicts.length === 0) return;
+  const { logSync } = await import("./sync-log");
+  for (const { path: filePath, reason } of overlap.conflicts) {
+    conflictedFiles.add(filePath);
+    lastError = `Conflict on ${stripContentFolderPrefix(filePath)}: ${reason}`;
+    log.warn(`[AutoCommit] Not pushing ${filePath}: ${reason}`);
+    logSync(
+      'CONFLICT',
+      `Not pushed ${stripContentFolderPrefix(filePath)} by ${author}: ${reason}. Pull or resolve it before it can be committed.`,
+      author,
+      undefined,
+      siteFolderForFile(filePath, contentRootForLog),
+    );
+  }
+}
+
+async function fetchHeadSha(config: GitHubConfig): Promise<{ sha: string } | { error: string }> {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${config.owner}/${config.repo}/git/ref/heads/${config.branch}`,
+      { headers: githubHeaders(config) },
+    );
+    if (!res.ok) return { error: `Failed to get branch ref: ${res.status}` };
+    const data = await res.json();
+    const sha = data?.object?.sha;
+    return sha ? { sha } : { error: 'No HEAD SHA found' };
+  } catch (err) {
+    return { error: `Network error getting branch ref: ${err instanceof Error ? err.message : String(err)}` };
   }
 }
 
@@ -542,11 +645,28 @@ async function retryIndividualFiles(
   agentLabel?: string,
   messageSuffix?: string,
 ): Promise<void> {
+  const baselineOf = baselineReader();
   for (const file of existingFiles) {
     const fileName = stripContentFolderPrefix(file.path);
     const message = withSuffix(formatAutoSyncCommitMessage(author, fileName, agentLabel), messageSuffix);
 
-    const result = await commitSingleFileViaContentsAPI(config, file.path, file.content, message);
+    const result = await commitSingleFileViaContentsAPI(config, file.path, file.content, message, {
+      baseline: baselineOf(file.path),
+    });
+
+    if (result.inSync) {
+      updateFileAfterPull(file.path, undefined, undefined, siteFolderForFile(file.path, contentRootForLog));
+      continue;
+    }
+    if (result.conflictReason) {
+      await markRemoteOverlap(
+        { inSync: [], conflicts: [{ path: file.path, reason: result.conflictReason }] },
+        '',
+        author,
+        contentRootForLog,
+      );
+      continue;
+    }
 
     if (result.success && result.commitSha) {
       if (messageSuffix) servicePushedFiles.add(file.path);
@@ -617,6 +737,8 @@ async function commitFilesViaTreeAPI(
   files: Array<{ path: string; content: string }>,
   deletedFiles: string[],
   commitAuthor?: { name: string; email: string },
+  /** Head the files were checked against; the ref update fails if the branch moved since. */
+  expectedHeadSha?: string,
 ): Promise<{ success: boolean; commitSha?: string; error?: string }> {
   function formatGhError(status: number, body: string): string {
     try {
@@ -627,24 +749,22 @@ async function commitFilesViaTreeAPI(
     return trimmed ? `${status} — ${trimmed}` : `${status}`;
   }
 
-  const headers = {
-    'Authorization': `Bearer ${config.token}`,
-    'Accept': 'application/vnd.github.v3+json',
-    'Content-Type': 'application/json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  };
+  const headers = githubHeaders(config);
 
   try {
-    const refRes = await fetch(
-      `https://api.github.com/repos/${config.owner}/${config.repo}/git/ref/heads/${config.branch}`,
-      { headers }
-    );
-    if (!refRes.ok) {
-      const errText = await refRes.text().catch(() => '');
-      return { success: false, error: `Failed to get branch ref: ${formatGhError(refRes.status, errText)}` };
+    let headSha = expectedHeadSha;
+    if (!headSha) {
+      const refRes = await fetch(
+        `https://api.github.com/repos/${config.owner}/${config.repo}/git/ref/heads/${config.branch}`,
+        { headers }
+      );
+      if (!refRes.ok) {
+        const errText = await refRes.text().catch(() => '');
+        return { success: false, error: `Failed to get branch ref: ${formatGhError(refRes.status, errText)}` };
+      }
+      const refData = await refRes.json();
+      headSha = refData.object?.sha;
     }
-    const refData = await refRes.json();
-    const headSha = refData.object?.sha;
     if (!headSha) return { success: false, error: 'No HEAD SHA found' };
 
     const commitRes = await fetch(
@@ -747,8 +867,10 @@ async function commitSingleFileViaContentsAPI(
   config: GitHubConfig,
   filePath: string,
   content: string,
-  message: string
-): Promise<{ success: boolean; commitSha?: string; error?: string }> {
+  message: string,
+  /** When set, refuse to overwrite a GitHub copy that moved past this sync-state baseline. */
+  guard?: { baseline: string | undefined },
+): Promise<{ success: boolean; commitSha?: string; error?: string; inSync?: boolean; conflictReason?: string }> {
   function formatGhError(status: number, body: string): string {
     try {
       const parsed = JSON.parse(body);
@@ -758,12 +880,7 @@ async function commitSingleFileViaContentsAPI(
     return trimmed ? `${status} — ${trimmed}` : `${status}`;
   }
 
-  const headers = {
-    'Authorization': `Bearer ${config.token}`,
-    'Accept': 'application/vnd.github.v3+json',
-    'Content-Type': 'application/json',
-    'X-GitHub-Api-Version': '2022-11-28',
-  };
+  const headers = githubHeaders(config);
 
   try {
     let sha: string | undefined;
@@ -774,6 +891,17 @@ async function commitSingleFileViaContentsAPI(
     if (getRes.ok) {
       const getData = await getRes.json();
       sha = getData.sha;
+    } else if (getRes.status !== 404) {
+      return { success: false, error: `Could not read ${filePath} on GitHub: ${getRes.status}` };
+    }
+
+    if (guard) {
+      // Read the exact blob the PUT will replace; if it changes again, the PUT's sha check fails.
+      const remote = sha ? await fetchRemoteBlob(config, sha) : { exists: false as const };
+      if ('error' in remote) return { success: false, error: remote.error };
+      const decision = decideRemoteOverlap({ local: content, baseline: guard.baseline, remote });
+      if (decision.action === 'in_sync') return { success: true, inSync: true };
+      if (decision.action === 'conflict') return { success: false, conflictReason: decision.reason };
     }
 
     const body: Record<string, string> = {

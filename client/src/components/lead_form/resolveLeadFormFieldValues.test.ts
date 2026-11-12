@@ -4,6 +4,7 @@ import {
   isNonEmptyLeadFormWireScalar,
   resolveLeadFormFieldValue,
   resolveLeadFormFieldValues,
+  resolveLeadFormLocationSource,
   type LeadFormFieldDefault,
   type LeadFormFieldResolveContext,
 } from "./resolveLeadFormFieldValues";
@@ -218,5 +219,70 @@ describe("resolveLeadFormFieldValue sources", () => {
       loading: { session: true },
     });
     expect(resolveLeadFormFieldValue("location", ctx).pending).toBe(false);
+  });
+});
+
+describe("content types with forms.location", () => {
+  const regions: Record<string, string> = { "madrid-spain": "europe", "miami-usa": "usa-canada", "lima-peru": "latam" };
+  const locationRegionOf = (slug: string) => regions[slug];
+  const detected = { slug: "miami-usa", region: "usa-canada" };
+
+  it("locks to the form's own single location, ahead of the page and detection", () => {
+    const ctx = makeCtx({
+      sessionLocation: detected,
+      locationPlan: { layer: "form", locations: ["madrid-spain"] },
+      locationRegionOf,
+    });
+    expect(resolveLeadFormFieldValue("location", ctx)).toMatchObject({ value: "madrid-spain", source: "form_location" });
+    expect(resolveLeadFormFieldValue("region", ctx)).toMatchObject({ value: "europe", source: "location_region" });
+    expect(resolveLeadFormLocationSource(ctx)).toBe("form");
+  });
+
+  it("locks to the page's single location", () => {
+    const ctx = makeCtx({ sessionLocation: detected, locationPlan: { layer: "entry", locations: ["lima-peru"] }, locationRegionOf });
+    expect(resolveLeadFormFieldValues(ctx)).toMatchObject({ location: "lima-peru", region: "latam" });
+    expect(resolveLeadFormLocationSource(ctx)).toBe("page");
+  });
+
+  it("several locations: only a value on the list is sent, and pre-selection is reported", () => {
+    const plan = { layer: "entry" as const, locations: ["madrid-spain", "miami-usa"], preselected: "miami-usa" };
+    const preselected = makeCtx({
+      values: { ...makeCtx().values, location: "miami-usa" },
+      sessionLocation: detected,
+      locationPlan: plan,
+      locationRegionOf,
+    });
+    expect(resolveLeadFormFieldValue("location", preselected).value).toBe("miami-usa");
+    expect(resolveLeadFormLocationSource(preselected)).toBe("preselected");
+
+    const picked = makeCtx({ ...preselected, values: { ...preselected.values, location: "madrid-spain" } });
+    expect(resolveLeadFormLocationSource(picked)).toBe("visitor_picked");
+    expect(resolveLeadFormFieldValue("region", picked).value).toBe("europe");
+
+    const offList = makeCtx({ ...preselected, values: { ...preselected.values, location: "lima-peru" } });
+    expect(resolveLeadFormFieldValue("location", offList).value).toBe("");
+  });
+
+  it("detects only when allowed; otherwise marks the live fallback", () => {
+    const allowed = makeCtx({ sessionLocation: detected, locationPlan: { layer: "autodetect", locations: [] } });
+    expect(resolveLeadFormFieldValue("location", allowed)).toMatchObject({ value: "miami-usa", source: "visitor_location" });
+
+    const off = makeCtx({ sessionLocation: detected, locationPlan: { layer: "missing", locations: [] } });
+    expect(resolveLeadFormFieldValue("location", off)).toMatchObject({
+      value: "miami-usa",
+      source: "visitor_location_fallback",
+      viewerDependent: true,
+    });
+
+    const nothing = makeCtx({
+      fields: { location: { default: "auto" } },
+      locationPlan: { layer: "missing", locations: [] },
+    });
+    expect(resolveLeadFormFieldValue("location", nothing)).toMatchObject({ value: "", source: null });
+  });
+
+  it("does not use the detected region when the page sets the location", () => {
+    const ctx = makeCtx({ sessionLocation: detected, locationPlan: { layer: "entry", locations: ["madrid-spain"] } });
+    expect(resolveLeadFormFieldValue("region", ctx).candidates.map((c) => c.source)).not.toContain("visitor_region");
   });
 });

@@ -1,7 +1,7 @@
 // Edit-mode only (lazy): floating staff chrome for a LeadForm — Signup Gated / Override
 // badges above the card, and the hidden fields panel over the form's top edge.
 import { useEffect, useMemo, useState, type RefObject, type SyntheticEvent } from "react";
-import { CircleAlert, EyeOff, GitBranch, Loader2, Lock, User } from "lucide-react";
+import { CircleAlert, EyeOff, GitBranch, Loader2, Lock, MapPin, User } from "lucide-react";
 import { badgeVariants } from "@/components/ui/badge";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,7 @@ import type {
 } from "@/components/lead_form/hiddenFieldsNoticeTypes";
 import {
   GATE_COPY,
+  LOCATION_COPY,
   NOTICE_COPY,
   OVERRIDE_COPY,
   gateErrorText,
@@ -31,6 +32,8 @@ export interface LeadFormStatusBadgesProps {
   anchorRef: RefObject<HTMLElement | null>;
   gate: SignupGateStatus;
   override: LeadFormOverrideBadge | null;
+  /** forms.location problems: required but missing, or the form overrides the page's Locations. */
+  location?: { status: "missing" | "mismatch"; formValues?: string[]; pageValues?: string[] } | null;
   /** Ranked hidden values (null/empty top when the form hides nothing). */
   hiddenFields: {
     top: HiddenBadgeRef[];
@@ -242,11 +245,52 @@ function OverrideBadge({ locale, override }: { locale: HiddenFieldsNoticeLocale;
   );
 }
 
+function LocationBadge({
+  locale,
+  location,
+}: {
+  locale: HiddenFieldsNoticeLocale;
+  location: NonNullable<LeadFormStatusBadgesProps["location"]>;
+}) {
+  const missing = location.status === "missing";
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            statusBadgeClass(missing ? "error" : "neutral"),
+            !missing && "border-amber-500/60 text-amber-800 dark:text-amber-400",
+          )}
+          onClick={stop}
+          data-testid="lead-form-location-badge"
+          data-state-kind={location.status}
+        >
+          <MapPin className="h-3 w-3" aria-hidden />
+          {noticeText(locale, missing ? LOCATION_COPY.missingBadge : LOCATION_COPY.mismatchBadge)}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 space-y-2" onClick={stop} onPointerDown={stop}>
+        <p className="text-sm text-foreground">
+          {noticeText(
+            locale,
+            missing
+              ? LOCATION_COPY.missingBody
+              : LOCATION_COPY.mismatchBody((location.formValues ?? []).join(", "), (location.pageValues ?? []).join(", ")),
+          )}
+        </p>
+        <p className="text-xs text-muted-foreground">{noticeText(locale, LOCATION_COPY.fix)}</p>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export default function LeadFormStatusBadges({
   locale,
   anchorRef,
   gate,
   override,
+  location,
   hiddenFields,
 }: LeadFormStatusBadgesProps) {
   const { card, root, visible } = useVisibleCard(anchorRef);
@@ -265,7 +309,7 @@ export default function LeadFormStatusBadges({
   const panelOpen = hasHidden && (reopened || (!closed && !sessionOff));
   const showChip = hasHidden && !panelOpen;
   const hasGate = gate.kind !== "off";
-  const showCluster = hasGate || !!override || showChip;
+  const showCluster = hasGate || !!override || showChip || !!location;
 
   return (
     <>
@@ -280,6 +324,7 @@ export default function LeadFormStatusBadges({
             className="z-20 flex w-auto items-center gap-1.5 border-0 bg-transparent p-0 shadow-none data-[state=open]:animate-none"
             data-testid="lead-form-status-badges"
           >
+            {location ? <LocationBadge locale={locale} location={location} /> : null}
             <GateBadge locale={locale} gate={gate} />
             {override ? <OverrideBadge locale={locale} override={override} /> : null}
             {showChip ? (
