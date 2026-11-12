@@ -97,6 +97,7 @@ import {
   getSchemaOrgYaml,
   putSchemaOrgYaml,
 } from "../schema-org";
+import { scheduleHotHtmlRebuild } from "../html-rebuild";
 import { getVariableManager } from "../variable-manager";
 import {
   getRegistryOverview,
@@ -2846,6 +2847,8 @@ export function registerAdminRoutes(app: Express): void {
       const updated = updateSchemaOrgEditorPayload({ organization, website }, cr);
       markFileAsModified("schema-org.yml", undefined, undefined, cr);
       clearSsrSchemaCache();
+      scheduleHotHtmlRebuild("schema-org", { siteIds: [getContentRootName(res)] });
+      getCI(res).startSlowScanAsync(0);
       res.json({ success: true, ...updated });
     } catch (err: any) {
       res.status(400).json({ error: err.message || String(err) });
@@ -2882,6 +2885,8 @@ export function registerAdminRoutes(app: Express): void {
       const saved = putSchemaOrgYaml(content, cr);
       markFileAsModified("schema-org.yml", undefined, undefined, cr);
       clearSsrSchemaCache();
+      scheduleHotHtmlRebuild("schema-org", { siteIds: [getContentRootName(res)] });
+      getCI(res).startSlowScanAsync(0);
       const relativePath = path.relative(process.cwd(), saved.path) || saved.path;
       res.json({ success: true, path: relativePath, content: saved.content });
     } catch (err: any) {

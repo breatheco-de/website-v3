@@ -49,6 +49,13 @@ describe("variableUsagePathToStaffHref", () => {
     ).toBe("/private/preview/blog/my-post");
   });
 
+  it("maps schema-org.yml to SEO Schema org settings", () => {
+    expect(variableUsagePathToStaffHref("site_4geeks-com/schema-org.yml")).toBe(
+      "/private/settings/seo/schema",
+    );
+    expect(variableUsagePathToStaffHref("schema-org.yml")).toBe("/private/settings/seo/schema");
+  });
+
   it("returns null for unknown shapes", () => {
     expect(variableUsagePathToStaffHref("variables.yml")).toBeNull();
     expect(variableUsagePathToStaffHref("site_4geeks-com/only")).toBeNull();

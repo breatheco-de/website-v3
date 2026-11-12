@@ -24,6 +24,7 @@ import { pathsUsingMenu } from "./menu-html-paths";
 import { canonicalHtmlCachePath, listStoredHtmlCacheKeys, parseHtmlCacheKey } from "../html-page-cache";
 import { sitesInheritingThemeFrom } from "../theme-config";
 import { isSharedTemplateBasename } from "../shared-layout-paths";
+import { isSchemaOrgUsagePath } from "../schema-org";
 import type { RefreshedDatabaseRow } from "../database-refresh-diff";
 import type { ContentTypeEntry } from "../content-types";
 import { mapDatabaseItemsForEntry } from "../database-single-loader";
@@ -255,6 +256,10 @@ export function scheduleHtmlFromEvent(event: ContentEvent, site: HtmlEventSite):
         return;
       }
       const files = names.flatMap((name) => ci.getVariableUsage(name));
+      if (files.some(isSchemaOrgUsagePath)) {
+        // Organization JSON-LD is dual-emitted on many pages — rebuild all stored HTML.
+        scheduleHotHtmlRebuild("variables-schema-org", { siteIds: [site.contentRootName] });
+      }
       const classified = classifyTouchedContentFiles(ci, files);
       pages(site, [...classified.htmlPaths, ...attachedTemplatePaths(ci, files)]);
       for (const contentType of classified.contentTypes) listing(site, contentType);

@@ -90,6 +90,11 @@ export function variableUsagePathToStaffHref(
   filePath: string,
   resolveContentType: (directory: string) => string = (d) => d,
 ): string | null {
+  const normalized = filePath.replace(/\\/g, "/").replace(/^\.\//, "");
+  if (normalized === "schema-org.yml" || /(?:^|\/)schema-org\.yml$/i.test(normalized)) {
+    return "/private/settings/seo/schema";
+  }
+
   const parts = splitSitePath(filePath);
   if (!parts) return null;
 
