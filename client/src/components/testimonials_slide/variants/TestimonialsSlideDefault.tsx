@@ -1,5 +1,6 @@
 import { CSSMarquee } from "@/components/ui/CSSMarquee";
-import { Flag } from "lucide-react";
+import { ChevronLeft, ChevronRight, Flag } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
@@ -27,6 +28,7 @@ export interface TestimonialsSlideData {
   title: string;
   description: string;
   background?: string;
+  scroll_mode?: "marquee" | "scroll";
   /** Runtime-resolved bank rows from dynamic_entries. */
   items?: TestimonialBankRow[];
   hardcoded_entries?: TestimonialBankRow[];
@@ -401,7 +403,7 @@ function createMasonryColumns(
 
 function MasonryColumnComponent({ column }: { column: MasonryColumn }) {
   return (
-    <div className="flex flex-col gap-4 w-[280px] flex-shrink-0 mx-2">
+    <div className="flex flex-col gap-4 w-[280px] flex-shrink-0 mx-2 snap-start">
       {column.cards.map((card, index) => (
         <MasonryCard 
           key={index} 
@@ -470,6 +472,17 @@ export default function TestimonialsSlide({ data }: TestimonialsSlideProps) {
   const editableCount =
     serverItems.length > 0 ? serverRows.filter((r) => r.isHardcoded).length : 0;
   const masonryColumns = createMasonryColumns(testimonials, editableCount);
+  const isScrollMode = data.scroll_mode === "scroll";
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollByPage = (direction: 1 | -1) => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    el.scrollBy({
+      left: direction * el.clientWidth * 0.8,
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+    });
+  };
 
   return (
     <section 
@@ -494,24 +507,38 @@ export default function TestimonialsSlide({ data }: TestimonialsSlideProps) {
       <div className="relative">
         {/* Mobile height constraint - limits visible content on mobile */}
         <div className="overflow-hidden h-[550px] md:h-[400px] md:h-auto">
-          <div
-            className={cn(
-              prefersReducedMotion && "overflow-x-auto"
-            )}
-            onTouchStart={handleInteractionStart}
-            onTouchEnd={handleInteractionEnd}
-            onMouseEnter={handleInteractionStart}
-            onMouseLeave={handleInteractionEnd}
-          >
-            <CSSMarquee gradient={false} speed={600} play={isPlaying && !prefersReducedMotion}>
-              <div className="flex items-start py-4">
-                {/* CSSMarquee duplicates the track; keep one column set here to avoid SSR DOM bloat. */}
-                {masonryColumns.map((column, index) => (
-                  <MasonryColumnComponent key={index} column={column} />
-                ))}
-              </div>
-            </CSSMarquee>
-        </div>
+          {isScrollMode ? (
+            <div
+              ref={scrollerRef}
+              className="flex items-start py-4 px-[7.5%] overflow-x-auto snap-x snap-mandatory scroll-px-[7.5%] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              tabIndex={0}
+              aria-label={data.title}
+              data-testid="testimonials-slide-scroller"
+            >
+              {masonryColumns.map((column, index) => (
+                <MasonryColumnComponent key={index} column={column} />
+              ))}
+            </div>
+          ) : (
+            <div
+              className={cn(
+                prefersReducedMotion && "overflow-x-auto"
+              )}
+              onTouchStart={handleInteractionStart}
+              onTouchEnd={handleInteractionEnd}
+              onMouseEnter={handleInteractionStart}
+              onMouseLeave={handleInteractionEnd}
+            >
+              <CSSMarquee gradient={false} speed={600} play={isPlaying && !prefersReducedMotion}>
+                <div className="flex items-start py-4">
+                  {/* CSSMarquee duplicates the track; keep one column set here to avoid SSR DOM bloat. */}
+                  {masonryColumns.map((column, index) => (
+                    <MasonryColumnComponent key={index} column={column} />
+                  ))}
+                </div>
+              </CSSMarquee>
+            </div>
+          )}
         </div>
         
         <div 
@@ -532,6 +559,31 @@ export default function TestimonialsSlide({ data }: TestimonialsSlideProps) {
           }}
         />
       </div>
+
+      {isScrollMode && (
+        <div className="hidden md:flex justify-center gap-3 mt-4">
+          <Button
+            variant="outline"
+            size="icon"
+            className="rounded-full"
+            onClick={() => scrollByPage(-1)}
+            aria-label="Previous testimonials"
+            data-testid="button-testimonials-slide-prev"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="rounded-full"
+            onClick={() => scrollByPage(1)}
+            aria-label="Next testimonials"
+            data-testid="button-testimonials-slide-next"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </Button>
+        </div>
+      )}
     </section>
   );
 }
