@@ -1,5 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
+vi.mock("../logger", () => ({
+  child: () => ({ warn, info: vi.fn(), error: vi.fn(), debug: vi.fn() }),
+}));
+
 import { collectSectionSchemas, type SchemaComponentContext } from "./index";
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 const context: SchemaComponentContext = {
   locale: "en",
@@ -233,6 +243,24 @@ describe("collectSectionSchemas", () => {
       "@type": "Organization",
       name: "4Geeks Academy",
     });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not warn when the entry has authors but article sections omit them", () => {
+    const schemas = collectSectionSchemas(
+      [
+        { type: "article", content: "First chunk.", authors: "{{ entry.authors }}" },
+        { type: "article", content: "Second chunk without authors." },
+      ],
+      {
+        ...context,
+        contentType: "blog",
+        title: "My Post",
+        authors: [{ name: "4Geeks Academy", slug: "4geeks-academy" }],
+      },
+    );
+    expect(schemas[0].author).toMatchObject({ "@type": "Person", name: "4Geeks Academy" });
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it("fills WebPage url/@id from pageUrl when blank and keeps a typed url", () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { normalizeHashQuery, resolveGlobalTemplate, resolveQsTokens } from "./useInternalNav";
+import { normalizeHashQuery, resolveGlobalTemplate, resolveQsTokens, withOutboundParams } from "./useInternalNav";
 
 describe("resolveGlobalTemplate", () => {
   it("unwraps a whole-string preserved template", () => {
@@ -109,5 +109,22 @@ describe("normalizeHashQuery", () => {
     expect(normalizeHashQuery("#pricing-6svo9e?cohort=1713")).toBe(
       "?cohort=1713#pricing-6svo9e",
     );
+  });
+});
+
+describe("withOutboundParams", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("still forwards UTMs and adds no gtm_payload without page tracking context", () => {
+    vi.stubGlobal("window", {
+      location: { host: "4geeks.com", pathname: "/en/apply", search: "?utm_source=google" },
+    });
+    const href = "https://learn.4geeks.com/checkout?gtm_payload={qs:gtm_payload|%7B%7D}";
+    const out = withOutboundParams(href, resolveQsTokens(href));
+    const params = new URL(out).searchParams;
+    expect(params.get("utm_source")).toBe("google");
+    expect(params.get("gtm_payload")).toBe("{}");
   });
 });

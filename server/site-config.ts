@@ -32,7 +32,7 @@ const SITES_YML_EXAMPLE = `# sites.yml — required at repo root
 # example.com:
 #   content_folder: site_example-com
 #   github_repo_url: https://github.com/org/example-content
-#   fallback_content_folder: site_parent-com  # optional — missing images
+#   fallback_content_folder: site_parent-com  # optional — missing images and databases (read-only)
 #   inherit_components_from: site_parent-com  # optional — component-registry
 
 bucket_name: my-gcs-bucket

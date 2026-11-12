@@ -425,6 +425,41 @@ export function redirectMiddleware(req: Request, res: Response, next: NextFuncti
   next();
 }
 
+/**
+ * Redirect rule that would answer `urlPath` on this site, in middleware order: exact, regex,
+ * non-custom fallback, then custom fallback only when no live page has that URL. Null when none.
+ */
+export function matchSiteRedirect(
+  ci: ContentIndex,
+  urlPath: string,
+): { entry: RedirectEntry; captureGroups: string[] } | null {
+  const maps = _getSiteRedirectMaps(ci);
+  const normalized = normalizePath(urlPath);
+  const byRegex = (list: Array<{ regex: RegExp; entry: RedirectEntry }>) => {
+    for (const { regex, entry } of list) {
+      const match = urlPath.match(regex);
+      if (match) return { entry, captureGroups: match.slice(1) };
+    }
+    return null;
+  };
+  const exact = maps.map.get(normalized);
+  if (exact) return { entry: exact, captureGroups: [] };
+  const regex = byRegex(maps.regexBefore);
+  if (regex) return regex;
+  const fbNonCustom = maps.fallbackNonCustomMap.get(normalized);
+  if (fbNonCustom) return { entry: fbNonCustom, captureGroups: [] };
+  const regexFbNonCustom = byRegex(maps.regexFallbackNonCustom);
+  if (regexFbNonCustom) return regexFbNonCustom;
+  try {
+    if (ci.isKnownUrl(stripTrailingSlash(urlPath))) return null;
+  } catch {
+    return null;
+  }
+  const fb = maps.fallbackMap.get(normalized);
+  if (fb) return { entry: fb, captureGroups: [] };
+  return byRegex(maps.regexFallback);
+}
+
 export function fallbackRedirectMiddleware(req: Request, res: Response, next: NextFunction): void {
   // Admin / capture frames must never be rewritten to public content URLs
   // (canonical DB slug matching would steal `/private/entry-preview-frame/.../:slug`).

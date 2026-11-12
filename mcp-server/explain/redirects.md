@@ -39,6 +39,8 @@ Do not dump the full catalog. `update_fields` / `update_entry_attributes` reject
 
 A write **does not** update the other store. `before_from` with a page destination → 400 `before_from_page_yaml`.
 
+**Internal links that redirect off-site (checkout path only):** on `funnel.stage: decision` pages (and no-stage pages right after one), a link to a path on this site whose redirect target is another host (e.g. `/apply` → learn.4geeks.com) loads as a full page with `gtm_payload` appended; the 301 keeps the query string. Page data carries `_external_redirects` (`server/outbound-redirects.ts`, same rule order as the middleware). Elsewhere, an in-app click on such a path still shows "not found" (a link straight to the external URL avoids it). See topic `ecommerce` → "gtm_payload".
+
 ## Removed pages (`SOURCE_ITEM_REMOVED`)
 
 When a database item disappears upstream (checked against a fresh copy), its page 404s; entry files are kept and nothing is written. The issue row carries `redirect_suggestion`: target = cluster main page (`pillar_path` when live) → listing page → the language's home page, skipping targets that are not live or are themselves redirect sources. `inbound[]` lists old addresses saved on the removed page (`{locale}.yml` and `_common.yml` `meta.redirects`).

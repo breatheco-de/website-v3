@@ -5,6 +5,21 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-11"
+    summary: "Links leaving the checkout path carry gtm_payload automatically (product / persona short codes)"
+    agent_impact:
+      - "funnel.stage: decision now also turns on gtm_payload for that page's links to other sites (and no-stage pages right after it, 30 min per tab). Other stages clear it. Value: JSON {v:1, product, persona, product_persona (short codes, same keys as before), funnel_stage, content_key, experiment_id, variant, ts, is_staff}. Off when the product/persona tracking switch is off."
+      - "Hand-written gtm_payload ({{ funnel.products }}, {qs:gtm_payload|…}, {{ entry.funnel_products_encoded_ids }}) is replaced on the checkout path; write gtm_payload only to override keys (gtm_payload={\"persona\":\"cc\"} wins key by key). YAML and page source unchanged."
+      - "Staff exclude domains in settings.yml tracking.gtm_payload.skip_domains (Settings → Tracking → Events). Internal paths that redirect off-site load as a full page with gtm_payload on the checkout path. Contract for learn.4geeks: docs/gtm-analytics-setup.md."
+    tools_changed: false
+    paths:
+      - shared/gtm-payload.ts
+      - client/src/lib/gtmPayload.ts
+      - server/outbound-redirects.ts
+      - mcp-server/explain/ecommerce.md
+      - mcp-server/explain/funnel.md
+      - mcp-server/explain/redirects.md
+      - mcp-server/explain/content_system.md
   - date: "2026-11-10"
     summary: "Ideas: idea_seo_target.market records which country the kw_* numbers describe"
     agent_impact:

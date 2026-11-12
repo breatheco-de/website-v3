@@ -20,6 +20,7 @@ import {
   type AdsConfigStatus,
 } from "./ads-config";
 import { validateConversionEventIntent } from "@shared/conversionEventIntent";
+import { normalizeSkipDomain, normalizeSkipDomains } from "@shared/gtm-payload";
 import { parseStageTargets, serializeStageTargets, type StageTargets } from "@shared/page-objectives";
 import {
   type AuthSignupFieldMapEntry,
@@ -198,6 +199,8 @@ export interface TrackingSettings {
   signup_event_aliases: string[];
   /** Former login_event_name values after rename — reserved + alias-matched. */
   login_event_aliases: string[];
+  /** Outbound `gtm_payload` on the checkout path; links to these domains are never changed. */
+  gtm_payload?: { skip_domains: string[] };
 }
 
 export function parseTrackingBigQuerySettings(
@@ -1350,6 +1353,11 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
       login_event_name: authConv.login_event_name,
       signup_event_aliases: authConv.signup_event_aliases,
       login_event_aliases: authConv.login_event_aliases,
+      gtm_payload: {
+        skip_domains: normalizeSkipDomains(
+          (trackingRaw?.gtm_payload as Record<string, unknown> | undefined)?.skip_domains,
+        ),
+      },
     };
 
     const robotsRaw = parsed.robots as Record<string, unknown> | undefined;
@@ -2556,6 +2564,7 @@ export function updateTrackingSettings(input: {
   login_event_name?: string;
   signup_event_aliases?: string[];
   login_event_aliases?: string[];
+  gtm_payload?: { skip_domains?: unknown };
 }, contentRoot?: string): void {
   if (input.conversion_events !== undefined && !Array.isArray(input.conversion_events)) {
     throw new Error("conversion_events must be an array");
@@ -2717,6 +2726,20 @@ export function updateTrackingSettings(input: {
       .map((t) => t.trim());
     if (cleaned.length > 0) nextTracking.leads_expected_tags = cleaned;
     else delete nextTracking.leads_expected_tags;
+  }
+
+  if (input.gtm_payload !== undefined) {
+    const raw = input.gtm_payload?.skip_domains;
+    if (raw !== undefined && !Array.isArray(raw)) {
+      throw new Error("gtm_payload.skip_domains must be an array of domains");
+    }
+    const invalid = (raw ?? []).filter((d) => typeof d === "string" && d.trim() && !normalizeSkipDomain(d));
+    if (invalid.length > 0) {
+      throw new Error(`Not a domain: ${invalid.map((d) => `"${String(d)}"`).join(", ")}`);
+    }
+    const domains = normalizeSkipDomains(raw ?? []);
+    if (domains.length > 0) nextTracking.gtm_payload = { skip_domains: domains };
+    else delete nextTracking.gtm_payload;
   }
 
   if (input.bigquery !== undefined) {

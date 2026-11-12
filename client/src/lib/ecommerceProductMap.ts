@@ -27,6 +27,8 @@ export interface TrackingKeysState {
 
 const EMPTY_TRACKING: TrackingKeysState = { ready: false, keys: { products: [] } };
 let trackingState: TrackingKeysState | null = null;
+/** Domains whose links never get `gtm_payload`; null until the product map loads. */
+let gtmPayloadSkipDomains: string[] | null = null;
 
 export function isActivelySelling(p: {
   actively_selling?: boolean;
@@ -80,10 +82,15 @@ export async function ensureEcommerceProductLookup(): Promise<Map<string, Ecomme
         for (const e of entries) {
           if (e?.content_slug) map.set(e.content_slug, e);
         }
-        const tracking = data.tracking as Partial<TrackingKeysState> | undefined;
+        const tracking = data.tracking as
+          | (Partial<TrackingKeysState> & { gtm_payload_skip_domains?: unknown })
+          | undefined;
         if (tracking && Array.isArray(tracking.keys?.products)) {
           trackingState = { ready: tracking.ready === true, keys: tracking.keys };
         }
+        gtmPayloadSkipDomains = Array.isArray(tracking?.gtm_payload_skip_domains)
+          ? tracking.gtm_payload_skip_domains.filter((d): d is string => typeof d === "string")
+          : [];
       }
     } catch {
       // non-fatal
@@ -109,4 +116,8 @@ export async function ensureTrackingKeys(): Promise<TrackingKeysState> {
 
 export function getCachedTrackingKeys(): TrackingKeysState | null {
   return trackingState;
+}
+
+export function getCachedGtmPayloadSkipDomains(): string[] | null {
+  return gtmPayloadSkipDomains;
 }

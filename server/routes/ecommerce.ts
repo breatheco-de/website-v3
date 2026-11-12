@@ -23,6 +23,7 @@ import { audienceStatus } from "@shared/productAudience";
 import { listProductRows } from "../product/product-io";
 import { loadTrackingKeyIndex } from "../product/tracking-key-index";
 import { isTrackingReady } from "../product/tracking-readiness";
+import { getTrackingSettings } from "../settings";
 import { api } from "../rate-limit/api.js";
 import { child } from "../logger";
 
@@ -120,14 +121,16 @@ const ECOMMERCE_EVENT_CATALOG = [
   {
     name: "begin_checkout",
     wired: false,
-    description: "Off-site only (learn.4geeks checkout page). Not fired from this site.",
-    sample: { event: "begin_checkout", item_id: "program-ai-fluency", note: "off-site (learn.4geeks)" },
+    description:
+      "Off-site only (learn.4geeks checkout page). Not fired from this site. Checkout links carry gtm_payload (product / persona short codes) for learn.4geeks to add to this event.",
+    sample: { event: "begin_checkout", item_id: "program-ai-fluency", note: "off-site (learn.4geeks); context via gtm_payload" },
   },
   {
     name: "purchase",
     wired: false,
-    description: "Off-site only (checkout POS). Not fired from this site.",
-    sample: { event: "purchase", item_id: "program-ai-fluency", note: "off-site" },
+    description:
+      "Off-site only (checkout POS). Not fired from this site. Carries gtm_payload values when the checkout keeps them for the whole session.",
+    sample: { event: "purchase", item_id: "program-ai-fluency", note: "off-site; context via gtm_payload" },
   },
 ] as const;
 
@@ -192,6 +195,7 @@ export function registerEcommerceRoutes(app: Express): void {
         tracking: {
           ready: isTrackingReady(contentRoot),
           keys: loadTrackingKeyIndex(contentRoot),
+          gtm_payload_skip_domains: getTrackingSettings(contentRoot).gtm_payload?.skip_domains ?? [],
         },
       });
     } catch (err) {

@@ -115,6 +115,13 @@ function buildArticleDocument(
   } else if (context.authorName) {
     doc.author = { "@type": "Person", name: context.authorName };
   } else if (context.contentType === "blog") {
+    log.warn(
+      {
+        contentType: context.contentType,
+        pageUrl: context.pageUrl,
+      },
+      "[schema-components] blog post has no authors on the entry — BlogPosting author falls back to Organization",
+    );
     doc.author = {
       "@type": "Organization",
       name: "4Geeks Academy",
@@ -165,19 +172,6 @@ export function collectSectionSchemasDetailed(
 
   for (const section of sections) {
     if (!section || typeof section !== "object") continue;
-    if (
-      context.contentType === "blog" &&
-      String(section.type ?? "") === "article" &&
-      !Object.prototype.hasOwnProperty.call(section, "authors")
-    ) {
-      log.warn(
-        {
-          contentType: context.contentType,
-          pageUrl: context.pageUrl,
-        },
-        '[schema-components] blog article section missing authors: "{{ single.authors }}" mapping — byline/Person LD may fall back to Organization',
-      );
-    }
     const contributor = schemaComponentContributors[String(section.type ?? "")];
     if (!contributor) continue;
 

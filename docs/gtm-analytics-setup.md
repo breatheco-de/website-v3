@@ -343,3 +343,46 @@ CTA intent is explicit `cta.tracking` (field-editor `cta-tracking`), not URL sni
 - **Pricing**: `item_list_name: "pricing_plans"` on `view_item_list`
 
 Non-effects: does not change lead `trackFormSubmission`; does not fire `begin_checkout` or `purchase` on-site (`click_begin_checkout` is the site CTA intent); `cta_banner` has no ecommerce wiring.
+
+---
+
+## gtm_payload on outbound links
+
+`begin_checkout` and `purchase` fire on learn.4geeks.com, which can't read this site's dataLayer. So links leaving the checkout path carry the visitor's product / persona context in one query parameter, `gtm_payload`, added at click time (`client/src/lib/gtmPayload.ts`, `client/src/hooks/useInternalNav.ts`, contract in `shared/gtm-payload.ts`).
+
+**Value:** URL-encoded JSON. `product`, `persona` and `product_persona` keep the key names older links used, and now hold **short codes** (the same values this site sends to GA4; translate with **Download code list** on Settings → Tracking → Events). Extras sit alongside them.
+
+```json
+{"v":1,"product":"afx","persona":"exp","product_persona":"afx:exp","funnel_stage":"decision","content_key":"program:ai-flex","experiment_id":"program:ai-flex:en@2026-11-01","variant":"b","ts":1762900000000}
+```
+
+| Key | Value |
+|---|---|
+| `v` | `1` (format version; older values have no `v`) |
+| `product`, `persona`, `product_persona` | Short codes, comma-joined, as in the dataLayer |
+| `funnel_stage`, `content_key` | The decision page the context came from |
+| `experiment_id`, `variant` | First A/B test of the visit, when any |
+| `ts` | Click time (epoch ms), to judge staleness |
+| `is_staff` | `true` only during a staff session |
+
+**When it is added**
+
+- Only on the checkout path: decision pages, and pages with no funnel stage while a remembered context is fresh. Never while "Product & persona on events" is off.
+- Only on `http(s)` links to another host; never on links to this site, `mailto:` / `tel:`, or domains on the **never-touch list** (Settings → Tracking → Events, card "Product & persona on events"; domain plus subdomains; reaches visitors on their next visit).
+- Internal links that the server redirects off-site load as a full page with `gtm_payload`; the 301 keeps the query string.
+- Normal, Ctrl/Cmd, middle and programmatic clicks. Not right-click "Copy link" / "Open in new tab", nor links inside raw-HTML rich text. Page source and YAML are unchanged.
+- Sent regardless of this site's cookie banner (it describes the page, not the person); the receiving site's consent setup decides what reaches GA4.
+
+**Across pages on this site:** the context is remembered for the browser tab (`sessionStorage` `4g_gtm_payload`, 30 minutes since last set). A decision page keeps it when its products cover every remembered product (e.g. `/payment-component`, which lists all products) and replaces it otherwise (AI Flex page → AI Engineering page). Awareness, consideration and post-enrollment pages clear it. A `gtm_payload` arriving in the page URL is remembered too, converted to codes.
+
+**Hand-written `gtm_payload` on links:** older links set it three ways. On the checkout path all three are replaced by the automatic value: `{{ funnel.products }}` (a list `[{"product":…,"persona":…}]` or `all`), `{qs:gtm_payload|…}` (pass-along with a fallback), and `{{ entry.funnel_products_encoded_ids }}` (three-key object, full ids). The fallback is used only when there is no context at all. Any other keys typed in a link's `gtm_payload` (e.g. `{"persona":"cc"}`) are explicit overrides and win key by key. Off the checkout path, links go out exactly as written.
+
+**Contract for learn.4geeks (receiver)**
+
+1. Read `gtm_payload` before GTM loads; accept v1 and the two older shapes (list, three-key full-id object). List-shaped values arrive as an object on the checkout path.
+2. Validate: key names `[a-z0-9_]{1,40}`, values string / number / boolean cut to 100 characters, at most 16 keys.
+3. Strip it from the URL (`history.replaceState`) before `page_view`, so it doesn't land in `page_location`.
+4. The newest link replaces saved values. Keep them for the whole checkout (e.g. `sessionStorage`), so `purchase` carries them after login or payment redirects.
+5. Push them as a dataLayer context push (no `event` key) using the same key names, so `begin_checkout` and `purchase` get them through the same Data Layer Variables. Pass `is_staff` through so the staff filter applies. Use `ts` to judge staleness when the parameter is missing.
+
+Other sites on this platform can reuse `parseGtmPayload` / `gtmPayloadToCodes` from `shared/gtm-payload.ts` to read it.

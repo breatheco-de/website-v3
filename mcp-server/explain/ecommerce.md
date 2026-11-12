@@ -16,6 +16,16 @@ Page funnel **stage / money-page inventory** → topic `funnel`. SEO meta / clus
 
 Purchase completes off-site. This site never fires `purchase`.
 
+## `gtm_payload` on links leaving the checkout path
+
+Automatic at click time; no YAML needed. Checkout path = `funnel.stage: decision` pages, plus pages with no stage for 30 min after one (per browser tab). Off when the site's product/persona tracking switch is off.
+
+- **Value:** URL-encoded JSON `{"v":1,"product","persona","product_persona"` (short codes, same key names as older hand-written values) `,"funnel_stage","content_key","experiment_id","variant","ts","is_staff"}` (`is_staff` only for staff sessions).
+- **Links:** `http(s)` to another host, not on `settings.yml` → `tracking.gtm_payload.skip_domains` (staff: Settings → Tracking → Events, "Product & persona on events" card; domain + subdomains; applies from next visit). Internal paths that redirect off-site load as a full page with it (301 keeps query).
+- **Hop memory:** a decision page keeps the remembered context when its products cover it (e.g. `/payment-component` lists all products); a decision page about other products replaces it; awareness / consideration / post-enrollment clears it. Incoming `?gtm_payload=` is remembered (full ids → codes).
+- **Hand-written `gtm_payload`:** `{{ funnel.products }}`, `{qs:gtm_payload|…}` and `{{ entry.funnel_products_encoded_ids }}` are replaced on the checkout path (fallback only with no context). Only needed now to override specific keys: `gtm_payload={"persona":"cc"}` wins key by key.
+- **Non-effects:** YAML, page source and copied links unchanged; sent regardless of the cookie banner; no dataLayer event on this site. Receiver contract + key table: `docs/gtm-analytics-setup.md` → "gtm_payload on outbound links". Code: `shared/gtm-payload.ts`, `client/src/lib/gtmPayload.ts`, `server/outbound-redirects.ts`.
+
 ## Journey tools (per product SKU)
 
 - `get_product_funnel` — locked product page + pages whose `funnel.products` includes this SKU (or `all`), grouped by `funnel.stage`
