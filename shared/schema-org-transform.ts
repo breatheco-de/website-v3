@@ -38,6 +38,8 @@ const KEY_MAPPINGS: Record<string, string> = {
   job_title: "jobTitle",
   works_for: "worksFor",
   knows_about: "knowsAbout",
+  area_served: "areaServed",
+  knows_language: "knowsLanguage",
 };
 
 export function camelToJsonLd(key: string): string {

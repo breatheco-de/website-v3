@@ -35,6 +35,8 @@ export interface SchemaOrgEditorResponse {
     description_es: string;
     founding_date: string;
     founders: Array<{ name: string }>;
+    area_served: string[];
+    knows_language: string[];
     contact_point: { contact_type: string; email: string };
     address: { address_country: string };
     aggregate_rating: {
@@ -74,7 +76,12 @@ export function SchemaOrgTab() {
 
   useEffect(() => {
     if (!data) return;
-    setOrg({ ...data.organization, founders: data.organization.founders.map((f) => ({ ...f })) });
+    setOrg({
+      ...data.organization,
+      founders: data.organization.founders.map((f) => ({ ...f })),
+      area_served: [...(data.organization.area_served ?? [])],
+      knows_language: [...(data.organization.knows_language ?? [])],
+    });
     setWebsite({ ...data.website });
   }, [data]);
 
@@ -271,6 +278,28 @@ export function SchemaOrgTab() {
               </div>
             ))}
           </div>
+          <StringListField
+            label="Areas served"
+            hint="schema.org areaServed — regions where you operate"
+            values={org.area_served}
+            onChange={(area_served) => setOrg({ ...org, area_served })}
+            disabled={!canEdit}
+            placeholder="e.g. United States"
+            addTestId="button-add-area-served"
+            inputTestIdPrefix="input-org-area-served"
+            removeTestIdPrefix="button-remove-area-served"
+          />
+          <StringListField
+            label="Languages"
+            hint="schema.org knowsLanguage — BCP 47 codes (en, es)"
+            values={org.knows_language}
+            onChange={(knows_language) => setOrg({ ...org, knows_language })}
+            disabled={!canEdit}
+            placeholder="e.g. en"
+            addTestId="button-add-knows-language"
+            inputTestIdPrefix="input-org-knows-language"
+            removeTestIdPrefix="button-remove-knows-language"
+          />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t">
             <VariableField
               label="Rating"
@@ -392,6 +421,74 @@ export function SchemaOrgTab() {
           />
         </Suspense>
       )}
+    </div>
+  );
+}
+
+function StringListField({
+  label,
+  hint,
+  values,
+  onChange,
+  disabled,
+  placeholder,
+  addTestId,
+  inputTestIdPrefix,
+  removeTestIdPrefix,
+}: {
+  label: string;
+  hint?: string;
+  values: string[];
+  onChange: (next: string[]) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  addTestId: string;
+  inputTestIdPrefix: string;
+  removeTestIdPrefix: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          {hint ? <p className="text-[11px] text-muted-foreground/80">{hint}</p> : null}
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={disabled}
+          onClick={() => onChange([...values, ""])}
+          data-testid={addTestId}
+        >
+          <IconPlus className="h-3.5 w-3.5 mr-1" />
+          Add
+        </Button>
+      </div>
+      {values.map((value, i) => (
+        <div key={i} className="flex gap-2">
+          <Input
+            value={value}
+            onChange={(e) => {
+              const next = values.map((x, j) => (j === i ? e.target.value : x));
+              onChange(next);
+            }}
+            disabled={disabled}
+            placeholder={placeholder}
+            data-testid={`${inputTestIdPrefix}-${i}`}
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={disabled}
+            onClick={() => onChange(values.filter((_, j) => j !== i))}
+            data-testid={`${removeTestIdPrefix}-${i}`}
+          >
+            <IconTrash className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
     </div>
   );
 }

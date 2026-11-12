@@ -557,6 +557,10 @@ export type SchemaOrgEditorOrganization = {
   description_es: string;
   founding_date: string;
   founders: Array<{ name: string }>;
+  /** Geographic regions served (schema.org areaServed). Plain strings, no template vars. */
+  area_served: string[];
+  /** BCP 47 language codes (schema.org knowsLanguage). Plain strings, no template vars. */
+  knows_language: string[];
   contact_point: {
     contact_type: string;
     email: string;
@@ -603,6 +607,8 @@ export function getSchemaOrgEditorPayload(contentRoot?: string): SchemaOrgEditor
   const address = (org.address as Record<string, unknown> | undefined) ?? {};
   const rating = (org.aggregate_rating as Record<string, unknown> | undefined) ?? {};
   const foundersRaw = Array.isArray(org.founders) ? org.founders : [];
+  const areaServedRaw = Array.isArray(org.area_served) ? org.area_served : [];
+  const knowsLanguageRaw = Array.isArray(org.knows_language) ? org.knows_language : [];
 
   const other_keys = getAvailableSchemaKeys(contentRoot).filter(
     (k) => k !== "organization" && k !== "website",
@@ -621,6 +627,14 @@ export function getSchemaOrgEditorPayload(contentRoot?: string): SchemaOrgEditor
       founders: foundersRaw
         .filter((f): f is { name: string } => !!f && typeof f === "object" && typeof (f as { name?: unknown }).name === "string")
         .map((f) => ({ name: f.name })),
+      area_served: areaServedRaw
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      knows_language: knowsLanguageRaw
+        .filter((s): s is string => typeof s === "string")
+        .map((s) => s.trim())
+        .filter(Boolean),
       contact_point: {
         contact_type: asString(contact.contact_type),
         email: asString(contact.email),
@@ -674,6 +688,12 @@ export function updateSchemaOrgEditorPayload(
     if (input.organization.founders) {
       o.founders = input.organization.founders;
     }
+    if (input.organization.area_served) {
+      o.area_served = input.organization.area_served;
+    }
+    if (input.organization.knows_language) {
+      o.knows_language = input.organization.knows_language;
+    }
 
     const prevOrg = (existing.organization as Record<string, unknown> | undefined) ?? {};
     const locales = {
@@ -698,6 +718,8 @@ export function updateSchemaOrgEditorPayload(
       founders: o.founders
         .map((f) => ({ name: (f.name || "").trim() }))
         .filter((f) => f.name),
+      area_served: (o.area_served ?? []).map((s) => s.trim()).filter(Boolean),
+      knows_language: (o.knows_language ?? []).map((s) => s.trim()).filter(Boolean),
       contact_point: {
         type: "ContactPoint",
         contact_type: o.contact_point.contact_type.trim(),

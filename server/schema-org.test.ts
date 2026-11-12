@@ -12,10 +12,12 @@ import {
   getOrganizationSameAsUrl,
   getOrganizationTwitterHandle,
   getSchema,
+  getSchemaOrgEditorPayload,
   getWebsiteDefaultSocialImage,
   getWebsiteTemplateProperties,
   isSchemaOrgUsagePath,
   loadResolvedSchemaConfig,
+  updateSchemaOrgEditorPayload,
 } from "./schema-org";
 import { resetVariableManagerCache } from "./variable-manager";
 
@@ -209,5 +211,55 @@ describe("loadResolvedSchemaConfig / getOrganizationDocument tokens", () => {
     const website = getWebsiteTemplateProperties("en", contentRoot);
     expect(website?.name).toBe("{{ global.site_display_name }}");
     expect(website?.default_social_image).toBeUndefined();
+  });
+});
+
+describe("schema-org editor area_served / knows_language", () => {
+  let contentRoot: string;
+
+  beforeEach(() => {
+    contentRoot = fs.mkdtempSync(path.join(os.tmpdir(), "schema-org-areas-"));
+    fs.writeFileSync(
+      path.join(contentRoot, "schema-org.yml"),
+      `organization:
+  type: EducationalOrganization
+  name: Test Org
+  url: https://example.org
+website:
+  type: WebSite
+  name: Test Site
+  url: https://example.org
+`,
+      "utf-8",
+    );
+    clearSchemaCache(contentRoot);
+  });
+
+  afterEach(() => {
+    clearSchemaCache(contentRoot);
+    fs.rmSync(contentRoot, { recursive: true, force: true });
+  });
+
+  it("round-trips area_served and knows_language as string lists", () => {
+    updateSchemaOrgEditorPayload(
+      {
+        organization: {
+          area_served: ["United States", "Latin America", "Europe", ""],
+          knows_language: ["en", "es", "  "],
+        },
+      },
+      contentRoot,
+    );
+    const payload = getSchemaOrgEditorPayload(contentRoot);
+    expect(payload.organization.area_served).toEqual([
+      "United States",
+      "Latin America",
+      "Europe",
+    ]);
+    expect(payload.organization.knows_language).toEqual(["en", "es"]);
+
+    const doc = getOrganizationDocument("en", contentRoot);
+    expect(doc?.areaServed).toEqual(["United States", "Latin America", "Europe"]);
+    expect(doc?.knowsLanguage).toEqual(["en", "es"]);
   });
 });
