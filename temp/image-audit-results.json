@@ -1,0 +1,1648 @@
+{
+  "generatedAt": "2026-11-12T14:43:38.776Z",
+  "sites": {
+    "site_4geeks-com": {
+      "registryImages": 1718,
+      "yamlFiles": 1780,
+      "fileKinds": {
+        "other": 81,
+        "common": 641,
+        "live": 794,
+        "draft": 103,
+        "variant": 151,
+        "menu": 10
+      },
+      "parseFailures": 0,
+      "referencedIds": 104,
+      "referencedLiveIds": 103,
+      "visitorBlank": {
+        "distinctIds": 16,
+        "filesAnyKind": 21,
+        "filesLive": 12,
+        "occurrences": 35,
+        "byKey": {
+          "avatars": 8,
+          "logo": 7,
+          "value": 6,
+          "related_features": 4,
+          "technologies": 3,
+          "stacked_images": 2,
+          "image": 1,
+          "tall_image": 1,
+          "main_keyword": 1,
+          "partner_logo": 1,
+          "default": 1
+        },
+        "bySection": {
+          "testimonials/default": 8,
+          "banner/default": 8,
+          "list_press_mentions/default": 7,
+          "(page level)": 6,
+          "graduates_stats/asymmetric": 3,
+          "faq/default": 2,
+          "two_column/checklistPanel": 1
+        },
+        "files": {
+          "site_4geeks-com/how-to/faq-learnpack/_common.yml": [
+            {
+              "keyPath": "technologies[0]",
+              "id": "learnpack",
+              "section": "(page level)"
+            }
+          ],
+          "site_4geeks-com/how-to/how-to-publish-a-package/_common.yml": [
+            {
+              "keyPath": "technologies[0]",
+              "id": "learnpack",
+              "section": "(page level)"
+            }
+          ],
+          "site_4geeks-com/how-to/how-to-write-quizzes/_common.yml": [
+            {
+              "keyPath": "technologies[1]",
+              "id": "learnpack",
+              "section": "(page level)"
+            }
+          ],
+          "site_4geeks-com/interactive-exercise/single.es-template.es.yml": [
+            {
+              "keyPath": "sections[2].related_features[0]",
+              "id": "learnpack",
+              "section": "testimonials/default"
+            }
+          ],
+          "site_4geeks-com/interactive-exercise/single.new-exercises-template.en.yml": [
+            {
+              "keyPath": "sections[3].related_features[0]",
+              "id": "learnpack",
+              "section": "testimonials/default"
+            }
+          ],
+          "site_4geeks-com/interactive-exercise/single.with-syllabus.en.yml": [
+            {
+              "keyPath": "sections[4].related_features[0]",
+              "id": "learnpack",
+              "section": "testimonials/default"
+            }
+          ],
+          "site_4geeks-com/interactive-exercise/single.with-syllabus.es.yml": [
+            {
+              "keyPath": "sections[2].related_features[0]",
+              "id": "learnpack",
+              "section": "testimonials/default"
+            }
+          ],
+          "site_4geeks-com/interactive-exercise/template.es-template.es.yml": [
+            {
+              "keyPath": "sections[2].dynamic_entries.permanent_filters[0].value[0]",
+              "id": "learnpack",
+              "section": "testimonials/default"
+            }
+          ],
+          "site_4geeks-com/interactive-exercise/template.new-exercises-template.en.yml": [
+            {
+              "keyPath": "sections[3].dynamic_entries.permanent_filters[0].value[0]",
+              "id": "learnpack",
+              "section": "testimonials/default"
+            }
+          ],
+          "site_4geeks-com/interactive-exercise/template.with-syllabus.en.yml": [
+            {
+              "keyPath": "sections[4].dynamic_entries.permanent_filters[0].value[0]",
+              "id": "learnpack",
+              "section": "testimonials/default"
+            }
+          ],
+          "site_4geeks-com/interactive-exercise/template.with-syllabus.es.yml": [
+            {
+              "keyPath": "sections[2].dynamic_entries.permanent_filters[0].value[0]",
+              "id": "learnpack",
+              "section": "testimonials/default"
+            }
+          ],
+          "site_4geeks-com/landings/ai-engineering-program-ad-es/es.yml": [
+            {
+              "keyPath": "sections[5].left.image",
+              "id": "4geeks-perfil-encaja-contigo",
+              "section": "two_column/checklistPanel"
+            }
+          ],
+          "site_4geeks-com/landings/workshop-aiengineering-reskill/es.yml": [
+            {
+              "keyPath": "sections[4].avatars[0]",
+              "id": "avatar-woman-1",
+              "section": "banner/default"
+            },
+            {
+              "keyPath": "sections[4].avatars[1]",
+              "id": "avatar-man-2",
+              "section": "banner/default"
+            },
+            {
+              "keyPath": "sections[4].avatars[2]",
+              "id": "avatar-woman-3",
+              "section": "banner/default"
+            },
+            {
+              "keyPath": "sections[4].avatars[3]",
+              "id": "avatar-man-4",
+              "section": "banner/default"
+            }
+          ],
+          "site_4geeks-com/landings/workshop-aiengineering-reskill-latam/es.yml": [
+            {
+              "keyPath": "sections[4].avatars[0]",
+              "id": "avatar-woman-1",
+              "section": "banner/default"
+            },
+            {
+              "keyPath": "sections[4].avatars[1]",
+              "id": "avatar-man-2",
+              "section": "banner/default"
+            },
+            {
+              "keyPath": "sections[4].avatars[2]",
+              "id": "avatar-woman-3",
+              "section": "banner/default"
+            },
+            {
+              "keyPath": "sections[4].avatars[3]",
+              "id": "avatar-man-4",
+              "section": "banner/default"
+            }
+          ],
+          "site_4geeks-com/pages/job-guarantee/en.yml": [
+            {
+              "keyPath": "sections[3].tall_image",
+              "id": "group-7085-1-700x380-600x326-q80",
+              "section": "graduates_stats/asymmetric"
+            },
+            {
+              "keyPath": "sections[3].stacked_images[0]",
+              "id": "group-7086-1-800x440",
+              "section": "graduates_stats/asymmetric"
+            },
+            {
+              "keyPath": "sections[3].stacked_images[1]",
+              "id": "group-7084-1-695x382",
+              "section": "graduates_stats/asymmetric"
+            }
+          ],
+          "site_4geeks-com/pages/learnpack/en.yml": [
+            {
+              "keyPath": "sections[2].dynamic_entries.permanent_filters[0].value[0]",
+              "id": "learnpack",
+              "section": "faq/default"
+            },
+            {
+              "keyPath": "seo.main_keyword",
+              "id": "learnpack",
+              "section": "(page level)"
+            }
+          ],
+          "site_4geeks-com/pages/learnpack/es.yml": [
+            {
+              "keyPath": "sections[2].dynamic_entries.permanent_filters[0].value[0]",
+              "id": "learnpack",
+              "section": "faq/default"
+            }
+          ],
+          "site_4geeks-com/pages/press/en.yml": [
+            {
+              "keyPath": "sections[1].items[13].logo",
+              "id": "nbc-logo",
+              "section": "list_press_mentions/default"
+            }
+          ],
+          "site_4geeks-com/pages/press/es.yml": [
+            {
+              "keyPath": "sections[1].items[0].logo",
+              "id": "global-miami-logo",
+              "section": "list_press_mentions/default"
+            },
+            {
+              "keyPath": "sections[1].items[1].logo",
+              "id": "forbes_logo_award",
+              "section": "list_press_mentions/default"
+            },
+            {
+              "keyPath": "sections[1].items[2].logo",
+              "id": "the-miami-herald-logo",
+              "section": "list_press_mentions/default"
+            },
+            {
+              "keyPath": "sections[1].items[3].logo",
+              "id": "forbes_logo_award",
+              "section": "list_press_mentions/default"
+            },
+            {
+              "keyPath": "sections[1].items[4].logo",
+              "id": "forbes_logo_award",
+              "section": "list_press_mentions/default"
+            },
+            {
+              "keyPath": "sections[1].items[5].logo",
+              "id": "cnn-logo",
+              "section": "list_press_mentions/default"
+            }
+          ],
+          "site_4geeks-com/scholarship/miami-tech-works/en.yml": [
+            {
+              "keyPath": "partner_logo",
+              "id": "miami-tech-works",
+              "section": "(page level)"
+            }
+          ],
+          "site_4geeks-com/variables.yml": [
+            {
+              "keyPath": "brand.logo.default",
+              "id": "4geeks-logo-big",
+              "section": "(page level)"
+            }
+          ]
+        }
+      },
+      "noiseSkippedByKey": {
+        "tags": 6,
+        "slug": 6,
+        "type": 18,
+        "title": 1
+      },
+      "deleteGuard": {
+        "inUseButDeletable": 2,
+        "ofWhichProtected": 0,
+        "ofWhichOwnedByFallbackSite": 0,
+        "items": [
+          {
+            "id": "learnpack",
+            "ownerSite": "site_4geeks-com",
+            "files": [
+              "site_4geeks-com/how-to/faq-learnpack/_common.yml",
+              "site_4geeks-com/how-to/how-to-publish-a-package/_common.yml",
+              "site_4geeks-com/how-to/how-to-write-quizzes/_common.yml",
+              "site_4geeks-com/interactive-exercise/single.es-template.es.yml",
+              "site_4geeks-com/interactive-exercise/single.new-exercises-template.en.yml"
+            ],
+            "protected": false
+          },
+          {
+            "id": "4geeks-perfil-encaja-contigo",
+            "ownerSite": "site_4geeks-com",
+            "files": [
+              "site_4geeks-com/landings/ai-engineering-program-ad-es/es.yml"
+            ],
+            "protected": false
+          }
+        ]
+      },
+      "unknownIds": {
+        "strictKeys": 0,
+        "strictDistinct": 0,
+        "looseKeys": 10,
+        "strict": [],
+        "loose": [
+          {
+            "file": "site_4geeks-com/programs/cybersecurity/draft.en.yml",
+            "keyPath": "sections[7].items[0].image",
+            "value": "network-security"
+          },
+          {
+            "file": "site_4geeks-com/programs/cybersecurity/draft.en.yml",
+            "keyPath": "sections[7].items[2].image",
+            "value": "incident-response"
+          },
+          {
+            "file": "site_4geeks-com/programs/cybersecurity/en.yml",
+            "keyPath": "sections[7].items[0].image",
+            "value": "network-security"
+          },
+          {
+            "file": "site_4geeks-com/programs/cybersecurity/en.yml",
+            "keyPath": "sections[7].items[2].image",
+            "value": "incident-response"
+          },
+          {
+            "file": "site_4geeks-com/programs/cybersecurity/es.yml",
+            "keyPath": "sections[7].items[0].image",
+            "value": "network-security"
+          },
+          {
+            "file": "site_4geeks-com/programs/cybersecurity/es.yml",
+            "keyPath": "sections[7].items[2].image",
+            "value": "incident-response"
+          },
+          {
+            "file": "site_4geeks-com/programs/full-stack/en.yml",
+            "keyPath": "sections[7].items[0].image",
+            "value": "star-wars"
+          },
+          {
+            "file": "site_4geeks-com/programs/full-stack/en.yml",
+            "keyPath": "sections[7].items[2].image",
+            "value": "final-project-applied-ai-1767880920613"
+          },
+          {
+            "file": "site_4geeks-com/programs/full-stack/es.yml",
+            "keyPath": "sections[8].items[0].image",
+            "value": "star-wars"
+          },
+          {
+            "file": "site_4geeks-com/programs/full-stack/es.yml",
+            "keyPath": "sections[8].items[2].image",
+            "value": "final-project-applied-ai-1767880920613"
+          }
+        ]
+      },
+      "registryHealth": {
+        "noSrc": 16,
+        "pendingExternal": 16,
+        "localMissing": [],
+        "byOrigin": {
+          "(none)": 600,
+          "upload": 1105,
+          "ai": 4,
+          "import": 9
+        }
+      }
+    },
+    "site_4geeks-florida": {
+      "registryImages": 1,
+      "yamlFiles": 294,
+      "fileKinds": {
+        "other": 14,
+        "common": 85,
+        "live": 172,
+        "menu": 5,
+        "variant": 18
+      },
+      "parseFailures": 2,
+      "referencedIds": 94,
+      "referencedLiveIds": 94,
+      "visitorBlank": {
+        "distinctIds": 7,
+        "filesAnyKind": 5,
+        "filesLive": 4,
+        "occurrences": 10,
+        "byKey": {
+          "logo": 7,
+          "value": 2,
+          "default": 1
+        },
+        "bySection": {
+          "list_press_mentions/default": 7,
+          "faq/default": 2,
+          "(page level)": 1
+        },
+        "files": {
+          "site_4geeks-florida/pages/learnpack/en.yml": [
+            {
+              "keyPath": "sections[2].dynamic_entries.permanent_filters[0].value[0]",
+              "id": "learnpack",
+              "section": "faq/default"
+            }
+          ],
+          "site_4geeks-florida/pages/learnpack/es.yml": [
+            {
+              "keyPath": "sections[2].dynamic_entries.permanent_filters[0].value[0]",
+              "id": "learnpack",
+              "section": "faq/default"
+            }
+          ],
+          "site_4geeks-florida/pages/press/en.yml": [
+            {
+              "keyPath": "sections[1].items[7].logo",
+              "id": "nbc-logo",
+              "section": "list_press_mentions/default"
+            }
+          ],
+          "site_4geeks-florida/pages/press/es.yml": [
+            {
+              "keyPath": "sections[1].items[0].logo",
+              "id": "global-miami-logo",
+              "section": "list_press_mentions/default"
+            },
+            {
+              "keyPath": "sections[1].items[1].logo",
+              "id": "forbes_logo_award",
+              "section": "list_press_mentions/default"
+            },
+            {
+              "keyPath": "sections[1].items[2].logo",
+              "id": "the-miami-herald-logo",
+              "section": "list_press_mentions/default"
+            },
+            {
+              "keyPath": "sections[1].items[3].logo",
+              "id": "forbes_logo_award",
+              "section": "list_press_mentions/default"
+            },
+            {
+              "keyPath": "sections[1].items[4].logo",
+              "id": "forbes_logo_award",
+              "section": "list_press_mentions/default"
+            },
+            {
+              "keyPath": "sections[1].items[5].logo",
+              "id": "cnn-logo",
+              "section": "list_press_mentions/default"
+            }
+          ],
+          "site_4geeks-florida/variables.yml": [
+            {
+              "keyPath": "brand.logo.default",
+              "id": "4geeks-academy-logo-florida",
+              "section": "(page level)"
+            }
+          ]
+        }
+      },
+      "noiseSkippedByKey": {
+        "type": 12,
+        "slug": 3,
+        "title": 2
+      },
+      "deleteGuard": {
+        "inUseButDeletable": 1,
+        "ofWhichProtected": 0,
+        "ofWhichOwnedByFallbackSite": 1,
+        "items": [
+          {
+            "id": "learnpack",
+            "ownerSite": "site_4geeks-com",
+            "files": [
+              "site_4geeks-florida/pages/learnpack/en.yml",
+              "site_4geeks-florida/pages/learnpack/es.yml"
+            ],
+            "protected": false
+          }
+        ]
+      },
+      "unknownIds": {
+        "strictKeys": 17,
+        "strictDistinct": 8,
+        "looseKeys": 8,
+        "strict": [
+          {
+            "file": "site_4geeks-florida/pages/home/es.yml",
+            "keyPath": "sections[0].pills[1].logos[2].image_id",
+            "value": "seal-of-the-united-states-economic-development-administration"
+          },
+          {
+            "file": "site_4geeks-florida/pages/home/es.yml",
+            "keyPath": "sections[0].pills[2].logos[0].image_id",
+            "value": "newsweek-logosvg"
+          },
+          {
+            "file": "site_4geeks-florida/pages/home-prueba-lorena/en.yml",
+            "keyPath": "sections[0].pills[0].logos[1].image_id",
+            "value": "logo-of-miami-dade-county-floridasvg"
+          },
+          {
+            "file": "site_4geeks-florida/pages/home-prueba-lorena/en.yml",
+            "keyPath": "sections[0].pills[1].logos[2].image_id",
+            "value": "seal-of-the-united-states-economic-development-administration"
+          },
+          {
+            "file": "site_4geeks-florida/pages/home-prueba-lorena/en.yml",
+            "keyPath": "sections[0].pills[1].logos[3].image_id",
+            "value": "austin-texas-workforce-commission-labor-government-agency-texas-state-library-and-archives-commission-removebg-preview"
+          },
+          {
+            "file": "site_4geeks-florida/pages/home-prueba-lorena/en.yml",
+            "keyPath": "sections[3].collage_images[0].image_id",
+            "value": "gemini-generated-image-uwpyyruwpyyruwpy"
+          },
+          {
+            "file": "site_4geeks-florida/pages/home-prueba-lorena/en.yml",
+            "keyPath": "sections[3].collage_images[1].image_id",
+            "value": "gemini-generated-image-pd2u4upd2u4upd2u"
+          },
+          {
+            "file": "site_4geeks-florida/pages/home-prueba-lorena/en.yml",
+            "keyPath": "sections[3].collage_images[2].image_id",
+            "value": "gemini-generated-image-dhko5mdhko5mdhko-1"
+          },
+          {
+            "file": "site_4geeks-florida/pages/home-prueba-lorena/en.yml",
+            "keyPath": "sections[3].collage_images[3].image_id",
+            "value": "gemini-generated-image-wpk4yvwpk4yvwpk4"
+          },
+          {
+            "file": "site_4geeks-florida/pages/home-prueba-lorena/es.yml",
+            "keyPath": "sections[0].pills[0].logos[1].image_id",
+            "value": "logo-of-miami-dade-county-floridasvg"
+          },
+          {
+            "file": "site_4geeks-florida/pages/home-prueba-lorena/es.yml",
+            "keyPath": "sections[0].pills[1].logos[2].image_id",
+            "value": "seal-of-the-united-states-economic-development-administration"
+          },
+          {
+            "file": "site_4geeks-florida/pages/home-prueba-lorena/es.yml",
+            "keyPath": "sections[0].pills[1].logos[3].image_id",
+            "value": "austin-texas-workforce-commission-labor-government-agency-texas-state-library-and-archives-commission-removebg-preview"
+          },
+          {
+            "file": "site_4geeks-florida/pages/lumi-home/en.yml",
+            "keyPath": "sections[0].pills[1].logos[2].image_id",
+            "value": "seal-of-the-united-states-economic-development-administration"
+          },
+          {
+            "file": "site_4geeks-florida/pages/lumi-home/en.yml",
+            "keyPath": "sections[0].pills[1].logos[3].image_id",
+            "value": "austin-texas-workforce-commission-labor-government-agency-texas-state-library-and-archives-commission-removebg-preview"
+          },
+          {
+            "file": "site_4geeks-florida/pages/lumi-home/es.yml",
+            "keyPath": "sections[0].pills[1].logos[2].image_id",
+            "value": "seal-of-the-united-states-economic-development-administration"
+          },
+          {
+            "file": "site_4geeks-florida/pages/lumi-home/es.yml",
+            "keyPath": "sections[0].pills[1].logos[3].image_id",
+            "value": "austin-texas-workforce-commission-labor-government-agency-texas-state-library-and-archives-commission-removebg-preview"
+          },
+          {
+            "file": "site_4geeks-florida/pages/lumi-home/es.yml",
+            "keyPath": "sections[0].pills[2].logos[0].image_id",
+            "value": "newsweek-logosvg"
+          }
+        ],
+        "loose": [
+          {
+            "file": "site_4geeks-florida/programs/cybersecurity/en.yml",
+            "keyPath": "sections[6].items[0].image",
+            "value": "network-security"
+          },
+          {
+            "file": "site_4geeks-florida/programs/cybersecurity/en.yml",
+            "keyPath": "sections[6].items[2].image",
+            "value": "incident-response"
+          },
+          {
+            "file": "site_4geeks-florida/programs/cybersecurity/es.yml",
+            "keyPath": "sections[6].items[0].image",
+            "value": "network-security"
+          },
+          {
+            "file": "site_4geeks-florida/programs/cybersecurity/es.yml",
+            "keyPath": "sections[6].items[2].image",
+            "value": "incident-response"
+          },
+          {
+            "file": "site_4geeks-florida/programs/full-stack/en.yml",
+            "keyPath": "sections[7].items[0].image",
+            "value": "star-wars"
+          },
+          {
+            "file": "site_4geeks-florida/programs/full-stack/en.yml",
+            "keyPath": "sections[7].items[2].image",
+            "value": "final-project-applied-ai-1767880920613"
+          },
+          {
+            "file": "site_4geeks-florida/programs/full-stack/es.yml",
+            "keyPath": "sections[8].items[0].image",
+            "value": "star-wars"
+          },
+          {
+            "file": "site_4geeks-florida/programs/full-stack/es.yml",
+            "keyPath": "sections[8].items[2].image",
+            "value": "final-project-applied-ai-1767880920613"
+          }
+        ]
+      },
+      "registryHealth": {
+        "noSrc": 0,
+        "pendingExternal": 0,
+        "localMissing": [
+          "4geeks-academy-logo-florida"
+        ],
+        "byOrigin": {
+          "(none)": 1
+        }
+      }
+    },
+    "site_business-4geeks": {
+      "registryImages": 0,
+      "yamlFiles": 38,
+      "fileKinds": {
+        "other": 7,
+        "common": 8,
+        "live": 14,
+        "menu": 4,
+        "variant": 4,
+        "draft": 1
+      },
+      "parseFailures": 0,
+      "referencedIds": 28,
+      "referencedLiveIds": 28,
+      "visitorBlank": {
+        "distinctIds": 0,
+        "filesAnyKind": 0,
+        "filesLive": 0,
+        "occurrences": 0,
+        "byKey": {},
+        "bySection": {},
+        "files": {}
+      },
+      "noiseSkippedByKey": {},
+      "deleteGuard": {
+        "inUseButDeletable": 0,
+        "ofWhichProtected": 0,
+        "ofWhichOwnedByFallbackSite": 0,
+        "items": []
+      },
+      "unknownIds": {
+        "strictKeys": 0,
+        "strictDistinct": 0,
+        "looseKeys": 0,
+        "strict": [],
+        "loose": []
+      },
+      "registryHealth": {
+        "noSrc": 0,
+        "pendingExternal": 0,
+        "localMissing": [],
+        "byOrigin": {}
+      }
+    }
+  },
+  "hardcodedIdsInClient": {
+    "4geeks-devs-logo-1763162063433": [
+      "client/src/components/Footer.tsx",
+      "client/src/components/menus/index.tsx"
+    ],
+    "rigobot-logo-1764707022198": [
+      "client/src/components/ai_learning/variants/AiLearningDefault.tsx"
+    ],
+    "woman-profile-headshot-1-608aff01": [
+      "client/src/components/hero/variants/HeroShowcase.tsx",
+      "client/src/components/hero/variants/HeroSingleColumn.tsx"
+    ],
+    "man-profile-headshot-1-0850c276": [
+      "client/src/components/hero/variants/HeroShowcase.tsx",
+      "client/src/components/hero/variants/HeroSingleColumn.tsx"
+    ],
+    "woman-profile-headshot-2-a0ea2c29": [
+      "client/src/components/hero/variants/HeroShowcase.tsx",
+      "client/src/components/hero/variants/HeroSingleColumn.tsx"
+    ],
+    "man-profile-headshot-2-516b72e4": [
+      "client/src/components/hero/variants/HeroShowcase.tsx",
+      "client/src/components/hero/variants/HeroSingleColumn.tsx"
+    ],
+    "ttaloretta-1764725322100": [
+      "client/src/components/testimonials_slide/variants/TestimonialsSlideDefault.tsx"
+    ],
+    "akers-1764725327796": [
+      "client/src/components/testimonials_slide/variants/TestimonialsSlideDefault.tsx"
+    ],
+    "mailinh-1764725334980": [
+      "client/src/components/testimonials_slide/variants/TestimonialsSlideDefault.tsx"
+    ],
+    "coimbra-1764725341501": [
+      "client/src/components/testimonials_slide/variants/TestimonialsSlideDefault.tsx"
+    ],
+    "jeanstcloud-1764725356935": [
+      "client/src/components/testimonials_slide/variants/TestimonialsSlideDefault.tsx"
+    ],
+    "alexandraespinoza-1764725386161": [
+      "client/src/components/testimonials_slide/variants/TestimonialsSlideDefault.tsx"
+    ],
+    "gabrielsalazar-1764725392872": [
+      "client/src/components/testimonials_slide/variants/TestimonialsSlideDefault.tsx"
+    ],
+    "laura-1764725397398": [
+      "client/src/components/testimonials_slide/variants/TestimonialsSlideDefault.tsx"
+    ],
+    "melamniegalaretto-1764725408397": [
+      "client/src/components/testimonials_slide/variants/TestimonialsSlideDefault.tsx"
+    ],
+    "natialombardo-1764725413363": [
+      "client/src/components/testimonials_slide/variants/TestimonialsSlideDefault.tsx"
+    ],
+    "luislarraburo-1764725418057": [
+      "client/src/components/testimonials_slide/variants/TestimonialsSlideDefault.tsx"
+    ]
+  },
+  "directUrls": {
+    "distinctUrls": 1066,
+    "usedInFiles": 1155,
+    "inRegistry": 983,
+    "notInRegistry": 83,
+    "byHost": {
+      "storage.googleapis.com": 999,
+      "breathecode.herokuapp.com": 42,
+      "4geeksacademy.com": 5,
+      "raw.githubusercontent.com": 4,
+      "i.imgur.com": 1,
+      "images.prismic.io": 2,
+      "randomuser.me": 6,
+      "switchtheworld.org": 1,
+      "github-production-user-asset-6210df.s3.amazonaws.com": 4,
+      "learn.4geeks.com": 1,
+      "old.4geeksacademy.com": 1
+    },
+    "http": {
+      "checked": 1066,
+      "notOk": 46,
+      "notOkUsedOnLiveFiles": 46,
+      "liveFilesAffected": 155,
+      "byStatus": {
+        "0": 27,
+        "404": 19
+      },
+      "byHost": {
+        "breathecode.herokuapp.com": 7,
+        "storage.googleapis.com": 28,
+        "4geeksacademy.com": 5,
+        "randomuser.me": 3,
+        "images.prismic.io": 1,
+        "switchtheworld.org": 1,
+        "old.4geeksacademy.com": 1
+      },
+      "items": [
+        {
+          "url": "https://breathecode.herokuapp.com/v1/media/file/diana-ma-png",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/5-mujeres-impactando-la-industria-tech/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/10-AI-Tools-That-Help-You-Build-Software-from-Scratch.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "src"
+          ],
+          "fileCount": 3,
+          "liveFileCount": 3,
+          "files": [
+            "site_4geeks-com/blog/ai-engineer/en.yml",
+            "site_4geeks-com/blog/how-to-become-an-ai-engineer/en.yml",
+            "site_4geeks-com/blog/how-to-become-an-ai-engineer/fix-title-breadcrumb.en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/og-blog-ai-engineer-jobs-en-v2.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "og_image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/ai-engineer-jobs/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/download-13-.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "src"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/ai-engineer-jobs/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/og-blog-ai-engineer-salary-en-v2.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "og_image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/ai-engineer-salary/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/Tentary.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "src"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/ai-engineer-salary/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/og-blog-ai-engineering-from-scratch-en-v2.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "og_image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/ai-engineering-from-scratch/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/og-blog-aprender-inteligencia-artificial-desde-cero-es-v2.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "og_image"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-com/blog/ai-engineering-from-scratch/es.yml",
+            "site_4geeks-com/blog/aprender-inteligencia-artificial-desde-cero/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/og-blog-ai-for-business-course-en-v2.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "og_image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/ai-for-business-course/en.yml"
+          ]
+        },
+        {
+          "url": "https://4geeksacademy.com/static/e87935aadbb3844e3734315214b5f032/9298b/madrid-3.webp",
+          "status": 0,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/bootcamp-programacion-barcelona/es.yml"
+          ]
+        },
+        {
+          "url": "https://4GeeksAcademy.com/images/4geeks-main.jpg",
+          "status": 0,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/carrera-de-programacion-es/es.yml"
+          ]
+        },
+        {
+          "url": "https://breathecode.herokuapp.com/v1/media/file/programmer-at-night-2-jpg",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image",
+            "og_image"
+          ],
+          "fileCount": 3,
+          "liveFileCount": 3,
+          "files": [
+            "site_4geeks-com/blog/cuanto-gana-un-ingeniero-informatico-en-espana/es.yml",
+            "site_4geeks-com/blog/cuanto-gana-un-ingeniero-informatico-en-espana/refresh-2026-09-28.es.yml",
+            "site_4geeks-com/blog/cuanto-gana-un-ingeniero-informatico-en-espana/refresh-2026-09-29.es.yml"
+          ]
+        },
+        {
+          "url": "https://4GeeksAcademy.com/wp-content/uploads/2017/08/Miami-Dade.jpg",
+          "status": 0,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/full-stack-web-development-at-miami-dade-college/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/blog_posts-4geeks-at-america-business-forum-png-7ebaecf6-736x491-640w.webp",
+          "status": 404,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/global-innovators-at-the-america-business-forum-miami/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/blog_posts-geekforce-human-ai-png-71b45072-736x479-640w.webp",
+          "status": 404,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/how-geekforce-prepares-you-in-the-age-of-ai/en.yml"
+          ]
+        },
+        {
+          "url": "https://breathecode.herokuapp.com/v1/media/file/launch-your-tech-career-png",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-com/blog/launch-your-tech-career-with-confidence/en.yml",
+            "site_4geeks-com/blog/launch-your-tech-career-with-confidence/es.yml"
+          ]
+        },
+        {
+          "url": "https://breathecode.herokuapp.com/v1/media/file/software-developer-picture-jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/learn-to-be-a-software-engineer/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/group_original-736x491-q85-640w.webp",
+          "status": 404,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/los-5-frameworks-fundamentales-para-frontend/refresh-2026-09-27.es.yml"
+          ]
+        },
+        {
+          "url": "https://breathecode.herokuapp.com/v1/media/file/robotic-process-automation-engineer-smart-factory-automation-software-digital-transformation-machine-learning-5g-control-ai-generative-jpg?",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/machine-learning-engineer/en.yml"
+          ]
+        },
+        {
+          "url": "https://breathecode.herokuapp.com/v1/media/file/2023-04-27-at-11-01-27-am-jpeg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-com/blog/part-time-bootcamps/en.yml",
+            "site_4geeks-com/blog/part-time-bootcamps/es.yml"
+          ]
+        },
+        {
+          "url": "https://breathecode.herokuapp.com/v1/media/file/spain-students",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/que-es-un-bootcamp-de-programacion/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/og-blog-what-is-kimi-ai-en-v2.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "og_image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/blog/what-is-kimi-ai/en.yml"
+          ]
+        },
+        {
+          "url": "https://4geeksacademy.com/static/2042ae654deef4b35e123c32d23fe0cb/e8f29/switchup-badge-2023.webp",
+          "status": 0,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com",
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "logo"
+          ],
+          "fileCount": 4,
+          "liveFileCount": 4,
+          "files": [
+            "site_4geeks-com/downloadable/testing/en.yml",
+            "site_4geeks-com/pages/awards/es.yml",
+            "site_4geeks-com/pages/awards/test.en.yml",
+            "site_4geeks-florida/pages/awards/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/og-howto-javascript-array-some-method-en-v2.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "og_image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/how-to/javascript-array-some-method/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/Leandro_1764725403142.jpeg",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com",
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "student_thumb"
+          ],
+          "fileCount": 89,
+          "liveFileCount": 69,
+          "files": [
+            "site_4geeks-com/landings/4geeks-others-chile/es.yml",
+            "site_4geeks-com/landings/4geeks-others-mexico/draft.es.yml",
+            "site_4geeks-com/landings/4geeks-others-mexico/es.yml",
+            "site_4geeks-com/landings/4geeks-pricing/en.yml",
+            "site_4geeks-com/landings/4geeks-vs-others-landing/borrar-nacho.en.yml",
+            "site_4geeks-com/landings/4geeks-vs-others-landing/en.yml",
+            "site_4geeks-com/landings/4geeks-vs-otros-landing/es.yml",
+            "site_4geeks-com/landings/ai-bootcamp-with-job-placement/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnol",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "logo"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-com/landings/ai-engineering-bootcamp-2/ai-engineering-bootcamp-2anik.en.yml",
+            "site_4geeks-com/landings/ai-engineering-bootcamp-2/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/og-web-location-rome-italy-en-v2.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "og_image"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/locations/rome-italy/en.yml"
+          ]
+        },
+        {
+          "url": "https://randomuser.me/api/portraits/women/1.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com",
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "avatars"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-com/pages/geekpal-support/geekpal-support-new.en.yml",
+            "site_4geeks-florida/pages/geekpal-support/geekpal-support-new.en.yml"
+          ]
+        },
+        {
+          "url": "https://randomuser.me/api/portraits/women/3.jpg",
+          "status": 0,
+          "inRegistry": true,
+          "sites": [
+            "site_4geeks-com",
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "avatars"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-com/pages/geekpal-support/geekpal-support-new.en.yml",
+            "site_4geeks-florida/pages/geekpal-support/geekpal-support-new.en.yml"
+          ]
+        },
+        {
+          "url": "https://4geeksacademy.com/static/197e7cf794b47d7a7f53770a4b55186f/56f2e/marceloricigliano.webp",
+          "status": 0,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com",
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-com/pages/outcomes/es.yml",
+            "site_4geeks-florida/pages/outcomes/es.yml"
+          ]
+        },
+        {
+          "url": "https://randomuser.me/api/portraits/men/10.jpg",
+          "status": 0,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com",
+            "site_4geeks-florida",
+            "site_business-4geeks"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 34,
+          "liveFileCount": 31,
+          "files": [
+            "site_4geeks-com/pages/sample-page/en.yml",
+            "site_4geeks-com/programs/ai-fluency/en.yml",
+            "site_4geeks-com/programs/ai-fluency/lumi-version.en.yml",
+            "site_4geeks-com/programs/ai-fluency/lumi-version.es.yml",
+            "site_4geeks-com/programs/ai-fluency-for-data-analysis/en.yml",
+            "site_4geeks-com/programs/ai-fluency-for-data-analysis/es.yml",
+            "site_4geeks-com/programs/ai-fluency-for-hr/en.yml",
+            "site_4geeks-com/programs/ai-fluency-for-hr/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/student-2-latin.pngtin.png",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com",
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "src"
+          ],
+          "fileCount": 4,
+          "liveFileCount": 4,
+          "files": [
+            "site_4geeks-com/pages/sample-page/en.yml",
+            "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+            "site_4geeks-florida/pages/home-copia-prueba/es.yml",
+            "site_4geeks-florida/pages/sample-page/en.yml"
+          ]
+        },
+        {
+          "url": "https://images.prismic.io/4geeks/4d558bc2-2037-49a2-8735-fb10f8980551_Group+6570+%282%29.png?auto=compress,format",
+          "status": 0,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "image"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-com/pages/workshops/en.yml",
+            "site_4geeks-com/pages/workshops/es.yml"
+          ]
+        },
+        {
+          "url": "https://switchtheworld.org/wp-content/uploads/2024/03/LogoOn.webp",
+          "status": 0,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "partner_logo"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-com/scholarship/kosmos-arts-tech/_common.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/joao.png",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "student_thumb"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-com/testimonials/en.yml",
+            "site_4geeks-com/testimonials/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/avatar-12.png",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-com"
+          ],
+          "keys": [
+            "fallback_avatars"
+          ],
+          "fileCount": 3,
+          "liveFileCount": 3,
+          "files": [
+            "site_4geeks-com/workshop/template.en.yml",
+            "site_4geeks-com/workshop/template.es.yml",
+            "site_4geeks-com/workshop/your-way-into-the-ai-jobs-that-pay-62-more/en.yml"
+          ]
+        },
+        {
+          "url": "https://old.4geeksacademy.com/static/0e206e6ab1ae7f4ca09668b2d287baa7/56f2e/alejandrosanchez.webp",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "src"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-florida/pages/geeks-vs-others/en.yml",
+            "site_4geeks-florida/pages/geeks-vs-others/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/download-1-.png",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "logo"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+            "site_4geeks-florida/pages/home-copia-prueba/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/download-2-.png",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "logo"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+            "site_4geeks-florida/pages/home-copia-prueba/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/download-3-.png",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "logo"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+            "site_4geeks-florida/pages/home-copia-prueba/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/download-4-.png",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "logo"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+            "site_4geeks-florida/pages/home-copia-prueba/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/download-4-.jpg",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "logo"
+          ],
+          "fileCount": 2,
+          "liveFileCount": 2,
+          "files": [
+            "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+            "site_4geeks-florida/pages/home-copia-prueba/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/ChatGPT-Image-Mar-26-2026-04_26_00-PM.png",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "src"
+          ],
+          "fileCount": 4,
+          "liveFileCount": 4,
+          "files": [
+            "site_4geeks-florida/pages/home-prueba-lorena/en.yml",
+            "site_4geeks-florida/pages/home-prueba-lorena/es.yml",
+            "site_4geeks-florida/pages/lumi-home/en.yml",
+            "site_4geeks-florida/pages/lumi-home/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/664da5b40253e1771c2096443722466d57cb39a84f89654b0aa0fd7de16d5fdf.jpg",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "src"
+          ],
+          "fileCount": 4,
+          "liveFileCount": 4,
+          "files": [
+            "site_4geeks-florida/pages/home-prueba-lorena/en.yml",
+            "site_4geeks-florida/pages/home-prueba-lorena/es.yml",
+            "site_4geeks-florida/pages/lumi-home/en.yml",
+            "site_4geeks-florida/pages/lumi-home/es.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/students_collaborating-479x280-479x280-479x280.webp",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "src"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-florida/pages/learnpack/en.yml"
+          ]
+        },
+        {
+          "url": "https://storage.googleapis.com/4geeks-academy-website/media/Captura-de-pantalla-2026-03-10-120305.png",
+          "status": 404,
+          "inRegistry": false,
+          "sites": [
+            "site_4geeks-florida"
+          ],
+          "keys": [
+            "preview_image_url"
+          ],
+          "fileCount": 1,
+          "liveFileCount": 1,
+          "files": [
+            "site_4geeks-florida/programs/ai-engineering-new/es.yml"
+          ]
+        }
+      ]
+    }
+  },
+  "http": {
+    "checked": 711,
+    "notOk": 11,
+    "notOkSrc": 2,
+    "notOkSrcset": 9,
+    "byStatus": {
+      "0": 11
+    },
+    "items": [
+      {
+        "url": "https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70-64w.webp",
+        "site": "site_4geeks-florida",
+        "id": "logo_meta-761x243-q70",
+        "kind": "srcset",
+        "status": 0
+      },
+      {
+        "url": "https://storage.googleapis.com/4geeks-academy-website/media/logo_meta-761x243-q70-120w.webp",
+        "site": "site_4geeks-florida",
+        "id": "logo_meta-761x243-q70",
+        "kind": "srcset",
+        "status": 0
+      },
+      {
+        "url": "https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995.png",
+        "site": "site_4geeks-florida",
+        "id": "logo_microsoft",
+        "kind": "src",
+        "status": 0
+      },
+      {
+        "url": "https://storage.googleapis.com/4geeks-academy-website/media/microsoft_1764719829995-32w.webp",
+        "site": "site_4geeks-florida",
+        "id": "logo_microsoft",
+        "kind": "srcset",
+        "status": 0
+      },
+      {
+        "url": "https://storage.googleapis.com/4geeks-academy-website/media/MelamnieGalaretto2_1770857254721-128w.webp",
+        "site": "site_4geeks-florida",
+        "id": "melanie_galaretto",
+        "kind": "srcset",
+        "status": 0
+      },
+      {
+        "url": "https://storage.googleapis.com/4geeks-academy-website/media/Copia de Fav_DSC_1146-320w.webp",
+        "site": "site_4geeks-florida",
+        "id": "student_coding_laptop",
+        "kind": "srcset",
+        "status": 0
+      },
+      {
+        "url": "https://storage.googleapis.com/4geeks-academy-website/media/miami-people_1770606916405-480w.webp",
+        "site": "site_4geeks-com",
+        "id": "miami_people_graduation",
+        "kind": "srcset",
+        "status": 0
+      },
+      {
+        "url": "https://storage.googleapis.com/4geeks-academy-website/media/cinde-removebg-preview.png",
+        "site": "site_business-4geeks",
+        "id": "cinde-removebg-preview",
+        "kind": "src",
+        "status": 0
+      },
+      {
+        "url": "https://storage.googleapis.com/4geeks-academy-website/media/cinde-removebg-preview-32w.webp",
+        "site": "site_business-4geeks",
+        "id": "cinde-removebg-preview",
+        "kind": "srcset",
+        "status": 0
+      },
+      {
+        "url": "https://storage.googleapis.com/4geeks-academy-website/media/cinde-removebg-preview-120w.webp",
+        "site": "site_business-4geeks",
+        "id": "cinde-removebg-preview",
+        "kind": "srcset",
+        "status": 0
+      },
+      {
+        "url": "https://storage.googleapis.com/4geeks-academy-website/media/forbes-logo-award_1764709625651-320w.webp",
+        "site": "site_business-4geeks",
+        "id": "forbes_logo_award",
+        "kind": "srcset",
+        "status": 0
+      }
+    ]
+  }
+}

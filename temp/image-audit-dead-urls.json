@@ -1,0 +1,353 @@
+{
+  "checkedAt": "2026-11-12T14:48:33.961Z",
+  "note": "Direct image URLs written in YAML that do not return an image. HEAD failures were re-checked one by one with GET; transient failures are excluded.",
+  "distinctUrlsChecked": 1066,
+  "dead": 24,
+  "items": [
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/Leandro_1764725403142.jpeg",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "student_thumb"
+      ],
+      "fileCount": 89,
+      "liveFileCount": 69,
+      "sampleFiles": [
+        "site_4geeks-com/landings/4geeks-others-chile/es.yml",
+        "site_4geeks-com/landings/4geeks-others-mexico/draft.es.yml",
+        "site_4geeks-com/landings/4geeks-others-mexico/es.yml",
+        "site_4geeks-com/landings/4geeks-pricing/en.yml",
+        "site_4geeks-com/landings/4geeks-vs-others-landing/borrar-nacho.en.yml",
+        "site_4geeks-com/landings/4geeks-vs-others-landing/en.yml",
+        "site_4geeks-com/landings/4geeks-vs-otros-landing/es.yml",
+        "site_4geeks-com/landings/ai-bootcamp-with-job-placement/en.yml"
+      ]
+    },
+    {
+      "url": "https://4geeksacademy.com/static/2042ae654deef4b35e123c32d23fe0cb/e8f29/switchup-badge-2023.webp",
+      "result": "legacy domain: redirects to www.4geeksacademy.com, which does not resolve",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "logo"
+      ],
+      "fileCount": 4,
+      "liveFileCount": 4,
+      "sampleFiles": [
+        "site_4geeks-com/downloadable/testing/en.yml",
+        "site_4geeks-com/pages/awards/es.yml",
+        "site_4geeks-com/pages/awards/test.en.yml",
+        "site_4geeks-florida/pages/awards/es.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/student-2-latin.pngtin.png",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "src"
+      ],
+      "fileCount": 4,
+      "liveFileCount": 4,
+      "sampleFiles": [
+        "site_4geeks-com/pages/sample-page/en.yml",
+        "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+        "site_4geeks-florida/pages/home-copia-prueba/es.yml",
+        "site_4geeks-florida/pages/sample-page/en.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/ChatGPT-Image-Mar-26-2026-04_26_00-PM.png",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "src"
+      ],
+      "fileCount": 4,
+      "liveFileCount": 4,
+      "sampleFiles": [
+        "site_4geeks-florida/pages/home-prueba-lorena/en.yml",
+        "site_4geeks-florida/pages/home-prueba-lorena/es.yml",
+        "site_4geeks-florida/pages/lumi-home/en.yml",
+        "site_4geeks-florida/pages/lumi-home/es.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/664da5b40253e1771c2096443722466d57cb39a84f89654b0aa0fd7de16d5fdf.jpg",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "src"
+      ],
+      "fileCount": 4,
+      "liveFileCount": 4,
+      "sampleFiles": [
+        "site_4geeks-florida/pages/home-prueba-lorena/en.yml",
+        "site_4geeks-florida/pages/home-prueba-lorena/es.yml",
+        "site_4geeks-florida/pages/lumi-home/en.yml",
+        "site_4geeks-florida/pages/lumi-home/es.yml"
+      ]
+    },
+    {
+      "url": "https://breathecode.herokuapp.com/v1/media/file/programmer-at-night-2-jpg",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "image",
+        "og_image"
+      ],
+      "fileCount": 3,
+      "liveFileCount": 3,
+      "sampleFiles": [
+        "site_4geeks-com/blog/cuanto-gana-un-ingeniero-informatico-en-espana/es.yml",
+        "site_4geeks-com/blog/cuanto-gana-un-ingeniero-informatico-en-espana/refresh-2026-09-28.es.yml",
+        "site_4geeks-com/blog/cuanto-gana-un-ingeniero-informatico-en-espana/refresh-2026-09-29.es.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/site_4geeks-com/media/avatar-12.png",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "fallback_avatars"
+      ],
+      "fileCount": 3,
+      "liveFileCount": 3,
+      "sampleFiles": [
+        "site_4geeks-com/workshop/template.en.yml",
+        "site_4geeks-com/workshop/template.es.yml",
+        "site_4geeks-com/workshop/your-way-into-the-ai-jobs-that-pay-62-more/en.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/premios_tecnol",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "logo"
+      ],
+      "fileCount": 2,
+      "liveFileCount": 2,
+      "sampleFiles": [
+        "site_4geeks-com/landings/ai-engineering-bootcamp-2/ai-engineering-bootcamp-2anik.en.yml",
+        "site_4geeks-com/landings/ai-engineering-bootcamp-2/en.yml"
+      ]
+    },
+    {
+      "url": "https://4geeksacademy.com/static/197e7cf794b47d7a7f53770a4b55186f/56f2e/marceloricigliano.webp",
+      "result": "legacy domain: redirects to www.4geeksacademy.com, which does not resolve",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "image"
+      ],
+      "fileCount": 2,
+      "liveFileCount": 2,
+      "sampleFiles": [
+        "site_4geeks-com/pages/outcomes/es.yml",
+        "site_4geeks-florida/pages/outcomes/es.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/joao.png",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "student_thumb"
+      ],
+      "fileCount": 2,
+      "liveFileCount": 2,
+      "sampleFiles": [
+        "site_4geeks-com/testimonials/en.yml",
+        "site_4geeks-com/testimonials/es.yml"
+      ]
+    },
+    {
+      "url": "https://old.4geeksacademy.com/static/0e206e6ab1ae7f4ca09668b2d287baa7/56f2e/alejandrosanchez.webp",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "src"
+      ],
+      "fileCount": 2,
+      "liveFileCount": 2,
+      "sampleFiles": [
+        "site_4geeks-florida/pages/geeks-vs-others/en.yml",
+        "site_4geeks-florida/pages/geeks-vs-others/es.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/download-1-.png",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "logo"
+      ],
+      "fileCount": 2,
+      "liveFileCount": 2,
+      "sampleFiles": [
+        "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+        "site_4geeks-florida/pages/home-copia-prueba/es.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/download-2-.png",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "logo"
+      ],
+      "fileCount": 2,
+      "liveFileCount": 2,
+      "sampleFiles": [
+        "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+        "site_4geeks-florida/pages/home-copia-prueba/es.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/download-3-.png",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "logo"
+      ],
+      "fileCount": 2,
+      "liveFileCount": 2,
+      "sampleFiles": [
+        "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+        "site_4geeks-florida/pages/home-copia-prueba/es.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/download-4-.png",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "logo"
+      ],
+      "fileCount": 2,
+      "liveFileCount": 2,
+      "sampleFiles": [
+        "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+        "site_4geeks-florida/pages/home-copia-prueba/es.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/download-4-.jpg",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "logo"
+      ],
+      "fileCount": 2,
+      "liveFileCount": 2,
+      "sampleFiles": [
+        "site_4geeks-florida/pages/home-copia-prueba/en.yml",
+        "site_4geeks-florida/pages/home-copia-prueba/es.yml"
+      ]
+    },
+    {
+      "url": "https://4geeksacademy.com/static/e87935aadbb3844e3734315214b5f032/9298b/madrid-3.webp",
+      "result": "legacy domain: redirects to www.4geeksacademy.com, which does not resolve",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "image"
+      ],
+      "fileCount": 1,
+      "liveFileCount": 1,
+      "sampleFiles": [
+        "site_4geeks-com/blog/bootcamp-programacion-barcelona/es.yml"
+      ]
+    },
+    {
+      "url": "https://4GeeksAcademy.com/images/4geeks-main.jpg",
+      "result": "legacy domain: redirects to www.4geeksacademy.com, which does not resolve",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "image"
+      ],
+      "fileCount": 1,
+      "liveFileCount": 1,
+      "sampleFiles": [
+        "site_4geeks-com/blog/carrera-de-programacion-es/es.yml"
+      ]
+    },
+    {
+      "url": "https://4GeeksAcademy.com/wp-content/uploads/2017/08/Miami-Dade.jpg",
+      "result": "legacy domain: redirects to www.4geeksacademy.com, which does not resolve",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "image"
+      ],
+      "fileCount": 1,
+      "liveFileCount": 1,
+      "sampleFiles": [
+        "site_4geeks-com/blog/full-stack-web-development-at-miami-dade-college/en.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/blog_posts-4geeks-at-america-business-forum-png-7ebaecf6-736x491-640w.webp",
+      "result": "404",
+      "registryStillPointsAtIt": true,
+      "keys": [
+        "image"
+      ],
+      "fileCount": 1,
+      "liveFileCount": 1,
+      "sampleFiles": [
+        "site_4geeks-com/blog/global-innovators-at-the-america-business-forum-miami/en.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/blog_posts-geekforce-human-ai-png-71b45072-736x479-640w.webp",
+      "result": "404",
+      "registryStillPointsAtIt": true,
+      "keys": [
+        "image"
+      ],
+      "fileCount": 1,
+      "liveFileCount": 1,
+      "sampleFiles": [
+        "site_4geeks-com/blog/how-geekforce-prepares-you-in-the-age-of-ai/en.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/group_original-736x491-q85-640w.webp",
+      "result": "404",
+      "registryStillPointsAtIt": true,
+      "keys": [
+        "image"
+      ],
+      "fileCount": 1,
+      "liveFileCount": 1,
+      "sampleFiles": [
+        "site_4geeks-com/blog/los-5-frameworks-fundamentales-para-frontend/refresh-2026-09-27.es.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/students_collaborating-479x280-479x280-479x280.webp",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "src"
+      ],
+      "fileCount": 1,
+      "liveFileCount": 1,
+      "sampleFiles": [
+        "site_4geeks-florida/pages/learnpack/en.yml"
+      ]
+    },
+    {
+      "url": "https://storage.googleapis.com/4geeks-academy-website/media/Captura-de-pantalla-2026-03-10-120305.png",
+      "result": "404",
+      "registryStillPointsAtIt": false,
+      "keys": [
+        "preview_image_url"
+      ],
+      "fileCount": 1,
+      "liveFileCount": 1,
+      "sampleFiles": [
+        "site_4geeks-florida/programs/ai-engineering-new/es.yml"
+      ]
+    }
+  ]
+}
