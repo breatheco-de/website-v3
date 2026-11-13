@@ -50,6 +50,19 @@ export interface ContentTypeAdsConfig {
   optimize?: boolean;
 }
 
+/**
+ * Where lead forms on this type get their location (see shared/formLocationPolicy.ts).
+ * `entry_field` must be an editor relation field with `source: location`.
+ * Omitted = forms detect the visitor's location as before.
+ */
+export interface ContentTypeFormsConfig {
+  location?: {
+    entry_field?: string;
+    /** Default true. false = save/publish blocked when neither the form nor the page sets a location. */
+    autodetect?: boolean;
+  };
+}
+
 export interface LayoutMenuConfig {
   top: string | null;
   bottom: string | null;
@@ -194,6 +207,8 @@ export interface ContentTypeEntry {
   products?: ContentTypeProductsConfig;
   /** Ads-first landing treatment (staff toggle on the content type dashboard). */
   ads?: ContentTypeAdsConfig;
+  /** Lead form location source (staff toggle on the content type dashboard). */
+  forms?: ContentTypeFormsConfig;
   /**
    * Type-level strategy brief for staff/agents (main why of this content type).
    * Required before any editor.required true|attached. Context only for field fill_intent.
@@ -270,7 +285,9 @@ const CONFIG_HEADER = `# Content Types Configuration
 # entry_filters (optional, database-backed types):
 #   Which cached rows are pages (listings, sitemap, and the entry URL).
 #   Same shape as a section filter: item_property_slug + value, all must match.
-#   Values are fixed text (boolean true matches "true"). Not a section filter
+#   Values are fixed text (boolean true matches "true"); a list means any of them.
+#   item_property_slug may be a computed field_mapping field (e.g. a function
+#   returning "true"/"false" for a date window). Not a section filter
 #   and not field_mapping rows_filters. The database screen still shows the
 #   full cache. A row that fails has no URL (404 once the type is indexed).
 #
@@ -1243,9 +1260,55 @@ export function hasFieldMapping(type: string, contentRoot?: string): boolean {
   return !!getFieldMapping(type, contentRoot);
 }
 
-export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview" | "editor" | "seo_monitoring" | "funnel" | "products" | "strategy" | "ads">> & {
+function normalizeFormsConfig(raw: ContentTypeFormsConfig): ContentTypeFormsConfig | null {
+  const loc = raw.location;
+  if (!loc || typeof loc !== "object") return null;
+  const out: NonNullable<ContentTypeFormsConfig["location"]> = {};
+  if (typeof loc.entry_field === "string" && loc.entry_field.trim()) out.entry_field = loc.entry_field.trim();
+  if (loc.autodetect === false) out.autodetect = false;
+  if (!out.entry_field && out.autodetect === undefined) return null;
+  return { location: out };
+}
+
+function isLocationRelationHint(hint: unknown): boolean {
+  if (!hint || typeof hint !== "object") return false;
+  const h = hint as { type?: unknown; source?: unknown };
+  return h.type === "relation" && h.source === "location";
+}
+
+/**
+ * Editor saves replace the whole editor map, so a renamed page field shows up as
+ * "old key gone, one new location relation key". Follow it in forms.location.entry_field.
+ */
+function applyFormLocationFieldRename(existing: ContentTypeEntry, merged: ContentTypeEntry): void {
+  const field = merged.forms?.location?.entry_field;
+  if (!field || existing.forms?.location?.entry_field !== field) return;
+  const before = existing.editor ?? {};
+  const after = merged.editor ?? {};
+  if (field in after || !(field in before)) return;
+  const added = Object.keys(after).filter((k) => !(k in before) && isLocationRelationHint(after[k]));
+  if (added.length === 1) merged.forms = { location: { ...merged.forms!.location, entry_field: added[0] } };
+}
+
+/** Why `forms.location` is invalid on this content type, or null. */
+export function formLocationConfigError(entry: ContentTypeEntry): string | null {
+  const field = entry.forms?.location?.entry_field;
+  if (!field) return null;
+  const hint = entry.editor?.[field];
+  if (!hint) {
+    return `Form location uses the page field "${field}", which this content type no longer has. Change the form location setting (content type dashboard) before deleting or renaming that field.`;
+  }
+  if (!isLocationRelationHint(hint)) {
+    return `Form location needs "${field}" to be a link to locations (editor.${field}: type relation, source location, value slug, multiple true).`;
+  }
+  return null;
+}
+
+export type ContentTypeConfigUpdate = Partial<Omit<ContentTypeEntry, "database" | "preview" | "editor" | "seo_monitoring" | "funnel" | "products" | "strategy" | "ads" | "forms">> & {
   /** Pass `null` to remove ads (same as omitted = off). */
   ads?: ContentTypeAdsConfig | null;
+  /** Pass `null` to remove the form location setting (forms detect location, as before). */
+  forms?: ContentTypeFormsConfig | null;
   /** Pass `null` to unlink a database-backed type (removes the `database` key). */
   database?: DatabaseConfig | null;
   /** Pass `null` to remove preview screenshot config. */
@@ -1285,6 +1348,7 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
     products: productsUpdate,
     strategy: strategyUpdate,
     ads: adsUpdate,
+    forms: formsUpdate,
     ...rest
   } = update;
   const merged: ContentTypeEntry = { ...existing, ...rest };
@@ -1349,6 +1413,17 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
       delete merged.ads;
     }
   }
+
+  if (formsUpdate === null) {
+    delete merged.forms;
+  } else if (formsUpdate) {
+    const normalized = normalizeFormsConfig(formsUpdate);
+    if (normalized) merged.forms = normalized;
+    else delete merged.forms;
+  }
+  applyFormLocationFieldRename(existing, merged);
+  const formsError = formLocationConfigError(merged);
+  if (formsError) throw new Error(formsError);
 
   // Database-backed types always use a shared template.
   if (merged.database?.slug) {

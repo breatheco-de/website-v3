@@ -258,6 +258,30 @@ function isExternalHttpHref(href: string): boolean {
   }
 }
 
+/** Longest a same-tab page load waits for a tracked click to send. */
+export const LEAVE_WAIT_MAX_MS = 300;
+
+function isSameTabTarget(target: string): boolean {
+  return target === "" || target === "_self";
+}
+
+/** Run `go` once `wait` settles, or after LEAVE_WAIT_MAX_MS, whichever comes first. */
+export function leaveAfter(wait: Promise<unknown> | null, go: () => void): void {
+  if (!wait) {
+    go();
+    return;
+  }
+  let gone = false;
+  const leave = () => {
+    if (gone) return;
+    gone = true;
+    clearTimeout(timer);
+    go();
+  };
+  const timer = setTimeout(leave, LEAVE_WAIT_MAX_MS);
+  void wait.then(leave, leave);
+}
+
 export type CallbackLabels = { en?: string; es?: string };
 
 export type UseInternalNavOptions = {
@@ -307,8 +331,14 @@ export function useInternalNav(
     });
   }, []);
 
-  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  /**
+   * `beforeLeave`: a send in flight (e.g. a tracked enrollment click). When this click loads
+   * another document in the same tab, navigation waits for it, at most LEAVE_WAIT_MAX_MS.
+   * New-tab, in-app and hash navigation never wait.
+   */
+  const handleClick = (e: React.MouseEvent<HTMLAnchorElement>, opts?: { beforeLeave?: Promise<unknown> | null }) => {
     if (e.altKey || e.button !== 0) return;
+    const beforeLeave = opts?.beforeLeave ?? null;
 
     const anchor = e.currentTarget;
     const rawHref = anchor.getAttribute("href");
@@ -373,11 +403,19 @@ export function useInternalNav(
     if (isInternalHref(href) && getExternalRedirectHost(href)) {
       // The server redirects this path off-site; an in-app route change would never reach it.
       e.preventDefault();
-      if (anchor.target === "_blank") window.open(href, "_blank", "noopener,noreferrer");
-      else window.location.assign(href);
-      onNavigate?.();
+      if (anchor.target === "_blank") {
+        window.open(href, "_blank", "noopener,noreferrer");
+        onNavigate?.();
+      } else {
+        leaveAfter(beforeLeave, () => {
+          window.location.assign(href);
+          onNavigate?.();
+        });
+      }
       return;
     }
+
+    const sameTabLoad = !!beforeLeave && isSameTabTarget(anchor.target) && /^https?:\/\//i.test(href);
 
     if (isInternalHref(href)) {
       e.preventDefault();
@@ -392,6 +430,12 @@ export function useInternalNav(
         }
         onNavigate?.();
       })();
+    } else if (sameTabLoad && (onlyPayloadAdded || href === rawHref)) {
+      e.preventDefault();
+      leaveAfter(beforeLeave, () => {
+        window.location.assign(href);
+        onNavigate?.();
+      });
     } else if (onlyPayloadAdded) {
       // Swap the href for this click so the link keeps its own target (same tab or new tab).
       anchor.setAttribute("href", href);

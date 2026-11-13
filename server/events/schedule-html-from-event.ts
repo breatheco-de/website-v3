@@ -26,7 +26,9 @@ import { sitesInheritingThemeFrom } from "../theme-config";
 import { isSharedTemplateBasename } from "../shared-layout-paths";
 import { isSchemaOrgUsagePath } from "../schema-org";
 import type { RefreshedDatabaseRow } from "../database-refresh-diff";
-import type { ContentTypeConfig } from "../content-types";
+import type { ContentTypeEntry } from "../content-types";
+import { mapDatabaseItemsForEntry } from "../database-single-loader";
+import { applyFilters, type QueryFilter } from "../query-entries";
 import type { ContentEvent } from "./types";
 
 export type HtmlEventSite = {
@@ -68,24 +70,26 @@ function isLocalDatabase(ci: ContentIndex, dbName: string): boolean {
   }
 }
 
-/** Page slugs for this type, from the database copy the refresh already stored. Null when the type has no page gate. */
-function pageKeys(ci: ContentIndex, dbName: string, config: ContentTypeConfig): Set<string> | null {
-  const filters = (config.entry_filters ?? []).filter((filter) => String(filter?.item_property_slug ?? "").trim());
+/**
+ * Page slugs for this type, from the database copy the refresh already stored. Null when the type has no page gate.
+ * Rows are mapped first so entry_filters can match computed fields, with the same matching as page lookup.
+ */
+function pageKeys(ci: ContentIndex, dbName: string, contentType: string, config: ContentTypeEntry): Set<string> | null {
+  const filters: QueryFilter[] = (config.entry_filters ?? [])
+    .filter((filter) => String(filter?.item_property_slug ?? "").trim())
+    .map((filter) => ({ field: String(filter.item_property_slug).trim(), value: filter.value }));
   if (filters.length === 0) return null;
-  let items: Record<string, unknown>[] = [];
+  let pages: Record<string, unknown>[] = [];
   try {
-    items = ci.getDatabase().getLastGoodItems(dbName)?.items ?? [];
+    const items = ci.getDatabase().getLastGoodItems(dbName)?.items ?? [];
+    pages = applyFilters(mapDatabaseItemsForEntry(items, contentType, ci.contentRoot), filters);
   } catch {
-    items = [];
+    pages = [];
   }
   const keys = new Set<string>();
-  for (const item of items) {
+  for (const item of pages) {
     const slug = String(item.slug ?? "");
     if (!slug) continue;
-    const passes = filters.every(
-      (filter) => String(item[filter.item_property_slug] ?? "") === String(filter.value ?? ""),
-    );
-    if (!passes) continue;
     const locale = String(item.locale ?? item.lang ?? item._locale ?? "");
     keys.add(`${locale}\0${slug}`);
   }
@@ -103,7 +107,7 @@ export function refreshedRowPaths(
     const config = ci.getContentTypeConfig(contentType);
     if (config?.database?.slug !== dbName || !config.url_pattern) continue;
     if (includeType && !includeType(contentType)) continue;
-    const keys = pageKeys(ci, dbName, config);
+    const keys = pageKeys(ci, dbName, contentType, config);
     const locales = Object.keys(config.url_pattern).filter((locale) => locale !== "default");
     for (const row of rows) {
       if (!row.slug || (keys && !keys.has(`${row.locale ?? ""}\0${row.slug}`))) continue;

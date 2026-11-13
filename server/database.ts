@@ -639,6 +639,40 @@ export class DatabaseManager {
     return this.configs.get(name) ?? this.inherited.get(name)?.config;
   }
 
+  /** config.yml mtime per owned database, as of the last time this process read or wrote it. */
+  private configMtimes = new Map<string, number>();
+
+  private configFileMtime(name: string): number | null {
+    try {
+      return fs.statSync(path.join(this.dbDir, name, "config.yml")).mtimeMs;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Re-read an owned database's config.yml when another process changed it (content pull,
+   * data migration), so the next source fetch uses the new endpoint, params and mapping.
+   * Returns the fresh config, or undefined when nothing changed.
+   */
+  private syncConfigFromDisk(name: string): DatabaseConfig | undefined {
+    if (!this.configs.has(name)) return undefined;
+    const mtime = this.configFileMtime(name);
+    if (mtime == null || mtime === this.configMtimes.get(name)) return undefined;
+    try {
+      const config = yaml.load(fs.readFileSync(path.join(this.dbDir, name, "config.yml"), "utf-8")) as DatabaseConfig;
+      if (!config?.source) return undefined;
+      this.configs.set(name, config);
+      this.configMtimes.set(name, mtime);
+      this.clearMappedMemo(name);
+      log.info(`[DatabaseManager] Re-read changed config for "${name}"`);
+      return config;
+    } catch (err) {
+      log.warn({ err, database: name }, `[DatabaseManager] Could not re-read changed config for "${name}"`);
+      return undefined;
+    }
+  }
+
   private dirFor(name: string): string {
     return this.isInherited(name) ? this.inherited.get(name)!.dbDir : this.dbDir;
   }
@@ -733,6 +767,11 @@ export class DatabaseManager {
 
   reload(): void {
     this.configs = readDbConfigs(this.dbDir);
+    this.configMtimes.clear();
+    this.configs.forEach((_config, name) => {
+      const mtime = this.configFileMtime(name);
+      if (mtime != null) this.configMtimes.set(name, mtime);
+    });
     this.inherited.clear();
     const fallbackDir = getFallbackDbDir(this.contentRoot);
     if (fallbackDir && path.resolve(fallbackDir) !== path.resolve(this.dbDir)) {
@@ -963,7 +1002,7 @@ export class DatabaseManager {
     from_cache: boolean;
     facets?: Record<string, string[]>;
   }> {
-    const config = this.get(name);
+    let config = this.get(name);
     const ttlMinutes = resolveCacheTtlMinutes(config.cache);
     const pick = (items: Record<string, unknown>[]) => (opts?.includeRejected ? items : withoutRejected(items));
 
@@ -1004,6 +1043,7 @@ export class DatabaseManager {
     }
 
     const previousItems = this.getLastGoodItems(name)?.items ?? null;
+    config = this.syncConfigFromDisk(name) ?? config;
 
     let rawItems: unknown[];
 
@@ -1172,6 +1212,8 @@ export class DatabaseManager {
       fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(configPath, yaml.dump(config, { lineWidth: 120 }));
+    const mtime = this.configFileMtime(name);
+    if (mtime != null) this.configMtimes.set(name, mtime);
   }
 
   getFieldCount(name: string): number {

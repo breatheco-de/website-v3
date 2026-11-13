@@ -104,6 +104,7 @@ import {
 } from "@/components/editing/SharedLayoutEnableDialog";
 import { LinkedDatabaseExplainDialog } from "@/components/editing/LinkedDatabaseExplainDialog";
 import { AdsFirstCard } from "@/components/editing/AdsFirstCard";
+import { FormLocationCard } from "@/components/editing/FormLocationCard";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
 import { useEvidenceDuplicateGuard } from "@/components/databases/EvidenceDuplicateDialog";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
@@ -320,6 +321,7 @@ interface ContentTypeConfig {
   products?: { allow_sellable_entries?: boolean; coerced_from_inventory?: boolean } | null;
   strategy?: { purpose: string; constraints?: string[] } | null;
   ads?: { optimize?: boolean } | null;
+  forms?: { location?: { entry_field?: string; autodetect?: boolean } } | null;
 }
 
 interface SchemaOrgCoverageRow {
@@ -8409,6 +8411,12 @@ export default function ContentTypeManagePage() {
           <AdsFirstCard
             contentType={contentType}
             enabled={typeConfig?.ads?.optimize === true}
+            loading={typeConfig === undefined}
+          />
+          <FormLocationCard
+            contentType={contentType}
+            value={typeConfig?.forms?.location ?? null}
+            editor={typeConfig?.editor as Record<string, { type?: string; source?: string; label?: string }> | undefined}
             loading={typeConfig === undefined}
           />
           <Card data-testid="card-kpi-products-allow-sellable">

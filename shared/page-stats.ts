@@ -53,6 +53,18 @@ export type TrafficTotals = {
   video_starts: number;
   video_completes: number;
   intent_events: number;
+  /** Visits with an add_to_cart / click_begin_checkout click on the page (counted from `enroll_since`). */
+  enroll_sessions: number;
+  /** Visits with an enrollment click or a lead later in the visit (counted from `enroll_since`). */
+  lead_or_enroll: number;
+  /** Denominator for enrollment rates: visits since `enroll_since` (all visits when null). */
+  enroll_visits: number;
+  /** First day enrollment clicks were recorded (site's own counts only; null = whole period). */
+  enroll_since: string | null;
+  /** Visits that reached the payment site's checkout (`begin_checkout`); null = not measurable. */
+  reached_checkout: number | null;
+  /** Visits with a payment-site `purchase`; null = not measurable. */
+  purchased: number | null;
   median_engaged_seconds: number | null;
   median_session_seconds: number | null;
 };
@@ -441,9 +453,28 @@ export type PageTestInfo = {
   /** `default` first, then every version that had traffic during the run. */
   versions: string[];
   split_changes: Array<{ day: string; from: Record<string, number>; to: Record<string, number> }>;
+  /** Saved goal that decides the winner (runs recorded before goals existed read as `leads`). */
+  goal: TestGoal;
+  goal_changes: TestGoalChange[];
   /** Set when the test runs on a shared template; `pages` = entries using it in this language. */
   shared_template: { pages: number } | null;
 };
+
+/** What decides an A/B test winner. Enrollment clicks are intent (add to cart / checkout), not purchases. */
+export const TEST_GOALS = ["leads", "enrollment_clicks", "both"] as const;
+export type TestGoal = (typeof TEST_GOALS)[number];
+
+export function isTestGoal(v: unknown): v is TestGoal {
+  return typeof v === "string" && (TEST_GOALS as readonly string[]).includes(v);
+}
+
+export const TEST_GOAL_LABELS: Record<TestGoal, string> = {
+  leads: "Leads",
+  enrollment_clicks: "Enrollment clicks",
+  both: "Both",
+};
+
+export type TestGoalChange = { day: string; from: TestGoal; to: TestGoal; author: string | null };
 
 export type TestNotice =
   /** GA4 reported no `experiment_exposure` visits for this test yet. */
@@ -453,11 +484,24 @@ export type TestNotice =
   /** The site's own counts started after the test did. */
   | { kind: "first_party_started"; day: string }
   /** No visit source could be read (not configured / failed). */
-  | { kind: "visits_unavailable"; message: string };
+  | { kind: "visits_unavailable"; message: string }
+  /** Site's own counts: enrollment clicks were recorded only from `day`, after the test began. */
+  | { kind: "enroll_counted_since"; day: string }
+  /** Site's own counts: enrollment clicks were not recorded during these test dates. */
+  | { kind: "enroll_not_recorded" }
+  /** The goal uses enrollment clicks but no version has a tracked button. */
+  | { kind: "no_enroll_buttons" }
+  /** The goal uses enrollment clicks but these versions have no tracked button. */
+  | { kind: "enroll_buttons_partial"; versions: string[] }
+  /** A finished test read by another goal than the one it was decided by. */
+  | { kind: "goal_preview"; saved: TestGoal; viewing: TestGoal };
 
 export type CompareRowId =
   | "visits"
   | "primary"
+  | "enroll"
+  | "enroll_rate"
+  | "lead_or_enroll_rate"
   | "leads_here"
   | "leads_here_rate"
   | "leads_all"
@@ -465,6 +509,8 @@ export type CompareRowId =
   | "engaged_rate"
   | "median_seconds"
   | "bounce_rate"
+  | "reached_checkout"
+  | "purchased"
   | "paid_visits"
   | "paid_leads";
 
@@ -506,6 +552,10 @@ export type PageStatsTestView = {
   cap_days: number;
   min_visits: number;
   notices: TestNotice[];
+  /** Goal the compare table is read by: the saved goal, or a preview on a finished test. */
+  viewing_goal: TestGoal;
+  /** Buttons with tracking other than `none`, per version (null when the check failed). */
+  enroll_buttons: Record<string, number> | null;
   compare: CompareRow[];
   by_version: Record<string, VersionFacts>;
   generated_at: string;

@@ -64,6 +64,7 @@ const ENTRY_SOURCE_ALLOWLIST: Record<string, Allowed> = {
   "server/routes/seo.ts": { count: 3, reason: "SEO preview: database pages show merged live meta (no entry file holds it), live-only contexts, no per-language visibility copy" },
   "server/content-proposals/evidence-sources.ts": { count: 1, reason: "proposal review reads evidence database rows as proof (not entry resolution)" },
   "server/entry-ref.ts": { count: 2, reason: "slug resolver: database pages resolve through their language group (findEntryPresence)" },
+  "server/workshops-ago-migration.ts": { count: 1, reason: "migration 013 only runs where the workshop type is linked to the workshops database (config check)" },
 };
 
 describe("entry source guard", () => {

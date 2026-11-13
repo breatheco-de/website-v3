@@ -17,7 +17,7 @@ import {
   type PageMessage,
 } from "./ingest";
 import { closeVisitsDbs, getVisitsDb, openVisitsDatabase, setVisitsDataDirForTests } from "./visits-db";
-import { getVisitsSchemaVersion, runVisitsMigrations, VISITS_SCHEMA_VERSION } from "./visits-schema";
+import { getEnrollClicksSince, getVisitsSchemaVersion, runVisitsMigrations, VISITS_MIGRATIONS, VISITS_SCHEMA_VERSION } from "./visits-schema";
 import { closeWindow, listWindows, openWindow } from "./windows";
 
 const NOW = Date.parse("2026-10-27T15:42:31Z");
@@ -59,6 +59,22 @@ describe("visits.db schema", () => {
     raw.close();
   });
 
+  it("step 2 adds enrollment clicks to an existing v1 file and records the day recording started", () => {
+    const file = path.join(dir, "v1.db");
+    const raw = new Database(file);
+    raw.transaction(() => {
+      raw.exec(VISITS_MIGRATIONS[0]!.up);
+      raw.pragma("user_version = 1");
+    })();
+    raw.prepare("INSERT INTO fp_page_views (view_key, arrived_at, day, nav_type, path) VALUES ('old-view-1', 0, '2026-10-01', 'navigate', '/en/x')").run();
+    expect(getEnrollClicksSince(raw)).toBeNull();
+    runVisitsMigrations(raw);
+    expect(getVisitsSchemaVersion(raw)).toBe(VISITS_SCHEMA_VERSION);
+    expect(raw.prepare("SELECT enroll_clicks FROM fp_page_views WHERE view_key = 'old-view-1'").get()).toEqual({ enroll_clicks: 0 });
+    expect(getEnrollClicksSince(raw)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    raw.close();
+  });
+
   it("read paths never create the file", () => {
     expect(getVisitsDb("site_x")).toBeNull();
     expect(fs.existsSync(path.join(dir, "site_x", "visits.db"))).toBe(false);
@@ -87,6 +103,11 @@ describe("rowFromMessage", () => {
     expect(rowFromMessage(msg({ m: "s", ms: 400 }), ctx)).toMatchObject({ engaged: 0, low_quality: 1 });
     expect(rowFromMessage(msg({ m: "s", ms: 400, i: 1 }), ctx)).toMatchObject({ low_quality: 0 });
     expect(rowFromMessage(msg({ m: "s", ms: 3000, nx: "/en/apply" }), ctx)).toMatchObject({ engaged: 1, next_path: "/en/apply" });
+  });
+
+  it("stores enrollment clicks from the summary only", () => {
+    expect(rowFromMessage(msg({ m: "s", ms: 5000, ec: 2 }), ctx).enroll_clicks).toBe(2);
+    expect(rowFromMessage(msg({ ec: 2 }), ctx).enroll_clicks).toBe(0);
   });
 
   it("never stores a click-ID value, only a known parameter name", () => {
@@ -119,10 +140,12 @@ describe("buffer + flush", () => {
     bufferPageView("s1", rowFromMessage(msg({}), ctx));
     flushSite("s1");
     bufferPageView("s1", rowFromMessage(msg({ m: "s", ms: 2000 }), { ...ctx, now: NOW + 5 * 60_000 }));
-    bufferPageView("s1", rowFromMessage(msg({ m: "s", ms: 15_000, c: 1 }), { ...ctx, now: NOW + 6 * 60_000 }));
+    bufferPageView("s1", rowFromMessage(msg({ m: "s", ms: 15_000, c: 1, ec: 1 }), { ...ctx, now: NOW + 6 * 60_000 }));
     flushSite("s1");
     const [r] = rows("s1");
-    expect(r).toMatchObject({ summary_received: 1, seconds: 15, cta_clicks: 1, engaged: 1, arrived_at: Date.parse("2026-10-27T15:42:00Z") });
+    expect(r).toMatchObject({
+      summary_received: 1, seconds: 15, cta_clicks: 1, enroll_clicks: 1, engaged: 1, arrived_at: Date.parse("2026-10-27T15:42:00Z"),
+    });
   });
 
   it("summary only (arrival lost) still creates the row; a late arrival does not overwrite it", () => {

@@ -34,6 +34,8 @@ export const DEFAULT_FIELD_SCOPE: FieldScope = "locale";
 export type FieldScopeOptions = {
   /** Extra URL pattern params of the content type (e.g. `category`) — always locale. */
   urlParams?: readonly string[];
+  /** Extra top-level keys that are page-level for this content type (e.g. forms.location.entry_field). */
+  commonKeys?: readonly string[];
 };
 
 function normalizeFieldPath(fieldPath: string): string {
@@ -51,6 +53,7 @@ export function fieldScope(fieldPath: string, opts?: FieldScopeOptions): FieldSc
   if (!normalized) return DEFAULT_FIELD_SCOPE;
   const parts = normalized.split(".");
   if (opts?.urlParams?.includes(parts[0]!)) return "locale";
+  if (opts?.commonKeys?.includes(parts[0]!)) return "common";
   for (let i = parts.length; i > 0; i--) {
     const scope = FIELD_SCOPE[parts.slice(0, i).join(".")];
     if (scope) return scope;

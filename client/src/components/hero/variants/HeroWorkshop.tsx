@@ -357,6 +357,9 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
     else if (now >= startMs) eventState = "live";
     else eventState = "upcoming";
   }
+  // Seats left and add-to-calendar only make sense before the event is over.
+  const showSeatsCard = hasSeatsInfo && eventState !== "ended";
+  const showCalendar = showCalendarCard && eventState !== "ended";
 
   useEffect(() => {
     if (eventState !== "live" || liveImages.length <= 1) return;
@@ -412,7 +415,7 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
     !!durationLabel;
   const showHostSection = !!(hostHeading || hostName || hostBio);
   const showAside =
-    showCountdownStrip || hasFormCard || hasSeatsInfo || showCalendarCard;
+    showCountdownStrip || hasFormCard || showSeatsCard || showCalendar;
 
   return (
     <section className="relative" data-testid="section-hero-workshop">
@@ -701,7 +704,7 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
             </div>
           ) : null}
 
-          {hasSeatsInfo ? (
+          {showSeatsCard ? (
             <Card
               className="w-full h-fit shrink-0 rounded-[16px] overflow-hidden bg-card shadow-lg shadow-black/5 border border-border"
               data-testid="workshop-seats-card"
@@ -831,7 +834,7 @@ export default function HeroWorkshop({ data }: HeroWorkshopProps) {
             </Card>
           ) : null}
 
-          {showCalendarCard ? (
+          {showCalendar ? (
             <Card
               className="w-full h-fit shrink-0 rounded-[16px] overflow-hidden bg-card shadow-lg shadow-black/5 border border-border"
               data-testid="workshop-calendar-card"

@@ -37,6 +37,25 @@ describe("buildPageFlowSql", () => {
     expect(sql).toContain("PARTITION BY q.period ORDER BY q.sessions DESC");
     expect(sql.match(/UNION ALL/g)?.length).toBe(11);
   });
+
+  it("counts enrollment clicks on the page and payment-site steps anywhere in the visit", () => {
+    const sql = buildPageFlowSql("`p.d.events_*`", { byVariant: true });
+    expect(sql).toContain("event_name IN ('add_to_cart', 'click_begin_checkout') AND path IN UNNEST(@paths)) AS enroll_clicks");
+    expect(sql).toContain("COUNTIF(event_name = 'begin_checkout') AS checkout_events");
+    expect(sql).toContain("COUNTIF(enroll_clicks > 0 OR lead_later)");
+  });
+});
+
+describe("enrollment totals", () => {
+  it("parses per-version enrollment and payment-site counts; GA4 counts every visit", () => {
+    const byVariant = parsePageFlowRowsByVariant(
+      [row("totals", "b", { sessions: 50, enroll_sessions: 6, lead_or_enroll: 9, enroll_visits: 50, reached_checkout: 3, purchased: 1 })],
+      { stage: "decision", index, window: { start: "2026-10-01", end: "2026-10-03", cur_start: "2026-10-01" } },
+    );
+    expect(byVariant.get("b")!.current).toMatchObject({
+      enroll_sessions: 6, lead_or_enroll: 9, enroll_visits: 50, enroll_since: null, reached_checkout: 3, purchased: 1,
+    });
+  });
 });
 
 describe("parsePageFlowRowsByVariant", () => {

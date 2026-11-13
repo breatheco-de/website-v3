@@ -65,7 +65,7 @@ import { findTopLevelKeySpan, surgicalRemoveTopLevelKey } from "../seo-fields";
 import { normalizeFunnelBlock } from "@shared/funnel";
 import { assertFunnelAudienceGates } from "../product/funnel-audience-gates";
 import { stripFunnelFromAllLocaleYamls } from "../funnel-fields";
-import { urlParamsForContentType } from "../field-scope-config";
+import { commonKeysForContentType, urlParamsForContentType } from "../field-scope-config";
 import type { ValidationCacheService } from "../services/validationCacheService";
 import { checkDeprecatedFileWrite, deprecatedErrorInfo } from "../deprecated-field-guard";
 import { isSeoMonitoringEnabled } from "../seo-monitoring";
@@ -267,10 +267,11 @@ export function displayValueChanges(opts: {
   commonBeforeRaw: string | null;
   commonAfterRaw: string | null;
   urlParams?: string[];
+  commonKeys?: string[];
 }): DisplayValueChange[] {
   const live = parseOrNull(opts.liveRaw);
   if (!live) return [];
-  const { common: legacy } = splitByFieldScope(live, { urlParams: opts.urlParams });
+  const { common: legacy } = splitByFieldScope(live, { urlParams: opts.urlParams, commonKeys: opts.commonKeys });
   const commonBefore = parseOrNull(opts.commonBeforeRaw) ?? {};
   const commonAfter = parseOrNull(opts.commonAfterRaw) ?? {};
   const out: DisplayValueChange[] = [];
@@ -293,9 +294,14 @@ export function routeSharedFieldsOnPromote(opts: {
   draftRaw: string;
   commonRaw: string | null;
   urlParams?: string[];
+  /** Content-type page-level keys (e.g. the form location page field). */
+  commonKeys?: string[];
 }): { localeRaw: string; commonRaw: string | null; commonChanged: boolean; paths: string[]; draftCommon: Record<string, unknown> } {
   const parsed = safeLoadYaml(opts.draftRaw) ?? {};
-  const { common: draftCommon, locale: draftLocale } = splitByFieldScope(parsed, { urlParams: opts.urlParams });
+  const { common: draftCommon, locale: draftLocale } = splitByFieldScope(parsed, {
+    urlParams: opts.urlParams,
+    commonKeys: opts.commonKeys,
+  });
   const paths = commonPathsOf(draftCommon);
   const localeNulls = localeNullPaths(draftLocale);
   if (paths.length === 0 && localeNulls.length === 0) {
@@ -697,6 +703,21 @@ export async function promoteVariantWithOptionalTeardown(
       for (const w of consentGate.warnings) warnings.push({ code: w.code, message: w.message, fields: [] });
     }
     if (!templateMode) {
+      const { runFormLocationGate, formLocationBlockMessage } = await import("../form-location-gate");
+      const locationGate = runFormLocationGate({ pageData: mergedForGate, contentType, contentRoot });
+      if (locationGate.errors.length > 0) {
+        return {
+          ok: false,
+          code: locationGate.errors[0]!.code,
+          error: `Cannot promote: ${formLocationBlockMessage(locationGate.errors)}`,
+          details: { form_location_issues: locationGate.errors, warnings: locationGate.warnings },
+        };
+      }
+      for (const w of locationGate.warnings) {
+        warnings.push({ code: w.code, message: w.message, fields: [w.fix_field_path] });
+      }
+    }
+    if (!templateMode) {
       const urlCheck = assertLocaleUrlAvailable({
         contentType,
         entryIdentity: slug,
@@ -821,6 +842,7 @@ export async function promoteVariantWithOptionalTeardown(
           draftRaw: variantContent,
           commonRaw: commonBefore,
           urlParams: urlParamsForContentType(contentType, contentRoot),
+          commonKeys: commonKeysForContentType(contentType, contentRoot),
         });
 
     if ("funnel" in routed.draftCommon && routed.draftCommon.funnel !== null) {
@@ -841,6 +863,7 @@ export async function promoteVariantWithOptionalTeardown(
           commonBeforeRaw: commonBefore,
           commonAfterRaw: routed.commonChanged ? routed.commonRaw : commonBefore,
           urlParams: urlParamsForContentType(contentType, contentRoot),
+          commonKeys: commonKeysForContentType(contentType, contentRoot),
         });
     if (displayChanges.length > 0) {
       const fields = displayChanges.map((c) => c.field_path);

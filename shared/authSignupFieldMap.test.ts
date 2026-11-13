@@ -187,4 +187,34 @@ describe("authSignupFieldMap", () => {
     expect(isSignupFieldMapReady([])).toBe(false);
     expect(isSignupFieldMapReady(DEFAULT_AUTH_SIGNUP_FIELD_MAP)).toBe(true);
   });
+
+  it("resolves form.location.* from the chosen location detail", () => {
+    const map = [
+      { key: "city", from: "form.location.city" },
+      { key: "country", from: "form.location.country" },
+    ];
+    const body = buildSignupPayloadFromFieldMap(
+      map,
+      { form: { location_detail: { city: "Madrid", country: "Spain" } }, session: {} },
+      {},
+    );
+    expect(body).toMatchObject({ city: "Madrid", country: "Spain" });
+  });
+
+  it("counts a page or fixed form location as set for required location rows", () => {
+    const map = [
+      { key: "email", from: "form.email", required: true },
+      { key: "location", from: "form.location", required: true },
+      { key: "city", from: "form.location.city", required: true },
+    ];
+    const form = { is_signup: true, fields: { email: { visible: true, required: true } } };
+    expect(validateSignupFormFields(form, map)).toMatch(/fields\.location\.required must be true/);
+    expect(validateSignupFormFields(form, map, "form", { pageSetsLocation: true })).toBeNull();
+    expect(
+      validateSignupFormFields(
+        { ...form, fields: { ...form.fields, location: { default: "madrid-spain" } } },
+        map,
+      ),
+    ).toBeNull();
+  });
 });

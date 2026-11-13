@@ -15,7 +15,16 @@ import {
   hasActiveTraffic,
   pickVariant,
 } from "./assignment";
-import { applyRunTransitions, latestRun, runsFor, type TestRun, type TestRuns } from "./test-runs";
+import {
+  applyRunTransitions,
+  latestRun,
+  runsFor,
+  setRunGoal,
+  type SetRunGoalResult,
+  type TestRun,
+  type TestRuns,
+} from "./test-runs";
+import type { TestGoal } from "@shared/page-stats";
 
 /** `_draft` is variant-file system metadata, never page content (see draft-meta.ts). */
 function stripDraftMeta(data: Record<string, unknown>): Record<string, unknown> {
@@ -515,7 +524,13 @@ export class VersioningManager {
     }
   }
 
-  private recordRunTransitions(contentType: string, slug: string, before: VersioningFile | null, after: VersioningFile | null): void {
+  private recordRunTransitions(
+    contentType: string,
+    slug: string,
+    before: VersioningFile | null,
+    after: VersioningFile | null,
+    goals?: Record<string, TestGoal>,
+  ): void {
     try {
       const changed = applyRunTransitions(this.state.runs, {
         contentType,
@@ -523,6 +538,7 @@ export class VersioningManager {
         before,
         after,
         today: new Date().toISOString().slice(0, 10),
+        goals,
       });
       if (changed) this.scheduleSave();
     } catch (error) {
@@ -533,6 +549,13 @@ export class VersioningManager {
   /** Running test for a page and language, otherwise the most recently ended one (null = none recorded). */
   public getLatestRun(contentType: string, slug: string, locale: string): (TestRun & { experiment_id: string }) | null {
     return latestRun(this.state.runs, contentType, slug, locale);
+  }
+
+  /** Change a running test's goal (logged on the run). Finished runs return "ended". */
+  public setRunGoal(experimentId: string, goal: TestGoal, author: string | null): SetRunGoalResult {
+    const result = setRunGoal(this.state.runs, experimentId, goal, new Date().toISOString().slice(0, 10), author);
+    if (result === "changed") this.scheduleSave();
+    return result;
   }
 
   /** Every recorded run for a page and language, newest first. */
@@ -803,7 +826,12 @@ export class VersioningManager {
     contentType: string,
     slug: string,
     data: VersioningFile,
-    opts?: { author?: string | null; contentRoot?: string },
+    opts?: {
+      author?: string | null;
+      contentRoot?: string;
+      /** Goal per locale for tests this write starts. */
+      testGoals?: Record<string, TestGoal>;
+    },
   ): void {
     const configPath = this.getVersioningFilePath(contentType, slug);
     const before = this.readVersioningConfigFromDisk(contentType, slug);
@@ -817,7 +845,7 @@ export class VersioningManager {
     const cacheKey = `${contentType}:${slug}`;
     this.configCache.delete(cacheKey);
     this.contentCache.clear();
-    this.recordRunTransitions(contentType, slug, before, data);
+    this.recordRunTransitions(contentType, slug, before, data, opts?.testGoals);
     markFileAsModified(configPath, opts?.author || "System", undefined, opts?.contentRoot ?? this.contentRoot);
     log.info(`[Versioning] Updated versioning.yml for ${contentType}/${slug} — queued for auto-commit (${configPath})`);
   }

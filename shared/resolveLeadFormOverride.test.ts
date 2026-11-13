@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyLeadFormOverrideOutcome,
   resolveLeadFormOverride,
+  resolveLeadFormOverrideMatch,
 } from "./resolveLeadFormOverride";
 
 describe("resolveLeadFormOverride", () => {
@@ -282,5 +283,30 @@ describe("applyLeadFormOverrideOutcome", () => {
   it("returns formData when override is null", () => {
     const form = { conversion_name: "root" };
     expect(applyLeadFormOverrideOutcome(form, null)).toBe(form);
+  });
+});
+
+describe("resolveLeadFormOverrideMatch", () => {
+  const overrides = [
+    { conditions: [], conversion_name: "skipped-no-conditions" },
+    { conditions: [{ form_field_slug: "program", value: "web" }], conversion_name: "web-lead" },
+    { conditions: [{ form_field_slug: "program", value: "ai" }], conversion_name: "ai-lead", tags: "ai" },
+  ];
+
+  it("returns the matched index and the same outcome as resolveLeadFormOverride", () => {
+    const match = resolveLeadFormOverrideMatch({ program: "ai" }, overrides);
+    expect(match?.index).toBe(2);
+    expect(match?.outcome).toEqual(resolveLeadFormOverride({ program: "ai" }, overrides));
+    expect(match?.outcome).toEqual({ conversion_name: "ai-lead", tags: "ai" });
+  });
+
+  it("returns the first match", () => {
+    const match = resolveLeadFormOverrideMatch({ program: "web" }, [...overrides, overrides[1]!]);
+    expect(match?.index).toBe(1);
+  });
+
+  it("returns null when nothing matches or the list is empty", () => {
+    expect(resolveLeadFormOverrideMatch({ program: "none" }, overrides)).toBeNull();
+    expect(resolveLeadFormOverrideMatch({}, undefined)).toBeNull();
   });
 });

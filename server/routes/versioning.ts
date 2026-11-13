@@ -557,9 +557,28 @@ export function registerVersioningRoutes(app: Express): void {
       }
     }
 
+    const { trackedEnrollButtonsByVersion } = await import("../versioning/enroll-buttons");
+    const enroll_buttons: Record<string, Record<string, number> | null> = {};
+    const test_goals: Record<string, string> = {};
+    for (const [loc, localeData] of Object.entries(versioning as Record<string, { variants?: Array<{ slug: string }> }>)) {
+      if (!Array.isArray(localeData?.variants)) continue;
+      const run = versioningManager.getLatestRun(contentType, resolvedSlug, loc);
+      if (run && !run.ended_at) test_goals[loc] = run.goal ?? "leads";
+      enroll_buttons[loc] = trackedEnrollButtonsByVersion({
+        vm: versioningManager,
+        contentType,
+        slug: resolvedSlug,
+        locale: loc,
+        versions: ["default", ...localeData.variants.map((v) => v.slug).filter((s) => s !== "default")],
+        contentFolder: getContentRootName(res),
+      });
+    }
+
     res.json({
       versioning,
       ...(variantInfo ? { variantInfo } : {}),
+      enroll_buttons,
+      test_goals,
       ab_testing,
       split_health: getSplitHealth(
         {
@@ -942,9 +961,11 @@ export function registerVersioningRoutes(app: Express): void {
           ...existing,
           [locale]: { variants: newVariants, ...(startedAt ? { started_at: startedAt } : {}) },
         };
+        const testGoal = parseResult.data.test_goal;
         versioningManager.updateVersioning(contentType, resolved.slug, updated, {
           author: auth.author,
           contentRoot: root,
+          ...(!hadTraffic && hasTraffic && testGoal ? { testGoals: { [locale]: testGoal } } : {}),
         });
         invalidateContentCaches(contentType, ci);
 
@@ -1182,6 +1203,54 @@ export function registerVersioningRoutes(app: Express): void {
       res.status(500).json({ error: String(error) });
     }
   });
+
+  // Change the goal of the running test for one locale (logged on the run). Finished tests keep theirs.
+  api.put(
+    app,
+    "/api/versioning/:contentType/:contentSlug/:locale/test-goal",
+    { rate: "staffWrite" },
+    async (req, res) => {
+      const { contentType, contentSlug, locale } = req.params;
+      if (!isValidType(contentType)) {
+        res.status(400).json({ error: "Invalid content type", validTypes: getAllFolders() });
+        return;
+      }
+      const auth = await requireCapability(req, res, "content_allocate_traffic", contentType);
+      if (!auth.authorized) return;
+
+      const { isTestGoal } = await import("@shared/page-stats");
+      const { experiment_id, goal } = (req.body ?? {}) as { experiment_id?: unknown; goal?: unknown };
+      if (typeof experiment_id !== "string" || !experiment_id || !isTestGoal(goal)) {
+        res.status(400).json({ error: "experiment_id and goal (leads | enrollment_clicks | both) are required" });
+        return;
+      }
+
+      const resolved = resolveWritableVersioningSlug(contentType, contentSlug, getContentRoot(res));
+      if (!resolved.ok) {
+        res.status(resolved.status).json({ error: resolved.error });
+        return;
+      }
+      const versioningManager = (res.locals.site as any)?.versioningManager ?? getVersioningManager();
+      const latest = versioningManager.getLatestRun(contentType, resolved.slug, locale);
+      if (!latest || latest.experiment_id !== experiment_id) {
+        res.status(404).json({ error: "That test is not the latest one for this page and language." });
+        return;
+      }
+
+      const result = versioningManager.setRunGoal(experiment_id, goal, auth.author ?? null);
+      if (result === "ended") {
+        res.status(409).json({ error: "Finished tests keep their goal; use Preview by goal.", code: "test_ended" });
+        return;
+      }
+      if (result === "not_found") {
+        res.status(404).json({ error: "Test run not found." });
+        return;
+      }
+      const { clearPageTestStatsCache } = await import("../analytics/page-stats/test-view");
+      clearPageTestStatsCache();
+      res.json({ success: true, experiment_id, goal, changed: result === "changed" });
+    },
+  );
 
   // Register an existing variant file that versioning.yml does not list (at 0% traffic)
   api.post(app, "/api/versioning/:contentType/:contentSlug/register", { rate: "staffWrite" }, async (req, res) => {

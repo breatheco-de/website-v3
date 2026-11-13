@@ -28,6 +28,7 @@ import { stageOfPath, type PathStageIndex } from "./resolve";
 import { relationTo } from "./ga4-flow";
 import { listWindows, type TypeWindow } from "../first-party/windows";
 import { goodVisitSql, lowQualitySql, SUMMARY_GRACE_MS } from "../first-party/visit-quality";
+import { getEnrollClicksSince } from "../first-party/visits-schema";
 
 export type FirstPartyWindow = { current: { start: string; end: string }; prior: { start: string; end: string } };
 
@@ -55,9 +56,20 @@ type Grouped = {
   form_starts: number;
   video_starts: number;
   video_completes: number;
+  enroll_sessions: number;
+  lead_or_enroll: number;
+  enroll_visits: number;
 };
 
-const METRICS = (good: string) => `
+/** Enrollment clicks exist only from the day they started being recorded (fp_meta). */
+function enrollDaySql(since: string | null): string {
+  return since && /^\d{4}-\d{2}-\d{2}$/.test(since) ? `day >= '${since}'` : "1 = 1";
+}
+
+const METRICS = (good: string, since: string | null = null) => `
+  SUM(CASE WHEN ${good} AND ${enrollDaySql(since)} AND enroll_clicks > 0 THEN 1 ELSE 0 END) AS enroll_sessions,
+  SUM(CASE WHEN ${good} AND ${enrollDaySql(since)} AND (enroll_clicks > 0 OR lead_later = 1) THEN 1 ELSE 0 END) AS lead_or_enroll,
+  SUM(CASE WHEN ${good} AND ${enrollDaySql(since)} THEN 1 ELSE 0 END) AS enroll_visits,
   SUM(CASE WHEN ${good} THEN 1 ELSE 0 END) AS visits,
   SUM(CASE WHEN ${good} AND engaged = 1 THEN 1 ELSE 0 END) AS engaged,
   COUNT(*) AS page_views,
@@ -83,6 +95,8 @@ type Ctx = {
   /** ` AND page_version = ?` when one version is requested, else "". */
   vSql: string;
   vParams: unknown[];
+  /** First day enrollment clicks were recorded (fp_meta), null when unknown. */
+  enrollSince: string | null;
 };
 
 function goodSql(ctx: Ctx): string {
@@ -93,7 +107,7 @@ function grouped(ctx: Ctx, keyExpr: string, where: string, params: unknown[], pa
   if (paths.length === 0) return [];
   return ctx.db
     .prepare(
-      `SELECT ${keyExpr} AS key, next_path, ${METRICS(goodSql(ctx))}
+      `SELECT ${keyExpr} AS key, next_path, ${METRICS(goodSql(ctx), ctx.enrollSince)}
        FROM fp_page_views WHERE path IN (${placeholders(paths.length)}) AND ${where}${ctx.vSql}
        GROUP BY key, next_path`,
     )
@@ -106,7 +120,7 @@ function emptyFolded(): Folded {
   return {
     visits: 0, engaged: 0, page_views: 0, entrances: 0, bounces: 0, exits: 0, reached_decision: 0, lead_later: 0,
     form_or_cta: 0, cta_sessions: 0, task_sessions: 0, lost: 0, form_starts: 0, video_starts: 0, video_completes: 0,
-    moved_forward: 0, moved_back: 0,
+    enroll_sessions: 0, lead_or_enroll: 0, enroll_visits: 0, moved_forward: 0, moved_back: 0,
   };
 }
 
@@ -137,7 +151,7 @@ function median(values: number[]): number | null {
   return xs.length % 2 ? xs[mid]! : (xs[mid - 1]! + xs[mid]!) / 2;
 }
 
-function totalsOf(f: Folded | undefined, medianSeconds: number | null): TrafficTotals {
+function totalsOf(f: Folded | undefined, medianSeconds: number | null, enrollSince: string | null): TrafficTotals {
   const x = f ?? emptyFolded();
   return {
     sessions: x.visits,
@@ -159,6 +173,13 @@ function totalsOf(f: Folded | undefined, medianSeconds: number | null): TrafficT
     video_starts: x.video_starts,
     video_completes: x.video_completes,
     intent_events: 0,
+    enroll_sessions: x.enroll_sessions,
+    lead_or_enroll: x.lead_or_enroll,
+    enroll_visits: x.enroll_visits,
+    enroll_since: enrollSince,
+    // Payment-site steps happen off this site; the site's own counts can't see them.
+    reached_checkout: null,
+    purchased: null,
     median_engaged_seconds: medianSeconds,
     median_session_seconds: null,
   };
@@ -291,7 +312,17 @@ export function buildFirstPartyFlow(input: FirstPartyFlowInput): TrafficFacts {
   const now = input.now ?? Date.now();
   const vSql = input.pageVersion ? " AND page_version = ?" : "";
   const vParams: unknown[] = input.pageVersion ? [input.pageVersion] : [];
-  const ctx: Ctx = { db: input.db, paths: input.paths, stage: input.stage, index: input.index, staleBefore: now - SUMMARY_GRACE_MS, vSql, vParams };
+  const enrollSince = getEnrollClicksSince(input.db);
+  const ctx: Ctx = {
+    db: input.db,
+    paths: input.paths,
+    stage: input.stage,
+    index: input.index,
+    staleBefore: now - SUMMARY_GRACE_MS,
+    vSql,
+    vParams,
+    enrollSince,
+  };
   const { current, prior } = input.window;
   const period = `CASE WHEN day >= '${current.start}' THEN 'current' ELSE 'prior' END`;
   const inBoth = "day >= ? AND day <= ?";
@@ -525,8 +556,8 @@ export function buildFirstPartyFlow(input: FirstPartyFlowInput): TrafficFacts {
         input.grace,
       ),
     },
-    current: totalsOf(byPeriod.get("current"), median(curSeconds.map((r) => r.seconds))),
-    prior: totalsOf(byPeriod.get("prior"), median(priorSeconds.map((r) => r.seconds))),
+    current: totalsOf(byPeriod.get("current"), median(curSeconds.map((r) => r.seconds)), enrollSince),
+    prior: totalsOf(byPeriod.get("prior"), median(priorSeconds.map((r) => r.seconds)), enrollSince),
     series,
     previous_pages: prevRows.map((r) => ({ ...classify(r.p, "(entrance)"), sessions: Number(r.n) })),
     next_pages: nextPages,

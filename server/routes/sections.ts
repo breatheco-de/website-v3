@@ -1454,12 +1454,16 @@ export function registerSectionsRoutes(app: Express): void {
           text_limit_warnings?: TextLimitViolation[];
           theme_color_warnings?: ThemeViolation[];
           link_warnings?: InternalLinkWarning[];
+          form_location_warnings?: unknown[];
         } = {
           success: true,
           updatedSections: result.updatedSections,
         };
         if (result.linkWarnings?.length) {
           response.link_warnings = result.linkWarnings;
+        }
+        if (result.formLocationWarnings?.length) {
+          response.form_location_warnings = result.formLocationWarnings;
         }
         if (textLimitWarnings.length > 0) {
           response.text_limit_warnings = textLimitWarnings;
@@ -1501,6 +1505,9 @@ export function registerSectionsRoutes(app: Express): void {
           ...(result.deprecated ? { deprecated: result.deprecated } : {}),
           ...(result.brokenInternalLinks?.length
             ? { broken_internal_links: result.brokenInternalLinks }
+            : {}),
+          ...(result.formLocationIssues?.length
+            ? { form_location_issues: result.formLocationIssues }
             : {}),
         });
       }
@@ -1860,6 +1867,7 @@ export function registerSectionsRoutes(app: Express): void {
         res.json({
           success: true,
           ...(result.linkWarnings?.length ? { link_warnings: result.linkWarnings } : {}),
+          ...(result.formLocationWarnings?.length ? { form_location_warnings: result.formLocationWarnings } : {}),
         });
       } else {
         res.status(400).json({
@@ -1872,6 +1880,7 @@ export function registerSectionsRoutes(app: Express): void {
           ...(result.brokenInternalLinks?.length
             ? { broken_internal_links: result.brokenInternalLinks }
             : {}),
+          ...(result.formLocationIssues?.length ? { form_location_issues: result.formLocationIssues } : {}),
         });
       }
     } catch (error) {

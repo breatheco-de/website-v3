@@ -54,6 +54,51 @@ export const FORMS_ISSUE_CODES: Record<string, IssueCodeDefinition> = {
     suggestion: "Pick a persona from the overridden product's audience, or change the product.",
     next_actions: [{ tool: "get_product", reason: "Check which personas the product has", priority: "recommended" }],
   },
+  FORM_LOCATION_MISSING: {
+    title: "Form Has No Location",
+    summary:
+      "Location detection is off for this page type, and neither the form nor the page's Locations field sets a location. Live visitors still get a detected location until it's fixed, but saving or publishing the form is blocked.",
+    suggestion:
+      "Set the page's Locations (Page Meta → Fields) for every form on the page, or set this form's own location (Forms tab → Locations).",
+    next_actions: [
+      { tool: "update_fields", reason: "Set the page's Locations field (relation to location)", priority: "recommended" },
+      { tool: "update_fields", reason: "Or set fields.location.default on the form section", priority: "optional" },
+    ],
+  },
+  FORM_LOCATION_UNKNOWN: {
+    title: "Form Uses A Location That Doesn't Exist",
+    summary:
+      "The form's own location names a location this site doesn't have (for example a typo). Live, it is treated as not set.",
+    suggestion: "Replace it with a real location slug (Forms tab → Locations), or remove it so the form uses the page's Locations.",
+    next_actions: [
+      { tool: "update_fields", reason: "Fix fields.location.default / fields.location.allowed on the form", priority: "recommended" },
+    ],
+  },
+  FORM_LOCATION_PAGE_MISMATCH: {
+    title: "Form Location Differs From The Page",
+    summary:
+      "The form sets its own location, different from the page's Locations field. The form's wins. Often a section copied from another page.",
+    suggestion: "If the form should follow the page, clear its own location (Forms tab → Locations → Whole page).",
+    next_actions: [
+      { tool: "update_fields", reason: "Clear fields.location on the form so it follows the page", priority: "optional" },
+    ],
+  },
+  FORM_LOCATION_HIDDEN_CAMPUS: {
+    title: "Form Uses A Hidden Campus",
+    summary:
+      "A location on this page is hidden from the public list (visibility: unlisted). Leads still get it; it is no longer offered in pickers.",
+    suggestion: "Update the page or form to a listed location when the campus has closed.",
+    next_actions: [{ tool: "update_fields", reason: "Replace the hidden campus", priority: "optional" }],
+  },
+  FORM_LOCATION_LANGUAGE_MISMATCH: {
+    title: "Form Location Differs By Language",
+    summary:
+      "The same form has a different location in each language file, so visitors to each language version get a different campus.",
+    suggestion: "Set the location with Forms tab → Locations → This form only (it updates every language), or use the page's Locations.",
+    next_actions: [
+      { tool: "update_fields", reason: "Set the same fields.location on each language's form", priority: "recommended" },
+    ],
+  },
   FORM_TRACKING_OVERRIDE_USES_CODE: {
     title: "Form Override Uses A Tracking Code",
     summary:

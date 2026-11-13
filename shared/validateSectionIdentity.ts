@@ -38,6 +38,8 @@ export type SectionIdentityOpts = {
   sectionIndex?: number;
   /** Skip conversion/CTA/product identity checks (e.g. freshly duplicated section). */
   skipIdentity?: boolean;
+  /** True when the page's Locations field (forms.location) gives this form its location. */
+  pageSetsLocation?: (form: Record<string, unknown> | null) => boolean;
 };
 
 /**
@@ -72,11 +74,9 @@ export function validateSectionIdentity(
       return current as Record<string, unknown>;
     })();
     const formLabel = formSettingsPath ? formSettingsPath : "form";
-    const signupErr = validateSignupFormFields(
-      formObj,
-      opts.signupFieldMap,
-      formLabel,
-    );
+    const signupErr = validateSignupFormFields(formObj, opts.signupFieldMap, formLabel, {
+      pageSetsLocation: opts.pageSetsLocation?.(formObj) ?? false,
+    });
     if (signupErr) return signupErr;
   }
 
@@ -123,6 +123,7 @@ export type DocumentIdentityOpts = {
    * live or draft). Publish omits this for full-document checks.
    */
   onlyValidateIndexes?: Set<number>;
+  pageSetsLocation?: (form: Record<string, unknown> | null) => boolean;
 };
 
 /** Minimal op shape for collecting which section indexes a write touches. */
@@ -199,6 +200,7 @@ export function validateDocumentSectionsIdentity(
       resolveProduct: opts.resolveProduct,
       sectionIndex: i,
       skipIdentity: opts.skipIdentityIndexes?.has(i),
+      pageSetsLocation: opts.pageSetsLocation,
     });
     if (err) {
       return err.startsWith(`sections[${i}]`) ? err : `sections[${i}]: ${err}`;

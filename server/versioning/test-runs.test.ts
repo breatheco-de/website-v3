@@ -5,7 +5,7 @@ import * as yaml from "js-yaml";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetRegistry } from "../content-types";
 import { VersioningManager } from "./VersioningManager";
-import { applyRunTransitions, latestRun, splitOf, type TestRuns } from "./test-runs";
+import { applyRunTransitions, latestRun, setRunGoal, splitOf, type TestRuns } from "./test-runs";
 
 const on = (allocation: number, started_at = "2026-10-01", slug = "a") => ({ en: { variants: [{ slug, allocation }], started_at } });
 
@@ -47,6 +47,46 @@ describe("applyRunTransitions", () => {
     const runs: TestRuns = {};
     expect(applyRunTransitions(runs, { contentType: "landing", slug: "promo", before: null, after: on(0), today: "2026-10-01" })).toBe(false);
     expect(runs).toEqual({});
+  });
+});
+
+describe("test goal", () => {
+  const ID = "landing:promo:en@2026-10-01";
+
+  it("sets the goal only on the run a write starts", () => {
+    const runs: TestRuns = {};
+    applyRunTransitions(runs, {
+      contentType: "landing", slug: "promo", before: null, after: on(50), today: "2026-10-01", goals: { en: "enrollment_clicks" },
+    });
+    expect(runs[ID]!.goal).toBe("enrollment_clicks");
+    applyRunTransitions(runs, {
+      contentType: "landing", slug: "promo", before: on(50), after: on(30), today: "2026-10-04", goals: { en: "both" },
+    });
+    expect(runs[ID]!.goal).toBe("enrollment_clicks");
+  });
+
+  it("leaves runs from before goals existed without one (read as leads)", () => {
+    const runs: TestRuns = {};
+    applyRunTransitions(runs, { contentType: "landing", slug: "promo", before: null, after: on(50), today: "2026-10-01" });
+    expect(runs[ID]!.goal).toBeUndefined();
+  });
+
+  it("logs each change on a running test and refuses finished ones", () => {
+    const runs: TestRuns = {};
+    applyRunTransitions(runs, { contentType: "landing", slug: "promo", before: null, after: on(50), today: "2026-10-01" });
+    expect(setRunGoal(runs, ID, "leads", "2026-10-02", "ana")).toBe("unchanged");
+    expect(setRunGoal(runs, ID, "both", "2026-10-03", "ana")).toBe("changed");
+    expect(setRunGoal(runs, ID, "enrollment_clicks", "2026-10-04", null)).toBe("changed");
+    expect(runs[ID]!.goal).toBe("enrollment_clicks");
+    expect(runs[ID]!.goal_changes).toEqual([
+      { day: "2026-10-03", from: "leads", to: "both", author: "ana" },
+      { day: "2026-10-04", from: "both", to: "enrollment_clicks", author: null },
+    ]);
+
+    applyRunTransitions(runs, { contentType: "landing", slug: "promo", before: on(50), after: on(0), today: "2026-10-09" });
+    expect(setRunGoal(runs, ID, "leads", "2026-10-10", "ana")).toBe("ended");
+    expect(runs[ID]!.goal).toBe("enrollment_clicks");
+    expect(setRunGoal(runs, "missing", "leads", "2026-10-10", null)).toBe("not_found");
   });
 });
 
@@ -111,5 +151,15 @@ describe("VersioningManager run history", () => {
     const again = new VersioningManager(contentRoot);
     expect(again.getStats()).toEqual({});
     expect(again.getLatestRun("landing", "promo", "en")?.experiment_id).toBe("landing:promo:en@2026-10-01");
+  });
+
+  it("saves the goal a traffic save starts the test with, and goal changes", () => {
+    fs.writeFileSync(path.join(entryDir, "versioning.yml"), yaml.dump({ en: { variants: [{ slug: "a", allocation: 0 }] } }), "utf-8");
+    const vm = new VersioningManager(contentRoot);
+    vm.updateVersioning("landing", "promo", on(50), { contentRoot, testGoals: { en: "both" } });
+    const id = vm.getLatestRun("landing", "promo", "en")!.experiment_id;
+    expect(vm.getLatestRun("landing", "promo", "en")?.goal).toBe("both");
+    expect(vm.setRunGoal(id, "leads", "ana")).toBe("changed");
+    expect(vm.getLatestRun("landing", "promo", "en")).toMatchObject({ goal: "leads", goal_changes: [{ from: "both", to: "leads", author: "ana" }] });
   });
 });

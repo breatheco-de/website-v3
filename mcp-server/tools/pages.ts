@@ -83,6 +83,7 @@ import { consentRequiredResult } from "../lib/consent-gate-mcp.js";
 import { CONSENT_REQUIRED_CODE } from "../../shared/formConsentCheck.js";
 import {
   brokenInternalLinksResult,
+  formLocationMcpWarnings,
   internalLinkWarnings,
   isBrokenInternalLinksError,
 } from "../lib/internal-links-mcp.js";
@@ -526,6 +527,43 @@ async function callEditSectionsApi(
             contentType: params.contentType,
             locale: params.locale,
             variant: params.variant,
+          }),
+        };
+      }
+      if (data.code === "form_location_missing" || data.code === "form_location_unknown") {
+        const issues = Array.isArray(data.form_location_issues)
+          ? (data.form_location_issues as Array<{ property_path?: string; fix_field_path?: string; message?: string }>)
+          : [];
+        return {
+          error: fail(errMsg, {
+            code: String(data.code),
+            details: { form_location_issues: issues },
+            warnings: [
+              {
+                code: "form_location_order",
+                message:
+                  "Lead form location: the form's fields.location (default = one, allowed = several), then the page Locations field (_common.yml), then detection only when the content type allows it. Location values are location slugs (list_entries contentType location).",
+              },
+            ],
+            next_actions: [
+              ...issues.slice(0, 3).map((i) => ({
+                tool: "update_fields",
+                reason: `Fix ${i.property_path ?? "the form location"}: ${i.message ?? ""}`.trim(),
+                priority: "required" as const,
+                args_hint: {
+                  slug: params.slug,
+                  locale: params.locale,
+                  contentType: params.contentType,
+                  updates: [{ field_path: i.fix_field_path ?? "", value: "<location-slug or list>" }],
+                },
+              })),
+              {
+                tool: "get_content_type_info",
+                reason: "Read form_location (page field and whether detection is allowed)",
+                priority: "optional" as const,
+                args_hint: { contentType: params.contentType },
+              },
+            ],
           }),
         };
       }
@@ -4129,11 +4167,16 @@ export function registerPageTools(
       const slugRenameValue = !variant
         ? updates.find((u) => u.field_path === "slug" && typeof u.value === "string")?.value as string | undefined
         : undefined;
+      const formLocationPageField =
+        (resolved.config as { forms?: { location?: { entry_field?: string } } } | undefined)?.forms?.location
+          ?.entry_field ?? null;
+      const formLocationNextActions: NextAction[] = [];
+      const scopeOpts = formLocationPageField ? { commonKeys: [formLocationPageField] } : undefined;
       for (const { field_path, value } of updates) {
         if (field_path === "slug" && slugRenameValue !== undefined) {
           continue;
         }
-        if (!field_path.startsWith("sections.") && isCommonField(field_path)) {
+        if (!field_path.startsWith("sections.") && isCommonField(field_path, scopeOpts)) {
           commonEntries.push([field_path, value]);
         } else {
           localeEntries.push([field_path, value]);
@@ -4288,7 +4331,28 @@ export function registerPageTools(
         warnings.push(...deprecatedTemplateRefWarnings(apiResult.data.deprecated_template_refs));
         warnings.push(...textLimitWarnings(apiResult.data.text_limit_warnings));
         warnings.push(...internalLinkWarnings(apiResult.data.link_warnings));
-        results.push(`${localeEntries.length} field(s) → ${pathInfo.relativeHint}`);
+        warnings.push(...formLocationMcpWarnings(apiResult.data.form_location_warnings));
+        const touchedFormLocation = localeEntries.some(([p]) => /\.fields\.location(\.|$)/.test(p));
+        if (touchedFormLocation && formLocationPageField) {
+          warnings.push({
+            code: "form_location_override",
+            message:
+              `This page type has a page-wide Locations field (${formLocationPageField} in _common.yml). ` +
+              `fields.location on a form overrides it for this form, in this language file only (${pathInfo.relativeHint}). ` +
+              `Set ${formLocationPageField} via update_fields unless this form must differ; repeat per language if it must.`,
+          });
+          formLocationNextActions.push({
+            tool: "update_fields",
+            priority: "recommended",
+            reason: `Set the page-wide ${formLocationPageField} instead of a per-form override (unless this form must differ)`,
+            args_hint: {
+              slug,
+              locale,
+              contentType: resolved.contentType,
+              updates: [{ field_path: formLocationPageField, value: ["<location-slug>"] }],
+            },
+          });
+        }
       }
 
       if (commonEntries.length > 0) {
@@ -4397,7 +4461,7 @@ export function registerPageTools(
       }
 
       const side_effects: McpSideEffect[] = [...(bindingPropagateSideEffects(boundUpdates) || [])];
-      const next_actions: NextAction[] = [];
+      const next_actions: NextAction[] = [...formLocationNextActions];
       warnings.push(UPDATED_AT_STAMP_WARNING);
       if (localeEntries.length > 0) {
         side_effects.push({
@@ -5442,6 +5506,7 @@ export function registerPageTools(
     "versioning.yml is created by create_variant, not by hand; extra versions start at 0% traffic. " +
     "unregistered_variants lists variant files versioning.yml is missing (no traffic until staff register them). " +
     "started_at gives each locale's test run date. " +
+    "test_goal (per locale with a running test): leads | enrollment_clicks | both — what decides the winner; enrollment clicks = add_to_cart / click_begin_checkout button clicks (intent, not purchases); staff-only to change. " +
     "Each variant row also has created_at, updated_at, age_state (new | active | stale | unknown; stale = created and last edited more than 30 days ago), " +
     "verdict (cannot_delete | check_first | probably_safe) with reasons[{code,message}], behind_live, changes_vs_live (null when no live file) and sibling_locales (same slug in other languages; delete is per locale). " +
     "cleanup {tier, flagged_at, deletes_at} is set when the daily abandoned-draft cleanup will delete the draft (warning draft_scheduled_for_cleanup); any content edit resets it. " +
@@ -5578,6 +5643,7 @@ export function registerPageTools(
             .filter(([, localeData]) => typeof localeData.started_at === "string")
             .map(([locale, localeData]) => [locale, localeData.started_at as string]),
         );
+        const test_goal = data.test_goals as Record<string, string> | undefined;
         const abWarnings = abTestingWarnings({
           versioning,
           ab_testing: data.ab_testing as { set_up?: boolean; latest_check_ok?: boolean } | undefined,
@@ -5593,6 +5659,7 @@ export function registerPageTools(
             live_locales,
             variants,
             ...(Object.keys(started_at).length ? { started_at } : {}),
+            ...(test_goal && Object.keys(test_goal).length ? { test_goal } : {}),
             unregistered_variants,
           },
           { warnings: [...unregisteredWarnings, ...abWarnings, ...verdictWarnings], next_actions: [] },
@@ -10358,6 +10425,20 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
               "When true, pages of this type: load Tag Manager on page open; count as consented on landing in notice countries (ask countries unchanged); " +
               "use the site's own anonymous visit counts (data/<site>/visits.db, no cookies) for page stats and get_analytics_report page_detail instead of GA4. " +
               "Does not change page content, the Ads report, or Google Ads / Meta conversions.",
+            form_location: (config as { forms?: { location?: { entry_field?: string; autodetect?: boolean } } }).forms?.location
+              ? {
+                  entry_field:
+                    (config as { forms?: { location?: { entry_field?: string } } }).forms!.location!.entry_field ?? null,
+                  autodetect:
+                    (config as { forms?: { location?: { autodetect?: boolean } } }).forms!.location!.autodetect !== false,
+                }
+              : null,
+            form_location_note:
+              "Staff-only (content type dashboard → Form location; content-types.yml forms.location). update_content_type does not set it. " +
+              "Lead form location order: the form's fields.location (default = one location, allowed = several; visible = visitor picks), " +
+              "then the page field entry_field (relation to location, page-level → _common.yml), then visitor detection only when autodetect is true. " +
+              "autodetect false: saves touching a form or the page field, and publish/promote, fail with code form_location_missing until the form or page sets a location. " +
+              "Wrong slugs fail with form_location_unknown. Prefer update_fields on the page field; set fields.location on a form only when that form must differ (per language file).",
             field_patch_note:
               "Schema fields: MCP update_content_type with field_action add|update|remove (one field per call). " +
               "Preview (omit confirm) then confirm:true after principal approval. " +

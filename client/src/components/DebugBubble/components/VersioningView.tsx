@@ -61,6 +61,8 @@ import { VariantInfoPopover, VariantVerdictSummary, useVariantInfo } from "./Var
 import { PendingProposalsDialog } from "./PendingProposalsDialog";
 import { PublicCacheMenuItem, type PublicCacheTarget } from "./PublicCacheMenuItem";
 import { LocaleFlag } from "./LocaleFlag";
+import { TestGoalStartPicker } from "./TestGoalStartPicker";
+import type { TestGoal } from "@shared/page-stats";
 import {
   AbStickyAdvanced,
   AbTestingNotSetUpNotice,
@@ -471,6 +473,7 @@ export function VersioningView({
   /** Traffic can only go down until A/B testing is set up and the latest check passed. */
   const abLowerOnly = abNotSetUp || abCheckFailing;
   const [tempAllocations, setTempAllocations] = useState<Record<string, number>>({});
+  const [startGoal, setStartGoal] = useState<TestGoal>("leads");
   const [isSaving, setIsSaving] = useState(false);
   const [savedLocale, setSavedLocale] = useState<string | null>(null);
 
@@ -1030,7 +1033,27 @@ export function VersioningView({
     const variantSum = localeData.variants.reduce((s, v) => s + v.allocation, 0);
     allocations["__default__"] = Math.max(0, 100 - variantSum);
     setTempAllocations(allocations);
+    setStartGoal("leads");
     setEditingLocale(locale);
+  };
+
+  /** True when saving the open split starts a test (no traffic now, some after). */
+  const savingStartsTest = (locale: string): boolean => {
+    const localeData = versioningData?.versioning?.[locale];
+    if (!localeData) return false;
+    const hadTraffic = localeData.variants.some((v) => (v.allocation ?? 0) > 0);
+    const willHave = localeData.variants.some((v) => v.slug !== "__default__" && (tempAllocations[v.slug] ?? v.allocation) > 0);
+    return !hadTraffic && willHave;
+  };
+
+  /** Versions that get traffic after the open split is saved (`default` = live page). */
+  const versionsAfterSave = (locale: string): string[] => {
+    const localeData = versioningData?.versioning?.[locale];
+    if (!localeData) return [];
+    const variants = localeData.variants
+      .filter((v) => v.slug !== "__default__" && v.slug !== "default" && (tempAllocations[v.slug] ?? v.allocation) > 0)
+      .map((v) => v.slug);
+    return (tempAllocations["__default__"] ?? 0) > 0 ? ["default", ...variants] : variants;
   };
 
   const cancelEdit = () => {
@@ -1062,9 +1085,13 @@ export function VersioningView({
         confirm_publish_variants?: boolean;
         validation_job_id?: string;
         validation_job_ids?: string[];
+        test_goal?: TestGoal;
       } = { variants };
       if (opts?.confirmPublish) {
         body.confirm_publish_variants = true;
+      }
+      if (savingStartsTest(editingLocale)) {
+        body.test_goal = startGoal;
       }
 
       const send = () =>
@@ -2013,6 +2040,16 @@ export function VersioningView({
                     >
                       {allocationSaveError}
                     </p>
+                  )}
+
+                  {isEditing && savingStartsTest(locale) && (
+                    <TestGoalStartPicker
+                      locale={locale}
+                      goal={startGoal}
+                      onChange={setStartGoal}
+                      versions={versionsAfterSave(locale)}
+                      enrollButtons={versioningData?.enroll_buttons?.[locale]}
+                    />
                   )}
 
                   {abNoticeLocale === locale && !isEditing && (

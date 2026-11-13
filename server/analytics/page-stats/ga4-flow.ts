@@ -51,6 +51,11 @@ const METRIC_SQL = {
   video_starts: "SUM(video_starts)",
   video_completes: "SUM(video_completes)",
   intent_events: "SUM(intent_events)",
+  enroll_sessions: "COUNTIF(enroll_clicks > 0)",
+  lead_or_enroll: "COUNTIF(enroll_clicks > 0 OR lead_later)",
+  enroll_visits: "COUNT(*)",
+  reached_checkout: "COUNTIF(checkout_events > 0)",
+  purchased: "COUNTIF(purchase_events > 0)",
   median_engaged_seconds: "APPROX_QUANTILES(IF(page_seconds > 0, page_seconds, NULL), 2)[OFFSET(1)]",
   median_session_seconds: "APPROX_QUANTILES(duration_s, 2)[OFFSET(1)]",
   clicks: "CAST(NULL AS FLOAT64)",
@@ -171,7 +176,11 @@ export function buildPageFlowSql(eventsTable: string, opts: { byVariant?: boolea
         COUNTIF(event_name = 'form_start' AND path IN UNNEST(@paths)) AS form_starts,
         COUNTIF(event_name = 'video_start' AND path IN UNNEST(@paths)) AS video_starts,
         COUNTIF(event_name = 'video_complete' AND path IN UNNEST(@paths)) AS video_completes,
-        COUNTIF(event_name IN UNNEST(@intent_events) AND path IN UNNEST(@paths)) AS intent_events
+        COUNTIF(event_name IN UNNEST(@intent_events) AND path IN UNNEST(@paths)) AS intent_events,
+        COUNTIF(event_name IN ('add_to_cart', 'click_begin_checkout') AND path IN UNNEST(@paths)) AS enroll_clicks,
+        -- Payment-site steps, anywhere in the visit (only when that site reports to this GA4 property).
+        COUNTIF(event_name = 'begin_checkout') AS checkout_events,
+        COUNTIF(event_name = 'purchase') AS purchase_events
       FROM sev
       GROUP BY sid
     ),
@@ -373,6 +382,7 @@ function emptyTotals(): TrafficTotals {
     sessions: 0, page_views: 0, entrances: 0, engaged_sessions: 0, bounces: 0, exits: 0, returning_sessions: 0,
     moved_forward: 0, moved_back: 0, reached_decision: 0, lead_later: 0, form_or_cta: 0, cta_sessions: 0,
     task_clicks: 0, lost: 0, form_starts: 0, video_starts: 0, video_completes: 0, intent_events: 0,
+    enroll_sessions: 0, lead_or_enroll: 0, enroll_visits: 0, enroll_since: null, reached_checkout: 0, purchased: 0,
     median_engaged_seconds: null, median_session_seconds: null,
   };
 }
@@ -381,6 +391,7 @@ function totalsFrom(r: FlowRow | undefined): TrafficTotals {
   const t = emptyTotals();
   if (!r) return t;
   for (const k of Object.keys(t) as (keyof TrafficTotals)[]) {
+    if (k === "enroll_since") continue;
     if (k === "median_engaged_seconds" || k === "median_session_seconds") {
       const v = optNum(r[k]);
       t[k] = v === null ? null : Math.round(v * 10) / 10;

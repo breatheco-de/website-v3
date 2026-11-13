@@ -4,6 +4,7 @@
  * production) because promoting a winner can delete versioning.yml, and with it the start date.
  */
 
+import type { TestGoal, TestGoalChange } from "@shared/page-stats";
 import { DEFAULT_VARIANT_SLUG, allocatedTotal, experimentId, hasActiveTraffic } from "./assignment";
 
 export type SplitChange = {
@@ -21,6 +22,9 @@ export type TestRun = {
   started_at: string | null;
   ended_at: string | null;
   split_changes: SplitChange[];
+  /** What decides the winner; absent on runs recorded before goals existed (read as leads). */
+  goal?: TestGoal;
+  goal_changes?: TestGoalChange[];
 };
 
 export type TestRuns = Record<string, TestRun>;
@@ -82,9 +86,17 @@ function addVersions(run: TestRun, cfg: LocaleConfig): void {
  */
 export function applyRunTransitions(
   runs: TestRuns,
-  opts: { contentType: string; slug: string; before: Config; after: Config; today: string },
+  opts: {
+    contentType: string;
+    slug: string;
+    before: Config;
+    after: Config;
+    today: string;
+    /** Goal for runs this write starts, per locale (ignored for runs that already exist). */
+    goals?: Record<string, TestGoal>;
+  },
 ): boolean {
-  const { contentType, slug, before, after, today } = opts;
+  const { contentType, slug, before, after, today, goals } = opts;
   let changed = false;
   const locales = new Set([...Object.keys(before ?? {}), ...Object.keys(after ?? {})]);
   for (const locale of locales) {
@@ -107,6 +119,7 @@ export function applyRunTransitions(
     if (aOn) {
       const isNew = !runs[aId];
       const run = ensureRun(runs, aId, contentType, slug, locale, a);
+      if (isNew && goals?.[locale]) run.goal = goals[locale];
       const versionsBefore = run.versions.length;
       if (bOn && bId === aId) addVersions(run, b);
       addVersions(run, a);
@@ -126,6 +139,26 @@ export function applyRunTransitions(
     }
   }
   return changed;
+}
+
+export type SetRunGoalResult = "changed" | "unchanged" | "not_found" | "ended";
+
+/** Change a running test's goal and log it. Finished runs keep the goal they were decided by. */
+export function setRunGoal(
+  runs: TestRuns,
+  id: string,
+  goal: TestGoal,
+  day: string,
+  author: string | null,
+): SetRunGoalResult {
+  const run = runs[id];
+  if (!run) return "not_found";
+  if (run.ended_at) return "ended";
+  const from = run.goal ?? "leads";
+  if (from === goal) return "unchanged";
+  run.goal = goal;
+  run.goal_changes = [...(run.goal_changes ?? []), { day, from, to: goal, author }];
+  return "changed";
 }
 
 /** Every run for a page and language: running first, then by end date, newest first. */

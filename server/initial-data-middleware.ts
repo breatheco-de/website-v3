@@ -31,6 +31,7 @@ import {
   urlHasContentQuery,
 } from "./html-page-cache";
 import { buildSingleEntryFromContent } from "./build-single-entry";
+import { buildContentTypeConfigPayload, contentTypeConfigQueryKey } from "./content-type-config-payload";
 import { hydrateEntryForDelivery } from "./hydrate-entry-delivery";
 import { databaseManager, type DatabaseManager } from "./database";
 import { applyEntryModulePreload } from "./utils/html-transforms";
@@ -881,6 +882,15 @@ export async function resolveInitialData(
     queries.push(pageQuery);
   }
   queries.push(variablesQuery);
+
+  if (pageQuery && parsedUrl?.contentType && getContentTypeConfig(parsedUrl.contentType, ci.contentRoot)?.forms?.location) {
+    const payload = buildContentTypeConfigPayload(
+      parsedUrl.contentType,
+      ci.contentRoot,
+      ci.findByType(parsedUrl.contentType).length,
+    );
+    if (payload) queries.push({ queryKey: [contentTypeConfigQueryKey(parsedUrl.contentType)], data: payload });
+  }
 
   const adsLean = !!pageQuery && pageQuery.queryKey[0] !== "/api/database-single" && isAdsOptimizedUrl(cleanUrl, ci, parsedUrl?.contentType);
 

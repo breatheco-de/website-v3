@@ -19,7 +19,7 @@ import { deepMerge } from "../utils/deepMerge";
 import { getFolder } from "../content-types";
 import { diffRedirectItems, mergeRedirectLists, type RedirectChanges } from "../redirect-items";
 import { getSiteSqlite } from "../db";
-import { urlParamsForContentType } from "../field-scope-config";
+import { fieldScopeOptionsForContentType } from "../field-scope-config";
 import {
   hashVariantFileContents,
   readDraftMeta,
@@ -209,7 +209,7 @@ export function currentSnapshot(ref: DraftRef): BaseSnapshot {
 /** Field scope options for this entry (its URL params are always locale). */
 export function scopeOptionsOf(ref: Pick<DraftRef, "contentType" | "contentRoot">): FieldScopeOptions {
   try {
-    return { urlParams: urlParamsForContentType(ref.contentType, ref.contentRoot) };
+    return fieldScopeOptionsForContentType(ref.contentType, ref.contentRoot);
   } catch {
     return {};
   }

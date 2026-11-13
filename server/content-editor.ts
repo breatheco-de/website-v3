@@ -33,6 +33,12 @@ import {
 } from "./draft-entry";
 import { runInternalLinkGate } from "./internal-link-gate";
 import { runConsentGate } from "./consent-gate";
+import {
+  editTouchesFormLocation,
+  formLocationBlockMessage,
+  runFormLocationGate,
+  type FormLocationIssue,
+} from "./form-location-gate";
 import type { BrokenInternalLink, InternalLinkWarning } from "@shared/internalLinkGate";
 import {
   clampSchemaOrgSectionsLeading,
@@ -740,6 +746,10 @@ export async function editContent(request: ContentEditRequest): Promise<{
   brokenInternalLinks?: BrokenInternalLink[];
   /** Non-blocking internal-link findings (redirects, draft targets, not-yet-enforced). */
   linkWarnings?: InternalLinkWarning[];
+  /** Form location problems that did not block this save (drafts, untouched forms). */
+  formLocationWarnings?: FormLocationIssue[];
+  /** Set when a form location error blocked the save. */
+  formLocationIssues?: FormLocationIssue[];
 }> {
   const { contentType, slug, locale: rawLocale, operations: requestOperations, variant, version, contentRoot } = request;
   // Use per-site ContentIndex when provided (avoids resolving files against default site)
@@ -1554,6 +1564,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
     const funnelErr = writingLiveLocale ? liveLocaleFunnelWriteError(previousLocaleData, localeData) : null;
     if (funnelErr) return { success: false, error: funnelErr, errorCode: "funnel_in_language_file" };
     let linkWarnings: InternalLinkWarning[] = [];
+    let formLocationWarnings: FormLocationIssue[] = [];
     if (writingLiveLocale) {
       const commonForGate = ci.loadCommonData(contentType, slug) || {};
       const mergedForGate = deepMerge(commonForGate, localeData) as Record<
@@ -1601,15 +1612,35 @@ export async function editContent(request: ContentEditRequest): Promise<{
           };
         }
       }
+      const locationGate = runFormLocationGate({ pageData: mergedForGate, contentType, contentRoot });
+      const blocksLocation =
+        locationGate.errors.length > 0 &&
+        (gateIntent === "publish" ||
+          editTouchesFormLocation(locationGate, {
+            paths: gateTouchedPaths,
+            sectionIndexes: collectTouchedSectionIndexes(resolvedOperations as never),
+          }));
+      if (blocksLocation) {
+        return {
+          success: false,
+          error: formLocationBlockMessage(locationGate.errors),
+          errorCode: locationGate.errors[0]!.code,
+          formLocationIssues: locationGate.errors,
+        };
+      }
+      formLocationWarnings = [...locationGate.errors, ...locationGate.warnings];
     } else if (hasVariant && !writingSharedTemplate) {
       const commonForGate = ci.loadCommonData(contentType, slug) || {};
+      const draftPage = deepMerge(commonForGate, localeData) as Record<string, unknown>;
       linkWarnings = internalLinkGateForWrite({
-        pageData: deepMerge(commonForGate, localeData) as Record<string, unknown>,
+        pageData: draftPage,
         locale,
         contentRoot,
         ci,
         pageIsDraft: true,
       }).linkWarnings;
+      const locationGate = runFormLocationGate({ pageData: draftPage, contentType, contentRoot });
+      formLocationWarnings = [...locationGate.errors, ...locationGate.warnings];
     }
 
     // Write locale data back to file (without _common.yml content)
@@ -1688,6 +1719,7 @@ export async function editContent(request: ContentEditRequest): Promise<{
       ...(clearedFields.length > 0 ? { clearedFields } : {}),
       ...(deprecatedTemplateRefs.length > 0 ? { deprecatedTemplateRefs } : {}),
       ...(linkWarnings.length > 0 ? { linkWarnings } : {}),
+      ...(formLocationWarnings.length > 0 ? { formLocationWarnings } : {}),
     };
   } catch (error) {
     log.error({ err: error }, "Content edit error:");
@@ -2717,6 +2749,8 @@ export function editCommonContent(request: CommonEditRequest): {
   deprecated?: DeprecatedFieldErrorInfo;
   brokenInternalLinks?: BrokenInternalLink[];
   linkWarnings?: InternalLinkWarning[];
+  formLocationWarnings?: FormLocationIssue[];
+  formLocationIssues?: FormLocationIssue[];
 } {
   const { contentType, slug, operations, author } = request;
   const ci = request.ci ?? contentIndex;
@@ -2811,6 +2845,28 @@ export function editCommonContent(request: CommonEditRequest): {
     });
     if (linkGate.blocked) return linkGate.blocked;
 
+    // Page Locations field: wrong names and forms left without a location block when it is the field edited.
+    const formLocationWarnings: FormLocationIssue[] = [];
+    const commonTouched = touchedPathsFromOperations(operations);
+    for (const gateLocale of getCommonEditGateLocales(contentType, slug, contentRootName)) {
+      const localeData = (ci.loadLocaleData(contentType, slug, gateLocale).data as Record<string, unknown> | null) || {};
+      const merged = deepMerge(commonData, localeData) as Record<string, unknown>;
+      const gate = runFormLocationGate({ pageData: merged, contentType, contentRoot: contentRootName });
+      if (gate.errors.length > 0 && editTouchesFormLocation(gate, { paths: commonTouched, sectionIndexes: new Set() })) {
+        return {
+          success: false,
+          error: formLocationBlockMessage(gate.errors),
+          errorCode: gate.errors[0]!.code,
+          formLocationIssues: gate.errors,
+        };
+      }
+      for (const issue of [...gate.errors, ...gate.warnings]) {
+        if (!formLocationWarnings.some((w) => w.code === issue.code && w.property_path === issue.property_path)) {
+          formLocationWarnings.push(issue);
+        }
+      }
+    }
+
     const updatedYaml = safeYamlDump(commonData, {
       lineWidth: -1,
       noRefs: true,
@@ -2824,6 +2880,7 @@ export function editCommonContent(request: CommonEditRequest): {
     return {
       success: true,
       ...(linkGate.linkWarnings.length > 0 ? { linkWarnings: linkGate.linkWarnings } : {}),
+      ...(formLocationWarnings.length > 0 ? { formLocationWarnings } : {}),
     };
   } catch (error) {
     log.error({ err: error }, "Common content edit error:");

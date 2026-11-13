@@ -18,12 +18,29 @@ entries:
       - mcp-server/explain/content_system.md
       - mcp-server/tools/variables.ts
   - date: "2026-11-12"
-    summary: "Variable facts gain optional origin (own|external) and products (sellable slugs)"
+    summary: "Lead form location per content type (forms.location): form → page Locations field → detection only when allowed"
     agent_impact:
-      - "Superseded 2026-11-13: use source (internal|external) instead of origin (own|external)."
+      - "get_content_type_info adds form_location {entry_field, autodetect} + note (staff-only setting). Order: form fields.location (default = one, allowed = several, visible = visitor picks), then the page field (relation to location, page-level → _common.yml), then detection when autodetect is true."
+      - "With autodetect false, saves touching a form or the page field and publish/promote fail with form_location_missing (or form_location_unknown for bad slugs) + form_location_issues[].fix_field_path; drafts and untouched forms get form_location_* warnings."
+      - "update_fields routes the page field to _common.yml and warns form_location_override when you set fields.location on a form (per language) — prefer the page field. Details: explain_site topic lead-forms → Location."
     tools_changed: false
     paths:
-      - shared/variable-metadata.ts
+      - shared/formLocationPolicy.ts
+      - server/form-location-gate.ts
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/lead-forms.md
+  - date: "2026-11-12"
+    summary: "A/B tests have a goal: leads, enrollment clicks (add_to_cart / click_begin_checkout), or both; list_variants returns test_goal"
+    agent_impact:
+      - "list_variants adds test_goal {locale: leads | enrollment_clicks | both} for locales with a running test. Runs recorded before goals existed read as leads. Staff-only to set (when starting traffic) or change (logged on the run); finished tests keep theirs. No MCP write tool."
+      - "Enrollment clicks = clicks on buttons whose cta.tracking is not none (signup_card.cta_button.tracking, programs[].summary.cta.tracking) — intent, not purchases. For a page whose main action is enrolling, recommend tracking add_to_cart on that button so the goal can move; tracking none keeps it at zero."
+      - "Details (visit-level leads for both, payment-site rows GA4-only, site's own counts from the recording start day): explain_site topic analytics → \"A/B test goal\"."
+    tools_changed: false
+    paths:
+      - mcp-server/tools/pages.ts
+      - mcp-server/explain/analytics.md
+      - server/analytics/page-stats/test-view.ts
+      - server/versioning/test-runs.ts
   - date: "2026-11-11"
     summary: "Links leaving the checkout path carry gtm_payload automatically (product / persona short codes)"
     agent_impact:

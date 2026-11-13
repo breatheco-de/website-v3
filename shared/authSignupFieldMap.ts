@@ -50,6 +50,19 @@ export const AUTH_SIGNUP_FORM_FIELD_PRESETS = [
   "consent_general",
 ] as const;
 
+/**
+ * Derived from the form's chosen location (`form.location.*`). Falls back to the
+ * visitor's detected city/country when the location is remote, region-wide or detected.
+ */
+export const AUTH_SIGNUP_LOCATION_DETAIL_PRESETS = ["location.city", "location.country", "location.region"] as const;
+
+/** Signup map keys that carry a location (fixed values / globals replace the form's choice). */
+export const SIGNUP_LOCATION_KEYS = new Set(["location", "campus", "city", "country", "region"]);
+
+export function isLocationDetailFormField(name: string): boolean {
+  return name.startsWith("location.") && name.length > "location.".length;
+}
+
 /** Common session paths offered in the Auth source picker. */
 export const AUTH_SIGNUP_SESSION_FIELD_PRESETS = [
   "language",
@@ -335,6 +348,11 @@ export function resolveSignupSourceValue(
 ): string | boolean | number {
   if (isFormSource(from)) {
     const name = formFieldNameFromSource(from)!;
+    if (isLocationDetailFormField(name)) {
+      const v = getByPath(ctx.form.location_detail, name.slice("location.".length));
+      if (typeof v === "boolean" || typeof v === "number") return v;
+      return v == null ? "" : String(v);
+    }
     const v = ctx.form[name];
     if (typeof v === "boolean" || typeof v === "number") return v;
     if (v == null) return "";
@@ -461,6 +479,15 @@ function readFields(form: Record<string, unknown>): Record<string, FormFieldCfg>
   return out;
 }
 
+function hasFixedFormLocation(cfg: FormFieldCfg | undefined): boolean {
+  if (!cfg) return false;
+  const allowed = (cfg as { allowed?: unknown }).allowed;
+  if (Array.isArray(allowed) && allowed.length > 0) return true;
+  const def = cfg.default;
+  if (Array.isArray(def)) return def.length > 0;
+  return typeof def === "string" && !!def.trim() && def.trim() !== "auto";
+}
+
 /** Defaults aligned with LeadFormDefault getFieldConfig when YAML omits the field. */
 function builtinFieldDefaults(name: string): FormFieldCfg | null {
   if (name === "email") return { visible: true, required: true };
@@ -541,6 +568,10 @@ export function validateSignupFormFields(
   form: Record<string, unknown> | null | undefined,
   fieldMap: AuthSignupFieldMapEntry[] | undefined | null,
   formLabel = "form",
+  opts: {
+    /** The page's Locations field (forms.location) gives this form its location. */
+    pageSetsLocation?: boolean;
+  } = {},
 ): string | null {
   if (!form || typeof form !== "object") return null;
   if (form.is_signup !== true) return null;
@@ -577,6 +608,23 @@ export function validateSignupFormFields(
       const c = consentSatisfied(form, name, needRequired);
       if (!c.ok) return c.message ?? null;
       continue;
+    }
+
+    // Location (and its derived city/country/region) is satisfied by the page's Locations
+    // or a fixed form location, even when the field itself is hidden / not required.
+    const locationSet =
+      opts.pageSetsLocation === true || hasFixedFormLocation(fields.location);
+    if (name === "location" || isLocationDetailFormField(name)) {
+      if (locationSet) continue;
+      if (isLocationDetailFormField(name)) {
+        if (needRequired && fields.location?.required !== true) {
+          return (
+            `${formLabel} has no location for auth.signup.field_map key "${entry.key}" (form.${name}). ` +
+            `Set the page's Locations or this form's location, or make fields.location required.`
+          );
+        }
+        continue;
+      }
     }
 
     const explicit = fields[name];

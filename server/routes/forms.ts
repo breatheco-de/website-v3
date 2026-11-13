@@ -125,6 +125,7 @@ import {
 } from "../content-types";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveSingleVars } from "../single-resolver";
+import { listSiteLocations } from "../location-catalog";
 import {
   normalizeLocale,
   getSupportedLocales,
@@ -362,12 +363,8 @@ export function registerFormsRoutes(app: Express): void {
       title: p.title,
     }));
 
-    // Get all visible locations grouped by region
-    const locationsPath = path.join(
-      (res.locals.site as any)?.contentRoot ?? getDefaultContentRoot(),
-      getFolder("location"),
-    );
-    const locationsList: Array<{
+    // Visible (listed) locations; hidden ones stay valid on forms but are not offered.
+    let locationsList: Array<{
       slug: string;
       name: string;
       city: string;
@@ -375,37 +372,10 @@ export function registerFormsRoutes(app: Express): void {
       country_code?: string;
       region: string;
     }> = [];
-
     try {
-      if (fs.existsSync(locationsPath)) {
-        const dirs = fs.readdirSync(locationsPath);
-        for (const dir of dirs) {
-          const commonPath = path.join(locationsPath, dir, "_common.yml");
-          if (fs.existsSync(commonPath)) {
-            const campusData = safeYamlLoad(
-              fs.readFileSync(commonPath, "utf8"),
-            ) as {
-              slug: string;
-              name: string;
-              city: string;
-              country: string;
-              country_code?: string;
-              region?: string;
-              visibility?: string;
-            };
-            if (campusData && campusData.visibility !== "unlisted") {
-              locationsList.push({
-                slug: campusData.slug,
-                name: campusData.name,
-                city: campusData.city,
-                country: campusData.country,
-                ...(campusData.country_code ? { country_code: campusData.country_code } : {}),
-                region: campusData.region || "other",
-              });
-            }
-          }
-        }
-      }
+      locationsList = listSiteLocations((res.locals.site as any)?.contentRoot ?? getDefaultContentRoot())
+        .filter((l) => !l.hidden)
+        .map(({ hidden: _hidden, ...l }) => l);
     } catch (error) {
       log.error({ err: error }, "Error loading locations:");
     }

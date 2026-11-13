@@ -91,7 +91,30 @@ export const VISITS_MIGRATIONS: VisitsMigration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    up: `
+      ALTER TABLE fp_page_views ADD COLUMN enroll_clicks INTEGER NOT NULL DEFAULT 0;
+      CREATE TABLE IF NOT EXISTS fp_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+      INSERT OR IGNORE INTO fp_meta (key, value) VALUES ('enroll_clicks_since', date('now'));
+    `,
+  },
 ];
+
+/** UTC day enrollment clicks started being recorded in this visits.db (null before migration 2). */
+export function getEnrollClicksSince(db: Database.Database): string | null {
+  try {
+    const row = db.prepare("SELECT value FROM fp_meta WHERE key = 'enroll_clicks_since'").get() as
+      | { value: string }
+      | undefined;
+    return row?.value ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export const VISITS_SCHEMA_VERSION = VISITS_MIGRATIONS[VISITS_MIGRATIONS.length - 1]!.version;
 

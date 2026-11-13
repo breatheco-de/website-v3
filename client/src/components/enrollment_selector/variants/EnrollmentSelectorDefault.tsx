@@ -1395,10 +1395,11 @@ export default function EnrollmentSelectorDefault({ data }: { data: EnrollmentSe
                     // Apply selection (cohort/addon) before resolve — including ctrl/cmd+click.
                     if (e.button === 0 && !e.altKey) applySelectionParams();
                     const tracking = (activeSummary.cta as { tracking?: string }).tracking;
-                    if (isCtaTrackingValue(tracking) && tracking !== "none") {
-                      trackEcommerce(tracking, selectionPayloadRef.current);
-                    }
-                    nav(e);
+                    const sent =
+                      isCtaTrackingValue(tracking) && tracking !== "none"
+                        ? trackEcommerce(tracking, selectionPayloadRef.current)
+                        : null;
+                    nav(e, { beforeLeave: sent });
                   }}
                   onMouseDown={(e) => {
                     if (e.button === 1) applySelectionParams();

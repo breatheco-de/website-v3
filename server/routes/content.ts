@@ -231,6 +231,7 @@ import {
   isKnownSeoFieldPath,
 } from "../content-types";
 import { diffPublicContentTypes } from "../jobs/definitions/content-type-html-scope";
+import { buildContentTypeConfigPayload } from "../content-type-config-payload";
 import { emitContentTypeChanged } from "../content-events";
 import { resolveFieldValue, applyTransformIfNeeded } from "../transform";
 import { resolveAllTemplateVars, buildContentDeliveryParamBag } from "../resolve-template-vars";
@@ -1656,38 +1657,12 @@ export function registerContentRoutes(app: Express): void {
   app.get("/api/content-types/:type/config", (req, res) => {
     try {
       const { type } = req.params;
-      const config = getContentTypeConfig(type, ctRoot(res));
-      if (!config) {
+      const payload = buildContentTypeConfigPayload(type, ctRoot(res), getCI(res).findByType(type).length);
+      if (!payload) {
         res.status(404).json({ error: `Content type "${type}" not found` });
         return;
       }
-      res.json({
-        name: type,
-        label: getLabel(type, ctRoot(res)),
-        directory: config.directory,
-        field_mapping: config.field_mapping || null,
-        editor: config.editor || null,
-        indexes: config.indexes || null,
-        unique_fields: config.unique_fields || null,
-        database: config.database || null,
-        url_pattern: config.url_pattern,
-        single_template: !!config.single_template,
-        protected_slugs: config.protected_slugs || [],
-        preview: config.preview || null,
-        schema_org_requirements: config.schema_org_requirements || [],
-        seo_monitoring: config.seo_monitoring || null,
-        funnel: config.funnel || null,
-        products: (() => {
-          const eff = effectiveAllowSellableEntries(type, ctRoot(res));
-          return {
-            allow_sellable_entries: eff.allow_sellable_entries,
-            ...(eff.coerced_from_inventory ? { coerced_from_inventory: true } : {}),
-          };
-        })(),
-        strategy: config.strategy || null,
-        ads: config.ads?.optimize ? { optimize: true } : null,
-        static_entry_count: getCI(res).findByType(type).length,
-      });
+      res.json(payload);
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
@@ -2167,6 +2142,31 @@ export function registerContentRoutes(app: Express): void {
         }
       }
 
+      if (body.forms !== undefined) {
+        if (body.forms === null) {
+          update.forms = null;
+        } else if (typeof body.forms === "object") {
+          const loc = (body.forms as Record<string, unknown>).location;
+          if (loc === null || loc === undefined) {
+            update.forms = null;
+          } else if (typeof loc === "object") {
+            const l = loc as Record<string, unknown>;
+            update.forms = {
+              location: {
+                ...(typeof l.entry_field === "string" && l.entry_field.trim() ? { entry_field: l.entry_field.trim() } : {}),
+                ...(l.autodetect === false ? { autodetect: false } : {}),
+              },
+            };
+          } else {
+            res.status(400).json({ error: "forms.location must be an object or null" });
+            return;
+          }
+        } else {
+          res.status(400).json({ error: "forms must be an object or null" });
+          return;
+        }
+      }
+
       // Gate: required fields need a valid CT strategy (merged post-update view).
       {
         const {
@@ -2267,7 +2267,12 @@ export function registerContentRoutes(app: Express): void {
         updateContentTypeConfig(type, update, getContentRoot(res));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("Cannot disable shared layout") || msg.includes("requires _slug") || msg.includes("Invalid field_mapping key")) {
+        if (
+          msg.includes("Cannot disable shared layout") ||
+          msg.includes("requires _slug") ||
+          msg.includes("Invalid field_mapping key") ||
+          msg.startsWith("Form location")
+        ) {
           res.status(400).json({ error: msg });
           return;
         }
@@ -2294,6 +2299,22 @@ export function registerContentRoutes(app: Express): void {
           } catch (adsErr) {
             log.warn({ adsErr, type }, "ads-first on/off period not recorded");
           }
+        }
+      }
+
+      if (
+        body.forms !== undefined &&
+        JSON.stringify(beforeEntry?.forms ?? null) !== JSON.stringify(afterEntry?.forms ?? null)
+      ) {
+        invalidateContentCaches(type, getCI(res));
+        try {
+          const { invalidateHtmlPageCacheForSlug } = await import("../html-page-cache");
+          const { siteIdForContentRoot, contentRootAbsolute } = await import("../product/tracking-key-index");
+          const site = siteIdForContentRoot(contentRootAbsolute(getContentRoot(res)));
+          const slugs = new Set(getCI(res).findByType(type).map((e) => e.slug).filter(Boolean));
+          for (const slug of Array.from(slugs)) invalidateHtmlPageCacheForSlug(site, slug);
+        } catch (cacheErr) {
+          log.warn({ cacheErr, type }, "html cache flush after form location change failed");
         }
       }
 
@@ -5184,6 +5205,7 @@ export function registerContentRoutes(app: Express): void {
           ...(result.brokenInternalLinks?.length
             ? { broken_internal_links: result.brokenInternalLinks }
             : {}),
+          ...(result.formLocationIssues?.length ? { form_location_issues: result.formLocationIssues } : {}),
         });
         return;
       }
@@ -5193,6 +5215,7 @@ export function registerContentRoutes(app: Express): void {
         path: result.relativePath,
         isVariantLayer: result.isVariantLayer,
         ...(result.linkWarnings?.length ? { link_warnings: result.linkWarnings } : {}),
+        ...(result.formLocationWarnings?.length ? { form_location_warnings: result.formLocationWarnings } : {}),
       });
     } catch (err) {
       res.status(500).json({ error: String(err) });

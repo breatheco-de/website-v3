@@ -115,9 +115,11 @@ function validateOneFormField(
   }
 
   const { config } = parsed;
+  const listKey = formFieldName === "location" ? "allowed" : "slugs";
+  const listValue = fieldCfg[listKey];
   const hasSlugs =
-    Array.isArray(fieldCfg.slugs) &&
-    fieldCfg.slugs.some((s) => typeof s === "string" && s.trim().length > 0);
+    Array.isArray(listValue) &&
+    listValue.some((s) => typeof s === "string" && s.trim().length > 0);
 
   if (config.related_field && hasSlugs) {
     issues.push({
@@ -127,8 +129,8 @@ function validateOneFormField(
       relationField: config.related_field,
       formFieldName,
       sectionIndex,
-      message: `${formPath}.related_field: "${config.related_field}" cannot be combined with fields.${formFieldName}.slugs — put allowed entries on the content field "${config.related_field}" instead`,
-      staffMessage: `Remove the "slugs" list from form field "${formFieldName}". Allowed options should live on the entry field "${config.related_field}" (usually in _common.yml).`,
+      message: `${formPath}.related_field: "${config.related_field}" cannot be combined with fields.${formFieldName}.${listKey} — put allowed entries on the content field "${config.related_field}" instead`,
+      staffMessage: `Remove the "${listKey}" list from form field "${formFieldName}". Allowed options should live on the entry field "${config.related_field}" (usually in _common.yml).`,
     });
   }
 
@@ -151,6 +153,8 @@ function validateOneFormField(
   });
 
   if (resolved.ok) return issues;
+  // An empty page field falls through to detection or "missing" (form-location gate decides).
+  if (formFieldName === "location" && resolved.code === "empty") return issues;
 
   const soft =
     opts.mode === "draft" &&

@@ -274,6 +274,50 @@ describe("scheduleHtmlFromEvent", () => {
     delete (ci as { getDatabase?: unknown }).getDatabase;
   });
 
+  it("treats a list of filter values as any-of, like the page lookup", () => {
+    ci.getContentTypes = () => ["workshop"];
+    ci.getContentTypeConfig = () => ({
+      directory: "workshop",
+      url_pattern: { en: "/en/workshop/:slug" },
+      database: { slug: "workshops" },
+      entry_filters: [{ item_property_slug: "status", value: ["ACTIVE", "FINISHED"] }],
+    });
+    ci.buildUrl = (_type: string, locale: string, slug: string) => `/${locale}/workshop/${slug}`;
+    (ci as { getDatabase: () => { getLastGoodItems: () => { items: Record<string, unknown>[] } } }).getDatabase =
+      () => ({
+        getLastGoodItems: () => ({
+          items: [
+            { slug: "live-one", lang: "en", status: "ACTIVE" },
+            { slug: "done-one", lang: "en", status: "FINISHED" },
+            { slug: "draft-one", lang: "en", status: "DRAFT" },
+          ],
+        }),
+      });
+    scheduleHtmlFromEvent(
+      event("database_refreshed", {
+        payload: {
+          dbName: "workshops",
+          rows: [
+            { slug: "live-one", locale: "en", params: {} },
+            { slug: "done-one", locale: "en", params: {} },
+            { slug: "draft-one", locale: "en", params: {} },
+          ],
+        },
+      }),
+      site,
+    );
+    expect(scheduleSavedHtmlPaths).toHaveBeenCalledWith(
+      "site_test",
+      ["/en/workshop/live-one", "/en/workshop/done-one"],
+      "/tmp/site_test",
+      { deleteIfSlow: false },
+    );
+    ci.getContentTypes = () => [];
+    ci.getContentTypeConfig = () => ({ directory: "blog" });
+    ci.buildUrl = () => "/en/blog/news/post";
+    delete (ci as { getDatabase?: unknown }).getDatabase;
+  });
+
   it("still rebuilds database readers when every refreshed row fails the page filter", () => {
     ci.getContentTypes = () => ["workshop"];
     ci.getContentTypeConfig = () => ({

@@ -141,6 +141,22 @@ describe("buildFirstPartyFlow", () => {
     expect(t.next_pages.map((p) => p.path)).not.toContain("/en/blog/x");
   });
 
+  it("counts enrollment clicks per visit from the day recording started; payment-site steps stay unmeasured", () => {
+    db.prepare("UPDATE fp_meta SET value = '2026-10-10' WHERE key = 'enroll_clicks_since'").run();
+    write([
+      view("2026-10-05T10:00:00Z", {}),
+      view("2026-10-11T10:00:00Z", { ec: 2 }),
+      view("2026-10-12T10:00:00Z", {}),
+      view("2026-10-12T11:00:00Z", {}),
+    ]);
+    db.prepare("UPDATE fp_page_views SET lead_later = 1 WHERE day = '2026-10-12' AND rowid = (SELECT MIN(rowid) FROM fp_page_views WHERE day = '2026-10-12')").run();
+    const t = flow().current;
+    expect(t.sessions).toBe(4);
+    expect(t).toMatchObject({
+      enroll_sessions: 1, lead_or_enroll: 2, enroll_visits: 3, enroll_since: "2026-10-10", reached_checkout: null, purchased: null,
+    });
+  });
+
   it("reports collecting since, gaps and until from the on/off history", () => {
     openWindow(db, "landing", Date.parse("2026-09-15T00:00:00Z"));
     closeWindow(db, "landing", Date.parse("2026-10-03T00:00:00Z"));
@@ -196,7 +212,8 @@ function flowEmpty(): TrafficFacts {
   const z = {
     sessions: 0, page_views: 0, entrances: 0, engaged_sessions: 0, bounces: 0, exits: 0, returning_sessions: 0, moved_forward: 0,
     moved_back: 0, reached_decision: 0, lead_later: 0, form_or_cta: 0, cta_sessions: 0, task_clicks: 0, lost: 0, form_starts: 0,
-    video_starts: 0, video_completes: 0, intent_events: 0, median_engaged_seconds: null, median_session_seconds: null,
+    video_starts: 0, video_completes: 0, intent_events: 0, enroll_sessions: 0, lead_or_enroll: 0, enroll_visits: 0, enroll_since: null,
+    reached_checkout: null, purchased: null, median_engaged_seconds: null, median_session_seconds: null,
   };
   return {
     source: "first_party", current: { ...z }, prior: { ...z }, series: [], previous_pages: [], next_pages: [], referrers: [], channels: [],

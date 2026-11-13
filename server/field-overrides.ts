@@ -36,6 +36,12 @@ import { mappedFieldsStorageFor, type MappedFieldsStorage } from "./mapped-field
 import { contentIndex } from "./content-index";
 import { markFileAsModified } from "./sync-state";
 import { runInternalLinkGate } from "./internal-link-gate";
+import {
+  editTouchesFormLocation,
+  formLocationBlockMessage,
+  runFormLocationGate,
+  type FormLocationIssue,
+} from "./form-location-gate";
 import type { BrokenInternalLink, InternalLinkWarning } from "@shared/internalLinkGate";
 import { resolveFieldValue } from "./transform";
 import type { DatabaseManager } from "./database";
@@ -125,6 +131,10 @@ export type WriteMappedFieldsResult = {
   brokenInternalLinks?: BrokenInternalLink[];
   /** Non-blocking internal-link findings (redirects, draft targets, not-yet-enforced). */
   linkWarnings?: InternalLinkWarning[];
+  /** Form location findings that did not block (see server/form-location-gate.ts). */
+  formLocationWarnings?: FormLocationIssue[];
+  /** Set when a form location error blocked the write. */
+  formLocationIssues?: FormLocationIssue[];
 };
 
 function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
@@ -754,6 +764,26 @@ export function writeMappedFields(
       linkWarnings = linkGate.warnings;
     }
 
+    let formLocationWarnings: FormLocationIssue[] = [];
+    if (isStatic) {
+      const locationGate = runFormLocationGate({ pageData: pageForGate, contentType, contentRoot });
+      if (
+        locationGate.errors.length > 0 &&
+        !layer.isVariantLayer &&
+        editTouchesFormLocation(locationGate, { paths: touchedPaths, sectionIndexes: new Set() })
+      ) {
+        return {
+          success: false,
+          error: formLocationBlockMessage(locationGate.errors),
+          code: locationGate.errors[0]!.code,
+          statusCode: 400,
+          isVariantLayer: layer.isVariantLayer,
+          formLocationIssues: locationGate.errors,
+        };
+      }
+      formLocationWarnings = [...locationGate.errors, ...locationGate.warnings];
+    }
+
     if (isStatic && Object.keys(commonOnlyUpdates).length > 0) {
       const commonPath = path.join(path.dirname(filePath), "_common.yml");
       try {
@@ -798,6 +828,7 @@ export function writeMappedFields(
       ...written,
       isVariantLayer: layer.isVariantLayer,
       ...(linkWarnings.length > 0 ? { linkWarnings } : {}),
+      ...(formLocationWarnings.length > 0 ? { formLocationWarnings } : {}),
     };
   } catch (err) {
     return {

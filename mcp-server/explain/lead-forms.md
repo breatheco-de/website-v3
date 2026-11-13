@@ -265,6 +265,26 @@ Every lead form must show at least one checkbox visitors must tick. Effective co
 - Non-effects: values sent to the CRM are unchanged (`consent_general` is sent as-is; General does **not** set marketing consent). Enforcement is browser-only (the server accepts leads without consent). Agents cannot change the site Default (staff Settings).
 - Rule: `resolveConsentRequirement` in `shared/consent-settings.ts`; per-form check `shared/formConsentCheck.ts`; gate `server/consent-gate.ts`; validator `scripts/validation/validators/forms.ts`.
 
+## Location (per content type: `forms.location`)
+
+Content types opt in with `content-types.yml` → `forms.location: { entry_field, autodetect }` (staff-only, content type dashboard → Form location; read it on `get_content_type_info.form_location`). Types without it keep the old behavior (detected location).
+
+Order for each form:
+
+1. **The form's own `fields.location`**: `default: <slug>` = one location (hidden, locked); `allowed: [slugs]` = several (required dropdown); `visible: true` = visitor picks (from `allowed` when set, else every listed location). `default: auto` / empty = not set.
+2. **The page field** named by `entry_field` (a relation to `location`, page-level → `_common.yml` for every language). One = locked; several = required dropdown with the visitor's detected city pre-selected when it is on the list.
+3. **Detection** (`autodetect` true, default) — otherwise the form has no location.
+
+Rules agents must know:
+
+- `autodetect: false` + nothing set → `form_location_missing`: blocks publish/promote, and live saves that touch a form section or the page field. Draft saves and untouched forms get `form_location_warnings`. Live visitors still get a detected location until fixed.
+- Location values are location slugs (`list_entries` contentType `location`). Wrong slugs → `form_location_unknown` (same blocking rules; variables `{{ entry.* }}` are filled in before checking). Hidden campuses (`visibility: unlisted`) stay valid (warning `form_location_hidden_campus`).
+- A form location different from the page's → warning `form_location_page_mismatch` (form wins).
+- **Prefer `update_fields` on the page field** (e.g. `locations: ["madrid-spain"]`, written to `_common.yml`). `fields.location` on a form is per language file — `update_fields` warns `form_location_override` and does not copy it to other languages. Staff's Forms tab → Location box writes every language.
+- Region follows the chosen location. Signup field map can use `form.location.city|country|region` (chosen campus; detected city/country when the location is `remote` / `rest-of-*` or itself detected).
+- Analytics only: the conversion event carries `location_source` (`form` | `page` | `preselected` | `visitor_picked` | `detected`). Lead/CRM payload unchanged.
+- Code: `shared/formLocationPolicy.ts`, gate `server/form-location-gate.ts`, writes `server/form-location-write.ts`, resolver `client/src/components/lead_form/resolveLeadFormFieldValues.ts`; validator codes `FORM_LOCATION_*` in `scripts/validation/validators/forms.ts`.
+
 ## Paths
 
 - Ledger / enrichment: `server/ads/lead-ledger.ts`, `server/ads/ad-context.ts`, client `client/src/lib/leadAdContext.ts`
