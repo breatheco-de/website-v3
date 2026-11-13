@@ -22,6 +22,8 @@ export interface CatalogRow {
   description: string | null;
   category: string | null;
   unit: string | null;
+  source: string | null;
+  products: string[];
   default: string | null;
   varies_by: VariesBy[];
   read_only: boolean;
@@ -63,6 +65,8 @@ function toRow(name: string, def: VariableDefinition): CatalogRow {
     description: meta.description ?? null,
     category: meta.category ?? null,
     unit: meta.unit ?? null,
+    source: meta.source ?? null,
+    products: meta.products ?? [],
     default: def.default ?? null,
     varies_by: variesBy(def),
     read_only: meta.system_managed,
@@ -179,6 +183,8 @@ export interface DetailItem {
   description: string | null;
   category: string | null;
   unit: string | null;
+  source: string | null;
+  products: string[];
   read_only: boolean;
   deprecated: boolean;
   replaced_by: string | null;
@@ -237,6 +243,8 @@ export function buildVariableDetail(opts: {
       description: row.description,
       category: row.category,
       unit: row.unit,
+      source: row.source,
+      products: row.products,
       read_only: row.read_only,
       deprecated: row.deprecated,
       replaced_by: meta.replaced_by ?? null,

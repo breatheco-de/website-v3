@@ -39,6 +39,8 @@ export interface VariableDefinition {
   description?: string;
   category?: string;
   unit?: string;
+  source?: string;
+  products?: string[];
   deprecated?: boolean;
   replaced_by?: string;
   default?: string;
@@ -53,6 +55,8 @@ export interface VariableMetadataPatch {
   description?: string;
   category?: string;
   unit?: string | null;
+  source?: string | null;
+  products?: string[] | null;
   deprecated?: boolean;
   replaced_by?: string | null;
 }
@@ -393,6 +397,27 @@ class VariableManager {
       if (patch.unit) next.unit = patch.unit;
       else delete next.unit;
     }
+    if (patch.source !== undefined) {
+      if (patch.source) next.source = patch.source.trim();
+      else delete next.source;
+    }
+    if (patch.products !== undefined) {
+      if (Array.isArray(patch.products) && patch.products.length > 0) {
+        const seen = new Set<string>();
+        const products: string[] = [];
+        for (const raw of patch.products) {
+          if (typeof raw !== "string") continue;
+          const slug = raw.trim();
+          if (!slug || seen.has(slug)) continue;
+          seen.add(slug);
+          products.push(slug);
+        }
+        if (products.length) next.products = products;
+        else delete next.products;
+      } else {
+        delete next.products;
+      }
+    }
     if (patch.deprecated !== undefined) {
       if (patch.deprecated) next.deprecated = true;
       else {
@@ -693,7 +718,15 @@ class VariableManager {
   }
 }
 
-const METADATA_KEY_ORDER = ["description", "category", "unit", "deprecated", "replaced_by"] as const;
+const METADATA_KEY_ORDER = [
+  "description",
+  "category",
+  "unit",
+  "source",
+  "products",
+  "deprecated",
+  "replaced_by",
+] as const;
 
 /** Metadata first in YAML so staff read what a fact is before its values. */
 function orderDefinitionKeys(def: VariableDefinition): VariableDefinition {

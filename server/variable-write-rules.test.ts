@@ -77,6 +77,37 @@ describe("evaluateVariableWrite — required metadata", () => {
     expect(!badUnit.ok && badUnit.code).toBe("invalid_unit");
   });
 
+  it("rejects unknown source and non-list products", () => {
+    const badSource = run("set_metadata", described, {
+      description: "d",
+      category: "price",
+      source: "third_party",
+    });
+    expect(!badSource.ok && badSource.code).toBe("invalid_source");
+    const badProducts = run("set_metadata", described, {
+      description: "d",
+      category: "price",
+      products: "ai-flex",
+    });
+    expect(!badProducts.ok && badProducts.code).toBe("invalid_products");
+  });
+
+  it("accepts source and products list on set_metadata", () => {
+    const r = run("set_metadata", described, {
+      description: "d",
+      category: "price",
+      source: "internal",
+      products: ["ai-flex", "full-stack", "ai-flex"],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.metadataPatch).toMatchObject({
+        source: "internal",
+        products: ["ai-flex", "full-stack"],
+      });
+    }
+  });
+
   it("rejects replaced_by pointing at a missing variable", () => {
     const r = run("set_metadata", described, { deprecated: true, replaced_by: "global.nope" });
     expect(!r.ok && r.code).toBe("replaced_by_unknown");
@@ -122,14 +153,40 @@ describe("evaluateVariableWrite — figure confirmation", () => {
 
 describe("readMetadataInput", () => {
   it("reads set_metadata fields from the body", () => {
-    expect(readMetadataInput("set_metadata", { description: "d", category: "price", unit: "usd" })).toEqual({
-      description: "d",
-      category: "price",
-      unit: "usd",
+    expect(
+      readMetadataInput("set_metadata", {
+        description: "d",
+        category: "price",
+        unit: "usd",
+        source: "external",
+        products: ["ai-flex"],
+      }),
+    ).toEqual({
+      ok: true,
+      patch: {
+        description: "d",
+        category: "price",
+        unit: "usd",
+        source: "external",
+        products: ["ai-flex"],
+      },
     });
   });
 
+  it("rejects non-array products at parse time", () => {
+    const r = readMetadataInput("set_metadata", {
+      description: "d",
+      category: "price",
+      products: "ai-flex",
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("invalid_products");
+  });
+
   it("ignores body fields for value actions unless nested in metadata", () => {
-    expect(readMetadataInput("set_default", { value: "x", description: "d" })).toBeNull();
+    expect(readMetadataInput("set_default", { value: "x", description: "d" })).toEqual({
+      ok: true,
+      patch: null,
+    });
   });
 });

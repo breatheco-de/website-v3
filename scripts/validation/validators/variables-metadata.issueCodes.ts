@@ -42,6 +42,22 @@ export const VARIABLES_METADATA_ISSUE_CODES: Record<string, IssueCodeDefinition>
     summary: "The variable's unit is not one of the known units.",
     suggestion: "Pick one of percent, usd, eur, count, weeks, rating, url, text (or clear it) at /private/variables.",
   },
+  VARIABLE_INVALID_SOURCE: {
+    title: "Variable Invalid Source",
+    summary: "The variable's source is not one of the known sources.",
+    suggestion: "Pick internal or external (or clear it) at /private/variables.",
+  },
+  VARIABLE_INVALID_PRODUCTS: {
+    title: "Variable Invalid Products",
+    summary: "products must be a list of sellable product content slugs.",
+    suggestion: 'Use a YAML list of slugs (e.g. products: [ai-flex, full-stack]) or clear it for site-wide.',
+  },
+  VARIABLE_UNKNOWN_PRODUCT: {
+    title: "Variable Unknown Product Slug",
+    summary: "A products entry does not match a purchasable product on this site.",
+    suggestion:
+      "Pick sellable product slugs from the Store / Funnel product list (same as ecommerce_products), or remove the bad slug.",
+  },
   VARIABLE_UNIT_MISMATCH: {
     title: "Variable Value Does Not Match Unit",
     summary:

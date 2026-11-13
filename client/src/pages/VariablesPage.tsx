@@ -93,7 +93,9 @@ import {
 import {
   VARIABLE_CATEGORIES,
   VARIABLE_CATEGORY_LABELS,
+  VARIABLE_SOURCE_LABELS,
   isFigureCategory,
+  isVariableSource,
   missingVariableMetadata,
   type VariableCategory,
 } from "@shared/variable-metadata";
@@ -690,6 +692,16 @@ export default function VariablesPage() {
                             remove every reference first.
                           </p>
                         </ColumnInfoHeader>
+                        <ColumnInfoHeader label="Products" testId="info-column-products">
+                          <p className="font-medium text-foreground">Products</p>
+                          <p>
+                            Product slugs this fact applies to. Empty means site-wide
+                            (not tied to a specific product).
+                          </p>
+                          <p>
+                            Edit the variable&apos;s Details tab to change the list.
+                          </p>
+                        </ColumnInfoHeader>
                         <th className="px-3 py-2 font-medium text-right">Actions</th>
                       </tr>
                     </thead>
@@ -734,7 +746,20 @@ export default function VariablesPage() {
                                       className="text-[10px] font-normal"
                                       data-testid={`badge-category-${name}`}
                                     >
+                                      <span className="font-semibold text-foreground">Category</span>
+                                      <span className="text-muted-foreground px-1">·</span>
                                       {VARIABLE_CATEGORY_LABELS[def.category as VariableCategory]}
+                                    </Badge>
+                                  ) : null}
+                                  {def.source && isVariableSource(def.source) ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] font-normal"
+                                      data-testid={`badge-source-${name}`}
+                                    >
+                                      <span className="font-semibold text-foreground">Source</span>
+                                      <span className="text-muted-foreground px-1">·</span>
+                                      {VARIABLE_SOURCE_LABELS[def.source]}
                                     </Badge>
                                   ) : null}
                                   {(() => {
@@ -850,6 +875,21 @@ export default function VariablesPage() {
                                 count={usageCount}
                                 resolveContentType={resolveContentType}
                               />
+                            </td>
+                            <td
+                              className="px-3 py-2 align-top w-[1%] max-w-[72px] text-xs text-muted-foreground"
+                              data-testid={`cell-products-${name}`}
+                            >
+                              {Array.isArray(def.products) && def.products.length > 0 ? (
+                                <span
+                                  className="font-mono line-clamp-2 break-all"
+                                  title={def.products.join(", ")}
+                                >
+                                  {def.products.join(", ")}
+                                </span>
+                              ) : (
+                                <span>—</span>
+                              )}
                             </td>
                             <td className="px-3 py-2 align-top">
                               <div className="flex justify-end gap-1">
@@ -1072,9 +1112,13 @@ export default function VariablesPage() {
                 <p>
                   Each global carries <code className="font-mono">description</code> and{" "}
                   <code className="font-mono">category</code> (required), plus optional{" "}
-                  <code className="font-mono">unit</code>, <code className="font-mono">deprecated</code>{" "}
-                  and <code className="font-mono">replaced_by</code>. The server rejects writes that
-                  leave description or category empty. Figure categories (price, outcome_claim,
+                  <code className="font-mono">unit</code>, <code className="font-mono">source</code>{" "}
+                  (<code className="font-mono">internal</code> / <code className="font-mono">external</code>),{" "}
+                  <code className="font-mono">products</code> (list of sellable product slugs),{" "}
+                  <code className="font-mono">deprecated</code> and{" "}
+                  <code className="font-mono">replaced_by</code>. Empty{" "}
+                  <code className="font-mono">products</code> means site-wide. The server rejects writes
+                  that leave description or category empty. Figure categories (price, outcome_claim,
                   social_proof) ask for confirmation before a value change and route proposals that
                   touch them through the outcome-figures review. Each site has its own{" "}
                   <code className="font-mono">variables.yml</code>; agents read the catalog through

@@ -5,6 +5,25 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-13"
+    summary: "Variable facts: source (internal|external) + products; origin/own renamed"
+    agent_impact:
+      - "list_variables catalog/detail rows include source (internal|external|null) and products (string[] of sellable content_slug; empty = site-wide). Field was briefly origin/own — use source/internal now. Staff set them at /private/variables; agents still cannot write variables."
+      - "Same product identity as funnel/ecommerce_products: content slug (e.g. ai-flex), not product_id. Omit products when the fact is site-wide."
+    tools_changed: false
+    paths:
+      - shared/variable-metadata.ts
+      - server/variable-catalog.ts
+      - server/variable-write-rules.ts
+      - mcp-server/explain/content_system.md
+      - mcp-server/tools/variables.ts
+  - date: "2026-11-12"
+    summary: "Variable facts gain optional origin (own|external) and products (sellable slugs)"
+    agent_impact:
+      - "Superseded 2026-11-13: use source (internal|external) instead of origin (own|external)."
+    tools_changed: false
+    paths:
+      - shared/variable-metadata.ts
   - date: "2026-11-11"
     summary: "Links leaving the checkout path carry gtm_payload automatically (product / persona short codes)"
     agent_impact:

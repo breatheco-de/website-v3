@@ -28,6 +28,8 @@ export interface VariableDefinition {
   description?: string;
   category?: string;
   unit?: string;
+  source?: string;
+  products?: string[];
   deprecated?: boolean;
   replaced_by?: string;
   default?: string;

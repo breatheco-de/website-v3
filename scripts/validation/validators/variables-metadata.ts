@@ -14,13 +14,16 @@ import { getVariableManager, type VariableDefinition } from "../../../server/var
 import {
   isSystemManagedVariable,
   isVariableCategory,
+  isVariableSource,
   isVariableUnit,
   missingVariableMetadata,
+  normalizeVariableProducts,
 } from "../../../shared/variable-metadata";
 import {
   VARIABLES_METADATA_ISSUE_CODES,
   VARIABLES_METADATA_VALIDATOR_NAME,
 } from "./variables-metadata.issueCodes";
+import { listProductRows } from "../../../server/product/product-io";
 
 const TOKEN_RE = /\{\{\s*(global\.[a-zA-Z0-9_.]+)\s*(?:\|[^}]*)?\}\}/g;
 
@@ -90,7 +93,7 @@ export const variablesMetadataValidator: Validator = {
   name: VARIABLES_METADATA_VALIDATOR_NAME,
   issueCodes: VARIABLES_METADATA_ISSUE_CODES,
   description:
-    "Site variables (facts) need description + category; flags unit mismatches, deprecated variables in use, broken replaced_by, near-duplicate names",
+    "Site variables (facts) need description + category; flags unit/source/products issues, deprecated variables in use, broken replaced_by, near-duplicate names",
   apiExposed: true,
   estimatedDuration: "fast",
   category: "integrity",
@@ -107,6 +110,14 @@ export const variablesMetadataValidator: Validator = {
     const own = Object.entries(defs).filter(
       ([name, def]) => name.startsWith("global.") && !isSystemManagedVariable(name, def),
     );
+    let knownProductSlugs: Set<string> | null = null;
+    try {
+      knownProductSlugs = new Set(
+        listProductRows({ includePaused: true, contentRoot }).map((p) => p.content_slug),
+      );
+    } catch {
+      knownProductSlugs = null;
+    }
 
     for (const [name, def] of own) {
       const missing = missingVariableMetadata(name, def);
@@ -159,6 +170,38 @@ export const variablesMetadataValidator: Validator = {
             file: variablesFile,
             suggestion: VARIABLES_METADATA_ISSUE_CODES.VARIABLE_UNIT_MISMATCH.suggestion,
           });
+        }
+      }
+      if (def.source && !isVariableSource(def.source)) {
+        errors.push({
+          type: "error",
+          code: "VARIABLE_INVALID_SOURCE",
+          message: `Variable "${name}" has unknown source "${def.source}".`,
+          file: variablesFile,
+          suggestion: VARIABLES_METADATA_ISSUE_CODES.VARIABLE_INVALID_SOURCE.suggestion,
+        });
+      }
+      if (def.products != null) {
+        if (!Array.isArray(def.products) || def.products.some((p) => typeof p !== "string")) {
+          errors.push({
+            type: "error",
+            code: "VARIABLE_INVALID_PRODUCTS",
+            message: `Variable "${name}" products must be a list of product content slugs.`,
+            file: variablesFile,
+            suggestion: VARIABLES_METADATA_ISSUE_CODES.VARIABLE_INVALID_PRODUCTS.suggestion,
+          });
+        } else if (knownProductSlugs && knownProductSlugs.size > 0) {
+          const normalized = normalizeVariableProducts(def.products) ?? [];
+          const unknown = normalized.filter((slug) => !knownProductSlugs!.has(slug));
+          if (unknown.length) {
+            warnings.push({
+              type: "warning",
+              code: "VARIABLE_UNKNOWN_PRODUCT",
+              message: `Variable "${name}" products unknown on this site: ${unknown.join(", ")}.`,
+              file: variablesFile,
+              suggestion: VARIABLES_METADATA_ISSUE_CODES.VARIABLE_UNKNOWN_PRODUCT.suggestion,
+            });
+          }
         }
       }
       if (def.deprecated && def.replaced_by) {
