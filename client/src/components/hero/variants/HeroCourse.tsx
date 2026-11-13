@@ -93,6 +93,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
       | { url?: string; tracking?: string }
       | undefined;
     const tracking = cta?.tracking;
+    // test
     let sent: Promise<void> | null = null;
     if (isCtaTrackingValue(tracking) && tracking !== "none") {
       const programId = programIdFromHeroData(data, cta?.url, scopeCtx);
