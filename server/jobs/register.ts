@@ -23,6 +23,7 @@ import { EvidenceArchiveJob } from "./definitions/evidence-archive";
 import { EvidenceArchiveSweepJob } from "./definitions/evidence-archive-sweep";
 import { PublicUrlChangesScanJob } from "./definitions/public-url-changes-scan";
 import { IndexNowSubmitJob } from "./definitions/indexnow-submit";
+import { LlmsTxtRegenerateJob } from "./definitions/llms-txt-regenerate";
 
 export function registerAllJobs(): void {
   registerJobClass("index_refresh", IndexRefreshJob);
@@ -51,4 +52,5 @@ export function registerAllJobs(): void {
   registerJobClass("evidence_archive_sweep", EvidenceArchiveSweepJob);
   registerJobClass("public_url_changes_scan", PublicUrlChangesScanJob);
   registerJobClass("indexnow_submit", IndexNowSubmitJob);
+  registerJobClass("llms_txt_regenerate", LlmsTxtRegenerateJob);
 }

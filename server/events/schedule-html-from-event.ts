@@ -251,6 +251,10 @@ export function scheduleHtmlFromEvent(event: ContentEvent, site: HtmlEventSite):
       const names = Array.isArray(event.payload.names)
         ? (event.payload.names as string[])
         : [];
+      // Compiled /llms.txt may embed {{ global.* }}; drop cache only (no AI enqueue).
+      void import("../llms-txt/compile").then(({ invalidateLlmsCompiledCache }) => {
+        invalidateLlmsCompiledCache(site.contentRoot);
+      });
       if (names.length === 0) {
         scheduleHotHtmlRebuild("variables", { siteIds: [site.contentRootName] });
         return;

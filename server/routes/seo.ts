@@ -375,6 +375,37 @@ export function registerSeoRoutes(app: Express): void {
     res.send(content);
   });
 
+  // Deterministic llms.txt from site_*/llms.template.md (AI job writes the template).
+  app.get("/llms.txt", async (req, res) => {
+    const { compileLlmsTxt } = await import("../llms-txt/compile");
+    const { enqueueLlmsTxtRegenerate } = await import("../llms-txt/enqueue-llms-txt");
+    const { getLlmsTxtSettings } = await import("../settings");
+    const contentRoot = getContentRoot(res);
+    const { enabled } = getLlmsTxtSettings(contentRoot);
+    if (!enabled) {
+      res.status(404);
+      res.set("Content-Type", "text/plain; charset=utf-8");
+      res.set("Cache-Control", "no-store");
+      return res.send("Not Found\n");
+    }
+    const compiled = compileLlmsTxt(contentRoot);
+    if (!compiled.ok) {
+      const site = res.locals.site as SiteContext | undefined;
+      void enqueueLlmsTxtRegenerate({
+        contentRoot,
+        siteId: site?.contentRootName,
+        reason: "missing_template",
+      }).catch(() => {});
+      res.status(404);
+      res.set("Content-Type", "text/plain; charset=utf-8");
+      res.set("Cache-Control", "no-store");
+      return res.send("Not Found\n");
+    }
+    res.set("Content-Type", "text/plain; charset=utf-8");
+    res.set("Cache-Control", "public, max-age=3600");
+    res.send(compiled.body);
+  });
+
   app.get("/:key.txt", indexNowKeyFileHandler);
 
   // Dynamic sitemap with caching

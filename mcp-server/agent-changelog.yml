@@ -6,6 +6,14 @@ window_days: 6
 
 entries:
   - date: "2026-11-13"
+    summary: "list_products rows include locale urls"
+    agent_impact:
+      - "list_products catalog rows add urls: Record<locale, public path> from ContentIndex alternates (relative paths). Prefix SITE_URL when you need absolute links."
+    tools_changed: true
+    paths:
+      - server/product/product-io.ts
+      - mcp-server/tools/product.ts
+  - date: "2026-11-13"
     summary: "Variable facts: source (internal|external) + products; origin/own renamed"
     agent_impact:
       - "list_variables catalog/detail rows include source (internal|external|null) and products (string[] of sellable content_slug; empty = site-wide). Field was briefly origin/own — use source/internal now. Staff set them at /private/variables; agents still cannot write variables."

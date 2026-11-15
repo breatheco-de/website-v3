@@ -201,6 +201,7 @@ export default function PrivateRouter() {
           <Route path="/private/settings/migrations" component={SettingsPage} />
           <Route path="/private/settings/brand" component={SettingsPage} />
           <Route path="/private/settings/robots" component={SettingsPage} />
+          <Route path="/private/settings/llms-txt" component={SettingsPage} />
           <Route path="/private/settings/legal" component={SettingsPage} />
           <Route path="/private/settings/server" component={SettingsPage} />
           <Route path="/private/settings" component={SettingsPage} />

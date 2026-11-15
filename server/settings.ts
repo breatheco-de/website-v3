@@ -486,6 +486,24 @@ export interface IndexNowSettings {
 
 export const DEFAULT_INDEXNOW_SETTINGS: IndexNowSettings = { enabled: false, key: "" };
 
+/** Public /llms.txt gate. Template stays in llms.template.md; this only toggles serving. */
+export interface LlmsTxtSettings {
+  enabled: boolean;
+}
+
+/** Default on so existing templates keep serving until staff turns them off. */
+export const DEFAULT_LLMS_TXT_SETTINGS: LlmsTxtSettings = { enabled: true };
+
+export function parseLlmsTxtSettings(raw: unknown): LlmsTxtSettings {
+  const obj =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  return {
+    enabled: typeof obj.enabled === "boolean" ? obj.enabled : DEFAULT_LLMS_TXT_SETTINGS.enabled,
+  };
+}
+
 export const INDEXNOW_KEY_RE = /^[A-Za-z0-9-]{8,128}$/;
 
 export function isValidIndexNowKey(key: string): boolean {
@@ -1030,6 +1048,7 @@ interface SiteSettings {
   robots: RobotsSettings;
   search_console: SearchConsoleSettings;
   indexnow: IndexNowSettings;
+  llms_txt: LlmsTxtSettings;
   openrush: OpenRushSettings;
   dataforseo: DataForSeoSettings;
   funnel: FunnelSettings;
@@ -1162,6 +1181,7 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
     robots: { ...DEFAULT_ROBOTS_SETTINGS },
     search_console: { ...DEFAULT_SEARCH_CONSOLE_SETTINGS },
     indexnow: { ...DEFAULT_INDEXNOW_SETTINGS },
+    llms_txt: { ...DEFAULT_LLMS_TXT_SETTINGS },
     openrush: { ...DEFAULT_OPENRUSH_SETTINGS },
     dataforseo: { ...DEFAULT_DATAFORSEO_SETTINGS },
     funnel: { ...DEFAULT_FUNNEL_SETTINGS },
@@ -1394,6 +1414,7 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
       robots,
       search_console: parseSearchConsoleSettings(parsed.search_console),
       indexnow: parseIndexNowSettings(parsed.indexnow),
+      llms_txt: parseLlmsTxtSettings(parsed.llms_txt),
       openrush: parseOpenRushSettings(parsed.openrush),
       dataforseo: parseDataForSeoSettings(parsed.dataforseo),
       funnel: parseFunnelSettings(parsed.funnel),
@@ -1767,6 +1788,36 @@ export function getSearchConsoleSettings(contentRoot?: string): SearchConsoleSet
 
 export function getIndexNowSettings(contentRoot?: string): IndexNowSettings {
   return loadSettings(contentRoot).indexnow;
+}
+
+export function getLlmsTxtSettings(contentRoot?: string): LlmsTxtSettings {
+  return loadSettings(contentRoot).llms_txt;
+}
+
+export function updateLlmsTxtSettings(
+  input: Partial<LlmsTxtSettings>,
+  contentRoot?: string,
+): LlmsTxtSettings {
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {}
+  }
+
+  const current = parseLlmsTxtSettings(existing.llms_txt);
+  const updated: LlmsTxtSettings = {
+    enabled: typeof input.enabled === "boolean" ? input.enabled : current.enabled,
+  };
+  existing.llms_txt = { enabled: updated.enabled };
+
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  log.info(`[Settings] Updated llms_txt enabled=${updated.enabled}`);
+  return updated;
 }
 
 export function getOpenRushSettings(contentRoot?: string): OpenRushSettings {
