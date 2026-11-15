@@ -491,8 +491,8 @@ export interface LlmsTxtSettings {
   enabled: boolean;
 }
 
-/** Default on so existing templates keep serving until staff turns them off. */
-export const DEFAULT_LLMS_TXT_SETTINGS: LlmsTxtSettings = { enabled: true };
+/** Default off when `llms_txt` is missing from settings.yml — staff must Serve explicitly. */
+export const DEFAULT_LLMS_TXT_SETTINGS: LlmsTxtSettings = { enabled: false };
 
 export function parseLlmsTxtSettings(raw: unknown): LlmsTxtSettings {
   const obj =

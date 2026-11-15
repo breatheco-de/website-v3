@@ -2430,28 +2430,12 @@ export function registerSettingsRoutes(app: Express): void {
     if (!auth.authorized) return;
     try {
       const { enqueueLlmsTxtRegenerate } = await import("../llms-txt/enqueue-llms-txt");
-      const { getLlmsTxtSettings, updateLlmsTxtSettings } = await import("../settings");
-      const { commitSingleFile } = await import("../github");
+      const { getLlmsTxtSettings } = await import("../settings");
       const contentRoot = getContentRoot(res);
       const folder = getContentRootName(res);
-      const author = auth.author || auth.username || "staff";
+      const { enabled } = getLlmsTxtSettings(contentRoot);
 
-      // Staff regenerate implies they want the public file on.
-      let settingsCommitSha: string | null = null;
-      let settingsPushSkipped = false;
-      if (!getLlmsTxtSettings(contentRoot).enabled) {
-        updateLlmsTxtSettings({ enabled: true }, contentRoot);
-        markFileAsModified("settings.yml", author, undefined, contentRoot);
-        const settingsPush = await commitSingleFile({
-          filePath: `${folder}/settings.yml`,
-          message: "Enable llms.txt serving (settings.yml)",
-          author,
-          contentRoot,
-        });
-        settingsCommitSha = settingsPush.commitSha ?? null;
-        settingsPushSkipped = !settingsPush.success;
-      }
-
+      // Regenerate only rebuilds the template; serving stays whatever llms_txt.enabled is.
       const result = await enqueueLlmsTxtRegenerate({
         contentRoot,
         siteId: folder,
@@ -2462,9 +2446,7 @@ export function registerSettingsRoutes(app: Express): void {
         queued: result.queued,
         deduped: result.deduped === true,
         busy: result.busy === true,
-        enabled: true,
-        settings_commit_sha: settingsCommitSha,
-        settings_push_skipped: settingsPushSkipped,
+        enabled,
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to enqueue llms.txt regenerate" });
@@ -2491,7 +2473,7 @@ export function registerSettingsRoutes(app: Express): void {
 
       if (parsed.data.enabled && !hasTemplate) {
         return res.status(400).json({
-          error: "No template yet — use Generate & serve first",
+          error: "No template yet — generate one first, then Serve",
           has_template: false,
         });
       }

@@ -144,6 +144,7 @@ export function LlmsTxtTab() {
   const [copiedKey, setCopiedKey] = useState<"public" | "template" | null>(null);
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
+  const [confirmServe, setConfirmServe] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
   const baselineMtimeMs = useRef<number | null>(null);
   const regenerateStartedAt = useRef<number>(0);
@@ -272,6 +273,7 @@ export function LlmsTxtTab() {
     } finally {
       setServingBusy(false);
       setConfirmStop(false);
+      setConfirmServe(false);
     }
   };
 
@@ -340,7 +342,7 @@ export function LlmsTxtTab() {
             <Button
               size="sm"
               className="bg-chart-3 text-white border-transparent hover:bg-chart-3/90"
-              onClick={() => void setServingEnabled(true)}
+              onClick={() => setConfirmServe(true)}
               disabled={servingBusy || regenerating}
               data-testid="button-start-serving-llms-txt"
             >
@@ -363,7 +365,7 @@ export function LlmsTxtTab() {
             ) : (
               <IconRefresh className="h-4 w-4 mr-1.5" />
             )}
-            {hasTemplate ? "Regenerate" : "Generate & serve"}
+            {hasTemplate ? "Regenerate" : "Generate"}
           </Button>
         </div>
       </CardHeader>
@@ -391,7 +393,7 @@ export function LlmsTxtTab() {
               No template yet — public <code className="text-xs">/llms.txt</code> returns 404 until
               you generate one.
             </p>
-            <p>Use Generate &amp; serve, or wait if a public request already queued a job.</p>
+            <p>Use Generate, then Serve when you want it public. A public miss only queues a rebuild if serving is on.</p>
           </div>
         ) : regenerating && !showPreview ? (
           <div
@@ -519,12 +521,12 @@ export function LlmsTxtTab() {
             <ul className="mt-2 text-xs text-muted-foreground list-disc pl-5 space-y-1">
               <li>
                 Template file: <code>llms.template.md</code> in the site content root. Serving flag:{" "}
-                <code>settings.yml → llms_txt.enabled</code> (default on).
+                <code>settings.yml → llms_txt.enabled</code> (default off if missing).
               </li>
               <li>
-                Job: <code>llms_txt_regenerate</code> (Sidequest / OpenRouter). Enqueue only from
-                Regenerate/Generate or a public 404 while enabled and missing. Prompt lives in code (
-                <code>regenerate-prompt.ts</code>).
+                Job: <code>llms_txt_regenerate</code> (Sidequest / OpenRouter). Staff Regenerate does
+                not turn serving on. Public 404 enqueues only while enabled and missing. Prompt lives
+                in code (<code>regenerate-prompt.ts</code>).
               </li>
               <li>
                 Pages input: content type <code>page</code>, <code>meta.priority ≥ 0.8</code>, not
@@ -541,9 +543,9 @@ export function LlmsTxtTab() {
           <AlertDialogHeader>
             <AlertDialogTitle>Replace the current template?</AlertDialogTitle>
             <AlertDialogDescription>
-              Regenerate overwrites <code className="text-xs">llms.template.md</code> and the public
-              file updates as soon as the job finishes. There is no draft — visitors will see the new
-              version when it is ready.
+              Regenerate overwrites <code className="text-xs">llms.template.md</code>. It does not
+              change the Serve setting — if serving is on, the public file updates when the job
+              finishes; if it is off, only the saved template changes.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -594,6 +596,44 @@ export function LlmsTxtTab() {
                 <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" />
               ) : null}
               {servingBusy ? "Stopping…" : "Stop serving"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={confirmServe}
+        onOpenChange={(open) => {
+          if (servingBusy) return;
+          setConfirmServe(open);
+        }}
+      >
+        <AlertDialogContent data-testid="dialog-llms-start-serving-confirm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Start serving llms.txt?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Turns on <code className="text-xs">llms_txt.enabled</code> in settings. Public{" "}
+              <code className="text-xs">/llms.txt</code> will return the compiled template agents
+              already see in the Public preview.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={servingBusy} data-testid="button-llms-serve-cancel">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-chart-3 text-white border-transparent hover:bg-chart-3/90"
+              disabled={servingBusy}
+              data-testid="button-llms-serve-confirm"
+              onClick={(e) => {
+                e.preventDefault();
+                void setServingEnabled(true);
+              }}
+            >
+              {servingBusy ? (
+                <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : null}
+              {servingBusy ? "Serving…" : "Serve"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
