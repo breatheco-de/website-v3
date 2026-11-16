@@ -3,6 +3,7 @@ import {
   describeSectionAudience,
   expandLlmVariableString,
   HIDDEN_LOCATION_SENTINEL,
+  isSectionShownOnLlm,
   sectionsBranchForLlm,
   type LlmLocationCatalog,
 } from "./llm-html-audience";
@@ -98,6 +99,14 @@ describe("expandLlmVariableString", () => {
   });
 });
 
+describe("isSectionShownOnLlm", () => {
+  it("defaults to visible and honors explicit false", () => {
+    expect(isSectionShownOnLlm({})).toBe(true);
+    expect(isSectionShownOnLlm({ show_on_llm: true })).toBe(true);
+    expect(isSectionShownOnLlm({ show_on_llm: false })).toBe(false);
+  });
+});
+
 describe("sectionsBranchForLlm", () => {
   it("branches for a real filter and for a differing region variable", () => {
     expect(
@@ -114,6 +123,17 @@ describe("sectionsBranchForLlm", () => {
     expect(sectionsBranchForLlm([{ title: "Hello" }], {}, "en", catalog)).toBe(false);
     expect(
       sectionsBranchForLlm([{ showOnLocations: [HIDDEN_LOCATION_SENTINEL] }], {}, "en", catalog),
+    ).toBe(false);
+  });
+
+  it("ignores location filters on sections hidden from AI crawlers", () => {
+    expect(
+      sectionsBranchForLlm(
+        [{ showOnLocations: ["mexicocity-mexico"], show_on_llm: false }],
+        {},
+        "en",
+        catalog,
+      ),
     ).toBe(false);
   });
 });

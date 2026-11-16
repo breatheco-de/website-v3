@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isJunkRuntimeNotFoundPath } from "./safe-href";
+import { CLICK_ID_PARAMS, type ClickIdParam } from "./paid-traffic";
 
 export const RUNTIME_ISSUE_KINDS = ["http.not_found"] as const;
 export type RuntimeIssueKind = (typeof RUNTIME_ISSUE_KINDS)[number];
@@ -500,6 +501,9 @@ export const STAFF_QUERY_KEYS = new Set([
   "edit_mode",
   "debug",
   "__site",
+  "preview_mode",
+  "device_embed",
+  "hide_debug",
 ]);
 
 const SENSITIVE_QUERY_KEY_PARTS = [
@@ -536,6 +540,60 @@ export function isSensitiveQueryKey(key: string): boolean {
   const lower = key.toLowerCase();
   return SENSITIVE_QUERY_KEY_PARTS.some((part) => lower.includes(part));
 }
+
+const CLICK_ID_KEY_SET = new Set<string>(CLICK_ID_PARAMS);
+
+/** True for ad click-id params (gclid, fbclid, …) — never store plaintext in queryAttribution.other. */
+export function isClickIdQueryKey(key: string): boolean {
+  return CLICK_ID_KEY_SET.has(key.toLowerCase());
+}
+
+/** Priority for a single “primary” source chip on a hit sample. */
+const PRIMARY_SOURCE_ORDER: RuntimeSourceTag[] = [
+  "social_preview",
+  "search_crawler",
+  "llm_crawler",
+  "search_referrer",
+  "llm_referrer",
+  "internal",
+  "human",
+  "scraper",
+];
+
+export function primaryRuntimeSource(
+  tags: Iterable<string> | undefined | null,
+): RuntimeSourceTag | undefined {
+  if (!tags) return undefined;
+  const set = tags instanceof Set ? tags : new Set(tags);
+  for (const t of PRIMARY_SOURCE_ORDER) {
+    if (set.has(t)) return t;
+  }
+  return undefined;
+}
+
+/** First click-id param present on the query string (kind + raw value). */
+export function extractClickIdFromSearch(
+  search: string | undefined | null,
+): { kind: ClickIdParam; value: string } | undefined {
+  if (!search?.trim()) return undefined;
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  if (!raw.trim()) return undefined;
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(raw);
+  } catch {
+    return undefined;
+  }
+  for (const kind of CLICK_ID_PARAMS) {
+    const value = params.get(kind)?.trim();
+    if (value) return { kind, value };
+  }
+  return undefined;
+}
+
+export const MAX_SAMPLES_PER_PATH = 10;
+/** Soft ceiling across all issues so GCS snapshots stay bounded. */
+export const MAX_PATH_SAMPLES_TOTAL = 3000;
 
 export function hasStaffQueryParams(search: string | undefined | null): boolean {
   if (!search?.trim()) return false;
@@ -603,6 +661,7 @@ export function parseRuntimeQueryAttribution(
     if (STAFF_QUERY_KEYS.has(k)) continue;
     if (k === "cache" && rawValue.toLowerCase() === "false") continue;
     if (isSensitiveQueryKey(k)) continue;
+    if (isClickIdQueryKey(k)) continue;
     const value = truncateQueryValue(decodeQueryValue(rawValue));
     if (!value) continue;
 
@@ -711,6 +770,23 @@ export function isRuntimeIssueProbeSuccess(status: RuntimeIssueProbeStatus | und
   return status === "page" || status === "redirect";
 }
 
+export const runtimeHitClickSchema = z.object({
+  kind: z.string(),
+  hash: z.string(),
+});
+
+/** One sampled 404 hit. Legacy rows may only have fingerprint/ts/referrer. */
+export const runtimeHitSampleSchema = z.object({
+  fingerprint: z.string(),
+  ts: z.number(),
+  referrer: z.string().optional(),
+  source: z.string().optional(),
+  referrerHost: z.string().optional(),
+  click: runtimeHitClickSchema.optional(),
+});
+
+export type RuntimeHitSample = z.infer<typeof runtimeHitSampleSchema>;
+
 export const runtimeIssueRecordSchema = z.object({
   fingerprint: z.string(),
   kind: runtimeIssueKindSchema,
@@ -727,6 +803,8 @@ export const runtimeIssueRecordSchema = z.object({
   byHour: z.record(z.string(), hourCountsSchema).optional(),
   lastProbe: runtimeIssueProbeSchema.optional(),
   queryAttribution: runtimeQueryAttributionSchema.optional(),
+  /** Last N hits for this path (enriched when available). */
+  samples: z.array(runtimeHitSampleSchema).optional(),
 });
 
 export type RuntimeIssueRecord = z.infer<typeof runtimeIssueRecordSchema>;
@@ -735,15 +813,7 @@ export const runtimeIssuesStateSchema = z.object({
   version: z.literal(1),
   updatedAt: z.number(),
   issues: z.record(z.string(), runtimeIssueRecordSchema),
-  recent: z
-    .array(
-      z.object({
-        fingerprint: z.string(),
-        ts: z.number(),
-        referrer: z.string().optional(),
-      }),
-    )
-    .optional(),
+  recent: z.array(runtimeHitSampleSchema).optional(),
   dropScrapers: z.boolean().optional(),
 });
 
@@ -752,6 +822,39 @@ export type RuntimeIssuesState = z.infer<typeof runtimeIssuesStateSchema>;
 export const MAX_ISSUES_PER_SITE = 2000;
 export const ISSUE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const MAX_RECENT = 100;
+
+/** Prefer per-path buffer; fall back to site ring filtered by fingerprint. */
+export function samplesForIssue(
+  issue: Pick<RuntimeIssueRecord, "fingerprint" | "samples">,
+  recent: RuntimeHitSample[] | undefined,
+  limit = MAX_SAMPLES_PER_PATH,
+): RuntimeHitSample[] {
+  const fromPath = issue.samples ?? [];
+  if (fromPath.length > 0) return fromPath.slice(-limit);
+  const fp = issue.fingerprint;
+  return (recent ?? []).filter((r) => r.fingerprint === fp).slice(-limit);
+}
+
+export function trimPathSamplesTotal(
+  issues: Record<string, RuntimeIssueRecord>,
+  maxTotal = MAX_PATH_SAMPLES_TOTAL,
+): void {
+  let total = 0;
+  for (const issue of Object.values(issues)) total += issue.samples?.length ?? 0;
+  if (total <= maxTotal) return;
+  const ranked = Object.values(issues)
+    .filter((i) => (i.samples?.length ?? 0) > 0)
+    .sort((a, b) => a.lastSeen - b.lastSeen);
+  for (const issue of ranked) {
+    if (total <= maxTotal) break;
+    const samples = issue.samples;
+    if (!samples?.length) continue;
+    const drop = Math.min(samples.length, total - maxTotal);
+    issue.samples = samples.slice(drop);
+    if (issue.samples.length === 0) delete issue.samples;
+    total -= drop;
+  }
+}
 
 export function emptyRuntimeIssuesState(): RuntimeIssuesState {
   return {
@@ -774,7 +877,16 @@ export function pruneRuntimeIssuesState(
   const cutoff = now - ISSUE_TTL_MS;
   const dropScrapers = resolvedDropScrapers(state);
   const entries = Object.values(state.issues)
-    .map((issue) => pruneIssueHours(issue, now))
+    .map((issue) => {
+      const pruned = pruneIssueHours(issue, now);
+      if (!pruned.samples?.length) return pruned;
+      const samples = pruned.samples.filter((s) => s.ts >= cutoff).slice(-MAX_SAMPLES_PER_PATH);
+      if (samples.length === 0) {
+        const { samples: _drop, ...rest } = pruned;
+        return rest;
+      }
+      return { ...pruned, samples };
+    })
     .filter((i) => i.lastSeen >= cutoff)
     .filter((i) => !shouldHardDropNotFound(i.path, undefined, i.sampleReferrer, dropScrapers));
   entries.sort((a, b) => {
@@ -784,6 +896,7 @@ export function pruneRuntimeIssuesState(
   const kept = entries.slice(0, MAX_ISSUES_PER_SITE);
   const issues: Record<string, RuntimeIssueRecord> = {};
   for (const e of kept) issues[e.fingerprint] = e;
+  trimPathSamplesTotal(issues);
   const recent = (state.recent ?? []).filter((r) => r.ts >= cutoff).slice(-MAX_RECENT);
   return {
     version: 1,

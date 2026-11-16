@@ -2365,6 +2365,8 @@ export function registerSettingsRoutes(app: Express): void {
   app.put("/api/settings/robots", (req, res) => {
     try {
       const schema = z.object({
+        indexing_block: z.enum(["none", "ai", "all"]).optional(),
+        /** Legacy; mapped to indexing_block when indexing_block is omitted. */
         block_indexing: z.boolean().optional(),
         include_sitemap: z.boolean().optional(),
         disallow_paths: z.array(z.string()).optional(),

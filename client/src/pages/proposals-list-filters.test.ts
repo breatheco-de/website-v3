@@ -4,6 +4,7 @@ import {
   DEFAULT_PROPOSAL_LIST_VIEW,
   clearProposalListFilters,
   countActiveProposalFilters,
+  isProposalIdLikeQuery,
   parseProposalListPerspective,
   parseProposalListSearch,
   proposalKpiCardsForKindFilter,
@@ -387,5 +388,20 @@ describe("proposal list perspective", () => {
       search,
     );
     expect(parseProposalListPerspective(next)).toBe("table");
+  });
+});
+
+describe("isProposalIdLikeQuery", () => {
+  it("accepts UUID prefixes and hex hashes of length >= 6", () => {
+    expect(isProposalIdLikeQuery("9508725f")).toBe(true);
+    expect(isProposalIdLikeQuery("58c90fc3-9d0c-41cf")).toBe(true);
+    expect(isProposalIdLikeQuery("3ee75b7e-ff46-4fdf-acf2-aabf7d9a5255")).toBe(true);
+  });
+
+  it("rejects short, spaced, or non-hex queries", () => {
+    expect(isProposalIdLikeQuery("abc")).toBe(false);
+    expect(isProposalIdLikeQuery("hero title")).toBe(false);
+    expect(isProposalIdLikeQuery("redirect")).toBe(false);
+    expect(isProposalIdLikeQuery("")).toBe(false);
   });
 });

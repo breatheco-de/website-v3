@@ -7,6 +7,7 @@
  * mark the store "loaded" and push a thin snapshot that overwrites GCS.
  */
 
+import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
 import {
@@ -29,11 +30,17 @@ import {
   unionSources,
   resolvedDropScrapers,
   MAX_RECENT,
+  MAX_SAMPLES_PER_PATH,
   hasStaffQueryParams,
   parseRuntimeQueryAttribution,
   mergeQueryAttribution,
+  primaryRuntimeSource,
+  extractClickIdFromSearch,
+  referrerHostname,
+  trimPathSamplesTotal,
   type RuntimeIssuesState,
   type RuntimeIssueRecord,
+  type RuntimeHitSample,
 } from "@shared/runtime-issues";
 import { pathMatchesAnyIgnoreRule, type IgnoreRule, type IgnoreRuleInput } from "@shared/runtime-issues-ignore";
 import { gcs } from "./gcs";
@@ -254,6 +261,39 @@ export interface RecordNotFoundInput {
  * Record a public HTML 404. Synchronous; never awaits GCS.
  * Returns false if hard-dropped or the store is not hydrated yet (prod+GCS boot).
  */
+function hashClickId(site: string, kind: string, value: string): string {
+  const salt = process.env.RUNTIME_ISSUES_CLICK_SALT || `runtime-issues:${site}`;
+  return crypto.createHash("sha256").update(`${salt}|${kind}|${value}`).digest("hex").slice(0, 12);
+}
+
+function buildHitSample(input: {
+  site: string;
+  fingerprint: string;
+  ts: number;
+  referrer?: string | null;
+  sampleReferrer?: string;
+  tags: Iterable<string>;
+  querySearch?: string;
+}): RuntimeHitSample {
+  const source = primaryRuntimeSource(input.tags);
+  const host = referrerHostname(input.referrer);
+  const clickRaw = extractClickIdFromSearch(input.querySearch);
+  const sample: RuntimeHitSample = {
+    fingerprint: input.fingerprint,
+    ts: input.ts,
+    referrer: input.sampleReferrer,
+  };
+  if (source) sample.source = source;
+  if (host) sample.referrerHost = host;
+  if (clickRaw) {
+    sample.click = {
+      kind: clickRaw.kind,
+      hash: hashClickId(input.site, clickRaw.kind, clickRaw.value),
+    };
+  }
+  return sample;
+}
+
 export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
   if (hasStaffQueryParams(input.querySearch)) return false;
   const pathNorm = normalizeRuntimePath(input.path);
@@ -271,11 +311,21 @@ export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
   const classified = classifyRuntimeHit(pathNorm, input.userAgent, input.referrer);
   const seoHit = hitHasSeoSignal(classified.tags);
   const incomingAttribution = parseRuntimeQueryAttribution(input.querySearch);
+  const hitSample = buildHitSample({
+    site,
+    fingerprint,
+    ts,
+    referrer: input.referrer,
+    sampleReferrer,
+    tags: classified.tags,
+    querySearch: input.querySearch,
+  });
 
   const existing = b.state.issues[fingerprint];
   const byHour = incrementByHour(existing?.byHour, ts, classified.tags);
   const sources = unionSources(existing?.sources, classified.tags);
   const queryAttribution = mergeQueryAttribution(existing?.queryAttribution, incomingAttribution);
+  const pathSamples = [...(existing?.samples ?? []), hitSample].slice(-MAX_SAMPLES_PER_PATH);
   const next: RuntimeIssueRecord = existing
     ? {
         ...existing,
@@ -290,6 +340,7 @@ export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
         sources,
         byHour,
         queryAttribution,
+        samples: pathSamples,
       }
     : {
         fingerprint,
@@ -306,11 +357,13 @@ export function recordPublicNotFound(input: RecordNotFoundInput): boolean {
         sources,
         byHour,
         queryAttribution,
+        samples: pathSamples,
       };
 
   b.state.issues[fingerprint] = next;
+  trimPathSamplesTotal(b.state.issues);
   const recent = b.state.recent ?? [];
-  recent.push({ fingerprint, ts, referrer: sampleReferrer });
+  recent.push(hitSample);
   b.state.recent = recent.slice(-MAX_RECENT);
   b.state.updatedAt = ts;
   save(site);
@@ -352,6 +405,7 @@ export function listRuntimeIssues(
   updatedAt: number;
   totalCount: number;
   issues: RuntimeIssueRecord[];
+  recent: RuntimeHitSample[];
   ignored: IgnoreRule[];
   dropScrapers: boolean;
 } {
@@ -373,6 +427,7 @@ export function listRuntimeIssues(
     updatedAt: b.state.updatedAt,
     totalCount,
     issues,
+    recent: b.state.recent ?? [],
     ignored: listIgnoreRules(site, opts?.contentRoot),
     dropScrapers: resolvedDropScrapers(b.state),
   };

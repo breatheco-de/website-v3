@@ -202,6 +202,11 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
 
     const url = req.originalUrl;
     const cleanUrl = url.split("?")[0].split("#")[0];
+    const contentRoot = (res.locals as { site?: { contentRoot?: string } }).site?.contentRoot;
+    if (!cleanUrl.startsWith("/private/") && !isEditDocumentRequest(url)) {
+      const { maybeHardDenyLlmRequest } = await import("./crawl-control");
+      if (maybeHardDenyLlmRequest(req, res, contentRoot)) return;
+    }
     if (!cleanUrl.startsWith("/private/") && !isEditDocumentRequest(url) && !shouldBypassHtmlCache(req)) {
       const site = res.locals.site;
       const cachePath = canonicalHtmlCachePath(cleanUrl, site?.contentIndex);
@@ -313,6 +318,10 @@ export async function setupVite(app: Express, server: Server): Promise<ViteDevSe
       if (!cleanUrl.startsWith("/private/") && !isEditDocumentRequest(url)) html = applyPageBoot(html, req, res);
 
       maybeRecordPublicNotFound(req, res, status);
+      if (!cleanUrl.startsWith("/private/")) {
+        const { applyXRobotsTagFromHtml } = await import("./settings");
+        applyXRobotsTagFromHtml(res, html, contentRoot);
+      }
       res.status(status).set({ "Content-Type": "text/html" }).end(html);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
@@ -417,6 +426,7 @@ export function serveStatic(app: Express) {
     const clientShellOnly = skipPrivate || isEditDocumentRequest(url);
 
     const site = (res.locals as any).site;
+    const contentRoot = site?.contentRoot as string | undefined;
     const siteId =
       site?.contentRootName ||
       site?.contentRoot ||
@@ -443,6 +453,14 @@ export function serveStatic(app: Express) {
       }
     });
 
+    if (!clientShellOnly) {
+      const { maybeHardDenyLlmRequest } = await import("./crawl-control");
+      if (maybeHardDenyLlmRequest(_req, res, contentRoot)) {
+        recordPage = false;
+        return;
+      }
+    }
+
     let status = resolvePublicHtmlStatus({
       url,
       contentIndex: siteContentIndex(res),
@@ -452,11 +470,15 @@ export function serveStatic(app: Express) {
       // Ensure variant key is resolved before MISS populate
       if (!(res.locals as any).htmlVariantKey && !bypassCache) {
         const { prepareLlmHtmlRequest, renderAudienceLlmMiss, sendCachedHtmlPage, LLM_HTML_CACHE_CONTROL } = await import("./llm-html-request");
-        const llmHit = prepareLlmHtmlRequest(_req, res, siteId, cachePath);
+        const llmHit = prepareLlmHtmlRequest(_req, res, siteId, cachePath, contentRoot);
+        if (res.headersSent) {
+          recordPage = false;
+          return;
+        }
         const baked = urlBakesStoredPageQuery(url, site?.contentIndex);
         if (llmHit && !baked) {
           logHtmlRender({ url: cleanUrlForSsr, ms: 0, cache: "HIT" });
-          sendCachedHtmlPage(_req, res, llmHit, LLM_HTML_CACHE_CONTROL);
+          sendCachedHtmlPage(_req, res, llmHit, LLM_HTML_CACHE_CONTROL, contentRoot);
           recordPage = false;
           return;
         }
@@ -572,6 +594,8 @@ export function serveStatic(app: Express) {
           const bootedHtml = applyPageBoot(built.html, _req, res);
           markTiming(res, "boot");
           applyServerTiming(res);
+          const { applyXRobotsTagFromHtml } = await import("./settings");
+          applyXRobotsTagFromHtml(res, bootedHtml, contentRoot);
           res
             .status(status)
             .set({
@@ -623,6 +647,10 @@ export function serveStatic(app: Express) {
         maybeRecordPublicNotFound(_req, res, status);
         markTiming(res, "shell");
         applyServerTiming(res);
+        if (!clientShellOnly) {
+          const { applyXRobotsTagFromHtml } = await import("./settings");
+          applyXRobotsTagFromHtml(res, html, contentRoot);
+        }
         res.status(status).set({ "Content-Type": "text/html" }).send(html);
         return;
       } catch {
@@ -640,6 +668,10 @@ export function serveStatic(app: Express) {
       maybeRecordPublicNotFound(_req, res, status);
       markTiming(res, "shell");
       applyServerTiming(res);
+      if (!clientShellOnly) {
+        const { applyXRobotsTagFromHtml } = await import("./settings");
+        applyXRobotsTagFromHtml(res, html, contentRoot);
+      }
       res.status(status).set({ "Content-Type": "text/html" }).send(html);
     } catch {
       maybeRecordPublicNotFound(_req, res, status);

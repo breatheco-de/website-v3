@@ -183,7 +183,6 @@ import {
   getHomePage,
   getOptimizationSettings,
   updateOptimizationSettings,
-  resolveEffectiveRobots,
 } from "../settings";
 import { variableManager } from "../variable-manager";
 import { getValidationService } from "../../scripts/validation/service";
@@ -4049,8 +4048,9 @@ export function registerAdminRoutes(app: Express): void {
     const head = await publicPageHead(url, getCI(res), getDB(res), getContentRoot(res));
     const schemaHtml = head.schemaHtml;
     const isBlogRoute = head.isBlogRoute;
-    let robotsDirective = resolveEffectiveRobots(head.robotsDirective, getContentRoot(res));
-    res.setHeader("X-Robots-Tag", robotsDirective);
+    const contentRoot = getContentRoot(res);
+    const { applyXRobotsTag } = await import("../settings");
+    applyXRobotsTag(res, contentRoot, head.robotsDirective);
 
     if (!schemaHtml && !isBlogRoute) {
       return next();

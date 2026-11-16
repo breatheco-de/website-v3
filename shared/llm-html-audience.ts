@@ -228,7 +228,13 @@ export function expandLlmVariableString(
   return out;
 }
 
-const SKIP_EXPAND_KEYS = new Set(["showOnLocations", "showOnRegions", "showOn"]);
+const SKIP_EXPAND_KEYS = new Set(["showOnLocations", "showOnRegions", "showOn", "show_on_llm"]);
+
+/** Omit or true → included in AI crawler HTML / LLM preview. Explicit false → humans only. */
+export function isSectionShownOnLlm(section: unknown): boolean {
+  if (!section || typeof section !== "object") return true;
+  return (section as { show_on_llm?: unknown }).show_on_llm !== false;
+}
 
 export function expandLlmVariablesDeep(
   value: unknown,
@@ -283,6 +289,7 @@ export function sectionsBranchForLlm(
   catalog: LlmLocationCatalog,
 ): boolean {
   for (const section of sections) {
+    if (!isSectionShownOnLlm(section)) continue;
     const audience = describeSectionAudience(section, locale, catalog);
     if (audience.kind === "labeled") return true;
     if (audience.kind === "hidden") continue;

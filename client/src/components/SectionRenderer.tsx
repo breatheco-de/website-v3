@@ -15,7 +15,11 @@ import { resolveDeep, patchVariableFieldHighlights, type ResolveOptions, type Va
 import { reapplyFormOverrideConditionOperands } from "@shared/preserveFormOverrideOperands";
 import { useLlmAudience } from "@/contexts/LlmAudienceContext";
 import { describePageSection, llmLocationCatalog } from "@/lib/llmAudienceCatalog";
-import { expandLlmVariablesDeep, type LlmVariableDef } from "@shared/llm-html-audience";
+import {
+  expandLlmVariablesDeep,
+  isSectionShownOnLlm,
+  type LlmVariableDef,
+} from "@shared/llm-html-audience";
 import { findReplaceableTextRange } from "@/lib/cm-variable-highlight";
 import { SectionContextProvider } from "@/contexts/SectionContext";
 import {
@@ -1566,6 +1570,7 @@ export function SectionRenderer({ sections, settings, contentType, slug, locale,
           const showOn = (rawSection as SectionLayout).showOn;
 
           const isVisible = shouldShowSection(showOn, previewBreakpoint, isEditMode);
+          if (llmAudience && !isSectionShownOnLlm(rawSection)) return null;
           const llmSectionAudience = llmAudience ? describePageSection(rawSection, locale || "en") : null;
           if (llmSectionAudience?.kind === "hidden") return null;
           const isLocationVisible = llmAudience

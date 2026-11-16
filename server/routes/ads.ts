@@ -21,6 +21,8 @@
  * Reads (metrics_view):
  *   GET /api/ads/report                   — paid pages / destinations / campaigns;
  *       since / until (≤90 days) and campaign_ids / adset_ids / ad_ids (≤20 each) narrow it
+ *   GET /api/ads/campaign                 — one Meta/Google campaign from ads-setup (+ optional report metrics);
+ *       ?platform=meta|google&id=… or &name=…; optional &path= for Runtime-issue path match
  *   GET /api/content-types/:type/ads-entries — Ads perspective for one content type
  *   GET /api/diagnostics/ads              — Diagnostics Ads (read-only: last Run / Re-check + saved 7/28/90 day windows);
  *       ?platform=meta (default) | google | overview; ?summary=1 = worst status (Global tab; platform=meta for Meta only);
@@ -102,6 +104,9 @@ import { getAdsRefreshStatus, hasMetaData, requestAdsRefresh } from "../ads/ads-
 import { isRefreshActive } from "@shared/ads-refresh-status";
 import { AdsPlatformRequiredError, AdsReportRangeError } from "../ads/ads-report";
 import { assembleAdsReportFromRollups } from "../ads/ads-rollups";
+import { getCampaignDetail, GOOGLE_ADS_CATALOG_CAP } from "../ads/campaign-detail";
+import type { AdsSetupPlatform } from "../ads/ads-setup";
+import { loadAdsSetup } from "../ads/ads-setup";
 import { makeActiveTestLookup } from "../ab-testing/active-tests";
 import { makeOwnPaidVisitsLookup } from "../ads/own-paid-visits";
 import type { AdsPageRow } from "../ads/ads-report";
@@ -755,6 +760,92 @@ export function registerAdsRoutes(app: Express): void {
       if (isBadReportQuery(err)) return res.status(400).json(badQueryBody(err));
       log.warn({ err }, "[ads] report failed");
       res.status(500).json({ error: err instanceof Error ? err.message : "Failed to build Ads report" });
+    }
+  });
+
+  api.get(app, "/api/ads/campaign", { rate: "staffWrite" }, async (req: Request, res: Response) => {
+    const auth = await requireCapability(req, res, "metrics_view");
+    if (!auth.authorized) return;
+    try {
+      const platformRaw = typeof req.query.platform === "string" ? req.query.platform.trim() : "";
+      if (platformRaw !== "meta" && platformRaw !== "google") {
+        return res.status(400).json({ error: "platform must be meta or google", code: "platform_required" });
+      }
+      const platform = platformRaw as AdsSetupPlatform;
+      const id = typeof req.query.id === "string" ? req.query.id.trim() : "";
+      const name = typeof req.query.name === "string" ? req.query.name.trim() : "";
+      if (!id && !name) {
+        return res.status(400).json({ error: "Pass id or name", code: "id_or_name_required" });
+      }
+      const issuePath = typeof req.query.path === "string" ? req.query.path.trim() : "";
+      const site = getSite(res);
+      const contentRoot = getContentRoot(res);
+      const resolved = getCampaignDetail(site, platform, {
+        id: id || undefined,
+        name: name || undefined,
+        issue_path: issuePath || null,
+      });
+      if (!resolved.ok) {
+        if (resolved.code === "ambiguous") {
+          return res.status(409).json({
+            error: resolved.message,
+            code: "ambiguous",
+            candidates: resolved.candidates,
+          });
+        }
+        return res.status(404).json({ error: resolved.message, code: "not_found" });
+      }
+      const detail = resolved.detail!;
+      let metrics: {
+        days: number;
+        spend: Record<string, number>;
+        paid_visits: number;
+        clicks: number;
+        pages: Array<{ path: string; title: string; paid_visits: number }>;
+      } | null = null;
+      try {
+        const report = await assembleAdsReportFromRollups({
+          site,
+          contentRoot,
+          platform,
+          campaign_ids: [detail.campaign.id],
+          days: 28,
+          noRefresh: true,
+          includeMetaPlatforms: false,
+        });
+        const camp = report.campaigns.find((c) => c.campaign_id === detail.campaign.id);
+        metrics = {
+          days: 28,
+          spend: (camp?.spend as Record<string, number> | undefined) ?? {},
+          paid_visits: camp?.paid_visits ?? 0,
+          clicks: camp?.clicks ?? 0,
+          pages: (camp?.pages ?? [])
+            .slice(0, 10)
+            .map((p) => ({ path: p.path, title: p.title, paid_visits: p.paid_visits ?? 0 })),
+        };
+        const spendTotal = Object.values(metrics.spend).reduce((a, b) => a + b, 0);
+        if (
+          platform === "google" &&
+          detail.ads_total === 0 &&
+          spendTotal > 0 &&
+          !detail.warnings.some((w) => w.code === "google_ads_catalog_may_be_truncated")
+        ) {
+          const catalogAdCount = Object.keys(loadAdsSetup(site, "google").ads).length;
+          if (catalogAdCount >= GOOGLE_ADS_CATALOG_CAP) {
+            detail.warnings.push({
+              code: "google_ads_catalog_may_be_truncated",
+              message:
+                "This campaign has recent spend but no ads in the saved catalog. Google’s ad list may be incomplete (catalog cap).",
+            });
+          }
+        }
+      } catch (err) {
+        log.warn({ err, platform, id: detail.campaign.id }, "[ads] campaign metrics strip failed");
+      }
+      res.json({ ...detail, metrics });
+    } catch (err) {
+      log.warn({ err }, "[ads] campaign detail failed");
+      res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load campaign" });
     }
   });
 

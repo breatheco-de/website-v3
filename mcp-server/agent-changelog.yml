@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-16"
+    summary: "get_runtime_issues adds recent_samples; windowed 404 counts are not paid-human totals"
+    agent_impact:
+      - "Each 404 row may include recent_samples (source, referrerHost, click kind+hash). Prefer these plus sources/byHour when proving preview vs person vs shared link; legacy rows may omit fields (before sampling)."
+      - "Windowed count still mixes crawlers/previews/humans. Click ids are no longer stored plaintext in queryAttribution.other."
+      - "broken_url briefs: paste recent_samples note with path/count/sources/referrer/queryAttribution. Details: explain_site topic proposals → broken-url."
+    tools_changed: true
+    paths:
+      - mcp-server/tools/runtime-issues.ts
+      - mcp-server/lib/runtime-issues-mcp.ts
+      - mcp-server/explain/broken-url-proposals.md
+      - shared/runtime-issues.ts
   - date: "2026-11-12"
     summary: "Lead form location per content type (forms.location): form → page Locations field → detection only when allowed"
     agent_impact:

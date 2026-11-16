@@ -1032,6 +1032,7 @@ export type ShowOn = z.infer<typeof showOnSchema>;
 // showOn: controls breakpoint visibility (mobile, desktop, or all)
 // showOnLocations: array of location slugs - section only visible when user's location matches one
 // showOnRegions: array of region slugs - section only visible when user's region matches one
+// show_on_llm: when false, hidden from AI crawler HTML / LLM preview; omit or true = visible (default)
 export const sectionLoadSchema = z.enum(["eager", "lazy"]);
 export type SectionLoad = z.infer<typeof sectionLoadSchema>;
 
@@ -1047,6 +1048,8 @@ export const sectionLayoutSchema = z.object({
   showOn: showOnSchema.optional(),
   showOnLocations: z.array(z.string()).optional(),
   showOnRegions: z.array(z.string()).optional(),
+  /** Omit or true: included in AI crawler HTML. False: humans only (per other visibility rules). */
+  show_on_llm: z.boolean().optional(),
   hidden_until_redirection: z.boolean().optional(),
 });
 

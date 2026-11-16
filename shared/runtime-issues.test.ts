@@ -454,13 +454,14 @@ describe("hasStaffQueryParams", () => {
 describe("parseRuntimeQueryAttribution", () => {
   it("splits utm source/medium/campaign and other keys", () => {
     const parsed = parseRuntimeQueryAttribution(
-      "utm_source=meta&utm_medium=paid&utm_campaign=q1&gclid=abc&utm_content=hero",
+      "utm_source=meta&utm_medium=paid&utm_campaign=q1&gclid=abc&utm_content=hero&ref=keep",
     );
     expect(parsed?.source).toEqual(["meta"]);
     expect(parsed?.medium).toEqual(["paid"]);
     expect(parsed?.campaign).toEqual(["q1"]);
-    expect(parsed?.other?.gclid).toEqual(["abc"]);
+    expect(parsed?.other?.gclid).toBeUndefined();
     expect(parsed?.other?.utm_content).toEqual(["hero"]);
+    expect(parsed?.other?.ref).toEqual(["keep"]);
   });
 
   it("normalizes keys and decodes values", () => {

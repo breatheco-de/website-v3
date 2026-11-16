@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { AlertTriangle, Check, ChevronDown, CloudUpload, Code, Copy, Database, ExternalLink, EyeOff, HelpCircle, Image, Info, Laptop, Link, Unlink, Loader2, MapPin, Monitor, Pencil, Plus, Redo2, RefreshCw, Save, Search, Settings, Smartphone, Trash2, Undo2, Upload, Video, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, CloudUpload, Code, Copy, Database, ExternalLink, EyeOff, HelpCircle, Image, Info, Link, Unlink, Loader2, Pencil, Plus, Redo2, RefreshCw, Save, Search, Settings, Trash2, Undo2, Upload, Video, X } from "lucide-react";
 import { IconGitBranch, IconTargetArrow, IconFileCode, IconPencil, IconX, IconShieldCheck, IconShoppingCart } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BindingConfirmDialog } from "./BindingConfirmDialog";
@@ -81,8 +81,8 @@ import { ReplaceBindingModal } from "./ReplaceBindingModal";
 import { VariableTypeChooserModal } from "./VariableTypeChooserModal";
 import { SingleVariablePickerModal } from "./SingleVariablePickerModal";
 import { VariableDetailModal } from "./VariableDetailModal";
-import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { FormLocationBox } from "@/components/editing/FormLocationBox";
+import { SectionVisibilityCard } from "@/components/editing/SectionVisibilityCard";
 import { resolveBoundFormSettingsPath } from "@shared/wipeOnDuplicate";
 import { formSetsLocation } from "@shared/formLocationPolicy";
 import { RichTextArea } from "./RichTextArea";
@@ -91,7 +91,6 @@ import { SectionBindingDialog } from "./SectionBindingDialog";
 import { LinkPicker } from "./LinkPicker";
 import { ImageWithStylePicker } from "./ImageWithStylePicker";
 import type { Section, SectionLayout, ImageRegistry } from "@shared/schema";
-import { locations as allLocations, getLocationBySlug } from "@/lib/locations";
 import type { Location } from "@shared/session";
 import { Badge } from "@/components/ui/badge";
 import { normalizeFaqEntries, resolveFaqHardcodedEntries, resolveFaqSearchPhrase } from "@/lib/faqConstants";
@@ -334,105 +333,6 @@ interface SectionEditorPanelProps {
   singleEntry?: Record<string, unknown>;
   /** When false, hide entry-scoped structural actions on attached shared-layout pages. */
   allowEntryStructuralOverrides?: boolean;
-}
-
-interface ShowOnPickerProps {
-  value: string;
-  onChange: (value: string) => void;
-}
-
-function ShowOnPicker({ value, onChange }: ShowOnPickerProps) {
-  const options = [
-    { id: "all", label: "Both", icon: Laptop },
-    { id: "desktop", label: "Desktop", icon: Monitor },
-    { id: "mobile", label: "Mobile", icon: Smartphone },
-  ];
-
-  const currentValue = value || "all";
-
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <Label className="text-sm font-medium whitespace-nowrap">Show on</Label>
-      <div className="flex rounded-md border border-border overflow-hidden">
-        {options.map((option) => {
-          const Icon = option.icon;
-          const isSelected = currentValue === option.id;
-          return (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => onChange(option.id === "all" ? "" : option.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${
-                isSelected
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-transparent text-muted-foreground hover:bg-muted"
-              } ${option.id !== "all" ? "border-l border-border" : ""}`}
-              data-testid={`props-showon-${option.id}`}
-            >
-              <Icon className="h-4 w-4" />
-              <span>{option.label}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function countryCodeToFlag(code: string): string {
-  return code
-    .toUpperCase()
-    .split("")
-    .map((c) => String.fromCodePoint(0x1f1e6 + c.charCodeAt(0) - 65))
-    .join("");
-}
-
-interface ShowOnLocationsPickerProps {
-  value: string[];
-  onChange: (value: string[]) => void;
-}
-
-function ShowOnLocationsPicker({
-  value,
-  onChange,
-}: ShowOnLocationsPickerProps) {
-  const options = allLocations
-    .filter((loc) => loc.visibility === "listed")
-    .map((loc) => ({
-      value: loc.slug,
-      label: `${loc.name}, ${loc.country}`,
-      group: loc.region,
-      prefix: (
-        <span className="text-base leading-none">
-          {countryCodeToFlag(loc.country_code)}
-        </span>
-      ),
-      badgeLabel: loc.name,
-      searchTerms: [loc.slug, loc.country],
-    }));
-
-  return (
-    <SearchableMultiSelect
-      options={options}
-      value={value}
-      onChange={onChange}
-      label={
-        <>
-          <MapPin className="h-3.5 w-3.5" />
-          Show on locations
-        </>
-      }
-      searchPlaceholder="Search locations..."
-      groupLabels={{
-        "usa-canada": "USA & Canada",
-        latam: "Latin America",
-        europe: "Europe",
-        online: "Online",
-      }}
-      testIdPrefix="location"
-      emptyMessage="No locations found"
-    />
-  );
 }
 
 interface VariantPickerProps {
@@ -1243,6 +1143,7 @@ export function SectionEditorPanel({
   const currentShowOn = (parsedSection?.showOn as string) || "";
   const currentShowOnLocations =
     (parsedSection?.showOnLocations as string[]) || [];
+  const currentShowOnLlm = parsedSection?.show_on_llm !== false;
   const currentHiddenUntilRedirection =
     parsedSection?.hidden_until_redirection === true ||
     parsedSection?.hidden_until_redirection === "true";
@@ -3359,15 +3260,20 @@ export function SectionEditorPanel({
               </div>
             )}
 
-            <ShowOnLocationsPicker
-              value={currentShowOnLocations}
-              onChange={(value) =>
+            <SectionVisibilityCard
+              showOn={currentShowOn}
+              showOnLocations={currentShowOnLocations}
+              showOnLlm={currentShowOnLlm}
+              onShowOnChange={(value) => updateProperty("showOn", value)}
+              onShowOnLocationsChange={(value) =>
                 updateArrayProperty("showOnLocations", value)
               }
-            />
-            <ShowOnPicker
-              value={currentShowOn}
-              onChange={(value) => updateProperty("showOn", value)}
+              onShowOnLlmChange={(visible) =>
+                updatePropertyWithValue(
+                  "show_on_llm",
+                  visible ? undefined : false,
+                )
+              }
             />
 
             <div

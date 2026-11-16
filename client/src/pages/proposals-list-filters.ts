@@ -403,6 +403,17 @@ export type ProposalListApiQuery = {
 };
 
 /** Map UI filters to API query params. status/kind/actor type `all` → omit. */
+/**
+ * True when `q` looks like a proposal id fragment (UUID prefix or hex hash).
+ * Used to probe Status=All when the Open (default) filter hides finished ideas.
+ */
+export function isProposalIdLikeQuery(q: string): boolean {
+  const trimmed = q.trim();
+  if (!trimmed || /\s/.test(trimmed)) return false;
+  if (trimmed.length < 6) return false;
+  return /^[0-9a-fA-F-]+$/.test(trimmed);
+}
+
 export function toProposalListApiQuery(
   filters: ProposalListFilters,
   q: string,

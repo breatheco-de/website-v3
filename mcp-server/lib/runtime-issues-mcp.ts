@@ -9,7 +9,11 @@ import {
   type RuntimeIssueFilters,
   type RuntimeIssueSortKey,
 } from "../../shared/runtime-issues-list-filters.js";
-import type { RuntimeQueryAttribution } from "../../shared/runtime-issues.js";
+import {
+  samplesForIssue,
+  type RuntimeHitSample,
+  type RuntimeQueryAttribution,
+} from "../../shared/runtime-issues.js";
 
 export const RUNTIME_ISSUES_STORED_KIND_404 = "http.not_found";
 export const RUNTIME_ISSUES_DEFAULT_LIMIT = 25;
@@ -22,6 +26,7 @@ export type RuntimeIssueMcpRow = RuntimeIssueFilterRow & {
   cmsReferrerCount?: number;
   likelyBot?: boolean;
   lastProbe?: unknown;
+  samples?: RuntimeHitSample[];
 };
 
 export type RuntimeIssuesMcpArgs = {
@@ -87,6 +92,7 @@ export type QueryRuntimeIssuesResult =
         lastProbe: unknown;
         cmsReferrerCount: number;
         likelyBot: boolean;
+        recent_samples: RuntimeHitSample[];
       }>;
     };
 
@@ -96,6 +102,7 @@ export type QueryRuntimeIssuesResult =
 export function queryRuntimeIssuesForMcp(
   issues: RuntimeIssueMcpRow[],
   args: RuntimeIssuesMcpArgs,
+  recent?: RuntimeHitSample[],
 ): QueryRuntimeIssuesResult {
   if (args.kind !== "404") {
     return {
@@ -133,6 +140,10 @@ export function queryRuntimeIssuesForMcp(
       lastProbe: row.lastProbe ?? null,
       cmsReferrerCount: row.cmsReferrerCount ?? 0,
       likelyBot: row.likelyBot ?? false,
+      recent_samples: samplesForIssue(
+        { fingerprint: row.fingerprint, samples: row.samples },
+        recent,
+      ),
     })),
   };
 }
