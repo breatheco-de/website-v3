@@ -42,6 +42,21 @@ export class LlmsTxtRegenerateJob extends Job {
     }
 
     try {
+      // Temporary prod-parity probe: OpenAI throws if window+document+navigator exist.
+      const g = globalThis as typeof globalThis & { window?: { document?: unknown }; document?: unknown };
+      log.warn(
+        {
+          siteId,
+          pid: process.pid,
+          weblify: process.env.WEBLIFY_PROCESS,
+          typeof_window: typeof g.window,
+          typeof_document: typeof g.document,
+          typeof_navigator: typeof navigator,
+          has_window_document: !!g.window?.document,
+        },
+        "[env-probe] before getLLMService",
+      );
+
       const inputs = buildLlmsTxtInputs(contentRoot);
       const userPrompt = fillLlmsTxtPrompt({
         company_profile: inputs.company_profile,
