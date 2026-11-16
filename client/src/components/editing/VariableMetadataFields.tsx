@@ -1,3 +1,5 @@
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -9,12 +11,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  SearchableMultiSelect,
+  type SearchableMultiSelectOption,
+} from "@/components/ui/searchable-multi-select";
+import {
   VARIABLE_CATEGORIES,
   VARIABLE_CATEGORY_HINTS,
   VARIABLE_CATEGORY_LABELS,
+  VARIABLE_SOURCES,
+  VARIABLE_SOURCE_FIELD_HINT,
+  VARIABLE_SOURCE_LABELS,
   VARIABLE_UNITS,
   VARIABLE_UNIT_LABELS,
   isFigureCategory,
+  normalizeVariableProducts,
 } from "@shared/variable-metadata";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +32,8 @@ export interface VariableMetadataDraft {
   description: string;
   category: string;
   unit: string;
+  source: string;
+  products: string[];
   deprecated: boolean;
   replaced_by: string;
 }
@@ -30,6 +42,8 @@ export const EMPTY_METADATA_DRAFT: VariableMetadataDraft = {
   description: "",
   category: "",
   unit: "",
+  source: "",
+  products: [],
   deprecated: false,
   replaced_by: "",
 };
@@ -38,6 +52,8 @@ export function metadataDraftFrom(def?: {
   description?: string;
   category?: string;
   unit?: string;
+  source?: string;
+  products?: string[];
   deprecated?: boolean;
   replaced_by?: string;
 } | null): VariableMetadataDraft {
@@ -45,6 +61,8 @@ export function metadataDraftFrom(def?: {
     description: def?.description ?? "",
     category: def?.category ?? "",
     unit: def?.unit ?? "",
+    source: def?.source ?? "",
+    products: normalizeVariableProducts(def?.products) ?? [],
     deprecated: def?.deprecated === true,
     replaced_by: def?.replaced_by ?? "",
   };
@@ -59,12 +77,78 @@ export function metadataDraftToBody(draft: VariableMetadataDraft): Record<string
     description: draft.description.trim(),
     category: draft.category,
     unit: draft.unit || null,
+    source: draft.source || null,
+    products: draft.products.length > 0 ? draft.products : null,
     deprecated: draft.deprecated,
     replaced_by: draft.deprecated && draft.replaced_by ? draft.replaced_by : null,
   };
 }
 
+type ProductOption = {
+  content_slug: string;
+  name: string;
+  actively_selling?: boolean;
+};
+
 const NONE = "__none__";
+
+function VariableProductsPicker({
+  products,
+  onChange,
+  testIdPrefix,
+}: {
+  products: string[];
+  onChange: (next: string[]) => void;
+  testIdPrefix: string;
+}) {
+  const { data, isLoading } = useQuery<{ products: ProductOption[] }>({
+    queryKey: ["/api/ecommerce/products"],
+  });
+
+  const options = useMemo((): SearchableMultiSelectOption[] => {
+    const fromApi = (data?.products ?? [])
+      .slice()
+      .sort((a, b) => (a.name || a.content_slug).localeCompare(b.name || b.content_slug))
+      .map((p) => ({
+        value: p.content_slug,
+        label: p.name || p.content_slug,
+        badgeLabel: p.content_slug,
+        searchTerms: [p.content_slug, p.name || ""],
+      }));
+    const known = new Set(fromApi.map((o) => o.value));
+    // Keep badges for slugs saved on the variable that are no longer in the catalog.
+    const orphans = products
+      .filter((slug) => !known.has(slug))
+      .map((slug) => ({
+        value: slug,
+        label: slug,
+        badgeLabel: slug,
+        searchTerms: [slug],
+      }));
+    return [...fromApi, ...orphans];
+  }, [data?.products, products]);
+
+  return (
+    <div className="space-y-1">
+      <SearchableMultiSelect
+        options={options}
+        value={products}
+        onChange={onChange}
+        label="Products"
+        searchPlaceholder="Search products…"
+        addLabel="Add products"
+        clearAllLabel="Clear products"
+        emptyMessage="No products found"
+        isLoading={isLoading}
+        testIdPrefix={`${testIdPrefix}-product`}
+        listClassName="max-h-[148px]"
+      />
+      <p className="text-xs text-muted-foreground">
+        Optional. Sellable product slugs this fact applies to. Leave empty for site-wide.
+      </p>
+    </div>
+  );
+}
 
 export function VariableMetadataFields({
   draft,
@@ -149,52 +233,83 @@ export function VariableMetadataFields({
       </div>
 
       {showOptional && (
-        <div className="space-y-2 rounded-md border p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">Deprecated</p>
-              <p className="text-xs text-muted-foreground">
-                Hidden from agents for new content. Pick a replacement so they know what to use instead.
-              </p>
-            </div>
-            <Switch
-              checked={draft.deprecated}
-              onCheckedChange={(checked) => set({ deprecated: checked, replaced_by: checked ? draft.replaced_by : "" })}
-              data-testid={`${testIdPrefix}-deprecated`}
-            />
+        <>
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-foreground">Source</label>
+            <Select
+              value={draft.source || NONE}
+              onValueChange={(v) => set({ source: v === NONE ? "" : v })}
+            >
+              <SelectTrigger className="w-full" data-testid={`${testIdPrefix}-source`}>
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent className="z-[10002]">
+                <SelectItem value={NONE}>None</SelectItem>
+                {VARIABLE_SOURCES.map((s) => (
+                  <SelectItem key={s} value={s} data-testid={`${testIdPrefix}-source-${s}`}>
+                    {VARIABLE_SOURCE_LABELS[s]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{VARIABLE_SOURCE_FIELD_HINT}</p>
           </div>
-          {draft.deprecated && (
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Use this instead</label>
-              {replacementOptions.length > 0 ? (
-                <Select
-                  value={draft.replaced_by || NONE}
-                  onValueChange={(v) => set({ replaced_by: v === NONE ? "" : v })}
-                >
-                  <SelectTrigger data-testid={`${testIdPrefix}-replaced-by`}>
-                    <SelectValue placeholder="No replacement" />
-                  </SelectTrigger>
-                  <SelectContent className="z-[10002] max-h-72">
-                    <SelectItem value={NONE}>No replacement</SelectItem>
-                    {replacementOptions.map((name) => (
-                      <SelectItem key={name} value={name}>
-                        <span className="font-mono text-xs">{name}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  value={draft.replaced_by}
-                  onChange={(e) => set({ replaced_by: e.target.value })}
-                  placeholder="global.other_variable"
-                  className="font-mono text-xs"
-                  data-testid={`${testIdPrefix}-replaced-by`}
-                />
-              )}
+
+          <VariableProductsPicker
+            products={draft.products}
+            onChange={(products) => set({ products })}
+            testIdPrefix={testIdPrefix}
+          />
+
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">Deprecated</p>
+                <p className="text-xs text-muted-foreground">
+                  Hidden from agents for new content. Pick a replacement so they know what to use instead.
+                </p>
+              </div>
+              <Switch
+                checked={draft.deprecated}
+                onCheckedChange={(checked) =>
+                  set({ deprecated: checked, replaced_by: checked ? draft.replaced_by : "" })
+                }
+                data-testid={`${testIdPrefix}-deprecated`}
+              />
             </div>
-          )}
-        </div>
+            {draft.deprecated && (
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-muted-foreground">Use this instead</label>
+                {replacementOptions.length > 0 ? (
+                  <Select
+                    value={draft.replaced_by || NONE}
+                    onValueChange={(v) => set({ replaced_by: v === NONE ? "" : v })}
+                  >
+                    <SelectTrigger data-testid={`${testIdPrefix}-replaced-by`}>
+                      <SelectValue placeholder="No replacement" />
+                    </SelectTrigger>
+                    <SelectContent className="z-[10002] max-h-72">
+                      <SelectItem value={NONE}>No replacement</SelectItem>
+                      {replacementOptions.map((name) => (
+                        <SelectItem key={name} value={name}>
+                          <span className="font-mono text-xs">{name}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    value={draft.replaced_by}
+                    onChange={(e) => set({ replaced_by: e.target.value })}
+                    placeholder="global.other_variable"
+                    className="font-mono text-xs"
+                    data-testid={`${testIdPrefix}-replaced-by`}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

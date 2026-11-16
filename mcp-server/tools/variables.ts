@@ -119,9 +119,10 @@ export function registerVariableTools(
   mcp.tool(
     "list_variables",
     "Site facts catalog (variables.yml): prices, outcome claims, social proof, product/company facts, contacts, links. " +
-      "Without names → compact catalog (description, category, unit, default, varies_by). " +
+      "Without names → compact catalog (description, category, unit, source, products, default, varies_by). " +
       "With names (≤20) → full definitions, condition order, paste-ready token, usage_count; " +
       "context {region|location|locale} adds resolved value; context.entry adds the page audience and literal_ok. " +
+      "source is internal|external; products is sellable product content slugs (empty = site-wide). " +
       "Check facts here before writing numbers. Read-only. Requires content_view.",
     {
       site: z.string().optional().describe("Site domain when multi-site"),

@@ -36,10 +36,19 @@ import { getAllConfigs, getType } from "../content-types";
 import { normalizeShortKey, parseRetiredShortKeys, type RetiredShortKey } from "@shared/tracking-keys";
 import { applyShortKeyRules } from "./tracking-keys-assign";
 import { onTrackingKeysChanged } from "./tracking-keys-effects";
+import { contentIndex } from "../content-index";
 
 function contentRootAbs(contentRoot?: string): string {
   const raw = contentRoot ?? getDefaultContentRoot();
   return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
+}
+
+function alternateUrlsFor(contentType: string, slug: string): Record<string, string> {
+  try {
+    return contentIndex.getAlternateUrls(slug, contentType) ?? {};
+  } catch {
+    return {};
+  }
 }
 
 export type ProductListRow = {
@@ -53,6 +62,8 @@ export type ProductListRow = {
   audience_status: AudienceStatus;
   /** Tracking code sent to GA4 (absent until assigned). */
   short_key?: string;
+  /** Locale → public path from ContentIndex (relative). */
+  urls: Record<string, string>;
   personas: { id: string; label: string; short_key?: string }[];
 };
 
@@ -111,6 +122,7 @@ function toListRow(product: CmsProduct, purchasable = true): ProductListRow {
     purchasable,
     audience_status: audienceStatus(audience),
     ...(product.short_key ? { short_key: product.short_key } : {}),
+    urls: alternateUrlsFor(product.content_type, product.content_slug),
     personas: (audience?.personas ?? []).map((p) => ({
       id: p.id,
       label: p.label || p.role,
@@ -244,6 +256,7 @@ export function listRemovedProductRows(opts?: {
         purchasable: false,
         audience_status: snap.audience_status,
         ...(snap.short_key ? { short_key: snap.short_key } : {}),
+        urls: alternateUrlsFor(snap.content_type, snap.content_slug),
         personas: (snap.personas ?? []).map((p) => ({
           id: p.id,
           label: p.label || p.role,

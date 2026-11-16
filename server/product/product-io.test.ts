@@ -68,6 +68,12 @@ describe("product-io", () => {
     expect(snap!.purchasable).toBe(true);
   });
 
+  it("list rows include urls map", () => {
+    const rows = listProductRows({ contentRoot: tmp });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].urls).toEqual(expect.any(Object));
+  });
+
   it("patches actively_selling for staff", () => {
     const result = writeEntryProduct(
       "program",

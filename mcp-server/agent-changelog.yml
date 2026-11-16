@@ -17,6 +17,26 @@ entries:
       - mcp-server/lib/runtime-issues-mcp.ts
       - mcp-server/explain/broken-url-proposals.md
       - shared/runtime-issues.ts
+  - date: "2026-11-13"
+    summary: "list_products rows include locale urls"
+    agent_impact:
+      - "list_products catalog rows add urls: Record<locale, public path> from ContentIndex alternates (relative paths). Prefix SITE_URL when you need absolute links."
+    tools_changed: true
+    paths:
+      - server/product/product-io.ts
+      - mcp-server/tools/product.ts
+  - date: "2026-11-13"
+    summary: "Variable facts: source (internal|external) + products; origin/own renamed"
+    agent_impact:
+      - "list_variables catalog/detail rows include source (internal|external|null) and products (string[] of sellable content_slug; empty = site-wide). Field was briefly origin/own — use source/internal now. Staff set them at /private/variables; agents still cannot write variables."
+      - "Same product identity as funnel/ecommerce_products: content slug (e.g. ai-flex), not product_id. Omit products when the fact is site-wide."
+    tools_changed: false
+    paths:
+      - shared/variable-metadata.ts
+      - server/variable-catalog.ts
+      - server/variable-write-rules.ts
+      - mcp-server/explain/content_system.md
+      - mcp-server/tools/variables.ts
   - date: "2026-11-12"
     summary: "Lead form location per content type (forms.location): form → page Locations field → detection only when allowed"
     agent_impact:

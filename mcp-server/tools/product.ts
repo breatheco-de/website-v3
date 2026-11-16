@@ -102,7 +102,7 @@ export function registerProductTools(
 
   mcp.tool(
     "list_products",
-    "List CMS products (selling flag, audience status, persona ids). " +
+    "List CMS products (selling flag, audience status, persona ids, locale urls). " +
       "Removed (not sellable) products are hidden unless include_removed: true. " +
       "Use first for what we sell / who for; then get_product for offer/avatar depth. " +
       "Paused included by default. Requires content_view.",

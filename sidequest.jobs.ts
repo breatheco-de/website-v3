@@ -31,3 +31,4 @@ export { EvidenceArchiveJob } from "./server/jobs/definitions/evidence-archive";
 export { EvidenceArchiveSweepJob } from "./server/jobs/definitions/evidence-archive-sweep";
 export { PublicUrlChangesScanJob } from "./server/jobs/definitions/public-url-changes-scan";
 export { IndexNowSubmitJob } from "./server/jobs/definitions/indexnow-submit";
+export { LlmsTxtRegenerateJob } from "./server/jobs/definitions/llms-txt-regenerate";

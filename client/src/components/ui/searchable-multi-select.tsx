@@ -45,6 +45,8 @@ interface SearchableMultiSelectProps {
   portalContainer?: HTMLElement | null;
   /** Render only the search + options panel (for nesting inside an external popover). */
   panelOnly?: boolean;
+  /** ScrollArea class for the options list. Default fixed height; pass max-h-* to shrink with few options. */
+  listClassName?: string;
 }
 
 export function SearchableMultiSelect({
@@ -64,6 +66,7 @@ export function SearchableMultiSelect({
   onOpenChange: onOpenChangeProp,
   portalContainer,
   panelOnly = false,
+  listClassName = "h-[240px]",
 }: SearchableMultiSelectProps) {
   const [openInternal, setOpenInternal] = useState(false);
   const open = openProp !== undefined ? openProp : openInternal;
@@ -128,7 +131,7 @@ export function SearchableMultiSelect({
           />
         </div>
       </div>
-      <ScrollArea className="h-[240px]">
+      <ScrollArea className={listClassName}>
         <div className="p-1">
           {isLoading && (
             <div className="text-center py-4 text-sm text-muted-foreground">
