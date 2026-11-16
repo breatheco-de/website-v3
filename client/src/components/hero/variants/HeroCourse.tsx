@@ -105,6 +105,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
         }),
       );
     }
+    // test
     handleLinkClick(e, { beforeLeave: sent });
   };
 
