@@ -3,7 +3,10 @@
  * @migration 016_ai_flex_path_cta_tracking
  * @description Sets missing CTA tracking on AI Flex Path buttons (payment links → add_to_cart,
  *   everything else → none) so the Ecommerce tab and enrollment-click goals can count them.
- *   Does not overwrite tracking that is already set. Pushes changed content files to the content repo.
+ *   Does not overwrite tracking that is already set. Pushes changed content files to the content repo,
+ *   then notifies the live server (site_bulk_synced) so ContentIndex and HTML cache rebuild —
+ *   without that, production keeps serving stale cached pages. Re-run when YAML is already done
+ *   to refresh live pages only.
  * @scope site
  * @dry-run
  * @production-only
@@ -30,10 +33,12 @@ import { resolveBoundCtaPaths } from "../../shared/validateCtaTracking";
 import { loadAllFieldEditors } from "../../server/component-registry";
 import { markFileAsModified, updateFileAfterCommit } from "../../server/sync-state";
 import { commitAndPush, getConflictInfo } from "../../server/github";
+import { emitSiteBulkSynced } from "../../server/content-events";
 
 const dryRun = process.argv.includes("--dry-run");
 const contentRoot = process.env.MIGRATION_SITE?.trim() || "site_4geeks-com";
 const COMPONENT = "ai_flex_path";
+const MIGRATION_AUTHOR = "migration:016_ai_flex_path_cta_tracking";
 
 console.log(dryRun ? "DRY RUN: nothing is written or pushed." : "APPLY");
 console.log("contentRoot", contentRoot);
@@ -107,6 +112,17 @@ function visitCtas(value: unknown, mutate: (cta: Record<string, unknown>) => boo
   return changed;
 }
 
+/** Migrations run in a child process — markFileAsModified listeners stay in that process.
+ *  Emit into the shared event outbox so the live server refreshes ContentIndex + HTML cache. */
+function notifyLiveServer(files: string[]): void {
+  if (files.length === 0) return;
+  emitSiteBulkSynced(contentRoot, files, {
+    author: MIGRATION_AUTHOR,
+    actor: { type: "system", source: "data-migration" },
+  });
+  console.log("emitted site_bulk_synced", files.length);
+}
+
 const root = path.join(process.cwd(), contentRoot);
 if (!fs.existsSync(root)) {
   console.error("Missing content root", root);
@@ -123,6 +139,7 @@ if (Object.keys(editors).length === 0) {
 let filesChanged = 0;
 let ctasUpdated = 0;
 const changedRelPaths: string[] = [];
+const aiFlexRelPaths: string[] = [];
 
 for (const filePath of walkYaml(root)) {
   let parsed: Record<string, unknown>;
@@ -136,11 +153,13 @@ for (const filePath of walkYaml(root)) {
 
   const sections = Array.isArray(parsed.sections) ? parsed.sections : [];
   let fileChanged = false;
+  let hasAiFlex = false;
 
   for (const section of sections) {
     if (!section || typeof section !== "object" || Array.isArray(section)) continue;
     const sec = section as Record<string, unknown>;
     if (String(sec.type ?? "") !== COMPONENT) continue;
+    hasAiFlex = true;
     const variant = typeof sec.variant === "string" ? sec.variant : undefined;
     const ctaPaths = resolveBoundCtaPaths(editors, variant);
 
@@ -157,9 +176,13 @@ for (const filePath of walkYaml(root)) {
     }
   }
 
+  if (!hasAiFlex) continue;
+
+  const rel = path.relative(process.cwd(), filePath).split(path.sep).join("/");
+  aiFlexRelPaths.push(rel);
+
   if (fileChanged) {
     filesChanged++;
-    const rel = path.relative(process.cwd(), filePath).split(path.sep).join("/");
     changedRelPaths.push(rel);
     console.log(`${dryRun ? "[dry-run] " : ""}updated ${rel}`);
     if (!dryRun) {
@@ -168,31 +191,38 @@ for (const filePath of walkYaml(root)) {
   }
 }
 
-console.log(`Done. files=${filesChanged} ctas=${ctasUpdated} dryRun=${dryRun}`);
+console.log(`Done. files=${filesChanged} ctas=${ctasUpdated} aiFlexFiles=${aiFlexRelPaths.length} dryRun=${dryRun}`);
 
-if (dryRun || changedRelPaths.length === 0) {
+if (dryRun) {
   process.exit(0);
 }
 
-for (const f of changedRelPaths) markFileAsModified(f, "agent", undefined, contentRoot);
+if (changedRelPaths.length > 0) {
+  for (const f of changedRelPaths) markFileAsModified(f, MIGRATION_AUTHOR, undefined, contentRoot);
 
-const conflicts = await getConflictInfo({ contentRoot });
-const remoteTouched: string[] = (conflicts as { changedFiles?: string[] })?.changedFiles ?? [];
-const overlap = changedRelPaths.filter((f) => remoteTouched.includes(f));
-if (overlap.length) {
-  console.error("Resolve overlap before push:", overlap.join(", "));
-  process.exit(1);
+  const conflicts = await getConflictInfo({ contentRoot });
+  const remoteTouched: string[] = (conflicts as { changedFiles?: string[] })?.changedFiles ?? [];
+  const overlap = changedRelPaths.filter((f) => remoteTouched.includes(f));
+  if (overlap.length) {
+    console.error("Resolve overlap before push:", overlap.join(", "));
+    process.exit(1);
+  }
+
+  const result = await commitAndPush("Set AI Flex Path CTA tracking for Ecommerce inventory", {
+    files: changedRelPaths,
+    contentRoot,
+  });
+  const sha = result.commitHash;
+  if (!sha) {
+    console.error("Content push failed:", result.error);
+    process.exit(1);
+  }
+  console.log("commitSha", sha);
+  for (const f of changedRelPaths) updateFileAfterCommit(f, sha, contentRoot);
+  notifyLiveServer(changedRelPaths);
+  process.exit(0);
 }
 
-const result = await commitAndPush("Set AI Flex Path CTA tracking for Ecommerce inventory", {
-  files: changedRelPaths,
-  contentRoot,
-});
-const sha = result.commitHash;
-if (!sha) {
-  console.error("Content push failed:", result.error);
-  process.exit(1);
-}
-console.log("commitSha", sha);
-for (const f of changedRelPaths) updateFileAfterCommit(f, sha, contentRoot);
+// Idempotent re-run: YAML already has tracking, but production may still be on a stale HTML cache.
+notifyLiveServer(aiFlexRelPaths);
 process.exit(0);

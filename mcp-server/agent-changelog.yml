@@ -6,6 +6,15 @@ window_days: 6
 
 entries:
   - date: "2026-11-17"
+    summary: "Migration 016 emits site_bulk_synced so live HTML cache picks up AI Flex CTA tracking"
+    agent_impact:
+      - "016 still backfills missing ai_flex_path CTA tracking and pushes content. After write (or on idempotent re-run) it emits site_bulk_synced so production ContentIndex + HTML cache rebuild — without that, public pages can stay on stale cache."
+      - "Staff: after deploy, confirm re-run 016 on each site that needs a live refresh (4geeks.com already has YAML; florida may still need CTA writes). No new MCP tools."
+    tools_changed: false
+    paths:
+      - scripts/migrations/016_ai_flex_path_cta_tracking.ts
+      - mcp-server/explain/ecommerce.md
+  - date: "2026-11-17"
     summary: "Ad account → Locations maps: diagnostics warnings + publish gate when two accounts advertise one landing"
     agent_impact:
       - "ads-config meta|google.account_locations (optional; empty = unrestricted). Diagnostics: account_landing_location_mismatch / account_landing_location_missing (after_sync, site_fixable). Agent fix = set page locations via update_fields; Ads maps / pause = staff only."
