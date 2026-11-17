@@ -320,9 +320,13 @@ const knownCampaignSchema = z.object({
   note: z.string().trim().max(200).optional(),
 });
 
+const accountLocationsSchema = z.record(z.string(), z.array(z.string().max(120)).max(200)).optional();
+
 const googleUpdateSchema = z.object({
   enabled: z.boolean().optional(),
   customer_ids: z.array(z.union([z.string(), z.number()])).max(50).optional(),
+  account_locations: accountLocationsSchema,
+  confirm_account_locations: z.boolean().optional(),
   bigquery: z
     .object({
       project: z.string().trim().max(64).nullable().optional(),
@@ -385,6 +389,8 @@ function googleSettingsPayload(res: Response) {
 const updateSchema = z.object({
   enabled: z.boolean().optional(),
   ad_account_ids: z.array(z.union([z.string(), z.number()])).max(50).optional(),
+  account_locations: accountLocationsSchema,
+  confirm_account_locations: z.boolean().optional(),
   alert_thresholds: thresholdsSchema.optional(),
   known_external_campaigns: z.array(knownCampaignSchema).max(MAX_KNOWN_EXTERNAL_CAMPAIGNS).optional(),
   lead_conversions: z.array(leadConversionKeySchema).max(MAX_META_LEAD_CONVERSIONS).optional(),
@@ -443,11 +449,38 @@ export function registerAdsRoutes(app: Express): void {
       const contentRoot = getContentRoot(res);
       const site = getSite(res);
       const before = getAdsSettings(contentRoot).meta;
+      const accountIds =
+        parsed.data.ad_account_ids?.map((id) => normalizeAdAccountId(id)!).filter(Boolean) ?? before.ad_account_ids;
+      if (parsed.data.account_locations !== undefined && parsed.data.confirm_account_locations !== true) {
+        const { previewAdsLocationSaveImpact } = await import("../ads/account-location-impact");
+        const impact = previewAdsLocationSaveImpact({
+          contentRoot,
+          platform: "meta",
+          account_locations: parsed.data.account_locations,
+          account_ids: accountIds,
+        });
+        if (impact.affected.length > 0) {
+          return res.status(409).json({
+            error: "confirm_account_locations_required",
+            message:
+              "Limiting these ad accounts would affect landings that already have live ads. Confirm to save.",
+            affected: impact.affected,
+          });
+        }
+      }
+      const { filterAccountLocationsToKnown, parseAccountLocationsMap } = await import("@shared/adsAccountLocations");
+      const { locationNameIndex } = await import("../location-catalog");
+      const known = locationNameIndex(contentRoot).known;
+      const account_locations =
+        parsed.data.account_locations !== undefined
+          ? filterAccountLocationsToKnown(parseAccountLocationsMap(parsed.data.account_locations, accountIds), known)
+          : undefined;
       const next = updateAdsSettings(
         {
           meta: {
             enabled: parsed.data.enabled,
             ad_account_ids: parsed.data.ad_account_ids?.map((id) => normalizeAdAccountId(id)!),
+            ...(account_locations !== undefined ? { account_locations } : {}),
             alert_thresholds: parsed.data.alert_thresholds,
             known_external_campaigns: parsed.data.known_external_campaigns,
             lead_conversions: parsed.data.lead_conversions?.map((k) => normalizeMetaLeadConversionKey(k)!),
@@ -656,11 +689,38 @@ export function registerAdsRoutes(app: Express): void {
       const contentRoot = getContentRoot(res);
       const site = getSite(res);
       const before = getAdsSettings(contentRoot).google;
+      const customerIds =
+        parsed.data.customer_ids?.map((id) => normalizeGoogleCustomerId(id)!).filter(Boolean) ?? before.customer_ids;
+      if (parsed.data.account_locations !== undefined && parsed.data.confirm_account_locations !== true) {
+        const { previewAdsLocationSaveImpact } = await import("../ads/account-location-impact");
+        const impact = previewAdsLocationSaveImpact({
+          contentRoot,
+          platform: "google",
+          account_locations: parsed.data.account_locations,
+          account_ids: customerIds,
+        });
+        if (impact.affected.length > 0) {
+          return res.status(409).json({
+            error: "confirm_account_locations_required",
+            message:
+              "Limiting these ad accounts would affect landings that already have live ads. Confirm to save.",
+            affected: impact.affected,
+          });
+        }
+      }
+      const { filterAccountLocationsToKnown, parseAccountLocationsMap } = await import("@shared/adsAccountLocations");
+      const { locationNameIndex } = await import("../location-catalog");
+      const known = locationNameIndex(contentRoot).known;
+      const account_locations =
+        parsed.data.account_locations !== undefined
+          ? filterAccountLocationsToKnown(parseAccountLocationsMap(parsed.data.account_locations, customerIds), known)
+          : undefined;
       const next = updateAdsSettings(
         {
           google: {
             enabled: parsed.data.enabled,
             customer_ids: parsed.data.customer_ids?.map((id) => normalizeGoogleCustomerId(id)!),
+            ...(account_locations !== undefined ? { account_locations } : {}),
             bigquery: bq ? { project: bq.project || null, dataset: bq.dataset || null } : undefined,
             lead_conversion_actions: parsed.data.lead_conversion_actions,
             known_external_campaigns: parsed.data.known_external_campaigns,

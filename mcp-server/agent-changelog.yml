@@ -6,6 +6,18 @@ window_days: 6
 
 entries:
   - date: "2026-11-17"
+    summary: "Ad account → Locations maps: diagnostics warnings + publish gate when two accounts advertise one landing"
+    agent_impact:
+      - "ads-config meta|google.account_locations (optional; empty = unrestricted). Diagnostics: account_landing_location_mismatch / account_landing_location_missing (after_sync, site_fixable). Agent fix = set page locations via update_fields; Ads maps / pause = staff only."
+      - "Publish/promote blocked when live deliverable ads from 2+ accounts hit the same landing (ADS_ACCOUNT_MULTI_LIVE_ON_LANDING). Draft warns. No new MCP tools."
+      - "explain topic ads → Account → Locations. Stress N/A (no tool contract change)."
+    tools_changed: false
+    paths:
+      - shared/adsAccountLocations.ts
+      - server/ads-account-location-gate.ts
+      - server/ads/account-location-diagnostics.ts
+      - mcp-server/explain/ads.md
+  - date: "2026-11-17"
     summary: "Micro-events curation, checkout-aware page stats, A/B goal micro_actions; ai_flex_path Ecommerce CTA tracking"
     agent_impact:
       - "Optional component-registry micro-events.ts curates Micro tab / page-stats secondary / test_goal micro_actions (never summed into leads or enrollment). explain topics component-behaviors, ecommerce, analytics."

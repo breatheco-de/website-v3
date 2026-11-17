@@ -716,6 +716,26 @@ export async function promoteVariantWithOptionalTeardown(
       for (const w of locationGate.warnings) {
         warnings.push({ code: w.code, message: w.message, fields: [w.fix_field_path] });
       }
+      const {
+        runAdsAccountLocationGate,
+        adsAccountLocationBlockMessage,
+        landingPathForEntry,
+      } = await import("../ads-account-location-gate");
+      const landingPath = landingPathForEntry(contentType, slug, contentRoot);
+      if (landingPath) {
+        const adsGate = runAdsAccountLocationGate({ landingPath, contentType, contentRoot });
+        if (adsGate.errors.length > 0) {
+          return {
+            ok: false,
+            code: adsGate.errors[0]!.code,
+            error: `Cannot promote: ${adsAccountLocationBlockMessage(adsGate.errors)}`,
+            details: { ads_account_location_issues: adsGate.errors },
+          };
+        }
+        for (const w of adsGate.warnings) {
+          warnings.push({ code: w.code, message: w.message, fields: [w.fix_field_path] });
+        }
+      }
     }
     if (!templateMode) {
       const urlCheck = assertLocaleUrlAvailable({

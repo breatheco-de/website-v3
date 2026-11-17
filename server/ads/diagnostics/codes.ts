@@ -96,6 +96,14 @@ export const ADS_META_VALIDATOR: AdsValidator = {
     off_site_destination: { title: "Ads send people off-site", verify: instant },
     instant_form_destination: { title: "Meta Instant Forms", verify: instant },
     unmanaged_destination: { title: "Ads land on a page we don't manage", verify: instant },
+    account_landing_location_mismatch: {
+      title: "Ad account locations don't match the page",
+      verify: afterMeta,
+    },
+    account_landing_location_missing: {
+      title: "Ad account limited, page has no Locations",
+      verify: afterMeta,
+    },
     ...utmCodes({ verify: afterMeta }),
   },
 };
@@ -143,6 +151,14 @@ export const ADS_GOOGLE_VALIDATOR: AdsValidator = {
       title: "Google Ads isn't counting leads",
       verify: traffic(5, 2),
       min_data: { metric: "clicks", value: 100 },
+    },
+    account_landing_location_mismatch: {
+      title: "Ad account locations don't match the page",
+      verify: afterGoogle,
+    },
+    account_landing_location_missing: {
+      title: "Ad account limited, page has no Locations",
+      verify: afterGoogle,
     },
     ...utmCodes({ verify: afterGoogle }),
   },

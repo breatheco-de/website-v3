@@ -43,6 +43,11 @@ import {
   FORM_LOCATION_UNKNOWN_CODE,
   runFormLocationGate,
 } from "../../../server/form-location-gate";
+import {
+  ADS_ACCOUNT_MULTI_LIVE_CODE,
+  landingPathForEntry,
+  runAdsAccountLocationGate,
+} from "../../../server/ads-account-location-gate";
 import { locationNameIndex } from "../../../server/location-catalog";
 import {
   formOwnLocation,
@@ -343,6 +348,25 @@ export const formsValidator: Validator = {
         });
       }
       formLocationsByForm.clear();
+
+      const landingPath = landingPathForEntry(ct, path.basename(entryDir), root);
+      if (landingPath) {
+        const adsGate = runAdsAccountLocationGate({
+          landingPath,
+          contentType: ct,
+          contentRoot: root,
+        });
+        for (const issue of adsGate.errors) {
+          if (issue.code !== ADS_ACCOUNT_MULTI_LIVE_CODE) continue;
+          errors.push({
+            type: "error",
+            code: "ADS_ACCOUNT_MULTI_LIVE_ON_LANDING",
+            message: `${issue.message} Folder: ${path.relative(process.cwd(), entryDir)}`,
+            file: path.relative(process.cwd(), path.join(entryDir, "_common.yml")),
+            suggestion: FORMS_ISSUE_CODES.ADS_ACCOUNT_MULTI_LIVE_ON_LANDING?.suggestion,
+          });
+        }
+      }
     }
 
     if (!normalizeConsentFallbackKey(consentFallback)) {

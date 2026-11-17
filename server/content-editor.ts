@@ -34,6 +34,11 @@ import {
 import { runInternalLinkGate } from "./internal-link-gate";
 import { runConsentGate } from "./consent-gate";
 import {
+  adsAccountLocationBlockMessage,
+  landingPathForEntry,
+  runAdsAccountLocationGate,
+} from "./ads-account-location-gate";
+import {
   editTouchesFormLocation,
   formLocationBlockMessage,
   runFormLocationGate,
@@ -1629,6 +1634,27 @@ export async function editContent(request: ContentEditRequest): Promise<{
         };
       }
       formLocationWarnings = [...locationGate.errors, ...locationGate.warnings];
+      {
+        const landingPath = landingPathForEntry(contentType, slug, contentRoot);
+        if (landingPath) {
+          const adsGate = runAdsAccountLocationGate({ landingPath, contentType, contentRoot });
+          if (adsGate.errors.length > 0 && gateIntent === "publish") {
+            return {
+              success: false,
+              error: adsAccountLocationBlockMessage(adsGate.errors),
+              errorCode: adsGate.errors[0]!.code,
+            };
+          }
+          for (const w of [...adsGate.errors, ...adsGate.warnings]) {
+            formLocationWarnings.push({
+              code: w.code,
+              message: w.message,
+              property_path: w.property_path,
+              fix_field_path: w.fix_field_path,
+            });
+          }
+        }
+      }
     } else if (hasVariant && !writingSharedTemplate) {
       const commonForGate = ci.loadCommonData(contentType, slug) || {};
       const draftPage = deepMerge(commonForGate, localeData) as Record<string, unknown>;
@@ -1641,6 +1667,20 @@ export async function editContent(request: ContentEditRequest): Promise<{
       }).linkWarnings;
       const locationGate = runFormLocationGate({ pageData: draftPage, contentType, contentRoot });
       formLocationWarnings = [...locationGate.errors, ...locationGate.warnings];
+      {
+        const landingPath = landingPathForEntry(contentType, slug, contentRoot);
+        if (landingPath) {
+          const adsGate = runAdsAccountLocationGate({ landingPath, contentType, contentRoot });
+          for (const w of [...adsGate.errors, ...adsGate.warnings]) {
+            formLocationWarnings.push({
+              code: w.code,
+              message: w.message,
+              property_path: w.property_path,
+              fix_field_path: w.fix_field_path,
+            });
+          }
+        }
+      }
     }
 
     // Write locale data back to file (without _common.yml content)
@@ -2863,6 +2903,35 @@ export function editCommonContent(request: CommonEditRequest): {
       for (const issue of [...gate.errors, ...gate.warnings]) {
         if (!formLocationWarnings.some((w) => w.code === issue.code && w.property_path === issue.property_path)) {
           formLocationWarnings.push(issue);
+        }
+      }
+    }
+
+    {
+      const landingPath = landingPathForEntry(contentType, slug, contentRootName);
+      if (landingPath) {
+        const adsGate = runAdsAccountLocationGate({
+          landingPath,
+          contentType,
+          contentRoot: contentRootName,
+        });
+        // Common edits can go live immediately — block when multi-account ads are live.
+        if (adsGate.errors.length > 0) {
+          return {
+            success: false,
+            error: adsAccountLocationBlockMessage(adsGate.errors),
+            errorCode: adsGate.errors[0]!.code,
+          };
+        }
+        for (const w of adsGate.warnings) {
+          if (!formLocationWarnings.some((x) => x.code === w.code && x.property_path === w.property_path)) {
+            formLocationWarnings.push({
+              code: w.code,
+              message: w.message,
+              property_path: w.property_path,
+              fix_field_path: w.fix_field_path,
+            });
+          }
         }
       }
     }
