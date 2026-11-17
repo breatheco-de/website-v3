@@ -40,6 +40,12 @@ const KEY_MAPPINGS: Record<string, string> = {
   knows_about: "knowsAbout",
   area_served: "areaServed",
   knows_language: "knowsLanguage",
+  legal_name: "legalName",
+  has_credential: "hasCredential",
+  credential_category: "credentialCategory",
+  recognized_by: "recognizedBy",
+  price_currency: "priceCurrency",
+  educational_credential_awarded: "educationalCredentialAwarded",
 };
 
 export function camelToJsonLd(key: string): string {
@@ -78,6 +84,22 @@ export function transformToJsonLd(
       } else if (key === "address") {
         result["address"] = {
           "@type": "PostalAddress",
+          ...transformToJsonLd(value as Record<string, unknown>, locale),
+        };
+      } else if (key === "has_credential") {
+        result["hasCredential"] = {
+          "@type": "EducationalOccupationalCredential",
+          ...transformToJsonLd(value as Record<string, unknown>, locale),
+        };
+      } else if (key === "offers" || key === "offer") {
+        const offerJson = transformToJsonLd(value as Record<string, unknown>, locale);
+        result["offers"] = {
+          "@type": "Offer",
+          ...offerJson,
+        };
+      } else if (key === "recognized_by") {
+        result["recognizedBy"] = {
+          "@type": "Organization",
           ...transformToJsonLd(value as Record<string, unknown>, locale),
         };
       } else {

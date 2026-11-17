@@ -6,6 +6,26 @@ window_days: 6
 
 entries:
   - date: "2026-11-16"
+    summary: "Price variables are structured money; products require one product; list role binds product pricing for Course Offer"
+    agent_impact:
+      - "category:price values are { amount, currency, display? }; {{ global.price_* }} still resolves to a formatted string. Legacy strings still read."
+      - "Price vars must have products: [one slug] and optional price_role list|monthly|other. price_role:list writes programs/{slug}/_product.yml → pricing.list_price_variable when a product sidecar exists."
+      - "get_product returns pricing + pricing_resolved (amount/currency/display). create_or_update_product accepts pricing.list_price_variable (null clears)."
+      - "Course JSON-LD Offer uses product binding, or falls back to the list-role price var tagged to that program slug. Do not hardcode tuition in schema_org YAML."
+      - "Organization schema adds telephone, full PostalAddress, hasCredential (CIE #5904). legalName still omitted until staff supplies the registered entity name."
+      - "Stress: list_variables covered by existing scenarios; get_product covered by get_product scenario; create_or_update_product mutate skipped."
+    tools_changed: true
+    paths:
+      - shared/variable-money.ts
+      - server/variable-manager.ts
+      - server/product/product-io.ts
+      - server/schema-components/schema_org.ts
+      - mcp-server/tools/product.ts
+      - mcp-server/tools/variables.ts
+      - mcp-server/explain/product.md
+      - mcp-server/explain/content_system.md
+      - scripts/migrations/015_structure_price_variables.ts
+  - date: "2026-11-16"
     summary: "get_runtime_issues adds recent_samples; windowed 404 counts are not paid-human totals"
     agent_impact:
       - "Each 404 row may include recent_samples (source, referrerHost, click kind+hash). Prefer these plus sources/byHour when proving preview vs person vs shared link; legacy rows may omit fields (before sampling)."

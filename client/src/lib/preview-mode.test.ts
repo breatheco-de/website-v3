@@ -2,10 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LLM_STASHED_LOCATION_KEY,
   PREVIEW_MODE_PARAM,
+  PREVIEW_MODE_STORAGE_KEY,
   buildShareablePreviewUrl,
+  clearStoredPreviewMode,
   parsePreviewModeParam,
+  persistPreviewMode,
   previewModeFromEditState,
   previewModeToParam,
+  readStoredPreviewMode,
   stashLocationForLlm,
   takeStashedLocationForLlm,
 } from "./preview-mode";
@@ -109,5 +113,31 @@ describe("LLM location stash", () => {
     expect(store.get(LLM_STASHED_LOCATION_KEY)).toBe("bogota-colombia");
     expect(takeStashedLocationForLlm()).toBe("bogota-colombia");
     expect(store.has(LLM_STASHED_LOCATION_KEY)).toBe(false);
+  });
+});
+
+describe("preview mode localStorage", () => {
+  const store = new Map<string, string>();
+
+  afterEach(() => {
+    store.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("persists and restores llm so refresh can recover without the query param", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+      removeItem: (key: string) => {
+        store.delete(key);
+      },
+    });
+    persistPreviewMode({ kind: "llm" });
+    expect(store.get(PREVIEW_MODE_STORAGE_KEY)).toBe("llm");
+    expect(readStoredPreviewMode()).toEqual({ kind: "llm" });
+    clearStoredPreviewMode();
+    expect(readStoredPreviewMode()).toBeNull();
   });
 });

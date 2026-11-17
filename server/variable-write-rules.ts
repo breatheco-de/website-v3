@@ -14,6 +14,12 @@ import {
   VARIABLE_SOURCES,
   VARIABLE_UNITS,
 } from "@shared/variable-metadata";
+import {
+  isPriceRole,
+  PRICE_ROLES,
+  variableValueCompareKey,
+  variableValueToDisplayString,
+} from "@shared/variable-money";
 import type { VariableDefinition, VariableMetadataPatch } from "./variable-manager";
 
 export type VariableWriteAction =
@@ -35,6 +41,8 @@ export type VariableWriteRejection = {
     | "invalid_unit"
     | "invalid_source"
     | "invalid_products"
+    | "price_products_required"
+    | "invalid_price_role"
     | "replaced_by_unknown"
     | "confirm_figure_change";
   error: string;
@@ -64,7 +72,7 @@ export type MetadataInputResult =
   | {
       ok: false;
       status: 400;
-      code: "invalid_products";
+      code: "invalid_products" | "invalid_price_role";
       error: string;
     };
 
@@ -99,6 +107,20 @@ export function readMetadataInput(
       };
     }
   }
+  if ("price_role" in source) {
+    if (source.price_role == null || source.price_role === "") {
+      patch.price_role = null;
+    } else if (isPriceRole(source.price_role)) {
+      patch.price_role = source.price_role;
+    } else {
+      return {
+        ok: false,
+        status: 400,
+        code: "invalid_price_role",
+        error: `price_role must be one of: ${PRICE_ROLES.join(", ")}.`,
+      };
+    }
+  }
   if (typeof source.deprecated === "boolean") patch.deprecated = source.deprecated;
   if ("replaced_by" in source) patch.replaced_by = str(source.replaced_by) ?? null;
   return { ok: true, patch: Object.keys(patch).length > 0 ? patch : null };
@@ -112,6 +134,10 @@ function conditionKey(query: Record<string, string> | undefined): string {
     .join("&");
 }
 
+function displayForFigure(value: unknown): string {
+  return variableValueToDisplayString(value, { locale: "en" });
+}
+
 /** Old/new value pair for a value write, or null when nothing a visitor sees would change. */
 export function figureValueChange(
   action: VariableWriteAction,
@@ -120,23 +146,37 @@ export function figureValueChange(
 ): { old_value: string | null; new_value: string; condition?: Record<string, string> } | null {
   if (!existing) return null;
   if (action === "set_default") {
-    const next = str(body.value);
-    if (next === undefined) return null;
-    const prev = existing.default ?? null;
-    return prev === next ? null : { old_value: prev, new_value: next };
+    if (body.value === undefined) return null;
+    const nextKey = variableValueCompareKey(body.value);
+    const prevKey = existing.default !== undefined ? variableValueCompareKey(existing.default) : null;
+    if (prevKey === nextKey) return null;
+    return {
+      old_value: existing.default !== undefined ? displayForFigure(existing.default) : null,
+      new_value: displayForFigure(body.value),
+    };
   }
-  const condition = body.condition as { query?: Record<string, string>; value?: string } | undefined;
-  if (!condition || typeof condition.value !== "string") return null;
+  const condition = body.condition as { query?: Record<string, string>; value?: unknown } | undefined;
+  if (!condition || condition.value === undefined) return null;
   if (action === "add_condition") {
-    return { old_value: null, new_value: condition.value, condition: condition.query };
+    return {
+      old_value: null,
+      new_value: displayForFigure(condition.value),
+      condition: condition.query,
+    };
   }
   if (action === "update_condition") {
     const index = typeof body.index === "number" ? body.index : -1;
     const prev = existing.conditions?.[index];
     if (!prev) return null;
     const sameQuery = conditionKey(prev.query) === conditionKey(condition.query);
-    if (sameQuery && prev.value === condition.value) return null;
-    return { old_value: prev.value, new_value: condition.value, condition: condition.query };
+    if (sameQuery && variableValueCompareKey(prev.value) === variableValueCompareKey(condition.value)) {
+      return null;
+    }
+    return {
+      old_value: displayForFigure(prev.value),
+      new_value: displayForFigure(condition.value),
+      condition: condition.query,
+    };
   }
   return null;
 }
@@ -210,6 +250,37 @@ export function evaluateVariableWrite(opts: {
       details: { valid_sources: [...VARIABLE_SOURCES] },
     };
   }
+
+  const mergedProducts =
+    patch?.products !== undefined
+      ? patch.products ?? []
+      : normalizeVariableProducts(existing?.products) ?? [];
+  const mergedPriceRole =
+    patch?.price_role !== undefined
+      ? patch.price_role
+      : existing?.price_role?.trim() || null;
+
+  if (merged.category === "price") {
+    if (mergedProducts.length !== 1) {
+      return {
+        ok: false,
+        status: 400,
+        code: "price_products_required",
+        error:
+          "Price variables must be linked to exactly one sellable product. Pick the product this tuition belongs to.",
+        details: { products: mergedProducts },
+      };
+    }
+    if (mergedPriceRole && !isPriceRole(mergedPriceRole)) {
+      return {
+        ok: false,
+        status: 400,
+        code: "invalid_price_role",
+        error: `price_role must be one of: ${PRICE_ROLES.join(", ")}.`,
+      };
+    }
+  }
+
   if (patch?.replaced_by && merged.deprecated) {
     const target = patch.replaced_by.trim();
     if (target === name || !opts.knownNames.includes(target)) {

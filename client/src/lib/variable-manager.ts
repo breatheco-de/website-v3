@@ -6,6 +6,10 @@ import {
   formatEntryVarName,
   isEntryOrSingleVarName,
 } from "@shared/entryTemplateVars";
+import {
+  variableValueToDisplayString,
+  type VariableValue,
+} from "@shared/variable-money";
 
 const TEMPLATE_REGEX = /\{\{\s*([^|}]+?)\s*(?:\|\s*([\s\S]*?))?\s*\}\}/g;
 const META_PREFIX = "meta.";
@@ -21,7 +25,7 @@ const EXACT_FUNNEL_VAR_PATTERN = /^\{\{\s*funnel\.([a-zA-Z_][a-zA-Z0-9_.]*)\s*(?
 
 export interface VariableCondition {
   query: Record<string, string>;
-  value: string;
+  value: VariableValue;
 }
 
 export interface VariableDefinition {
@@ -30,9 +34,10 @@ export interface VariableDefinition {
   unit?: string;
   source?: string;
   products?: string[];
+  price_role?: string;
   deprecated?: boolean;
   replaced_by?: string;
-  default?: string;
+  default?: VariableValue;
   conditions?: VariableCondition[];
   by_locale?: Record<string, string>;
   by_region?: Record<string, string>;
@@ -80,6 +85,10 @@ function getNestedValue(obj: Record<string, unknown>, dotPath: string): unknown 
   return current;
 }
 
+function displayVariableValue(raw: unknown, context: VariableContext): string {
+  return variableValueToDisplayString(raw, { locale: context.locale });
+}
+
 export function resolveVariable(
   name: string,
   definitions: Record<string, VariableDefinition>,
@@ -95,22 +104,31 @@ export function resolveVariable(
         return contextVal === val;
       });
       if (matches) {
-        return { value: condition.value, source: "condition" };
+        return { value: displayVariableValue(condition.value, context), source: "condition" };
       }
     }
   }
 
   if (context.location && def.by_location?.[context.location]) {
-    return { value: def.by_location[context.location], source: "location" };
+    return {
+      value: displayVariableValue(def.by_location[context.location], context),
+      source: "location",
+    };
   }
   if (context.region && def.by_region?.[context.region]) {
-    return { value: def.by_region[context.region], source: "region" };
+    return {
+      value: displayVariableValue(def.by_region[context.region], context),
+      source: "region",
+    };
   }
   if (context.locale && def.by_locale?.[context.locale]) {
-    return { value: def.by_locale[context.locale], source: "locale" };
+    return {
+      value: displayVariableValue(def.by_locale[context.locale], context),
+      source: "locale",
+    };
   }
   if (def.default !== undefined) {
-    return { value: def.default, source: "default" };
+    return { value: displayVariableValue(def.default, context), source: "default" };
   }
   return null;
 }

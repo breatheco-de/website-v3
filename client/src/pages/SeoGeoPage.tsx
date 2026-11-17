@@ -810,12 +810,52 @@ type IntegrityMetrics = {
   crawlerState: CrawlerBadgeState;
 };
 
+type Page1CtrBand = {
+  ctr: number;
+  expected_ctr: number;
+  impressions: number;
+  clicks: number;
+  query_count: number;
+};
+
+type Page1CtrKpi = {
+  window: { start: string; end: string } | null;
+  days_in_window: number;
+  days_expected: number;
+  incomplete: boolean;
+  empty: boolean;
+  ctr: number | null;
+  expected_ctr: number | null;
+  below_expected: boolean;
+  impressions: number;
+  clicks: number;
+  query_count: number;
+  below_expected_count: number;
+  band_1_3: Page1CtrBand | null;
+  band_4_10: Page1CtrBand | null;
+};
+
+type TargetedClustersKpi = {
+  high_hub_count: number;
+  mid_hub_count: number;
+  high_clicks: number;
+  mid_clicks: number;
+  high_clicks_prior: number | null;
+  delta_pct: number | null;
+  gaining: number | null;
+  flat: number | null;
+  losing: number | null;
+  trends_available: boolean;
+};
+
 type TrafficMetricsPayload = {
   perspective: "traffic";
   organicTraffic?: SeoOverview["organicTraffic"];
   siteOrganicTraffic?: SeoOverview["siteOrganicTraffic"];
   otherHighTraffic?: SeoOverview["otherHighTraffic"];
   organicLeads?: OrganicLeadsMeta;
+  page1Ctr?: Page1CtrKpi;
+  targetedClusters?: TargetedClustersKpi;
   clusters: Array<{
     hubId: string;
     hubTraffic?: PathTrafficStats;
@@ -3945,6 +3985,246 @@ function OrganicTrafficStatCard({
   );
 }
 
+function fmtPctRate(rate: number | null | undefined, digits = 1): string {
+  if (rate == null || !Number.isFinite(rate)) return "—";
+  return `${(rate * 100).toFixed(digits)}%`;
+}
+
+function Page1CtrStatCard({
+  kpi,
+  incompleteWindow,
+}: {
+  kpi?: Page1CtrKpi | null;
+  incompleteWindow?: boolean;
+}) {
+  const empty = !kpi || kpi.empty || kpi.ctr == null;
+  const incomplete = Boolean(kpi?.incomplete || incompleteWindow);
+  const band13 = kpi?.band_1_3 ? fmtPctRate(kpi.band_1_3.ctr) : "—";
+  const band410 = kpi?.band_4_10 ? fmtPctRate(kpi.band_4_10.ctr) : "—";
+  const belowCount = kpi?.below_expected_count ?? 0;
+
+  return (
+    <Card data-testid="stat-card-page1-ctr">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p
+              className="text-2xl font-bold text-foreground tabular-nums"
+              data-testid="text-page1-ctr"
+            >
+              {empty ? "—" : fmtPctRate(kpi.ctr)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">Page-1 CTR</p>
+            {empty ? (
+              <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
+                Need Search Console days with page-1 queries (≥100 impressions). Load days in{" "}
+                <Link
+                  href="/private/diagnostics/seo/organic"
+                  className="underline underline-offset-2 text-foreground"
+                  data-testid="link-page1-ctr-diagnostics"
+                >
+                  Diagnostics
+                </Link>
+                .
+              </p>
+            ) : (
+              <>
+                <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
+                  Click rate for listings already on page 1 with enough impressions — compared to
+                  what that rank usually earns. Growing low ranks do not drag this down.
+                </p>
+                <p
+                  className="text-[11px] text-muted-foreground mt-1 tabular-nums"
+                  data-testid="text-page1-ctr-expected"
+                >
+                  vs {fmtPctRate(kpi.expected_ctr, 0)} expected
+                  {kpi.below_expected ? (
+                    <Badge
+                      variant="destructive"
+                      className="ml-1.5 text-[10px] align-middle"
+                      data-testid="badge-page1-ctr-below"
+                    >
+                      below expected
+                    </Badge>
+                  ) : null}
+                </p>
+                <p
+                  className="text-[10px] text-muted-foreground mt-1 tabular-nums"
+                  data-testid="text-page1-ctr-subline"
+                >
+                  1–3: {band13} · 4–10: {band410}
+                  {belowCount > 0 ? ` · ${belowCount} underperforming` : ""}
+                </p>
+              </>
+            )}
+            {incomplete && !empty ? (
+              <Badge
+                variant="outline"
+                className="mt-1.5 text-[10px] bg-amber-500/15 text-amber-800 dark:text-amber-200 border-amber-500/40"
+                data-testid="badge-page1-ctr-incomplete"
+              >
+                Incomplete window
+              </Badge>
+            ) : null}
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="text-[11px] text-primary underline-offset-2 hover:underline pt-1"
+                  data-testid="button-page1-ctr-advanced"
+                >
+                  Read more (advanced)
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-1 space-y-1 text-[11px] text-muted-foreground leading-relaxed">
+                <p>
+                  Positions 1–10, ≥100 impressions, impression-weighted vs{" "}
+                  <code className="font-mono text-[10px]">expectedCtrForPosition</code>. Badge when
+                  actual is under 50% of expected. From organic-days cache (no separate KPI JSON).
+                </p>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+          <span className="text-muted-foreground shrink-0">
+            <MousePointerClick className="h-4 w-4" />
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function TargetedClusterProgressStatCard({
+  kpi,
+  incompleteWindow,
+  onFocusPriority,
+}: {
+  kpi?: TargetedClustersKpi | null;
+  incompleteWindow?: boolean;
+  onFocusPriority?: () => void;
+}) {
+  const noHigh = !kpi || kpi.high_hub_count <= 0;
+  const clicksLabel = noHigh ? "—" : fmtTrafficClicks(kpi.high_clicks);
+  const delta = kpi?.trends_available ? kpi.delta_pct : null;
+  const deltaLabel =
+    delta == null || !Number.isFinite(delta)
+      ? null
+      : `${delta > 0 ? "+" : ""}${delta.toFixed(0)}%`;
+  const trendSub =
+    kpi?.trends_available && kpi.gaining != null
+      ? `${kpi.gaining} gaining · ${kpi.flat ?? 0} flat · ${kpi.losing ?? 0} losing`
+      : null;
+
+  return (
+    <Card data-testid="stat-card-targeted-clusters">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="inline-flex items-start gap-1">
+              <p
+                className="text-2xl font-bold text-foreground tabular-nums"
+                data-testid="text-targeted-high-clicks"
+              >
+                {clicksLabel}
+              </p>
+              {deltaLabel != null ? (
+                <span
+                  className={cn(
+                    "text-[10px] font-semibold tabular-nums leading-none mt-0.5",
+                    delta! > 0
+                      ? "text-green-600 dark:text-green-400"
+                      : delta! < 0
+                        ? "text-destructive"
+                        : "text-muted-foreground",
+                  )}
+                  data-testid="text-targeted-delta"
+                >
+                  {deltaLabel}
+                </span>
+              ) : null}
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">High-priority cluster clicks</p>
+            {noHigh ? (
+              <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
+                Star clusters High to track progress.
+                {onFocusPriority ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      className="underline underline-offset-2 text-foreground"
+                      onClick={onFocusPriority}
+                      data-testid="button-targeted-focus-priority"
+                    >
+                      Sort Cluster Map by priority
+                    </button>
+                    .
+                  </>
+                ) : null}
+              </p>
+            ) : (
+              <>
+                <p className="text-[11px] text-muted-foreground mt-1.5 leading-snug">
+                  Organic clicks from clusters you marked High, compared with the previous period for
+                  those same hubs. Mid is context only.
+                </p>
+                <p
+                  className="text-[10px] text-muted-foreground mt-1 tabular-nums"
+                  data-testid="text-targeted-subline"
+                >
+                  {trendSub ? `${trendSub} · ` : ""}
+                  Mid: {fmtTrafficClicks(kpi.mid_clicks)}
+                  {kpi.high_hub_count > 0 ? ` · ${kpi.high_hub_count} High` : ""}
+                </p>
+              </>
+            )}
+            {incompleteWindow && !noHigh ? (
+              <Badge
+                variant="outline"
+                className="mt-1.5 text-[10px] bg-amber-500/15 text-amber-800 dark:text-amber-200 border-amber-500/40"
+                data-testid="badge-targeted-incomplete"
+              >
+                Incomplete window — no period delta
+              </Badge>
+            ) : null}
+            {!incompleteWindow && !noHigh && !kpi.trends_available ? (
+              <Badge
+                variant="outline"
+                className="mt-1.5 text-[10px]"
+                data-testid="badge-targeted-no-prior"
+              >
+                Prior period incomplete — no delta
+              </Badge>
+            ) : null}
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="text-[11px] text-primary underline-offset-2 hover:underline pt-1"
+                  data-testid="button-targeted-advanced"
+                >
+                  Read more (advanced)
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-1 space-y-1 text-[11px] text-muted-foreground leading-relaxed">
+                <p>
+                  Uses today’s High/Mid stars on both the current and prior 28 complete days (not
+                  historical priority). Hub trend: ±5% and at least ±3 clicks. From organic-days +{" "}
+                  <code className="font-mono text-[10px]">cluster_priority</code> — no separate KPI
+                  JSON.
+                </p>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
+          <span className="text-muted-foreground shrink-0">
+            <TrendingUp className="h-4 w-4" />
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function LoadingSection() {
   return (
     <div className="space-y-3">
@@ -4910,48 +5190,71 @@ export function SeoTab({
         />
         {perspective === "traffic" ? (
           <>
-            <OrganicTrafficStatCard
-              scope="clusters"
-              window={organicWindow}
-              daysInWindow={organicMeta.days_in_window ?? 0}
-              daysExpected={organicMeta.days_expected ?? 28}
-              incomplete={organicMeta.incomplete}
-              totals={trafficMetrics?.organicTraffic?.totals}
-              series={trafficMetrics?.organicTraffic?.series}
-              canCatchUp={hasCapability("seo_settings")}
-              bqConfigured={Boolean(trafficMetrics?.siteOrganicTraffic?.configured)}
-              organicMarket={organicMarket}
+            <Page1CtrStatCard
+              kpi={trafficMetrics?.page1Ctr}
+              incompleteWindow={organicMeta.incomplete}
             />
-            <OrganicTrafficStatCard
-              scope="site"
-              window={trafficMetrics?.siteOrganicTraffic?.window ?? null}
-              daysInWindow={trafficMetrics?.siteOrganicTraffic?.days_in_window ?? 0}
-              daysExpected={trafficMetrics?.siteOrganicTraffic?.days_expected ?? 28}
-              incomplete={trafficMetrics?.siteOrganicTraffic?.incomplete}
-              totals={trafficMetrics?.siteOrganicTraffic?.totals}
-              series={trafficMetrics?.siteOrganicTraffic?.series}
-              compareToClicks={
-                organicMeta.days_in_window && organicMeta.days_in_window > 0
-                  ? (trafficMetrics?.organicTraffic?.totals?.clicks ?? null)
-                  : null
-              }
+            <TargetedClusterProgressStatCard
+              kpi={trafficMetrics?.targetedClusters}
+              incompleteWindow={organicMeta.incomplete}
+              onFocusPriority={() => {
+                setClusterSortBy("priority");
+                setClusterSortDir("asc");
+                document
+                  .querySelector('[data-testid="card-cluster-map"]')
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
             />
           </>
         ) : (
           <>
-            <Card className="border-dashed">
+            <Card className="border-dashed" data-testid="stat-card-page1-ctr-placeholder">
               <CardContent className="p-4 text-xs text-muted-foreground">
-                Switch perspective to Traffic to load organic click KPIs.
+                Switch perspective to Traffic to load Page-1 CTR.
               </CardContent>
             </Card>
-            <Card className="border-dashed">
+            <Card className="border-dashed" data-testid="stat-card-targeted-placeholder">
               <CardContent className="p-4 text-xs text-muted-foreground">
-                Site-wide Search traffic loads with the Traffic perspective.
+                Switch perspective to Traffic to load High-priority cluster progress.
               </CardContent>
             </Card>
           </>
         )}
       </div>
+
+      {perspective === "traffic" ? (
+        <div
+          className="grid grid-cols-1 md:grid-cols-2 gap-3"
+          data-testid="seo-organic-clicks-row"
+        >
+          <OrganicTrafficStatCard
+            scope="clusters"
+            window={organicWindow}
+            daysInWindow={organicMeta.days_in_window ?? 0}
+            daysExpected={organicMeta.days_expected ?? 28}
+            incomplete={organicMeta.incomplete}
+            totals={trafficMetrics?.organicTraffic?.totals}
+            series={trafficMetrics?.organicTraffic?.series}
+            canCatchUp={hasCapability("seo_settings")}
+            bqConfigured={Boolean(trafficMetrics?.siteOrganicTraffic?.configured)}
+            organicMarket={organicMarket}
+          />
+          <OrganicTrafficStatCard
+            scope="site"
+            window={trafficMetrics?.siteOrganicTraffic?.window ?? null}
+            daysInWindow={trafficMetrics?.siteOrganicTraffic?.days_in_window ?? 0}
+            daysExpected={trafficMetrics?.siteOrganicTraffic?.days_expected ?? 28}
+            incomplete={trafficMetrics?.siteOrganicTraffic?.incomplete}
+            totals={trafficMetrics?.siteOrganicTraffic?.totals}
+            series={trafficMetrics?.siteOrganicTraffic?.series}
+            compareToClicks={
+              organicMeta.days_in_window && organicMeta.days_in_window > 0
+                ? (trafficMetrics?.organicTraffic?.totals?.clicks ?? null)
+                : null
+            }
+          />
+        </div>
+      ) : null}
 
       <SearchConsoleCoverageCard configured={gsc?.configured} summary={summary} />
 

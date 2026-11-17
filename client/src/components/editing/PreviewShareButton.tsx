@@ -20,6 +20,8 @@ export function PreviewShareButton() {
 
   if (!editMode) return null;
 
+  const isLlm = editMode.isLlmPreview;
+
   const handleShare = async () => {
     const mode = previewModeFromEditState({
       previewBreakpoint: editMode.previewBreakpoint,
@@ -35,8 +37,8 @@ export function PreviewShareButton() {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       toast({
-        title: "Preview link copied",
-        description: editMode.isLlmPreview
+        title: isLlm ? "AI crawler link copied" : "Preview link copied",
+        description: isLlm
           ? "Other signed-in staff get the AI crawler view (all regions)."
           : "Other signed-in staff get the same device and campus.",
       });
@@ -54,15 +56,21 @@ export function PreviewShareButton() {
     <button
       type="button"
       className={cn(
-        badgeVariants({ variant: "outline" }),
+        badgeVariants({ variant: isLlm ? "default" : "outline" }),
         "cursor-pointer text-xs gap-1 no-default-active-elevate",
+        isLlm &&
+          "bg-amber-600 text-white border-amber-700 shadow-sm hover:bg-amber-600/90 dark:bg-amber-500 dark:border-amber-400 dark:text-amber-950",
       )}
       onClick={handleShare}
       data-testid="button-preview-share"
-      title="Copy shareable preview link"
+      title={
+        isLlm
+          ? "Copy link to share this AI crawler view"
+          : "Copy shareable preview link"
+      }
     >
       {copied ? <Check className="h-3 w-3" /> : <Share2 className="h-3 w-3" />}
-      <span>{copied ? "Copied" : "Share"}</span>
+      <span>{copied ? "Copied" : isLlm ? "Share AI view" : "Share"}</span>
     </button>
   );
 }

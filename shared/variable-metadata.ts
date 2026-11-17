@@ -90,6 +90,11 @@ export interface VariableMetadata {
   source?: VariableSource | string;
   /** Sellable product content slugs this fact applies to (empty/omit = site-wide). */
   products?: string[];
+  /**
+   * For category:price — list = full/catalog tuition (also binds product
+   * pricing.list_price_variable); monthly = installment copy; other = anything else.
+   */
+  price_role?: string;
   deprecated?: boolean;
   replaced_by?: string;
 }
@@ -183,12 +188,15 @@ export function effectiveVariableMetadata(
   const source =
     def?.source && String(def.source).trim() ? String(def.source).trim() : undefined;
   const products = normalizeVariableProducts(def?.products);
+  const price_role =
+    def?.price_role && String(def.price_role).trim() ? String(def.price_role).trim() : undefined;
   return {
     description,
     category,
     unit: def?.unit,
     source,
     products,
+    price_role,
     deprecated: def?.deprecated === true ? true : undefined,
     replaced_by: def?.replaced_by?.trim() || undefined,
     system_managed: systemManaged,

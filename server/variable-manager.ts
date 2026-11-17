@@ -18,6 +18,13 @@ import {
   localesToConsentDefinition,
 } from "@shared/consent-settings";
 import { COOKIE_BANNER_KEYS, type CookieBannerKey } from "@shared/consent";
+import {
+  coerceVariableWriteValue,
+  normalizeMoneyValue,
+  variableValueToDisplayString,
+  type MoneyValue,
+  type VariableValue,
+} from "@shared/variable-money";
 const log = child({ module: "variable-manager" });
 
 export const BRAND_VAR_KEYS = ["brand.title", "brand.logo", "brand.logo_dark"] as const;
@@ -32,7 +39,7 @@ const DEFAULT_BRAND_TITLE = "4Geeks Academy";
 
 export interface VariableCondition {
   query: Record<string, string>;
-  value: string;
+  value: VariableValue;
 }
 
 export interface VariableDefinition {
@@ -41,9 +48,10 @@ export interface VariableDefinition {
   unit?: string;
   source?: string;
   products?: string[];
+  price_role?: string;
   deprecated?: boolean;
   replaced_by?: string;
-  default?: string;
+  default?: VariableValue;
   conditions?: VariableCondition[];
   by_locale?: Record<string, string>;
   by_region?: Record<string, string>;
@@ -57,6 +65,7 @@ export interface VariableMetadataPatch {
   unit?: string | null;
   source?: string | null;
   products?: string[] | null;
+  price_role?: string | null;
   deprecated?: boolean;
   replaced_by?: string | null;
 }
@@ -261,6 +270,10 @@ class VariableManager {
     }
   }
 
+  private displayValue(raw: unknown, context: VariableContext): string {
+    return variableValueToDisplayString(raw, { locale: context.locale });
+  }
+
   resolveVariable(
     name: string,
     context: VariableContext,
@@ -277,27 +290,54 @@ class VariableManager {
           return contextVal === val;
         });
         if (matches) {
-          return { value: condition.value, source: "condition" };
+          return { value: this.displayValue(condition.value, context), source: "condition" };
         }
       }
     }
 
     if (context.location && def.by_location?.[context.location]) {
-      return { value: def.by_location[context.location], source: "location" };
+      return { value: this.displayValue(def.by_location[context.location], context), source: "location" };
     }
 
     if (context.region && def.by_region?.[context.region]) {
-      return { value: def.by_region[context.region], source: "region" };
+      return { value: this.displayValue(def.by_region[context.region], context), source: "region" };
     }
 
     if (context.locale && def.by_locale?.[context.locale]) {
-      return { value: def.by_locale[context.locale], source: "locale" };
+      return { value: this.displayValue(def.by_locale[context.locale], context), source: "locale" };
     }
 
     if (def.default !== undefined) {
-      return { value: def.default, source: "default" };
+      return { value: this.displayValue(def.default, context), source: "default" };
     }
 
+    return null;
+  }
+
+  /** Structured money (or null) for the value that would win for this context. */
+  resolveMoneyValue(name: string, context: VariableContext): MoneyValue | null {
+    this.ensureInitialized();
+    const def = this.variables[name];
+    if (!def) return null;
+    if (def.conditions && def.conditions.length > 0) {
+      for (const condition of def.conditions) {
+        const matches = Object.entries(condition.query).every(([key, val]) => {
+          const contextVal = (context as Record<string, string | undefined>)[key];
+          return contextVal === val;
+        });
+        if (matches) return normalizeMoneyValue(condition.value);
+      }
+    }
+    if (context.location && def.by_location?.[context.location]) {
+      return normalizeMoneyValue(def.by_location[context.location]);
+    }
+    if (context.region && def.by_region?.[context.region]) {
+      return normalizeMoneyValue(def.by_region[context.region]);
+    }
+    if (context.locale && def.by_locale?.[context.locale]) {
+      return normalizeMoneyValue(def.by_locale[context.locale]);
+    }
+    if (def.default !== undefined) return normalizeMoneyValue(def.default);
     return null;
   }
 
@@ -377,12 +417,16 @@ class VariableManager {
     return this.variables[name] || null;
   }
 
-  updateDefault(name: string, value: string): void {
+  updateDefault(name: string, value: VariableValue): void {
     this.ensureInitialized();
     if (!this.variables[name]) {
       this.variables[name] = {};
     }
-    this.variables[name].default = value;
+    const coerced = coerceVariableWriteValue(value);
+    if (coerced == null) {
+      throw new Error("value must be a string or { amount, currency }");
+    }
+    this.variables[name].default = coerced;
     this.save({ names: [name] });
   }
 
@@ -418,6 +462,10 @@ class VariableManager {
         delete next.products;
       }
     }
+    if (patch.price_role !== undefined) {
+      if (patch.price_role) next.price_role = patch.price_role.trim();
+      else delete next.price_role;
+    }
     if (patch.deprecated !== undefined) {
       if (patch.deprecated) next.deprecated = true;
       else {
@@ -445,7 +493,11 @@ class VariableManager {
     if (!this.variables[name].conditions) {
       this.variables[name].conditions = [];
     }
-    this.variables[name].conditions!.push(condition);
+    const coerced = coerceVariableWriteValue(condition.value);
+    if (coerced == null) {
+      throw new Error("condition.value must be a string or { amount, currency }");
+    }
+    this.variables[name].conditions!.push({ ...condition, value: coerced });
     this.save({ names: [name] });
   }
 
@@ -455,7 +507,11 @@ class VariableManager {
     if (!def || !def.conditions || index < 0 || index >= def.conditions.length) {
       throw new Error(`Invalid condition index ${index} for variable ${name}`);
     }
-    def.conditions[index] = condition;
+    const coerced = coerceVariableWriteValue(condition.value);
+    if (coerced == null) {
+      throw new Error("condition.value must be a string or { amount, currency }");
+    }
+    def.conditions[index] = { ...condition, value: coerced };
     this.save({ names: [name] });
   }
 
@@ -724,6 +780,7 @@ const METADATA_KEY_ORDER = [
   "unit",
   "source",
   "products",
+  "price_role",
   "deprecated",
   "replaced_by",
 ] as const;

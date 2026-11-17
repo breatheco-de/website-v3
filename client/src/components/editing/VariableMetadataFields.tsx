@@ -26,6 +26,7 @@ import {
   isFigureCategory,
   normalizeVariableProducts,
 } from "@shared/variable-metadata";
+import { PRICE_ROLE_LABELS, PRICE_ROLES, type PriceRole } from "@shared/variable-money";
 import { cn } from "@/lib/utils";
 
 export interface VariableMetadataDraft {
@@ -34,6 +35,7 @@ export interface VariableMetadataDraft {
   unit: string;
   source: string;
   products: string[];
+  price_role: string;
   deprecated: boolean;
   replaced_by: string;
 }
@@ -44,6 +46,7 @@ export const EMPTY_METADATA_DRAFT: VariableMetadataDraft = {
   unit: "",
   source: "",
   products: [],
+  price_role: "",
   deprecated: false,
   replaced_by: "",
 };
@@ -54,6 +57,7 @@ export function metadataDraftFrom(def?: {
   unit?: string;
   source?: string;
   products?: string[];
+  price_role?: string;
   deprecated?: boolean;
   replaced_by?: string;
 } | null): VariableMetadataDraft {
@@ -63,13 +67,16 @@ export function metadataDraftFrom(def?: {
     unit: def?.unit ?? "",
     source: def?.source ?? "",
     products: normalizeVariableProducts(def?.products) ?? [],
+    price_role: def?.price_role ?? "",
     deprecated: def?.deprecated === true,
     replaced_by: def?.replaced_by ?? "",
   };
 }
 
 export function metadataDraftReady(draft: VariableMetadataDraft): boolean {
-  return draft.description.trim() !== "" && draft.category.trim() !== "";
+  if (!draft.description.trim() || !draft.category.trim()) return false;
+  if (draft.category === "price" && draft.products.length !== 1) return false;
+  return true;
 }
 
 export function metadataDraftToBody(draft: VariableMetadataDraft): Record<string, unknown> {
@@ -79,6 +86,7 @@ export function metadataDraftToBody(draft: VariableMetadataDraft): Record<string
     unit: draft.unit || null,
     source: draft.source || null,
     products: draft.products.length > 0 ? draft.products : null,
+    price_role: draft.category === "price" && draft.price_role ? draft.price_role : null,
     deprecated: draft.deprecated,
     replaced_by: draft.deprecated && draft.replaced_by ? draft.replaced_by : null,
   };
@@ -96,10 +104,12 @@ function VariableProductsPicker({
   products,
   onChange,
   testIdPrefix,
+  required = false,
 }: {
   products: string[];
   onChange: (next: string[]) => void;
   testIdPrefix: string;
+  required?: boolean;
 }) {
   const { data, isLoading } = useQuery<{ products: ProductOption[] }>({
     queryKey: ["/api/ecommerce/products"],
@@ -144,7 +154,42 @@ function VariableProductsPicker({
         listClassName="max-h-[148px]"
       />
       <p className="text-xs text-muted-foreground">
-        Optional. Sellable product slugs this fact applies to. Leave empty for site-wide.
+        {required
+          ? "Required for prices — pick the one product this tuition belongs to."
+          : "Optional. Sellable product slugs this fact applies to. Leave empty for site-wide."}
+      </p>
+    </div>
+  );
+}
+
+function VariablePriceRoleSelect({
+  value,
+  onChange,
+  testIdPrefix,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  testIdPrefix: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <label className="text-sm font-medium text-foreground">Price role</label>
+      <Select value={value || NONE} onValueChange={(v) => onChange(v === NONE ? "" : v)}>
+        <SelectTrigger className="w-full" data-testid={`${testIdPrefix}-price-role`}>
+          <SelectValue placeholder="Pick a role" />
+        </SelectTrigger>
+        <SelectContent className="z-[10002]">
+          <SelectItem value={NONE}>None</SelectItem>
+          {PRICE_ROLES.map((r) => (
+            <SelectItem key={r} value={r} data-testid={`${testIdPrefix}-price-role-${r}`}>
+              {PRICE_ROLE_LABELS[r as PriceRole]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        List / full tuition also becomes this product&apos;s catalog price for Course offers. Monthly is
+        for installment copy only.
       </p>
     </div>
   );
@@ -166,6 +211,8 @@ export function VariableMetadataFields({
   testIdPrefix?: string;
 }) {
   const set = (patch: Partial<VariableMetadataDraft>) => onChange({ ...draft, ...patch });
+  const isPrice = draft.category === "price";
+  const showProducts = showOptional || isPrice;
 
   return (
     <div className="space-y-3">
@@ -189,7 +236,15 @@ export function VariableMetadataFields({
           <label className="text-sm font-medium text-foreground">
             Category <span className="text-destructive">*</span>
           </label>
-          <Select value={draft.category || undefined} onValueChange={(v) => set({ category: v })}>
+          <Select
+            value={draft.category || undefined}
+            onValueChange={(v) =>
+              set({
+                category: v,
+                ...(v !== "price" ? { price_role: "" } : {}),
+              })
+            }
+          >
             <SelectTrigger
               className={cn(errorField === "category" && "border-destructive")}
               data-testid={`${testIdPrefix}-category`}
@@ -232,6 +287,23 @@ export function VariableMetadataFields({
         )}
       </div>
 
+      {showProducts && (
+        <VariableProductsPicker
+          products={draft.products}
+          onChange={(products) => set({ products })}
+          testIdPrefix={testIdPrefix}
+          required={isPrice}
+        />
+      )}
+
+      {isPrice && (
+        <VariablePriceRoleSelect
+          value={draft.price_role}
+          onChange={(price_role) => set({ price_role })}
+          testIdPrefix={testIdPrefix}
+        />
+      )}
+
       {showOptional && (
         <>
           <div className="space-y-1">
@@ -254,12 +326,6 @@ export function VariableMetadataFields({
             </Select>
             <p className="text-xs text-muted-foreground">{VARIABLE_SOURCE_FIELD_HINT}</p>
           </div>
-
-          <VariableProductsPicker
-            products={draft.products}
-            onChange={(products) => set({ products })}
-            testIdPrefix={testIdPrefix}
-          />
 
           <div className="space-y-2 rounded-md border p-3">
             <div className="flex items-center justify-between gap-3">

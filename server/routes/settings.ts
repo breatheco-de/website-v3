@@ -37,6 +37,7 @@ import { scanThemeBackgroundUsage, replaceSectionBackgroundEverywhere } from "..
 import { sharedTypesUsingBackground } from "../design/shared-base-palette";
 import { isSharedBasePaletteId } from "@shared/theme-palette";
 import { evaluateVariableWrite, type VariableWriteAction } from "../variable-write-rules";
+import { syncListPriceBindingAfterWrite } from "../variable-list-price-bind";
 import { api } from "../rate-limit/api";
 import { handleVariableCatalogRequest } from "../variable-catalog-route";
 import { getConversionNameUsages, bulkReplaceConversionName, partialReplaceConversionNameBySection, buildFormState, getFormStateSuggestions, getConversionNameCounts, getAllFormEntries } from "../form-state";
@@ -599,7 +600,14 @@ export function registerSettingsRoutes(app: Express): void {
       }
       if (action === "set_metadata") {
         vm.updateMetadata(name, decision.metadataPatch ?? {});
-        return res.json({ success: true, definitions: vm.getDefinitions() });
+        const bind = syncListPriceBindingAfterWrite(name);
+        return res.json({
+          success: true,
+          definitions: vm.getDefinitions(),
+          ...(bind.bound || bind.cleared.length || bind.warnings.length
+            ? { list_price_binding: bind }
+            : {}),
+        });
       }
       const applyMeta = () => {
         if (decision.metadataPatch) vm.applyMetadata(name, decision.metadataPatch);
@@ -607,17 +615,17 @@ export function registerSettingsRoutes(app: Express): void {
 
       switch (action) {
         case "set_default": {
-          const { value } = body as { value: string };
+          const { value } = body as { value: unknown };
           if (value === undefined) {
             return res.status(400).json({ error: "value is required" });
           }
           applyMeta();
-          getVM(res).updateDefault(name, value);
+          getVM(res).updateDefault(name, value as string | { amount: number; currency: string });
           break;
         }
         case "add_condition": {
           const { condition } = body as {
-            condition: { query: Record<string, string>; value: string };
+            condition: { query: Record<string, string>; value: unknown };
           };
           if (!condition || !condition.query || condition.value === undefined) {
             return res
@@ -625,13 +633,13 @@ export function registerSettingsRoutes(app: Express): void {
               .json({ error: "condition with query and value is required" });
           }
           applyMeta();
-          getVM(res).addCondition(name, condition);
+          getVM(res).addCondition(name, condition as { query: Record<string, string>; value: string });
           break;
         }
         case "update_condition": {
           const { index, condition } = body as {
             index: number;
-            condition: { query: Record<string, string>; value: string };
+            condition: { query: Record<string, string>; value: unknown };
           };
           if (
             index === undefined ||
@@ -644,7 +652,11 @@ export function registerSettingsRoutes(app: Express): void {
             });
           }
           applyMeta();
-          getVM(res).updateCondition(name, index, condition);
+          getVM(res).updateCondition(
+            name,
+            index,
+            condition as { query: Record<string, string>; value: string },
+          );
           break;
         }
         case "delete_condition": {
@@ -673,9 +685,13 @@ export function registerSettingsRoutes(app: Express): void {
           return res.status(400).json({ error: `Unknown action: ${action}` });
       }
 
+      const bind = syncListPriceBindingAfterWrite(name);
       res.json({
         success: true,
         definitions: getVM(res).getDefinitions(),
+        ...(bind.bound || bind.cleared.length || bind.warnings.length
+          ? { list_price_binding: bind }
+          : {}),
       });
     } catch (err: any) {
       res

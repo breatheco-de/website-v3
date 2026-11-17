@@ -42,7 +42,7 @@ export function PreviewDeviceMenu({
     if (!editMode.isEditMode) {
       editMode.enableEditMode();
     }
-    // Navigate to /private/preview first (when on a public URL), then sync mode into the URL.
+    // Open /private/preview first when needed; setPreviewMode last so it owns the URL.
     onNeedEditMode?.();
     editMode.setPreviewMode({ kind: "device", deviceId });
   };
@@ -53,7 +53,21 @@ export function PreviewDeviceMenu({
   };
 
   const selectLlm = () => {
-    // Open private preview before applying LLM mode so preview_mode lands on the staff URL.
+    // Pre-stamp the query so enterPrivatePreview copies preview_mode into /private/preview.
+    // setPreviewMode must still run LAST: enterPrivatePreview calls enableEditMode(), and if
+    // that runs after LLM is applied, edit flips back on and the switch looks like a no-op.
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get("preview_mode") !== "llm") {
+        url.searchParams.set("preview_mode", "llm");
+        url.searchParams.delete("location");
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `${url.pathname}${url.search}${url.hash}`,
+        );
+      }
+    }
     onNeedEditMode?.();
     editMode.setPreviewMode({ kind: "llm" });
   };

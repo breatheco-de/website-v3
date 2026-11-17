@@ -5,6 +5,7 @@ import {
   missingVariableMetadata,
 } from "@shared/variable-metadata";
 import type { VariableCondition, VariableContext, VariableDefinition } from "./variable-manager";
+import { variableValueToDisplayString } from "@shared/variable-money";
 import { audienceValuesFor, type PageAudience } from "./page-audience";
 
 export type VariesBy = "region" | "location" | "locale";
@@ -24,7 +25,9 @@ export interface CatalogRow {
   unit: string | null;
   source: string | null;
   products: string[];
-  default: string | null;
+  price_role: string | null;
+  /** string or structured { amount, currency } for price vars */
+  default: unknown;
   varies_by: VariesBy[];
   read_only: boolean;
   deprecated: boolean;
@@ -67,6 +70,7 @@ function toRow(name: string, def: VariableDefinition): CatalogRow {
     unit: meta.unit ?? null,
     source: meta.source ?? null,
     products: meta.products ?? [],
+    price_role: meta.price_role ?? null,
     default: def.default ?? null,
     varies_by: variesBy(def),
     read_only: meta.system_managed,
@@ -185,11 +189,12 @@ export interface DetailItem {
   unit: string | null;
   source: string | null;
   products: string[];
+  price_role: string | null;
   read_only: boolean;
   deprecated: boolean;
   replaced_by: string | null;
   missing_description: boolean;
-  default: string | null;
+  default: unknown;
   conditions: VariableCondition[];
   by_region?: Record<string, string>;
   by_location?: Record<string, string>;
@@ -203,7 +208,9 @@ export interface DetailItem {
 }
 
 export function pasteToken(name: string, def: VariableDefinition): string {
-  const fallback = (def.default ?? "").replace(/[{}|]/g, "").trim();
+  const fallback = variableValueToDisplayString(def.default ?? "")
+    .replace(/[{}|]/g, "")
+    .trim();
   return fallback ? `{{ ${name} | ${fallback} }}` : `{{ ${name} }}`;
 }
 
@@ -245,6 +252,7 @@ export function buildVariableDetail(opts: {
       unit: row.unit,
       source: row.source,
       products: row.products,
+      price_role: row.price_role,
       read_only: row.read_only,
       deprecated: row.deprecated,
       replaced_by: meta.replaced_by ?? null,

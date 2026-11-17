@@ -48,12 +48,25 @@ function walkYamlFiles(dir: string): string[] {
   return out;
 }
 
+function valueAsUnitCheckString(raw: unknown): string | null {
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const o = raw as { amount?: unknown; currency?: unknown };
+    if (typeof o.amount === "number") return String(o.amount);
+  }
+  return null;
+}
+
 function allValues(def: VariableDefinition): string[] {
   const vals: string[] = [];
-  if (typeof def.default === "string") vals.push(def.default);
-  for (const c of def.conditions ?? []) if (typeof c.value === "string") vals.push(c.value);
+  const push = (raw: unknown) => {
+    const s = valueAsUnitCheckString(raw);
+    if (s != null) vals.push(s);
+  };
+  if (def.default !== undefined) push(def.default);
+  for (const c of def.conditions ?? []) push(c.value);
   for (const m of [def.by_region, def.by_location, def.by_locale]) {
-    for (const v of Object.values(m ?? {})) if (typeof v === "string") vals.push(v);
+    for (const v of Object.values(m ?? {})) push(v);
   }
   return vals;
 }
@@ -202,6 +215,18 @@ export const variablesMetadataValidator: Validator = {
               suggestion: VARIABLES_METADATA_ISSUE_CODES.VARIABLE_UNKNOWN_PRODUCT.suggestion,
             });
           }
+        }
+      }
+      if (def.category === "price") {
+        const n = normalizeVariableProducts(def.products)?.length ?? 0;
+        if (n !== 1) {
+          warnings.push({
+            type: "warning",
+            code: "VARIABLE_PRICE_PRODUCTS_REQUIRED",
+            message: `Price variable "${name}" must link to exactly one product (has ${n}).`,
+            file: variablesFile,
+            suggestion: VARIABLES_METADATA_ISSUE_CODES.VARIABLE_PRICE_PRODUCTS_REQUIRED.suggestion,
+          });
         }
       }
       if (def.deprecated && def.replaced_by) {

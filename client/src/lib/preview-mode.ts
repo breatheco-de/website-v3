@@ -1,6 +1,8 @@
 /**
  * Shareable staff preview viewport mode on /private/preview.
  * URL `preview_mode` wins over localStorage when present.
+ * localStorage keeps the last mode so refresh still restores LLM/device when the
+ * query param was dropped by an intermediate navigate.
  */
 
 import {
@@ -10,6 +12,7 @@ import {
 
 export const PREVIEW_MODE_PARAM = "preview_mode";
 export const PREVIEW_LOCATION_PARAM = "location";
+export const PREVIEW_MODE_STORAGE_KEY = "4geeks_preview_mode";
 
 /** sessionStorage: campus to restore when leaving LLM mode (same browser). */
 export const LLM_STASHED_LOCATION_KEY = "4geeks_llm_stashed_location";
@@ -44,6 +47,25 @@ export function previewModeFromEditState(opts: {
     return { kind: "device", deviceId: opts.previewDeviceId };
   }
   return { kind: "desktop" };
+}
+
+export function persistPreviewMode(mode: PreviewMode): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(PREVIEW_MODE_STORAGE_KEY, previewModeToParam(mode));
+}
+
+export function readStoredPreviewMode(): PreviewMode | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    return parsePreviewModeParam(localStorage.getItem(PREVIEW_MODE_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+export function clearStoredPreviewMode(): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.removeItem(PREVIEW_MODE_STORAGE_KEY);
 }
 
 /** Read mode from a search string (`?…` or bare query). Null = absent / invalid. */
