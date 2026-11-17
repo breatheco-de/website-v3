@@ -17,6 +17,7 @@ import { registerExplainTools } from "./tools/explain.js";
 import { registerProductTools } from "./tools/product.js";
 import { registerDatabaseTools } from "./tools/databases.js";
 import { registerRedirectTools } from "./tools/redirects.js";
+import { registerLlmsTxtTools } from "./tools/llms-txt.js";
 import { registerMediaTools } from "./tools/media.js";
 import { registerProposalTools } from "./tools/proposals.js";
 import { registerValidationIssuesTools } from "./tools/validation-issues.js";
@@ -420,6 +421,7 @@ async function createMcpServer(
   registerVariableTools(mcp, mcpToken, grants);
   registerDatabaseTools(mcp, mcpToken);
   registerRedirectTools(mcp, mcpToken, grants);
+  registerLlmsTxtTools(mcp, mcpToken, grants);
   registerMediaTools(mcp, mcpToken, grants);
   registerProposalTools(mcp, mcpToken, grants);
   registerValidationIssuesTools(mcp, mcpToken, grants);

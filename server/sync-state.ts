@@ -208,7 +208,12 @@ export function shouldTrackFile(filePath: string, allowedExceptions?: Set<string
   if (filePath.includes('/images/')) {
     return false;
   }
-  
+
+  // Llms.txt content files at site root (template output + regenerate instructions).
+  if (basename === "llms.template.md" || basename === "llms.regenerate-prompt.md") {
+    return true;
+  }
+
   const ext = path.extname(filePath).toLowerCase();
   if (ext !== '.yml' && ext !== '.yaml' && ext !== '.json') {
     return false;
@@ -727,7 +732,9 @@ export function getAllContentFiles(contentRoot?: string): string[] {
         }
       } else {
         const ext = path.extname(entry.name).toLowerCase();
-        if (ext === '.yml' || ext === '.yaml' || ext === '.json' || ext === '.ts') {
+        // .md is walked so shouldTrackFile can allow llms.template.md / llms.regenerate-prompt.md;
+        // other markdown stays out via shouldTrackFile.
+        if (ext === '.yml' || ext === '.yaml' || ext === '.json' || ext === '.ts' || ext === '.md') {
           const relativePath = path.relative(process.cwd(), fullPath);
           if (shouldTrackFile(relativePath, undefined, contentRoot)) {
             files.push(relativePath);

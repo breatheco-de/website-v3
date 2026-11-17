@@ -186,6 +186,9 @@ describe("allowedToolNames", () => {
     expect(names.has("test_redirect")).toBe(true);
     expect(names.has("update_redirect")).toBe(true);
     expect(names.has("ensure_content_type_schema_org")).toBe(true);
+    expect(names.has("get_llms_txt_prompt")).toBe(true);
+    expect(names.has("update_llms_txt_prompt")).toBe(true);
+    expect(names.has("regenerate_llms_txt")).toBe(true);
     expect(names.has("update_content_type")).toBe(true);
     expect(names.has("propose_change")).toBe(true);
     expect(names.has("update_proposal")).toBe(true);
@@ -281,9 +284,12 @@ describe("allowedToolNames", () => {
     expect(names.has("update_redirect")).toBe(true);
   });
 
-  it("seo_settings reveals ensure_content_type_schema_org", () => {
+  it("seo_settings reveals ensure_content_type_schema_org and llms.txt tools", () => {
     const names = new Set(allowedToolNames([{ name: "seo_settings" }]));
     expect(names.has("ensure_content_type_schema_org")).toBe(true);
+    expect(names.has("get_llms_txt_prompt")).toBe(true);
+    expect(names.has("update_llms_txt_prompt")).toBe(true);
+    expect(names.has("regenerate_llms_txt")).toBe(true);
     expect(names.has("update_meta_fields")).toBe(false);
   });
 });

@@ -12,7 +12,6 @@ import {
   IconMessage,
   IconServer,
   IconRobot,
-  IconFileText,
   IconSettings,
   IconChevronDown,
 } from "@tabler/icons-react";
@@ -54,7 +53,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { ServerTab } from "@/components/settings/ServerTab";
 import { RobotsTab } from "@/components/settings/RobotsTab";
-import { LlmsTxtTab } from "@/components/settings/LlmsTxtTab";
 import { MigrationsTab } from "@/components/settings/MigrationsTab";
 import { ConsentWindowCard } from "@/components/settings/ConsentWindowCard";
 import {
@@ -72,7 +70,6 @@ const GENERAL_TABS: SettingsSecondaryTab<GeneralSettingsTab>[] = [
   { id: "migrations", label: "Migrations", href: generalSettingsHref("migrations"), Icon: IconCode },
   { id: "brand", label: "Brand", href: generalSettingsHref("brand"), Icon: IconPhoto },
   { id: "robots", label: "Robots", href: generalSettingsHref("robots"), Icon: IconRobot },
-  { id: "llms-txt", label: "llms.txt", href: generalSettingsHref("llms-txt"), Icon: IconFileText },
   { id: "legal", label: "Legal", href: generalSettingsHref("legal"), Icon: IconScale },
   { id: "server", label: "Server", href: generalSettingsHref("server"), Icon: IconServer },
 ];
@@ -1032,10 +1029,6 @@ export default function SettingsPage() {
 
           <TabsContent value="robots" className="mt-0">
             <RobotsTab />
-          </TabsContent>
-
-          <TabsContent value="llms-txt" className="mt-0">
-            <LlmsTxtTab />
           </TabsContent>
 
           <TabsContent value="legal" className="mt-0 space-y-4">

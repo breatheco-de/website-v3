@@ -36,23 +36,6 @@ export class HtmlPageRebuildJob extends Job {
         writeCache: true,
         generation: payload.generation,
       });
-      // Temporary prod-parity probe: does SSR leave browser-like globals in this worker?
-      {
-        const g = globalThis as typeof globalThis & { window?: { document?: unknown }; document?: unknown };
-        log.warn(
-          {
-            pathname: payload.pathname,
-            status: rendered?.status,
-            pid: process.pid,
-            weblify: process.env.WEBLIFY_PROCESS,
-            typeof_window: typeof g.window,
-            typeof_document: typeof g.document,
-            typeof_navigator: typeof navigator,
-            has_window_document: !!g.window?.document,
-          },
-          "[env-probe] after html SSR",
-        );
-      }
       if (!rendered || (rendered.status !== 200 && rendered.status !== 204)) {
         log.warn({ pathname: payload.pathname, status: rendered?.status }, "html rebuild missed");
         return { ok: false, reason: "render_failed" };

@@ -1,9 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import CodeMirror from "@uiw/react-codemirror";
-import { EditorView } from "@codemirror/view";
+import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
+import {
+  Decoration,
+  EditorView,
+  MatchDecorator,
+  ViewPlugin,
+  type DecorationSet,
+} from "@codemirror/view";
 import {
   IconFileText,
   IconLoader2,
@@ -14,7 +20,7 @@ import {
   IconPlayerStop,
   IconPlayerPlay,
   IconEye,
-  IconInfoCircle,
+  IconPlus,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,86 +44,74 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { createVariableWidgetPlugin } from "@/lib/cm-variable-highlight";
 import { cn } from "@/lib/utils";
 
-/** Job input slots in LLMS_TXT_REGENERATE_PROMPT (not CMS Variables). */
-const PROMPT_INPUT_SLOT_RE =
+const PROMPT_SLOT_IDS = [
+  "company_profile",
+  "site_facts",
+  "products",
+  "pages",
+  "previous_llms_txt",
+] as const;
+
+type PromptSlotId = (typeof PROMPT_SLOT_IDS)[number];
+
+const PROMPT_SLOT_RE =
   /\{\{(company_profile|site_facts|products|pages|previous_llms_txt)\}\}/g;
 
-const PROMPT_INPUT_SLOT_INFO =
-  "Filled when the regenerate job runs, from data we already have on the site (company profile, facts, products, pages, and the previous template). Not a CMS variable — just a slot in this prompt.";
+const DEFAULT_SLOT_INFO: Record<PromptSlotId, string> = {
+  company_profile: "Organization facts from schema.org (name, what it does, regions, languages).",
+  site_facts: "Approved site figures from Variables (placement rates, ratings, etc.).",
+  products: "Products currently for sale (names, EN/ES URLs, descriptions).",
+  pages: "Approved marketing pages with titles, URLs, sections, and locales.",
+  previous_llms_txt:
+    "The current llms.template.md body, so wording stays stable when inputs are unchanged.",
+};
 
-function PromptInputSlotInfo() {
-  return (
-    <Popover modal={false}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="h-5 w-5 shrink-0"
-          title="About this prompt input"
-          data-testid="button-llms-prompt-slot-info"
-        >
-          <IconInfoCircle className="h-3.5 w-3.5 text-muted-foreground" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        side="top"
-        className="w-64 p-3 text-xs text-muted-foreground z-[10001]"
-      >
-        {PROMPT_INPUT_SLOT_INFO}
-      </PopoverContent>
-    </Popover>
-  );
-}
+const llmsSlotMatcher = new MatchDecorator({
+  regexp: PROMPT_SLOT_RE,
+  decoration: Decoration.mark({ class: "cm-llms-prompt-slot" }),
+});
 
-function PromptWithInputHighlights({ text }: { text: string }) {
-  const parts: ReactNode[] = [];
-  let last = 0;
-  let match: RegExpExecArray | null;
-  const re = new RegExp(PROMPT_INPUT_SLOT_RE.source, "g");
-  let i = 0;
-  while ((match = re.exec(text)) !== null) {
-    if (match.index > last) {
-      parts.push(text.slice(last, match.index));
+const llmsSlotHighlighter = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = llmsSlotMatcher.createDeco(view);
     }
-    const token = match[0];
-    parts.push(
-      <span
-        key={`slot-${i++}-${match.index}`}
-        className="inline-flex items-center gap-0.5 align-middle"
-      >
-        <code className="rounded bg-amber-500/15 px-1 py-0.5 text-[11px] text-foreground border border-amber-500/25">
-          {token}
-        </code>
-        <PromptInputSlotInfo />
-      </span>,
-    );
-    last = match.index + token.length;
-  }
-  if (last < text.length) {
-    parts.push(text.slice(last));
-  }
-  return <>{parts}</>;
+    update(update: { docChanged: boolean; viewportChanged: boolean; view: EditorView }) {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = llmsSlotMatcher.createDeco(update.view);
+      }
+    }
+  },
+  { decorations: (v) => v.decorations },
+);
+
+export interface LlmsTxtPromptSlot {
+  id: string;
+  token: string;
+  info: string;
 }
 
 export interface LlmsTxtSettingsResponse {
   has_template: boolean;
+  has_prompt?: boolean;
   enabled: boolean;
   serving: boolean;
   template: string | null;
   template_mtime_ms: number | null;
   markdown: string | null;
-  prompt: string;
+  prompt: string | null;
+  prompt_slots?: LlmsTxtPromptSlot[];
   public_url: string;
 }
 
@@ -146,6 +140,11 @@ export function LlmsTxtTab() {
   const [confirmStop, setConfirmStop] = useState(false);
   const [confirmServe, setConfirmServe] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
+  const [promptDraft, setPromptDraft] = useState("");
+  const [promptDirty, setPromptDirty] = useState(false);
+  const [promptSaving, setPromptSaving] = useState(false);
+  const [promptEditorFocused, setPromptEditorFocused] = useState(false);
+  const promptEditorRef = useRef<ReactCodeMirrorRef>(null);
   const baselineMtimeMs = useRef<number | null>(null);
   const regenerateStartedAt = useRef<number>(0);
 
@@ -153,6 +152,22 @@ export function LlmsTxtTab() {
     queryKey: ["/api/settings/llms-txt"],
     refetchInterval: regenerating ? REGENERATE_POLL_MS : false,
   });
+
+  const promptSlots = useMemo(() => {
+    if (data?.prompt_slots?.length) return data.prompt_slots;
+    return PROMPT_SLOT_IDS.map((id) => ({
+      id,
+      token: `{{${id}}}`,
+      info: DEFAULT_SLOT_INFO[id],
+    }));
+  }, [data?.prompt_slots]);
+
+  useEffect(() => {
+    if (!promptOpen) return;
+    if (!promptDirty) {
+      setPromptDraft(data?.prompt ?? "");
+    }
+  }, [promptOpen, data?.prompt, promptDirty]);
 
   useEffect(() => {
     if (!regenerating) return;
@@ -202,7 +217,89 @@ export function LlmsTxtTab() {
     [],
   );
 
+  // Insert when the editor has focus (caret or selection both count).
+  const canInsertPromptSlot = promptEditorFocused;
+  const hasPrompt = !!data?.has_prompt || !!(data?.prompt && data.prompt.trim());
+
+  const promptEditorExtensions = useMemo(
+    () => [
+      EditorView.lineWrapping,
+      llmsSlotHighlighter,
+      EditorView.theme({
+        "&": { fontSize: "12px", backgroundColor: "transparent", minHeight: "280px" },
+        "&.cm-focused": { outline: "none" },
+        ".cm-scroller": {
+          fontFamily:
+            "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+          lineHeight: "1.45",
+        },
+        ".cm-content": {
+          padding: "12px",
+          color: "hsl(var(--foreground))",
+        },
+        ".cm-llms-prompt-slot": {
+          backgroundColor: "color-mix(in srgb, #f59e0b 18%, transparent)",
+          border: "1px solid color-mix(in srgb, #f59e0b 35%, transparent)",
+          borderRadius: "3px",
+          padding: "0 2px",
+        },
+      }),
+      EditorView.updateListener.of((update) => {
+        if (update.focusChanged || update.selectionSet) {
+          setPromptEditorFocused(update.view.hasFocus);
+        }
+      }),
+    ],
+    [],
+  );
+
+  const insertPromptSlot = (token: string) => {
+    const view = promptEditorRef.current?.view;
+    if (!view || !canInsertPromptSlot) return;
+    const { from, to } = view.state.selection.main;
+    view.dispatch({
+      changes: { from, to, insert: token },
+      selection: { anchor: from + token.length },
+    });
+    setPromptDraft(view.state.doc.toString());
+    setPromptDirty(true);
+    view.focus();
+  };
+
+  const savePrompt = async () => {
+    if (!promptDraft.trim()) {
+      toast({ title: "Prompt cannot be empty", variant: "destructive" });
+      return;
+    }
+    setPromptSaving(true);
+    try {
+      const res = await apiRequest("PUT", "/api/settings/llms-txt/prompt", { prompt: promptDraft });
+      const json = (await res.json()) as { success?: boolean; error?: string; prompt?: string };
+      if (!res.ok) throw new Error(json.error || "Failed to save prompt");
+      setPromptDirty(false);
+      setPromptDraft(json.prompt ?? promptDraft);
+      await queryClient.invalidateQueries({ queryKey: ["/api/settings/llms-txt"] });
+      toast({ title: "Prompt saved" });
+    } catch (err: unknown) {
+      toast({
+        title: "Save failed",
+        description: err instanceof Error ? err.message : "Failed to save prompt",
+        variant: "destructive",
+      });
+    } finally {
+      setPromptSaving(false);
+    }
+  };
+
   const runRegenerate = async () => {
+    if (!hasPrompt) {
+      toast({
+        title: "Save a regenerate prompt first",
+        description: "Open View prompt, write the instructions, then Save.",
+        variant: "destructive",
+      });
+      return;
+    }
     baselineMtimeMs.current = data?.template_mtime_ms ?? null;
     regenerateStartedAt.current = Date.now();
     setRegenerating(true);
@@ -233,6 +330,14 @@ export function LlmsTxtTab() {
   };
 
   const handleRegenerateClick = () => {
+    if (!hasPrompt) {
+      toast({
+        title: "Save a regenerate prompt first",
+        description: "Open View prompt, write the instructions, then Save.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (data?.has_template) {
       setConfirmRegenerate(true);
       return;
@@ -247,8 +352,6 @@ export function LlmsTxtTab() {
       const json = (await res.json()) as {
         success?: boolean;
         error?: string;
-        push_skipped?: boolean;
-        push_error?: string | null;
       };
       if (!res.ok) {
         throw new Error(json.error || "Failed to update serving");
@@ -256,11 +359,9 @@ export function LlmsTxtTab() {
       await queryClient.invalidateQueries({ queryKey: ["/api/settings/llms-txt"] });
       toast({
         title: enabled ? "Now serving" : "Stopped serving",
-        description: json.push_skipped
-          ? `Saved locally. Content push skipped: ${json.push_error || "sync disabled"}.`
-          : enabled
-            ? "Public /llms.txt is live again."
-            : "Public /llms.txt returns 404. The template file is kept.",
+        description: enabled
+          ? "Public /llms.txt is live. settings.yml is pending Sync."
+          : "Public /llms.txt returns 404. The template file is kept. settings.yml is pending Sync.",
       });
       void refetch();
     } catch (err: unknown) {
@@ -372,8 +473,8 @@ export function LlmsTxtTab() {
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
           Public agents read <code className="text-xs">/llms.txt</code> when serving is on and a
-          template exists. Stop serving turns the public URL off without deleting the template;
-          Serve turns it back on.
+          template exists. Save a regenerate prompt (View prompt) before Generate. Stop serving
+          turns the public URL off without deleting the template; Serve turns it back on.
         </p>
 
         {!serving && hasTemplate && !regenerating ? (
@@ -520,13 +621,14 @@ export function LlmsTxtTab() {
           {advancedOpen ? (
             <ul className="mt-2 text-xs text-muted-foreground list-disc pl-5 space-y-1">
               <li>
-                Template file: <code>llms.template.md</code> in the site content root. Serving flag:{" "}
-                <code>settings.yml → llms_txt.enabled</code> (default off if missing).
+                Template: <code>llms.template.md</code>. Regenerate prompt:{" "}
+                <code>llms.regenerate-prompt.md</code>. Both live in the site content root and Sync
+                like other content. Serving flag: <code>settings.yml → llms_txt.enabled</code>.
               </li>
               <li>
                 Job: <code>llms_txt_regenerate</code> (Sidequest / OpenRouter). Staff Regenerate does
-                not turn serving on. Public 404 enqueues only while enabled and missing. Prompt lives
-                in code (<code>regenerate-prompt.ts</code>).
+                not turn serving on. Public 404 enqueues only while enabled and missing. Prompt slots
+                are job inputs, not CMS Variables.
               </li>
               <li>
                 Pages input: content type <code>page</code>, <code>meta.priority ≥ 0.8</code>, not
@@ -639,43 +741,126 @@ export function LlmsTxtTab() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={promptOpen} onOpenChange={setPromptOpen}>
+      <Dialog
+        open={promptOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPromptDirty(false);
+            setPromptEditorFocused(false);
+            setPromptDraft(data?.prompt ?? "");
+          }
+          setPromptOpen(open);
+        }}
+      >
         <DialogContent
-          className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col"
+          className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col gap-3"
           data-testid="dialog-llms-prompt"
         >
-          <DialogHeader>
+          <DialogHeader className="pr-6 space-y-1.5">
             <DialogTitle>Regenerate prompt</DialogTitle>
             <DialogDescription>
-              Read-only copy from code (<code className="text-xs">regenerate-prompt.ts</code>).
-              Highlighted slots are job inputs (see the info icon next to each).
+              Write the instructions the rebuild job sends to the model, then Save before you
+              Regenerate. Insert input adds a job data slot at the cursor (not a CMS Variable).
             </DialogDescription>
           </DialogHeader>
-          <pre
-            className="flex-1 min-h-0 overflow-auto rounded-md border bg-muted/30 p-3 text-xs whitespace-pre-wrap font-mono"
-            data-testid="text-llms-prompt-body"
+
+          {!hasPrompt && !promptDraft.trim() ? (
+            <p className="text-xs text-amber-700 dark:text-amber-400" data-testid="text-llms-prompt-empty">
+              No saved prompt yet — write one and Save. Regenerate stays blocked until this file
+              exists.
+            </p>
+          ) : null}
+
+          <div className="flex items-center justify-end">
+            <span
+              className="inline-flex"
+              title={
+                canInsertPromptSlot
+                  ? undefined
+                  : "Select text in the prompt to insert an input"
+              }
+            >
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!canInsertPromptSlot}
+                    data-testid="button-llms-prompt-insert"
+                  >
+                    <IconPlus className="h-4 w-4 mr-1.5" />
+                    Insert input
+                    <IconChevronDown className="h-3.5 w-3.5 ml-1 opacity-70" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-72 z-[10001]">
+                  {promptSlots.map((slot) => (
+                    <DropdownMenuItem
+                      key={slot.id}
+                      className="flex cursor-pointer flex-col items-start gap-0.5 py-2 hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                      onSelect={() => insertPromptSlot(slot.token)}
+                      data-testid={`menu-llms-prompt-insert-${slot.id}`}
+                    >
+                      <code className="text-xs">{slot.token}</code>
+                      <span className="text-[11px] text-muted-foreground leading-snug">
+                        {slot.info}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </span>
+          </div>
+
+          <div
+            className="flex-1 min-h-0 overflow-hidden rounded-md border bg-muted/30"
+            data-testid="llms-prompt-editor"
           >
-            <PromptWithInputHighlights text={data?.prompt ?? ""} />
-          </pre>
-          <div className="flex justify-end gap-2 pt-2">
+            <CodeMirror
+              ref={promptEditorRef}
+              value={promptDraft}
+              height="320px"
+              extensions={promptEditorExtensions}
+              onChange={(value) => {
+                setPromptDraft(value);
+                setPromptDirty(true);
+              }}
+              basicSetup={{
+                lineNumbers: false,
+                foldGutter: false,
+                highlightActiveLine: true,
+                highlightActiveLineGutter: false,
+                // Off: {{slots}} look like matched braces and get a second green highlight.
+                bracketMatching: false,
+              }}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
             <Button
               variant="outline"
               size="sm"
-              onClick={async () => {
-                if (!data?.prompt) return;
-                const ok = await copyText(data.prompt);
-                toast({
-                  title: ok ? "Prompt copied" : "Copy failed",
-                  variant: ok ? "default" : "destructive",
-                });
+              disabled={promptSaving}
+              onClick={() => {
+                setPromptDirty(false);
+                setPromptDraft(data?.prompt ?? "");
+                setPromptOpen(false);
               }}
-              data-testid="button-copy-llms-prompt"
+              data-testid="button-cancel-llms-prompt"
             >
-              <IconCopy className="h-4 w-4 mr-1.5" />
-              Copy prompt
+              Cancel
             </Button>
-            <Button size="sm" onClick={() => setPromptOpen(false)} data-testid="button-close-llms-prompt">
-              Close
+            <Button
+              size="sm"
+              disabled={promptSaving || !promptDraft.trim()}
+              onClick={() => void savePrompt()}
+              data-testid="button-save-llms-prompt"
+            >
+              {promptSaving ? (
+                <IconLoader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : null}
+              Save
             </Button>
           </div>
         </DialogContent>

@@ -258,6 +258,46 @@ export function requeueTrackedLocalDirties(
   log.info(`[AutoCommit] Requeued ${files.length} tracked local dirty file(s) after restart`);
 }
 
+/**
+ * Sidequest → web: after markFileAsModified in a worker, ask the web process
+ * to requeue dirties into this process's auto-commit memory queue.
+ */
+export async function notifyContentDirtiesRequeued(opts: {
+  files: string[];
+  author?: string;
+}): Promise<void> {
+  const files = [...new Set(opts.files.filter((f) => typeof f === "string" && f.length > 0))];
+  if (files.length === 0) return;
+  if (process.env.VITEST) return;
+
+  const secret = process.env.SESSION_SECRET || "";
+  if (!secret) {
+    log.warn({ files: files.length }, "content requeue skipped: SESSION_SECRET is empty");
+    return;
+  }
+  const port = process.env.PORT || "5000";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/internal/content/requeue-dirties`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${secret}`,
+      },
+      body: JSON.stringify({ files, author: opts.author || "agent" }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      log.warn({ status: res.status, files: files.length }, "content requeue call failed");
+    }
+  } catch (err) {
+    log.warn({ err, files: files.length }, "content requeue call failed");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function scheduleCommit(useBackoff = false): void {
   if (timer !== null) return;
   if (isCommitting) return;

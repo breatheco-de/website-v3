@@ -5,6 +5,17 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-17"
+    summary: "llms.txt MCP tools: get/update prompt + regenerate; staff UI under SEO/GEO"
+    agent_impact:
+      - "New tools (seo_settings): get_llms_txt_prompt, update_llms_txt_prompt, regenerate_llms_txt. Read/write llms.regenerate-prompt.md; regenerate enqueues Sidequest (async). None toggles Serve."
+      - "Staff UI moved to Settings → SEO/GEO → llms.txt (/private/settings/seo/llms-txt). Old /private/settings/llms-txt redirects."
+      - "Reconnect the MCP connector so tools/list includes the new tools."
+    tools_changed: true
+    paths:
+      - mcp-server/tools/llms-txt.ts
+      - shared/mcp-tool-catalog.ts
+      - client/src/pages/SeoGeoSettingsPage.tsx
   - date: "2026-11-16"
     summary: "Price variables are structured money; products require one product; list role binds product pricing for Course Offer"
     agent_impact:

@@ -1,9 +1,15 @@
-import { describe, expect, it } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   absolutizePath,
   fillLlmsTxtPrompt,
+  LLMS_TXT_PROMPT_BASENAME,
   pageSectionForSlug,
   PAGES_DENYLIST,
+  readLlmsTxtPrompt,
+  writeLlmsTxtPrompt,
 } from "./regenerate-prompt";
 
 describe("pageSectionForSlug", () => {
@@ -50,23 +56,53 @@ describe("absolutizePath", () => {
 });
 
 describe("fillLlmsTxtPrompt", () => {
-  it("injects input blocks and keeps En español section", () => {
-    const out = fillLlmsTxtPrompt({
+  it("injects input blocks from the caller-supplied template", () => {
+    const template = [
+      "ORG={{company_profile}}",
+      "FACTS={{site_facts}}",
+      "PRODS={{products}}",
+      "PAGES={{pages}}",
+      "PREV={{previous_llms_txt}}",
+    ].join("\n");
+    const out = fillLlmsTxtPrompt(template, {
       company_profile: "ORG",
       site_facts: "FACTS",
       products: "PRODS",
       pages: "PAGES",
       previous_llms_txt: "PREV",
     });
-    expect(out).toContain("ORG");
-    expect(out).toContain("FACTS");
-    expect(out).toContain("PRODS");
-    expect(out).toContain("PAGES");
-    expect(out).toContain("PREV");
+    expect(out).toContain("ORG=ORG");
+    expect(out).toContain("FACTS=FACTS");
+    expect(out).toContain("PRODS=PRODS");
+    expect(out).toContain("PAGES=PAGES");
+    expect(out).toContain("PREV=PREV");
     expect(out).not.toContain("{{company_profile}}");
-    expect(out).toMatch(/## En español/);
-    expect(out).toMatch(/ONLY from <products>/);
-    expect(out).toMatch(/do not put ES product/);
-    expect(out).toMatch(/Do NOT name or describe specific products here/);
+  });
+});
+
+describe("read/write LlmsTxtPrompt", () => {
+  let tmp: string;
+
+  afterEach(() => {
+    if (tmp && fs.existsSync(tmp)) {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("returns null when missing or empty", () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "llms-prompt-"));
+    expect(readLlmsTxtPrompt(tmp)).toBeNull();
+    fs.writeFileSync(path.join(tmp, LLMS_TXT_PROMPT_BASENAME), "   \n", "utf-8");
+    expect(readLlmsTxtPrompt(tmp)).toBeNull();
+  });
+
+  it("creates and updates the prompt file", () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "llms-prompt-"));
+    writeLlmsTxtPrompt("Use {{products}}\n", tmp);
+    expect(readLlmsTxtPrompt(tmp)).toContain("{{products}}");
+    writeLlmsTxtPrompt("Updated {{pages}}", tmp);
+    const body = readLlmsTxtPrompt(tmp);
+    expect(body).toContain("Updated {{pages}}");
+    expect(body?.endsWith("\n")).toBe(true);
   });
 });
