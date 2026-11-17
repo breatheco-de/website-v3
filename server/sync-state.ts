@@ -735,7 +735,11 @@ export function getAllContentFiles(contentRoot?: string): string[] {
         // .md is walked so shouldTrackFile can allow llms.template.md / llms.regenerate-prompt.md;
         // other markdown stays out via shouldTrackFile.
         if (ext === '.yml' || ext === '.yaml' || ext === '.json' || ext === '.ts' || ext === '.md') {
-          const relativePath = path.relative(process.cwd(), fullPath);
+          // Resolve both sides so macOS /var vs /private/var does not yield a bogus relative path.
+          const relativePath = path.relative(
+            resolvePathForComparison(process.cwd()),
+            resolvePathForComparison(fullPath),
+          );
           if (shouldTrackFile(relativePath, undefined, contentRoot)) {
             files.push(relativePath);
           }

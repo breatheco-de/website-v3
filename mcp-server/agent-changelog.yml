@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-11-17"
+    summary: "Micro-events curation, checkout-aware page stats, A/B goal micro_actions; ai_flex_path Ecommerce CTA tracking"
+    agent_impact:
+      - "Optional component-registry micro-events.ts curates Micro tab / page-stats secondary / test_goal micro_actions (never summed into leads or enrollment). explain topics component-behaviors, ecommerce, analytics."
+      - "Decision pages with checkout CTAs use lead_or_enroll_rate headline. ai_flex_path binds cta-picker:tracking; migration 016 sets missing tracking. No new Tag Manager event names."
+      - "Reconnect not required for tool list (docs/goal enum only); stress: explain_site covered, schema covered, micro_actions docs-only skip."
+    tools_changed: false
+    paths:
+      - shared/micro-events.ts
+      - mcp-server/explain/component-behaviors.md
+      - mcp-server/explain/ecommerce.md
+      - mcp-server/explain/analytics.md
+      - scripts/migrations/016_ai_flex_path_cta_tracking.ts
+  - date: "2026-11-17"
     summary: "llms.txt MCP tools: get/update prompt + regenerate; staff UI under SEO/GEO"
     agent_impact:
       - "New tools (seo_settings): get_llms_txt_prompt, update_llms_txt_prompt, regenerate_llms_txt. Read/write llms.regenerate-prompt.md; regenerate enqueues Sidequest (async). None toggles Serve."

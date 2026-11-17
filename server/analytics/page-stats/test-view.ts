@@ -148,6 +148,8 @@ type RowInput = {
   enroll: number;
   leadOrEnroll: number;
   enrollVisits: number;
+  ctaSessions: number;
+  videoCompletes: number;
   reachedCheckout: number | null;
   purchased: number | null;
   paidVisits: number;
@@ -168,6 +170,8 @@ function rowInput(f: VersionFacts): RowInput {
     enroll: t?.enroll_sessions ?? 0,
     leadOrEnroll: t?.lead_or_enroll ?? 0,
     enrollVisits: t?.enroll_visits ?? 0,
+    ctaSessions: t?.cta_sessions ?? 0,
+    videoCompletes: t?.video_completes ?? 0,
     reachedCheckout: t ? t.reached_checkout ?? null : null,
     purchased: t ? t.purchased ?? null : null,
     paidVisits: f.paid_summary.paid_visits,
@@ -233,6 +237,13 @@ export function buildCompareRows(opts: {
       }),
       row("enroll", "Enrollment clicks", "count", (r) => r.enroll),
       row("enroll_rate", "Enrollment clicks, per visit", "rate", enrollRate),
+    );
+  } else if (goal === "micro_actions") {
+    // OR-ish proxy: prefer section clicks; video completes are complementary (not summed into leads).
+    const microCount = (r: RowInput) => Math.min(r.sessions, Math.max(r.ctaSessions, Math.min(r.videoCompletes, r.sessions)));
+    rows.push(
+      row("primary", "Micro actions, per visit", "rate", (r) => ratio(microCount(r), r.sessions), { best: true }),
+      row("micro", "Visits with a micro action (approx.)", "count", microCount),
     );
   } else if (opts.primary) {
     rows.push(row("primary", opts.primary.label, "rate", (r) => r.primary, { best: true, target: opts.primary.target }));

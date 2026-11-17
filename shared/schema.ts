@@ -1559,7 +1559,7 @@ export const versioningUpdateSchema = z.object({
   validation_job_id: z.string().optional(),
   validation_job_ids: z.array(z.string()).optional(),
   /** Goal for a test this save starts (0% → traffic). Ignored when a test is already running. */
-  test_goal: z.enum(["leads", "enrollment_clicks", "both"]).optional(),
+  test_goal: z.enum(["leads", "enrollment_clicks", "both", "micro_actions"]).optional(),
 }).strict();
 
 export type VersioningUpdate = z.infer<typeof versioningUpdateSchema>;

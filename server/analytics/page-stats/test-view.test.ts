@@ -195,6 +195,28 @@ describe("buildCompareRows", () => {
     expect(by.leads_all_rate!.best).toBeNull();
   });
 
+  it("micro_actions goal: OR-ish micro rate decides the winner; never folds into lead/enroll rows", () => {
+    const rows = buildCompareRows({
+      versions: ["default", "b"],
+      byVersion: {
+        default: facts(200, 60, 20, 0.1, { cta_sessions: 10, video_completes: 2 }),
+        b: facts(200, 60, 5, 0.02, { cta_sessions: 40, video_completes: 8 }),
+      },
+      primary: { label: "Conversion rate", target: 0.04 },
+      minVisits: 100,
+      goal: "micro_actions",
+    });
+    const by = Object.fromEntries(rows.map((r) => [r.id, r]));
+    expect(by.lead_or_enroll_rate).toBeUndefined();
+    expect(by.primary).toMatchObject({
+      best: "b",
+      values: { default: 10 / 200, b: 40 / 200 },
+    });
+    expect(by.micro!.best).toBeNull();
+    expect(by.leads_here_rate!.best).toBeNull();
+    expect(by.leads_all_rate!.best).toBeNull();
+  });
+
   it("enrollment rates divide by visits counted since recording started", () => {
     const rows = buildCompareRows({
       versions: ["default", "b"],

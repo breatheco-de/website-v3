@@ -23,6 +23,7 @@ import type {
   Money,
   ObjectiveBlock,
   OrganicFacts,
+  PageStatsResponse,
   PaidCampaignRow,
   PaidFacts,
   PathRow,
@@ -702,6 +703,93 @@ export function LinksSection({ section }: { section: Section<LinksFacts> }) {
             </div>
           )}
         </>
+      )}
+    </SectionCard>
+  );
+}
+
+/** Enrollment clicks from Ecommerce CTA inventory (intent, not purchases). */
+export function EnrollClicksSection({
+  section,
+  checkoutButtons,
+}: {
+  section: Section<TrafficFacts>;
+  checkoutButtons: number;
+}) {
+  const t = section.data;
+  if (!t) {
+    return (
+      <SectionCard title="Enrollment clicks" icon={MousePointerClick} section={section} testId="section-enroll-clicks">
+        {null}
+      </SectionCard>
+    );
+  }
+  const visits = t.current.enroll_visits || t.current.sessions;
+  const rate = visits > 0 ? t.current.enroll_sessions / visits : null;
+  if (checkoutButtons <= 0 && t.current.enroll_sessions <= 0) return null;
+  return (
+    <SectionCard title="Enrollment clicks" icon={MousePointerClick} section={section} testId="section-enroll-clicks">
+      <p className="text-xs text-muted-foreground">
+        Visits that clicked a button set to add to cart or checkout. Clicks are intent, not purchases.
+      </p>
+      <KpiGrid>
+        <Kpi label="Visits with an enrollment click" value={num(t.current.enroll_sessions)} />
+        <Kpi label="Per visit" value={pct(rate, 1)} />
+      </KpiGrid>
+      {t.current.enroll_since && (
+        <p className="text-[11px] text-muted-foreground">
+          Enrollment clicks counted since {shortDay(t.current.enroll_since)}.
+        </p>
+      )}
+      {(t.current.reached_checkout != null || t.current.purchased != null) && (
+        <p className="text-[11px] text-muted-foreground">
+          Payment site (Google Analytics only):{" "}
+          {t.current.reached_checkout != null ? `${num(t.current.reached_checkout)} reached checkout` : null}
+          {t.current.reached_checkout != null && t.current.purchased != null ? " · " : null}
+          {t.current.purchased != null ? `${num(t.current.purchased)} purchased` : null}
+        </p>
+      )}
+    </SectionCard>
+  );
+}
+
+/** Complementary micro actions from curated micro-events (never the headline metric). */
+export function MicroActionsSection({
+  section,
+  actions,
+}: {
+  section: Section<TrafficFacts>;
+  actions: NonNullable<PageStatsResponse["actions"]>;
+}) {
+  const t = section.data;
+  const names = actions.micro.event_names;
+  if (!names.length && !actions.micro.broken) return null;
+  const total = t?.current.sessions ?? 0;
+  return (
+    <SectionCard title="Micro actions" icon={MousePointerClick} section={section} testId="section-micro-actions">
+      <p className="text-xs text-muted-foreground">
+        Other curated actions on this page (complements Forms and Ecommerce). Can be chosen as an A/B test goal
+        (Micro actions).
+      </p>
+      {actions.micro.broken && (
+        <p className="text-[11px] text-status-away">A micro-events map on this page couldn&apos;t be loaded.</p>
+      )}
+      {t && (
+        <KpiGrid>
+          {names.includes("cta_click") && (
+            <Kpi label="Clicked a section CTA" value={pct(total ? t.current.cta_sessions / total : null, 0)} />
+          )}
+          {(names.includes("video_start") || names.includes("video_complete")) && (
+            <Kpi
+              label="Videos"
+              value={`${num(t.current.video_starts)} plays`}
+              hint={`${num(t.current.video_completes)} completed`}
+            />
+          )}
+        </KpiGrid>
+      )}
+      {names.length > 0 && (
+        <p className="text-[11px] text-muted-foreground font-mono">{names.join(" · ")}</p>
       )}
     </SectionCard>
   );

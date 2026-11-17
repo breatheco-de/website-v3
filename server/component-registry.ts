@@ -18,6 +18,12 @@ import {
 import { resolveComponentBehaviors } from "@shared/component-behaviors";
 import type { TextLimitsByVariant } from "@shared/component-text-limits";
 import type { ComponentLayoutBlock, VariantMetadata } from "@shared/component-layout-traits";
+import {
+  parseMicroEventsExport,
+  resolveMicroEventsForVariant,
+  type MicroEventRow,
+  type MicroEventsMap,
+} from "@shared/micro-events";
 import { getPackageRoot, getProjectRoot } from "@shared/paths";
 import { child } from "./logger";
 const log = child({ module: "component-registry" });
@@ -730,6 +736,93 @@ export function loadAllFieldEditors(contentFolder?: string): AllFieldEditors {
   }
 
   return result;
+}
+
+export type MicroEventsLoadEntry =
+  | { status: "ok"; map: MicroEventsMap }
+  | { status: "error"; error: string }
+  | { status: "missing" };
+
+export interface AllMicroEvents {
+  [componentType: string]: MicroEventsLoadEntry;
+}
+
+/**
+ * Load optional `micro-events.ts` maps (same folder resolution as field-editors).
+ * Missing file → `missing`. Parse/forbidden-only failure → `error` (staff warning + CI).
+ */
+export function loadAllMicroEvents(contentFolder?: string): AllMicroEvents {
+  const result: AllMicroEvents = {};
+  const folder = activeContentFolder(contentFolder);
+
+  try {
+    const components = listComponents(folder);
+
+    for (const componentType of components) {
+      if (componentType === "common") continue;
+
+      const versions = listVersions(componentType, folder);
+      if (versions.length === 0) continue;
+
+      const latestVersion = versions[0];
+      const microPath = path.join(
+        componentTypeDir(componentType, folder) || "",
+        latestVersion,
+        "micro-events.ts",
+      );
+
+      if (!fs.existsSync(microPath)) {
+        result[componentType] = { status: "missing" };
+        continue;
+      }
+
+      try {
+        const content = fs.readFileSync(microPath, "utf8");
+        const match = content.match(/export\s+const\s+microEvents\s*[^=]*=\s*(\{[\s\S]*\});?\s*$/m);
+        if (!match) {
+          result[componentType] = {
+            status: "error",
+            error: "micro-events.ts must export const microEvents = { ... }",
+          };
+          continue;
+        }
+        // Evaluate object literal safely enough for our curated maps (no imports in value).
+        const map = Function(`"use strict"; return (${match[1]})`)() as unknown;
+        const parsed = parseMicroEventsExport(map);
+        if (!parsed.ok) {
+          result[componentType] = { status: "error", error: parsed.error };
+          continue;
+        }
+        result[componentType] = { status: "ok", map: parsed.map };
+      } catch (parseError) {
+        log.error({ err: parseError }, `Error parsing micro-events for ${componentType}:`);
+        result[componentType] = {
+          status: "error",
+          error: parseError instanceof Error ? parseError.message : String(parseError),
+        };
+      }
+    }
+  } catch (error) {
+    log.error({ err: error }, "Error loading micro-events:");
+  }
+
+  return result;
+}
+
+/** Resolve micro rows for one section type + variant from a loaded catalog. */
+export function resolveLoadedMicroEvents(
+  catalog: AllMicroEvents,
+  componentType: string,
+  variant?: string,
+): {
+  rows: MicroEventRow[];
+  broken: boolean;
+  error?: string;
+} {
+  const entry = catalog[componentType];
+  if (!entry || entry.status === "missing") return { rows: [], broken: false };
+  if (entry.status === "error") return { rows: [], broken: true, error: entry.error };
+  return { rows: resolveMicroEventsForVariant(entry.map, variant), broken: false };
 }
 
 export function saveExample(

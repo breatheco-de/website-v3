@@ -23,6 +23,11 @@ export interface InternalLinkProps
   onNavigate?: () => void;
   /** Preload eager section chunks from build manifest on mouse enter (internal paths only). */
   prefetch?: InternalLinkPrefetch;
+  /**
+   * Optional in-flight work before leaving (e.g. tracked enrollment click).
+   * Passed to useInternalNav as beforeLeave.
+   */
+  beforeLeave?: Promise<unknown> | null | (() => Promise<unknown> | null);
 }
 
 export function InternalLink({
@@ -32,6 +37,7 @@ export function InternalLink({
   prefetch = "hover",
   onClick,
   onMouseEnter,
+  beforeLeave,
   target,
   rel,
   className,
@@ -80,7 +86,9 @@ export function InternalLink({
       href={href}
       className={className}
       onClick={(e) => {
-        handleClick(e);
+        const sent =
+          typeof beforeLeave === "function" ? beforeLeave() : beforeLeave ?? null;
+        handleClick(e, { beforeLeave: sent });
         onClick?.(e);
       }}
       onMouseDown={(e) => {

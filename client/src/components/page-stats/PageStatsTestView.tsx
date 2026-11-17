@@ -105,6 +105,8 @@ const GOAL_HINT: Record<TestGoal, string> = {
   leads: "Leads sent on this page decide the winner.",
   enrollment_clicks: "Visits that clicked a button set to add to cart or checkout decide the winner.",
   both: "Visits that sent a lead or made an enrollment click decide the winner, each visit counted once.",
+  micro_actions:
+    "Visits with a curated micro action (section clicks / file video) decide the winner — separate from leads and enrollment.",
 };
 
 /** Advanced notes for the goal picker (staff opt in). */
@@ -117,6 +119,11 @@ export function GoalAdvanced() {
           Enrollment clicks are the <span className="font-mono">add_to_cart</span> and{" "}
           <span className="font-mono">click_begin_checkout</span> events from buttons on this page. Buttons are set in the section
           editor&apos;s Ecommerce tab.
+        </li>
+        <li>
+          Micro actions are curated in each component&apos;s <span className="font-mono">micro-events.ts</span> (section clicks /
+          file video). They never add into the Leads or Enrollment totals — pick Micro actions as the test goal to optimize for
+          them.
         </li>
         <li>
           &quot;Both&quot; uses leads as recorded on the visit, so it can differ slightly from the &quot;Leads sent on this page&quot; row

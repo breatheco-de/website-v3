@@ -2,15 +2,92 @@ name: AI Flex Path
 version: "1.0"
 component: AiFlexPath
 file: client/src/components/ai_flex_path/variants/AiFlexPathDefault.tsx
-description: >-
-  Interactive learning-path builder: pick or rearrange courses, see skills/tools, and CTA into enrollment.
-when_to_use: >-
-  Use on program or AI-path landing pages when learners should assemble or review a multi-course path before applying.
+description: "Interactive learning-path builder: pick or rearrange courses, see skills/tools, and CTA into enrollment."
+when_to_use: Use on program or AI-path landing pages when learners should assemble or review a multi-course path before applying.
+behaviors:
+  ecommerce:
+    role: funnel
+    events:
+      - add_to_cart
+      - click_begin_checkout
+    notes: >-
+      CTA buttons on cta.buttons[] (all variants) and simplified:courses[].cta_buttons[] bind
+      cta-picker:tracking. Payment links use add_to_cart or click_begin_checkout; others use none.
 variants:
-  course_color_selector: {}
-  default: {}
-  drag_and_drop: {}
-  simplified: {}
+  course_color_selector:
+    content_shape:
+      items:
+        slot_colors:
+          min: 4
+          max: 4
+          typical: 4
+        default_courses:
+          min: 4
+          max: 4
+          typical: 4
+        courses:
+          min: 8
+          max: 8
+          typical: 8
+      text:
+        tagline:
+          min: 38
+          max: 67
+          typical: 49
+      image: required
+      icon: required
+      sample_pages: 2
+      measured_at: "2026-10-02"
+    best_for: >-
+      Program landing pages with exactly 8 courses, 4 color slots, and a tagline around 49 characters where learners
+      build or review a fixed AI learning path before enrolling.
+    avoid_when: >-
+      Pages without a required hero image and icon, or when course count differs from exactly 8 or slot count differs
+      from exactly 4.
+    metadata_status: draft
+  default:
+    best_for: >-
+      Use on AI program landing pages with 4-8 selectable courses where learners build or customize their learning path
+      before enrolling.
+    avoid_when: >-
+      Avoid on simple course pages, single-course promotions, or content without multiple selectable courses and skill
+      visualizations.
+    metadata_status: draft
+  drag_and_drop:
+    best_for: >-
+      Use on AI learning path landing pages with 4–8 courses where learners need to drag-and-drop to build or rearrange
+      their path, view skill bars, and see tools before enrolling.
+    avoid_when: >-
+      Avoid on pages with 10+ courses, simple static paths, or when the goal is just to display information without
+      learner interaction.
+    metadata_status: draft
+  simplified:
+    content_shape:
+      items:
+        slot_colors:
+          min: 4
+          max: 4
+          typical: 4
+        courses:
+          min: 4
+          max: 4
+          typical: 4
+      text:
+        tagline:
+          min: 94
+          max: 101
+          typical: 94
+      image: required
+      icon: unused
+      sample_pages: 1
+      measured_at: "2026-10-02"
+    best_for: >-
+      Program landing pages with exactly 4 courses where learners review a fixed AI learning path, skill bars, and
+      colored CTAs before enrolling.
+    avoid_when: >-
+      Pages needing variable course counts, no image, or where users must freely add/rearrange courses beyond the fixed
+      4-slot layout.
+    metadata_status: draft
 variant_props:
   course_color_selector:
     max_selections:

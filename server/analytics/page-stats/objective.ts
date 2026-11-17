@@ -8,6 +8,7 @@ import {
   FUNNEL_LOSS_CAUSES,
   FUNNEL_STEP_LABELS,
   STAGE_OBJECTIVES,
+  objectiveFor,
   type FunnelStepId,
   type ObjectiveMetricId,
   type StageTargetValues,
@@ -39,6 +40,10 @@ export type ObjectiveInputs = {
   rateBenchmarkPages?: number;
   /** One version of a test: no cost block (spend can't be split) and no previous-period target. */
   testView?: boolean;
+  /** Prior period start date (for checking enroll_since). */
+  priorStart?: string;
+  /** Page actions for objective selection (checkout-aware decision stage). */
+  actions?: { checkout_buttons: number; lead_forms: number };
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -71,6 +76,8 @@ function primaryNumerator(metric: ObjectiveMetricId, t: TrafficTotals, converted
       return t.task_clicks;
     case "conversion_rate":
       return convertedLeads;
+    case "lead_or_enroll_rate":
+      return t.lead_or_enroll;
   }
 }
 
@@ -85,6 +92,9 @@ function channelNumerator(metric: ObjectiveMetricId, c: ChannelRow): number {
       return 0;
     case "conversion_rate":
       return c.lead_later;
+    case "lead_or_enroll_rate":
+      // ChannelRow may not have enroll fields yet; use 0 as fallback
+      return 0;
   }
 }
 
@@ -106,7 +116,12 @@ export function moneyWithinTarget(value: Money, target: Money): boolean | null {
   return shared.every((c) => value[c]! <= target[c]!);
 }
 
-function costValues(stage: FunnelStage, traffic: TrafficFacts | null, paid: PaidFacts): { value: Money | null; prior: Money | null } {
+function costValues(
+  stage: FunnelStage,
+  traffic: TrafficFacts | null,
+  paid: PaidFacts,
+  metric: ObjectiveMetricId,
+): { value: Money | null; prior: Money | null } {
   if (stage === "awareness") {
     return { value: divideMoney(paid.spend, paid.engaged_paid), prior: null };
   }
@@ -114,6 +129,17 @@ function costValues(stage: FunnelStage, traffic: TrafficFacts | null, paid: Paid
     const cur = traffic?.channels.find((c) => c.channel === "paid")?.reached_decision ?? 0;
     const prior = traffic?.prior_channels.find((c) => c.channel === "paid")?.reached_decision ?? 0;
     return { value: divideMoney(paid.spend, cur), prior: divideMoney(paid.prior_spend, prior) };
+  }
+  // Decision stage: use cost_per_lead for conversion_rate, compute for lead_or_enroll_rate
+  if (metric === "lead_or_enroll_rate") {
+    // Cost per conversion = paid spend / paid visits with lead or enroll
+    // For now, use enroll_sessions from traffic totals as denominator
+    const cur = traffic?.current.lead_or_enroll ?? 0;
+    const prior = traffic?.prior.lead_or_enroll ?? 0;
+    return {
+      value: divideMoney(paid.spend, cur),
+      prior: divideMoney(paid.prior_spend, prior),
+    };
   }
   return {
     value: hasSpend(paid.cost_per_lead) ? paid.cost_per_lead : null,
@@ -159,6 +185,8 @@ function stepValues(
       const organicLeads = block.by_channel.find((r) => r.key === "organic_search")?.count ?? 0;
       return { paid: block.paid_count, organic: organicLeads, total: block.count };
     }
+    case "lead_or_enroll":
+      return { paid: null, organic: null, total: t?.lead_or_enroll ?? null };
   }
 }
 
@@ -256,15 +284,41 @@ function buildDrivers(inputs: ObjectiveInputs, metric: ObjectiveMetricId): { dri
 }
 
 export function buildObjective(inputs: ObjectiveInputs): ObjectiveBlock {
-  const def = STAGE_OBJECTIVES[inputs.stage];
+  const def = objectiveFor(inputs.stage, inputs.actions);
+  if (!def) throw new Error(`Invalid stage: ${inputs.stage}`);
   const metric = def.primary.id;
   const t = inputs.traffic;
   const convertedNow = inputs.leads?.converted_here.count ?? 0;
   const convertedPrior = inputs.leads?.converted_here.prior_count ?? 0;
   const numerator = t ? primaryNumerator(metric, t.current, convertedNow) : convertedNow;
-  const denominator = t?.current.sessions ?? 0;
+  
+  // Denominator: use enroll_visits for lead_or_enroll_rate, sessions otherwise
+  const denominator =
+    metric === "lead_or_enroll_rate"
+      ? t?.current.enroll_visits ?? 0
+      : t?.current.sessions ?? 0;
+  
   const value = t ? ratio(numerator, denominator) : null;
-  const priorValue = t ? ratio(primaryNumerator(metric, t.prior, convertedPrior), t.prior.sessions) : null;
+  
+  const priorDenominator =
+    metric === "lead_or_enroll_rate"
+      ? t?.prior.enroll_visits ?? 0
+      : t?.prior.sessions ?? 0;
+  
+  // Prior is null for lead_or_enroll_rate when enroll_since is after prior.start
+  let priorValue: number | null = null;
+  if (t) {
+    if (
+      metric === "lead_or_enroll_rate" &&
+      t.current.enroll_since &&
+      inputs.priorStart &&
+      t.current.enroll_since > inputs.priorStart
+    ) {
+      priorValue = null;
+    } else {
+      priorValue = ratio(primaryNumerator(metric, t.prior, convertedPrior), priorDenominator);
+    }
+  }
 
   let target: number | null = null;
   let targetSource: TargetSource = "none";
@@ -291,7 +345,7 @@ export function buildObjective(inputs: ObjectiveInputs): ObjectiveBlock {
   if (inputs.testView) {
     cost = null;
   } else if (def.cost && inputs.paid) {
-    const { value: cv, prior: cp } = costValues(inputs.stage, t, inputs.paid);
+    const { value: cv, prior: cp } = costValues(inputs.stage, t, inputs.paid, metric);
     const benchmark = inputs.paid.stage_cost_benchmark?.cost ?? null;
     let ct: Money | null = null;
     let cs: TargetSource = "none";

@@ -68,6 +68,7 @@ const RATE_NUMERATOR: Record<ObjectiveBlock["primary"]["id"], string> = {
   reached_decision_rate: "sessions that reached a decision page",
   task_click_rate: "sessions that clicked the page's main task",
   conversion_rate: "leads from the page",
+  lead_or_enroll_rate: "visits that sent a lead or clicked to enroll",
 };
 
 /** "similar pages" as a popover trigger that spells out how the benchmark target is computed. */

@@ -42,10 +42,12 @@ import { AdvicePanel, ObjectiveCard, ObjectiveFunnel } from "./ObjectivePanel";
 import { CompareTable, TestGoalPicker, TestViewHeader, VersionView, versionLabel } from "./PageStatsTestView";
 import { TEST_VIEW_QUERY_KEY } from "./test-view-context";
 import {
+  EnrollClicksSection,
   EngagementSection,
   JourneySection,
   LeadsSection,
   LinksSection,
+  MicroActionsSection,
   PaidSection,
   SearchSection,
   SourcesSection,
@@ -410,18 +412,30 @@ export function PageStatsDrawer({
         const engagement = (
           <EngagementSection key="engagement" section={s.traffic} onCompareVersions={test ? () => setTab("compare") : undefined} />
         );
+        const enroll =
+          data.actions && (data.actions.checkout_buttons > 0 || (s.traffic.data?.current.enroll_sessions ?? 0) > 0) ? (
+            <EnrollClicksSection
+              key="enroll"
+              section={s.traffic}
+              checkoutButtons={data.actions.checkout_buttons}
+            />
+          ) : null;
+        const micro =
+          data.actions && (data.actions.micro.event_names.length > 0 || data.actions.micro.broken) ? (
+            <MicroActionsSection key="micro" section={s.traffic} actions={data.actions} />
+          ) : null;
         const links = <LinksSection key="links" section={s.links} />;
         switch (stage) {
           case "awareness":
-            return [search, journey("Where readers go next"), links, sources, engagement, paid, leads];
+            return [search, journey("Where readers go next"), links, sources, engagement, micro, paid, leads].filter(Boolean);
           case "consideration":
-            return [journey("Path to a decision"), sources, engagement, leads, paid, search, links];
+            return [journey("Path to a decision"), sources, engagement, leads, enroll, micro, paid, search, links].filter(Boolean);
           case "decision":
-            return [leads, paid, journey("Where non-converters go"), sources, engagement, search, links];
+            return [leads, enroll, micro, paid, journey("Where non-converters go"), sources, engagement, search, links].filter(Boolean);
           case "post-enrollment":
-            return [engagement, journey("Where students go next"), sources, links];
+            return [engagement, micro, journey("Where students go next"), sources, links].filter(Boolean);
           default:
-            return [sources, journey("Journey"), leads, search, paid, engagement, links];
+            return [sources, journey("Journey"), leads, enroll, micro, search, paid, engagement, links].filter(Boolean);
         }
       })()
     : null;

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { CSSMarquee } from "@/components/ui/CSSMarquee";
 import { getIcon } from "@/lib/icons";
 import { InternalLink } from "@/components/InternalLink";
+import { useTrackedCtaClick } from "@/hooks/useTrackedCtaClick";
 import type { AiFlexPathDefault } from "@shared/schema";
 
 type Course = AiFlexPathDefault["courses"][0];
@@ -188,6 +189,11 @@ function CourseCard({
 }
 
 export default function AiFlexPathDefault({ data }: { data: AiFlexPathDefault }) {
+  const { beforeLeaveFor } = useTrackedCtaClick({
+    componentType: "ai_flex_path",
+    componentVariant: "default",
+  });
+
   const [selectedCourses, setSelectedCourses] = useState<Set<string>>(new Set(data.default_courses));
   const [counterFlash, setCounterFlash] = useState(false);
   const maxSelections = data.max_selections ?? 4;
@@ -368,6 +374,7 @@ export default function AiFlexPathDefault({ data }: { data: AiFlexPathDefault })
                   <InternalLink
                     key={i}
                     href={btn.url}
+                    beforeLeave={() => beforeLeaveFor(btn)}
                     className="rounded-[8px] px-[18px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                     style={{ background: "hsl(var(--background))", color: "hsl(var(--primary))", textDecoration: "none" }}
                   >
@@ -383,6 +390,7 @@ export default function AiFlexPathDefault({ data }: { data: AiFlexPathDefault })
                   <InternalLink
                     key={i}
                     href={btn.url}
+                    beforeLeave={() => beforeLeaveFor(btn)}
                     className="rounded-[8px] px-[22px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                     style={{ background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", textDecoration: "none" }}
                   >

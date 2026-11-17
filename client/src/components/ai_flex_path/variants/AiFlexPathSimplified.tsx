@@ -3,6 +3,7 @@ import { IconBookFilled } from "@tabler/icons-react";
 import { getIcon } from "@/lib/icons";
 import UniversalImage from "@/components/UniversalImage";
 import { InternalLink } from "@/components/InternalLink";
+import { useTrackedCtaClick } from "@/hooks/useTrackedCtaClick";
 import { resolveColorVar, hslColor, type ResolvedColor } from "@/components/course_selector/shared";
 import type { AiFlexPathSimplified } from "@shared/schema";
 import { buttonVariants } from "@/components/ui/button";
@@ -26,6 +27,10 @@ function SlottedCtaButton({
   resolved: ResolvedColor;
   size?: "sm" | "md";
 }) {
+  const { beforeLeaveFor } = useTrackedCtaClick({
+    componentType: "ai_flex_path",
+    componentVariant: "simplified",
+  });
   const [hov, setHov] = useState(false);
   const BtnIcon = btn.icon ? getIcon(btn.icon) : null;
   const variant = btn.variant ?? "primary";
@@ -62,6 +67,7 @@ function SlottedCtaButton({
   return (
     <InternalLink
       href={btn.url}
+      beforeLeave={() => beforeLeaveFor(btn)}
       className={shapeClass}
       style={colorStyle}
       onMouseEnter={() => setHov(true)}
@@ -412,6 +418,11 @@ function PathItem({
 }
 
 export default function AiFlexPathSimplified({ data }: { data: AiFlexPathSimplified }) {
+  const { beforeLeaveFor } = useTrackedCtaClick({
+    componentType: "ai_flex_path",
+    componentVariant: "simplified",
+  });
+
   const slotColors = data.slot_colors?.length
     ? data.slot_colors.map((s) => s.color)
     : DEFAULT_COURSE_COLORS;
@@ -529,6 +540,7 @@ export default function AiFlexPathSimplified({ data }: { data: AiFlexPathSimplif
                         <InternalLink
                           key={i}
                           href={btn.url}
+                          beforeLeave={() => beforeLeaveFor(btn)}
                           className="rounded-[8px] px-4 py-2 md:px-[18px] md:py-[10px] text-[12px] md:text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                           style={{ background: "hsl(var(--background))", color: "hsl(var(--primary))", textDecoration: "none" }}
                         >
@@ -545,6 +557,7 @@ export default function AiFlexPathSimplified({ data }: { data: AiFlexPathSimplif
                       <InternalLink
                         key={i}
                         href={btn.url}
+                        beforeLeave={() => beforeLeaveFor(btn)}
                         className="rounded-[8px] px-[22px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                         style={{ background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", textDecoration: "none" }}
                       >

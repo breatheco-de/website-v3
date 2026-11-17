@@ -29,14 +29,24 @@ Adding `form-settings` / `cta-tracking` / `ecommerce-products` **implies** wipe-
 
 ## CTA tracking (exact paths)
 
-CTA intent uses required `tracking` on CTA objects at **`cta-tracking` field-editor paths** — not URL sniffing.
+CTA intent uses required `tracking` on CTA objects at **`cta-tracking` or `cta-picker:tracking` field-editor paths** — not URL sniffing.
 
 Examples:
 
 - `hero` course: `signup_card.cta_button.tracking` (bind `course:signup_card.cta_button`)
 - `enrollment_selector`: `programs[].summary.cta.tracking`, `programs[].plans[].summary.cta.tracking`
+- `ai_flex_path`: `cta.buttons[]` and `simplified:courses[].cta_buttons[]` (bind `cta-picker:tracking`)
 
-Values: `none` | `add_to_cart` | `begin_checkout`.
+Values: `none` | `add_to_cart` | `click_begin_checkout`.
+
+## Micro-conversions (`micro-events.ts`)
+
+Optional file next to `field-editors.ts`. Curates leftover **existing** action events for the staff Micro tab / page-stats secondary / A/B goal `micro_actions` — not Forms conversion names, not Ecommerce funnel events.
+
+- No file → no Micro tab (unless YouTube warning / broken-map warning).
+- Shape: `export const microEvents = { "*": [{ event, source, label? }], … }` with `event` ∈ `cta_click` | `video_start` | `video_complete`, `source` ∈ `section-tracking` | `universal-video` | `track`.
+- Does **not** invent Tag Manager events. Drift tests reject forbidden names.
+- A/B: pick test goal `micro_actions` (OR-per-visit style); never summed into leads or enrollment.
 
 ## Ecommerce product scope + funnels
 
