@@ -65,7 +65,7 @@ export default function HeroCourse({ data }: HeroCourseProps) {
   const { contentType, slug } = useSectionContext();
   const funnel = usePageFunnel();
   const scopeCtx = { contentType, contentSlug: slug, funnel };
-  const { onCtaClick } = useTrackedCtaClick({
+  const { onCtaClick, handleLinkClick } = useTrackedCtaClick({
     componentType: "hero",
     componentVariant: "course",
     resolveProgramId: (ctaUrl) => programIdFromHeroData(data, ctaUrl, scopeCtx),
