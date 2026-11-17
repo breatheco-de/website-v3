@@ -19,7 +19,9 @@ import { getMenuChromeHeights } from "@/lib/menuChrome";
 import { restoreEditModeScrollPosition } from "@/lib/editModeScroll";
 import { useScrollToLocationHashWhenReady } from "@/hooks/useScrollToLocationHashWhenReady";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
+import { LlmAudienceContext } from "@/contexts/LlmAudienceContext";
 import { DevicePreviewShell } from "@/components/editing/DevicePreviewShell";
+import { LlmPreviewTopBar } from "@/components/editing/LlmPreviewTopBar";
 import Staff404Layout from "@/components/editing/Staff404Layout";
 import Staff404VariantModal, { type Staff404VariantOption } from "@/components/editing/Staff404VariantModal";
 import { isPreviewListingSharedTemplate, isSharedLayoutType } from "@/lib/sharedLayoutEntry";
@@ -115,7 +117,9 @@ export default function PrivatePreview() {
   const [variantModal, setVariantModal] = useState<"templates" | "entry" | null>(null);
 
   const editMode = useEditModeOptional();
-  const isDeviceShell = !!editMode?.isEditMode && editMode.previewBreakpoint === "mobile";
+  const isLlmPreview = !!editMode?.isLlmPreview;
+  const isDeviceShell =
+    !isLlmPreview && !!editMode?.isEditMode && editMode.previewBreakpoint === "mobile";
 
   const { data: content, isLoading, error, refetch } = useQuery<ContentData>({
     queryKey: ["/api/preview", normalizedType, slug, variant, version, locale],
@@ -441,8 +445,9 @@ export default function PrivatePreview() {
     </Suspense>
   ) : null;
 
-  return (
+  const pageBody = (
     <div data-testid={`preview-${contentType}-${slug}`}>
+      {isLlmPreview ? <LlmPreviewTopBar /> : null}
       <MenuVisualContextProvider
         value={{
           sectionBackgroundOverlapsMenu,
@@ -463,8 +468,8 @@ export default function PrivatePreview() {
             isDetached={isDetached}
           />
         </div>
-        <SectionRenderer 
-          sections={content.sections} 
+        <SectionRenderer
+          sections={content.sections}
           contentType={normalizedType}
           slug={slug}
           locale={locale}
@@ -475,7 +480,7 @@ export default function PrivatePreview() {
           meta={(content as any).meta}
           param={(content as any).param}
           allowEntryStructuralOverrides={!isSharedLayout || pageDetached}
-          allowErrorYamlEdit
+          allowErrorYamlEdit={!isLlmPreview}
         />
       </MenuVisualContextProvider>
       <div className="group relative">
@@ -497,8 +502,8 @@ export default function PrivatePreview() {
           isDetached={isDetached}
         />
       </div>
-      {rawEditor}
-      {variant && slug ? (
+      {!isLlmPreview ? rawEditor : null}
+      {!isLlmPreview && variant && slug ? (
         <Suspense fallback={null}>
           <ProposalReviewDrawer
             key={`${normalizedType}:${slug}:${locale}:${variant}`}
@@ -516,5 +521,11 @@ export default function PrivatePreview() {
         </Suspense>
       ) : null}
     </div>
+  );
+
+  return (
+    <LlmAudienceContext.Provider value={isLlmPreview}>
+      {pageBody}
+    </LlmAudienceContext.Provider>
   );
 }

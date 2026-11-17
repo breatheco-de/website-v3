@@ -20,6 +20,8 @@ import {
 } from "../product/product-audience-io";
 import { loadTrackingKeyIndex } from "../product/tracking-key-index";
 import { takenShortKeys } from "@shared/tracking-keys";
+import { getVariableManager } from "../variable-manager";
+import { formatMoneyValue } from "@shared/variable-money";
 import { child } from "../logger";
 import { api } from "../rate-limit/api";
 
@@ -70,6 +72,12 @@ const productPutSchema = z.object({
   personas: z.array(personaPatchSchema).optional(),
   clear_personas: z.array(z.string()).optional(),
   replace_personas: z.boolean().optional(),
+  pricing: z
+    .object({
+      list_price_variable: z.union([z.string(), z.null()]).optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 /** Full audience replace (Store panel) — all fields required for each persona. */
@@ -152,8 +160,43 @@ export function registerProductRoutes(app: Express): void {
         });
       }
       const keyIndex = loadTrackingKeyIndex(contentRoot).products;
+      const listVar = snapshot.pricing?.list_price_variable?.trim();
+      let pricing_resolved:
+        | {
+            list_price_variable: string;
+            amount: number;
+            currency: string;
+            display: string;
+          }
+        | { list_price_variable: string; unresolved: true }
+        | null = null;
+      if (listVar) {
+        const money = getVariableManager(contentRoot).resolveMoneyValue(listVar, {});
+        pricing_resolved = money
+          ? {
+              list_price_variable: listVar,
+              amount: money.amount,
+              currency: money.currency,
+              display: formatMoneyValue(money),
+            }
+          : { list_price_variable: listVar, unresolved: true };
+        if (!money) {
+          warnings.push({
+            code: "list_price_unresolved",
+            message:
+              "pricing.list_price_variable is set but the variable has no resolvable money value. Course Offer JSON-LD will omit offers until it resolves.",
+          });
+        }
+      } else {
+        warnings.push({
+          code: "no_list_price_binding",
+          message:
+            "No pricing.list_price_variable — Course JSON-LD stays name/description/provider only (no Offer).",
+        });
+      }
       res.json({
         product: snapshot,
+        pricing_resolved,
         tracking_keys: {
           // Other products' keys plus every retired key; the editor suggests around these.
           taken_product: [...takenShortKeys(keyIndex, "product", { exceptProductSlug: slug })],
@@ -168,12 +211,13 @@ export function registerProductRoutes(app: Express): void {
         warnings,
         education: {
           summary: snapshot.purchasable
-            ? "Product sidecar: offer, personas (avatar), and store visibility. Persona id is editable only when no funnel page binds it. Label is always editable."
+            ? "Product sidecar: offer, personas (avatar), store visibility, and optional list-price variable for Course Offer. Persona id is editable only when no funnel page binds it. Label is always editable."
             : "Product is not sellable (removed). Offer/personas remain. Make sellable to restore store index. Not the same as paused.",
           advanced_paths: [
             snapshot.relative_path,
             "shared/productAudience.ts",
             "page _common.yml → funnel.products[].persona",
+            "pricing.list_price_variable → Course Offer JSON-LD",
           ],
         },
       });
@@ -279,7 +323,8 @@ export function registerProductRoutes(app: Express): void {
       parsed.data.name !== undefined ||
       parsed.data.description !== undefined ||
       parsed.data.product_id !== undefined ||
-      parsed.data.short_key !== undefined;
+      parsed.data.short_key !== undefined ||
+      parsed.data.pricing !== undefined;
 
     let author = "staff";
     if (touchesSellable) {
@@ -310,6 +355,7 @@ export function registerProductRoutes(app: Express): void {
           personas: parsed.data.personas,
           clear_personas: parsed.data.clear_personas,
           replace_personas: parsed.data.replace_personas,
+          pricing: parsed.data.pricing,
         },
         contentRoot,
       );

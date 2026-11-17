@@ -37,9 +37,10 @@ export function registerRuntimeIssuesTools(
       "Filters match Diagnostics → Runtime issues: path, referrer, locale, device (uaBucket), source tag, " +
       "pages_only (default true), query_params_only, window_days 7|30 (default 30), tz, sort count|lastSeen. " +
       `Default limit ${RUNTIME_ISSUES_DEFAULT_LIMIT}, max ${RUNTIME_ISSUES_MAX_LIMIT}. ` +
-      "Each row includes windowed count, count30, sources, sampleReferrer, queryAttribution (utm_source/medium/campaign + other), " +
-      "lastProbe, and cmsReferrerCount. " +
-      "For broken_url idea briefs: call this first and paste path, count, sources, sampleReferrer, and queryAttribution into the summary. " +
+      "Each row includes windowed count, count30, sources, sampleReferrer, queryAttribution (utm_source/medium/campaign + other; click ids are not stored plaintext), " +
+      "lastProbe, cmsReferrerCount, and recent_samples (last hits for the path: source chip, referrerHost, hashed click id when present; legacy rows may omit fields). " +
+      "Windowed count mixes people, previews, and crawlers — use sources / byHour / recent_samples for proof; do not treat total as paid humans. " +
+      "For broken_url idea briefs: call this first and paste path, count, sources, sampleReferrer, queryAttribution, and a short recent_samples note into the summary. " +
       "Empty attribution on the row → say none; do not invent dropped secrets/staff params. " +
       "Requires metrics_view or proposals_review. Read-only — does not change ignore rules or dropScrapers. " +
       MULTI_SITE_TOOL_BLURB,
@@ -121,7 +122,7 @@ export function registerRuntimeIssuesTools(
           cmsReferrerCount: (inverted.get(normalizeReferrerTargetPath(issue.path)) ?? []).length,
         }));
 
-        const queried = queryRuntimeIssuesForMcp(withCms, args);
+        const queried = queryRuntimeIssuesForMcp(withCms, args, data.recent);
         if (!queried.ok) {
           return fail(queried.error, { code: queried.code });
         }
@@ -153,7 +154,12 @@ export function registerRuntimeIssuesTools(
             {
               code: "broken_url_brief_fields",
               message:
-                "For a broken_url idea summary, paste path, windowed count, sources, sampleReferrer, and queryAttribution (or say none). Do not invent dropped params.",
+                "For a broken_url idea summary, paste path, windowed count, sources, sampleReferrer, queryAttribution (or say none), and note recent_samples (preview vs human). Windowed count mixes sources — do not treat it as paid humans only. Do not invent dropped params.",
+            },
+            {
+              code: "recent_samples_partial",
+              message:
+                "recent_samples may omit source/click on legacy rows (before sampling). Missing fields mean before sampling, not zero traffic.",
             },
           ],
           next_actions: [],

@@ -69,6 +69,7 @@ import {
 import { FUNNEL_STAGES, type FunnelBlock, type FunnelStage as FunnelStageKey } from "@shared/funnel";
 import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 import { ProductAudiencePanel } from "@/components/store/ProductAudiencePanel";
+import { ProductListPricePanel } from "@/components/store/ProductListPricePanel";
 
 interface FunnelStepRow {
   source?: "locked" | "authored" | "auto";
@@ -1286,7 +1287,10 @@ export default function StoreProductDetailPage() {
               </div>
 
               {journeyView === "strategy" ? (
-                <ProductAudiencePanel slug={slug!} />
+                <div className="space-y-4">
+                  <ProductListPricePanel slug={slug!} />
+                  <ProductAudiencePanel slug={slug!} />
+                </div>
               ) : (
                 <>
                   {journeyView === "page_performance" ? (

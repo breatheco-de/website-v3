@@ -84,7 +84,9 @@ describe("runtime-issues-store", () => {
     expect(listed.issues).toHaveLength(1);
     expect(listed.issues[0].queryAttribution?.source).toEqual(["meta"]);
     expect(listed.issues[0].queryAttribution?.campaign).toEqual(["q1", "q2"]);
-    expect(listed.issues[0].queryAttribution?.other?.gclid).toEqual(["abc"]);
+    expect(listed.issues[0].queryAttribution?.other?.gclid).toBeUndefined();
+    expect(listed.issues[0].samples?.at(-1)?.click?.kind).toBe("gclid");
+    expect(listed.issues[0].samples?.at(-1)?.click?.hash).toMatch(/^[a-f0-9]{12}$/);
   });
 
   it("does not ingest staff preview query params", () => {

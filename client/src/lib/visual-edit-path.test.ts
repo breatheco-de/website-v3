@@ -71,6 +71,17 @@ describe("buildPrivatePreviewHref", () => {
     ).toBe("/private/preview/page/apply?locale=en&variant=draft-a");
   });
 
+  it("keeps preview_mode so LLM crawler survives enter-private-preview", () => {
+    expect(
+      buildPrivatePreviewHref({
+        contentType: "page",
+        slug: "home",
+        pathname: "/",
+        search: "?locale=en&preview_mode=llm",
+      }),
+    ).toBe("/private/preview/page/home?locale=en&preview_mode=llm");
+  });
+
   it("returns null when already on private preview", () => {
     expect(
       buildPrivatePreviewHref({

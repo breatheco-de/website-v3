@@ -299,7 +299,7 @@ export function SitemapView({
   const { data: robotsSettings } = useQuery<RobotsSettingsResponse>({
     queryKey: ["/api/settings/robots"],
   });
-  const siteDisallowed = !!robotsSettings?.block_indexing;
+  const siteDisallowed = robotsSettings?.indexing_block === "all";
 
   let inCount = 0;
   let notInCount = 0;

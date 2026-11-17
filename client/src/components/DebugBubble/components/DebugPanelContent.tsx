@@ -635,7 +635,7 @@ export function DebugPanelContent(props: DebugPanelContentProps) {
   const { data: robotsSettings } = useQuery<RobotsSettingsResponse>({
     queryKey: ["/api/settings/robots"],
   });
-  const siteDisallowed = !!robotsSettings?.block_indexing;
+  const siteDisallowed = robotsSettings?.indexing_block === "all";
 
   const errorLogCount = errorLogData?.totalErrors ?? 0;
   const showEditChrome = !!props.editMode && isVisualEditPath(props.pathname);

@@ -546,6 +546,9 @@ app.use((req, res, next) => {
       markTiming(res, "pre");
 
       const site = (res.locals as any).site;
+      const contentRoot = site?.contentRoot as string | undefined;
+      const { maybeHardDenyLlmRequest } = await import("./crawl-control");
+      if (maybeHardDenyLlmRequest(req, res, contentRoot)) return;
       const siteId =
         site?.contentRootName || site?.contentRoot || site?.domain || "default";
       const cleanUrl = (req.originalUrl || req.url || "/")
@@ -553,13 +556,15 @@ app.use((req, res, next) => {
         .split("#")[0];
       const cachePath = canonicalHtmlCachePath(cleanUrl, site?.contentIndex);
       const { prepareLlmHtmlRequest, renderAudienceLlmMiss, sendCachedHtmlPage, LLM_HTML_CACHE_CONTROL } = await import("./llm-html-request");
-      const llmHit = prepareLlmHtmlRequest(req, res, siteId, cachePath);
+      const { applyXRobotsTagFromHtml } = await import("./settings");
+      const llmHit = prepareLlmHtmlRequest(req, res, siteId, cachePath, contentRoot);
+      if (res.headersSent) return;
       const baked = urlBakesStoredPageQuery(req.originalUrl || req.url || "/", site?.contentIndex);
       if (llmHit && !baked) {
         logHtmlRender({ url: cleanUrl, ms: 0, cache: "HIT" });
         markTiming(res, "lookup");
         applyServerTiming(res);
-        sendCachedHtmlPage(req, res, llmHit, LLM_HTML_CACHE_CONTROL);
+        sendCachedHtmlPage(req, res, llmHit, LLM_HTML_CACHE_CONTROL, contentRoot);
         return;
       }
       if ((res.locals as { htmlVariantKey?: string }).htmlVariantKey === "live" && !baked) {
@@ -618,6 +623,7 @@ app.use((req, res, next) => {
       res.setHeader("X-HTML-Cache", "HIT");
       res.setHeader("Vary", "Accept-Encoding");
       if (encoding !== "identity") res.setHeader("Content-Encoding", encoding);
+      applyXRobotsTagFromHtml(res, cached.html, contentRoot);
       applyServerTiming(res);
       res.send(body);
     });

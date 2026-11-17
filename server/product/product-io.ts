@@ -67,6 +67,10 @@ export type ProductListRow = {
   personas: { id: string; label: string; short_key?: string }[];
 };
 
+export type ProductPricing = {
+  list_price_variable?: string;
+};
+
 export type ProductSnapshot = {
   product_id: string;
   name: string;
@@ -82,6 +86,8 @@ export type ProductSnapshot = {
   personas?: ProductPersona[];
   audience_status: AudienceStatus;
   relative_path: string;
+  /** Catalog list/full tuition variable (category:price, price_role:list). */
+  pricing?: ProductPricing;
 };
 
 export type ProductPatch = {
@@ -100,6 +106,11 @@ export type ProductPatch = {
   replace_personas?: boolean;
   /** Staff / product_manage: true create|re-enable; false soft-remove */
   purchasable?: boolean;
+  /**
+   * List-price site variable. Pass `{ list_price_variable: "global.…" }` to set,
+   * `{ list_price_variable: null }` to clear, omit to leave unchanged.
+   */
+  pricing?: { list_price_variable?: string | null } | null;
 };
 
 export type ProductWriteResult =
@@ -157,6 +168,14 @@ function snapshotFromDoc(
   const description = typeof doc.description === "string" ? doc.description : undefined;
   const shortKey = normalizeShortKey(doc.short_key);
   const retired = parseRetiredShortKeys(doc.retired_short_keys);
+  const pricingRaw = doc.pricing;
+  const listVar =
+    pricingRaw &&
+    typeof pricingRaw === "object" &&
+    !Array.isArray(pricingRaw) &&
+    typeof (pricingRaw as { list_price_variable?: unknown }).list_price_variable === "string"
+      ? String((pricingRaw as { list_price_variable: string }).list_price_variable).trim()
+      : "";
   return {
     product_id: productId,
     name,
@@ -171,6 +190,7 @@ function snapshotFromDoc(
     ...(audience?.personas ? { personas: audience.personas } : {}),
     audience_status: audienceStatus(audience),
     relative_path: relativePath,
+    ...(listVar ? { pricing: { list_price_variable: listVar } } : {}),
   };
 }
 
@@ -630,6 +650,22 @@ export function writeEntryProduct(
   if (typeof patch.short_key === "string" && patch.short_key.trim()) {
     doc.short_key = patch.short_key.trim().toLowerCase();
   }
+
+  if (patch.pricing === null) {
+    delete doc.pricing;
+  } else if (patch.pricing && typeof patch.pricing === "object") {
+    if (patch.pricing.list_price_variable === null) {
+      delete doc.pricing;
+    } else if (typeof patch.pricing.list_price_variable === "string") {
+      const varName = patch.pricing.list_price_variable.trim();
+      if (varName) {
+        doc.pricing = { list_price_variable: varName };
+      } else {
+        delete doc.pricing;
+      }
+    }
+  }
+
   const keys = applyShortKeyRules({
     contentRoot,
     contentType,

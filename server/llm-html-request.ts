@@ -15,15 +15,25 @@ import {
 } from "./html-page-cache";
 import { renderHubHtml } from "./render-hub-html";
 import type { SiteContext } from "./site-manager";
+import { maybeHardDenyLlmRequest } from "./crawl-control";
+import { applyXRobotsTagFromHtml } from "./settings";
 
 export const LLM_HTML_CACHE_CONTROL = "private, no-store";
+
+function contentRootFromSite(site: SiteContext | undefined): string | undefined {
+  return site?.contentRoot;
+}
 
 export function prepareLlmHtmlRequest(
   req: Request,
   res: Response,
   siteId: string,
   cachePath: string,
+  contentRoot?: string,
 ): CachedHtmlPage | null {
+  if (maybeHardDenyLlmRequest(req, res, contentRoot)) {
+    return null;
+  }
   if (!isLlmHtmlAudience(typeof req.get === "function" ? req.get("user-agent") : undefined)) {
     return null;
   }
@@ -36,6 +46,7 @@ export function sendCachedHtmlPage(
   res: Response,
   cached: CachedHtmlPage,
   cacheControl: string,
+  contentRoot?: string,
 ): void {
   const encoding = pickCachedEncoding(req.headers["accept-encoding"]);
   const body = encoding === "br" ? cached.br : encoding === "gzip" ? cached.gzip : cached.html;
@@ -48,12 +59,13 @@ export function sendCachedHtmlPage(
   res.setHeader("X-HTML-Cache", "HIT");
   res.setHeader("Vary", "Accept-Encoding");
   if (encoding !== "identity") res.setHeader("Content-Encoding", encoding);
+  applyXRobotsTagFromHtml(res, cached.html, contentRoot);
   res.send(body);
 }
 
 /**
  * Cache miss for an AI crawler. Writes audience-llm only, never the live key.
- * Returns true when the response was sent.
+ * Returns true when the response was sent (including hard deny 403).
  */
 export async function renderAudienceLlmMiss(
   req: Request,
@@ -61,6 +73,8 @@ export async function renderAudienceLlmMiss(
   site: SiteContext | undefined,
   cachePath: string,
 ): Promise<boolean> {
+  const contentRoot = contentRootFromSite(site);
+  if (maybeHardDenyLlmRequest(req, res, contentRoot)) return true;
   if (!isLlmHtmlAudience(typeof req.get === "function" ? req.get("user-agent") : undefined)) {
     return false;
   }
@@ -71,7 +85,7 @@ export async function renderAudienceLlmMiss(
     site.contentRootName || site.contentRoot || (site as { domain?: string }).domain || "default";
   const cached = getCachedHtml(buildHtmlCacheKey(siteId, cachePath, AUDIENCE_LLM_VARIANT));
   if (cached?.html) {
-    sendCachedHtmlPage(req, res, cached, LLM_HTML_CACHE_CONTROL);
+    sendCachedHtmlPage(req, res, cached, LLM_HTML_CACHE_CONTROL, contentRoot);
     return true;
   }
   const rendered = await renderHubHtml({
@@ -86,6 +100,7 @@ export async function renderAudienceLlmMiss(
   res.setHeader("Cache-Control", LLM_HTML_CACHE_CONTROL);
   res.setHeader("X-HTML-Cache", "MISS");
   res.setHeader("Vary", "Accept-Encoding");
+  applyXRobotsTagFromHtml(res, rendered.html, contentRoot);
   res.send(rendered.html);
   return true;
 }

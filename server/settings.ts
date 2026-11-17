@@ -42,6 +42,7 @@ import {
   validateAuthConversionEventConfig,
   type AuthConversionEventConfig,
 } from "@shared/authConversionEvents";
+import { isLlmHtmlAudience } from "../shared/runtime-issues";
 import {
   DEFAULT_ORGANIC_MARKETS,
   DEFAULT_RESEARCH_MARKET_DEFAULTS,
@@ -410,15 +411,36 @@ function injectAuthYamlComments(dumped: string): string {
   return stripped.replace(/(^|\n)(auth:)/, `$1${AUTH_YAML_COMMENT_HEADER}$2`);
 }
 
+/** Who may crawl this site: none = open; ai = block known AI crawlers; all = block everyone (noindex). */
+export type IndexingBlockMode = "none" | "ai" | "all";
+
+export const INDEXING_BLOCK_MODES: readonly IndexingBlockMode[] = ["none", "ai", "all"] as const;
+
+export function isIndexingBlockMode(value: unknown): value is IndexingBlockMode {
+  return value === "none" || value === "ai" || value === "all";
+}
+
+/**
+ * Prefer `indexing_block`; map legacy `block_indexing: true` → `all`, false/missing → `none`.
+ */
+export function normalizeIndexingBlock(
+  raw: Record<string, unknown> | undefined,
+  fallback: IndexingBlockMode = "none",
+): IndexingBlockMode {
+  if (isIndexingBlockMode(raw?.indexing_block)) return raw.indexing_block;
+  if (typeof raw?.block_indexing === "boolean") return raw.block_indexing ? "all" : "none";
+  return fallback;
+}
+
 export interface RobotsSettings {
-  block_indexing: boolean;
+  indexing_block: IndexingBlockMode;
   include_sitemap: boolean;
   disallow_paths: string[];
   ai_bots: string[];
 }
 
 export const DEFAULT_ROBOTS_SETTINGS: RobotsSettings = {
-  block_indexing: false,
+  indexing_block: "none",
   include_sitemap: true,
   disallow_paths: ["/api/", "/private/", "/preview-frame", "/health"],
   ai_bots: [
@@ -1072,7 +1094,7 @@ function parseSiteConsentSettings(raw: unknown): SiteConsentSettings {
 
 /** Build robots.txt body from settings. `baseUrl` is used for the Sitemap line when included. */
 export function buildRobotsTxtContent(robots: RobotsSettings, baseUrl: string): string {
-  if (robots.block_indexing) {
+  if (robots.indexing_block === "all") {
     return `# Site indexing blocked
 User-agent: *
 Disallow: /
@@ -1091,12 +1113,13 @@ Disallow: /
   lines.push("");
 
   if (robots.ai_bots.length > 0) {
-    lines.push("# Allow AI/LLM crawlers explicitly");
+    const blockAi = robots.indexing_block === "ai";
+    lines.push(blockAi ? "# Block AI/LLM crawlers" : "# Allow AI/LLM crawlers explicitly");
     for (const bot of robots.ai_bots) {
       const name = bot.trim();
       if (!name) continue;
       lines.push(`User-agent: ${name}`);
-      lines.push("Allow: /");
+      lines.push(blockAi ? "Disallow: /" : "Allow: /");
       lines.push("");
     }
   }
@@ -1383,10 +1406,7 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
     const robotsRaw = parsed.robots as Record<string, unknown> | undefined;
     const defRobots = defaults.robots;
     const robots: RobotsSettings = {
-      block_indexing:
-        typeof robotsRaw?.block_indexing === "boolean"
-          ? robotsRaw.block_indexing
-          : defRobots.block_indexing,
+      indexing_block: normalizeIndexingBlock(robotsRaw, defRobots.indexing_block),
       include_sitemap:
         typeof robotsRaw?.include_sitemap === "boolean"
           ? robotsRaw.include_sitemap
@@ -1426,7 +1446,7 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
       ads_legacy_present: parsed.ads != null && typeof parsed.ads === "object",
     };
     log.info(
-      `[Settings] Loaded: ${i18n.supported_locales.length} locale(s), default="${i18n.default_locale}", home_page="${home_page.slug}", conversion_events=${tracking.conversion_events.length}, block_indexing=${robots.block_indexing}`
+      `[Settings] Loaded: ${i18n.supported_locales.length} locale(s), default="${i18n.default_locale}", home_page="${home_page.slug}", conversion_events=${tracking.conversion_events.length}, indexing_block=${robots.indexing_block}`
     );
     return { ok: true, settings: result };
   } catch (err) {
@@ -2113,8 +2133,31 @@ export function updateAuthSettings(
   return updated;
 }
 
+export function getIndexingBlock(contentRoot?: string): IndexingBlockMode {
+  return loadSettings(contentRoot).robots.indexing_block;
+}
+
+/** Search indexing is site-blocked (mode `all`). */
 export function isIndexingBlocked(contentRoot?: string): boolean {
-  return loadSettings(contentRoot).robots.block_indexing;
+  return getIndexingBlock(contentRoot) === "all";
+}
+
+/** Soft + hard AI block modes (`ai` or `all`). */
+export function isAiIndexingBlocked(contentRoot?: string): boolean {
+  const mode = getIndexingBlock(contentRoot);
+  return mode === "ai" || mode === "all";
+}
+
+/**
+ * Known LLM crawler UA should be refused (403) when indexing_block is `ai` or `all`.
+ * Does not consult the editable ai_bots list — that list drives robots.txt only.
+ */
+export function shouldHardDenyLlmCrawler(
+  ua: string | undefined | null,
+  contentRoot?: string,
+): boolean {
+  if (!isAiIndexingBlocked(contentRoot)) return false;
+  return isLlmHtmlAudience(ua);
 }
 
 /** When sitewide indexing is blocked, always return noindex; otherwise use pageRobots or default. */
@@ -2128,7 +2171,48 @@ export function resolveEffectiveRobots(
     : "index, follow";
 }
 
-export function updateRobotsSettings(input: Partial<RobotsSettings>, contentRoot?: string): RobotsSettings {
+/** Set X-Robots-Tag to the same effective robots string as the HTML meta tag. */
+export function applyXRobotsTag(
+  res: { setHeader(name: string, value: string): void },
+  contentRoot?: string,
+  pageRobots?: string | null,
+): void {
+  res.setHeader("X-Robots-Tag", resolveEffectiveRobots(pageRobots, contentRoot));
+}
+
+/** Pull meta name="robots" content from cached HTML when page robots are not otherwise known. */
+export function extractRobotsMetaFromHtml(html: string): string | undefined {
+  const m = html.match(
+    /<meta\s+[^>]*name\s*=\s*["']robots["'][^>]*content\s*=\s*["']([^"']+)["'][^>]*>/i,
+  ) || html.match(
+    /<meta\s+[^>]*content\s*=\s*["']([^"']+)["'][^>]*name\s*=\s*["']robots["'][^>]*>/i,
+  );
+  const value = m?.[1]?.trim();
+  return value || undefined;
+}
+
+/** Prefer site-wide block; else robots meta baked into HTML; else default index,follow. */
+export function applyXRobotsTagFromHtml(
+  res: { setHeader(name: string, value: string): void },
+  html: string,
+  contentRoot?: string,
+): void {
+  if (isIndexingBlocked(contentRoot)) {
+    applyXRobotsTag(res, contentRoot);
+    return;
+  }
+  applyXRobotsTag(res, contentRoot, extractRobotsMetaFromHtml(html));
+}
+
+export type UpdateRobotsSettingsInput = Partial<RobotsSettings> & {
+  /** Legacy boolean; mapped to indexing_block when indexing_block is omitted. */
+  block_indexing?: boolean;
+};
+
+export function updateRobotsSettings(input: UpdateRobotsSettingsInput, contentRoot?: string): RobotsSettings {
+  if (input.indexing_block !== undefined && !isIndexingBlockMode(input.indexing_block)) {
+    throw new Error('indexing_block must be "none", "ai", or "all"');
+  }
   if (input.block_indexing !== undefined && typeof input.block_indexing !== "boolean") {
     throw new Error("block_indexing must be a boolean");
   }
@@ -2169,8 +2253,15 @@ export function updateRobotsSettings(input: Partial<RobotsSettings>, contentRoot
   }
 
   const current = loadSettings(contentRoot).robots;
+  let indexing_block = current.indexing_block;
+  if (isIndexingBlockMode(input.indexing_block)) {
+    indexing_block = input.indexing_block;
+  } else if (typeof input.block_indexing === "boolean") {
+    indexing_block = input.block_indexing ? "all" : "none";
+  }
+
   const updated: RobotsSettings = {
-    block_indexing: typeof input.block_indexing === "boolean" ? input.block_indexing : current.block_indexing,
+    indexing_block,
     include_sitemap: typeof input.include_sitemap === "boolean" ? input.include_sitemap : current.include_sitemap,
     disallow_paths: Array.isArray(input.disallow_paths)
       ? input.disallow_paths.map((p) => p.trim()).filter(Boolean)
@@ -2181,7 +2272,7 @@ export function updateRobotsSettings(input: Partial<RobotsSettings>, contentRoot
   };
 
   existing.robots = {
-    block_indexing: updated.block_indexing,
+    indexing_block: updated.indexing_block,
     include_sitemap: updated.include_sitemap,
     disallow_paths: updated.disallow_paths,
     ai_bots: updated.ai_bots,
@@ -2191,7 +2282,7 @@ export function updateRobotsSettings(input: Partial<RobotsSettings>, contentRoot
   fs.writeFileSync(settingsPath, output, "utf-8");
   resetSettings(resolveSettingsRoot(contentRoot));
   log.info(
-    `[Settings] Updated robots: block_indexing=${updated.block_indexing}, include_sitemap=${updated.include_sitemap}, disallow_paths=${updated.disallow_paths.length}, ai_bots=${updated.ai_bots.length}`
+    `[Settings] Updated robots: indexing_block=${updated.indexing_block}, include_sitemap=${updated.include_sitemap}, disallow_paths=${updated.disallow_paths.length}, ai_bots=${updated.ai_bots.length}`
   );
   return updated;
 }

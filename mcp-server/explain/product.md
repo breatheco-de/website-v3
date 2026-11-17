@@ -18,14 +18,15 @@ Legacy explain topic name `ecommerce` still resolves here for one changelog wind
 | **Journey membership** | Which pages belong to a product’s funnel | Each page’s `_common.yml` → `funnel.stage` + `funnel.products` as `{ product, persona? }[]` or `"all"`. |
 | **Product scope** | Which product(s) a section is about | Section `ecommerce_products` / `programs[].id` — GA field names kept. |
 | **Plans / SKUs** | Billing packages | **Not in CMS** — external POS |
+| **List price** | Full/list tuition for Course Offer JSON-LD | `_product.yml` → `pricing.list_price_variable` pointing at a `category:price` site var with `price_role: list`. Monthly prices stay tagged vars only — never bound here. |
 
 ## Tools
 
 | Tool | Use |
 |------|-----|
 | `list_products` | Inventory first (selling flag, audience status, persona ids). Removed hidden unless `include_removed: true`. Paused included by default. |
-| `get_product` | Full sidecar for one slug (offer + personas/avatar), including soft-removed (warns not sellable). |
-| `create_or_update_product` | Create/patch sidecar (`confirm: true`). Audience/metadata → `content_edit_structure`. `purchasable` / `actively_selling` → `product_manage`. |
+| `get_product` | Full sidecar for one slug (offer + personas/avatar + `pricing` / `pricing_resolved`), including soft-removed (warns not sellable). Missing binding → warning; Course Offer omitted. |
+| `create_or_update_product` | Create/patch sidecar (`confirm: true`). Audience/metadata/`pricing` → `content_edit_structure`. `purchasable` / `actively_selling` → `product_manage`. |
 | `get_product_funnel` / `get_product_funnel_analytics` | Journey pages / metrics (GA4 BigQuery). Site-wide GA → `get_analytics_report` (topic `analytics`). |
 
 Vague “what is this site about?” → `list_products` then `get_product` on relevant slugs (also summarized on `explain_site` topic `overview`).
@@ -92,10 +93,16 @@ funnel:
 
 `trackEcommerce`, section `ecommerce_products`, `/api/ecommerce/events`, `ecommerce-settings.yml` stay ecommerce-named.
 
+## List price / Course Offer
+
+- Bind with Store product Strategy → list-price panel, Variables (`price_role: list`), or `create_or_update_product` `pricing.list_price_variable`.
+- `get_product` returns `product.pricing` plus `pricing_resolved` (`amount` / `currency` / `display`) when money resolves.
+- Non-effects: does not edit page YAML or monthly price vars; programs without a binding keep valid Course JSON-LD without `offers`.
+
 ## Key files
 
 - `shared/productAudience.ts`, `shared/funnel.ts`, `shared/tracking-keys.ts`, `shared/tracking-context.ts`
 - `server/product/tracking-key-index.ts`, `tracking-keys-assign.ts`, `tracking-readiness.ts`
 - `server/product/` (index, manager, product-io, funnel gates, products-type-config)
 - `mcp-server/tools/product.ts`
-- Store → product detail → Audience panel / Selling toggle; SEO modal → Product tab; type manage → Sellable products card
+- Store → product detail → Audience panel / list-price panel / Selling toggle; SEO modal → Product tab; type manage → Sellable products card

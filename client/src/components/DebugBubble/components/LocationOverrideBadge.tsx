@@ -13,7 +13,12 @@ const REGION_LABELS: Record<string, string> = {
   europe: "Europe",
 };
 
-export function LocationOverrideBadge() {
+export function LocationOverrideBadge({
+  readOnlyLlm = false,
+}: {
+  /** LLM crawler preview: show “all sections” and do not open the override modal. */
+  readOnlyLlm?: boolean;
+}) {
   const { session, refreshGeo } = useSession();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -24,6 +29,22 @@ export function LocationOverrideBadge() {
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("location")
       : null;
+
+  if (readOnlyLlm) {
+    return (
+      <span
+        className={cn(
+          badgeVariants({ variant: "outline" }),
+          "text-xs gap-1 pointer-events-none",
+        )}
+        data-testid="badge-location-llm-readonly"
+        title="AI crawler preview shows every regional section at once"
+      >
+        <MapPin className="h-3 w-3" />
+        <span className="max-w-[160px] truncate">All sections visible at once</span>
+      </span>
+    );
+  }
 
   const locationsByRegion = useMemo(
     () =>

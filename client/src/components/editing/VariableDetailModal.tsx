@@ -66,6 +66,13 @@ import {
   type VariableMetadataDraft,
 } from "@/components/editing/VariableMetadataFields";
 import { variableWrite, VariableWriteError, type FigureChangeDetails } from "@/lib/variable-write";
+import { MoneyValueFields } from "@/components/editing/MoneyValueFields";
+import {
+  isMoneyValue,
+  type MoneyValue,
+  type VariableValue,
+  variableValueToDisplayString,
+} from "@shared/variable-money";
 
 interface VariableDetailModalProps {
   open: boolean;
@@ -114,21 +121,25 @@ function ConditionForm({
   saveLabel,
   localeOptions,
   blocked = false,
+  isPrice = false,
 }: {
   initialQuery?: Record<string, string>;
-  initialValue?: string;
-  onSave: (query: Record<string, string>, value: string) => void;
+  initialValue?: VariableValue;
+  onSave: (query: Record<string, string>, value: VariableValue) => void;
   onCancel: () => void;
   saveLabel: string;
   localeOptions: { value: string; label: string }[];
   blocked?: boolean;
+  isPrice?: boolean;
 }) {
   const [queryPairs, setQueryPairs] = useState<{ key: string; value: string }[]>(
     initialQuery
       ? Object.entries(initialQuery).map(([k, v]) => ({ key: k, value: v }))
       : [{ key: "", value: "" }],
   );
-  const [conditionValue, setConditionValue] = useState(initialValue || "");
+  const [conditionValue, setConditionValue] = useState<VariableValue>(
+    initialValue ?? (isPrice ? { amount: 0, currency: "USD" } : ""),
+  );
 
   const addQueryPair = () => {
     setQueryPairs((prev) => [...prev, { key: "", value: "" }]);
@@ -144,11 +155,18 @@ function ConditionForm({
     );
   };
 
+  const valueOk =
+    isPrice
+      ? isMoneyValue(conditionValue) ||
+        (typeof conditionValue === "object" &&
+          conditionValue !== null &&
+          typeof (conditionValue as MoneyValue).amount === "number")
+      : typeof conditionValue === "string" && conditionValue.trim() !== "";
   const canSave =
     !blocked &&
     queryPairs.length > 0 &&
     queryPairs.every((p) => p.key && p.value) &&
-    conditionValue.trim() !== "";
+    valueOk;
 
   const handleSubmit = () => {
     if (!canSave) return;
@@ -235,16 +253,24 @@ function ConditionForm({
 
       <div className="space-y-1">
         <span className="text-sm font-medium text-foreground">Value</span>
-        <Input
-          value={conditionValue}
-          onChange={(e) => setConditionValue(e.target.value)}
-          placeholder="Resolved value when this condition matches"
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && canSave) handleSubmit();
-            if (e.key === "Escape") onCancel();
-          }}
-          data-testid="input-condition-value"
-        />
+        {isPrice ? (
+          <MoneyValueFields
+            value={conditionValue}
+            onChange={(m) => setConditionValue(m)}
+            testIdPrefix="condition-money"
+          />
+        ) : (
+          <Input
+            value={typeof conditionValue === "string" ? conditionValue : variableValueToDisplayString(conditionValue)}
+            onChange={(e) => setConditionValue(e.target.value)}
+            placeholder="Resolved value when this condition matches"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && canSave) handleSubmit();
+              if (e.key === "Escape") onCancel();
+            }}
+            data-testid="input-condition-value"
+          />
+        )}
       </div>
 
       <div className="flex justify-end gap-2">
@@ -313,7 +339,7 @@ export function VariableDetailModal({
   const [addingCondition, setAddingCondition] = useState(false);
   const [editingConditionIndex, setEditingConditionIndex] = useState<number | null>(null);
   const [editingDefault, setEditingDefault] = useState(false);
-  const [editDefaultValue, setEditDefaultValue] = useState("");
+  const [editDefaultValue, setEditDefaultValue] = useState<VariableValue>("");
 
   const [renameTo, setRenameTo] = useState("");
   const [renameAvailable, setRenameAvailable] = useState<boolean | null>(null);
@@ -469,21 +495,21 @@ export function VariableDetailModal({
     }
   };
 
-  const handleSetDefault = async (value: string) => {
+  const handleSetDefault = async (value: VariableValue) => {
     await writeVariable(
       { action: "set_default", value },
       { successTitle: "Default updated", failTitle: "Failed to save", onDone: () => setEditingDefault(false) },
     );
   };
 
-  const handleAddCondition = async (query: Record<string, string>, value: string) => {
+  const handleAddCondition = async (query: Record<string, string>, value: VariableValue) => {
     await writeVariable(
       { action: "add_condition", condition: { query, value } },
       { successTitle: "Condition added", failTitle: "Failed to add condition", onDone: () => setAddingCondition(false) },
     );
   };
 
-  const handleUpdateCondition = async (index: number, query: Record<string, string>, value: string) => {
+  const handleUpdateCondition = async (index: number, query: Record<string, string>, value: VariableValue) => {
     await writeVariable(
       { action: "update_condition", index, condition: { query, value } },
       {
@@ -1248,47 +1274,66 @@ export function VariableDetailModal({
                 <div className="space-y-2">
                   <h4 className="text-sm font-medium text-foreground">Default Value</h4>
                   {!definition?.isReserved && editingDefault ? (
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={editDefaultValue}
-                        onChange={(e) => setEditDefaultValue(e.target.value)}
-                        className="flex-1"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && metaReady) handleSetDefault(editDefaultValue);
-                          if (e.key === "Escape") setEditingDefault(false);
-                        }}
-                        data-testid="input-edit-default"
-                      />
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => handleSetDefault(editDefaultValue)}
-                        disabled={!metaReady}
-                        data-testid="button-save-default"
-                      >
-                        <Check className="w-3.5 h-3.5 text-primary" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => setEditingDefault(false)}
-                        data-testid="button-cancel-default"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </Button>
+                    <div className="space-y-2">
+                      {definition?.category === "price" ? (
+                        <MoneyValueFields
+                          value={editDefaultValue}
+                          onChange={setEditDefaultValue}
+                          testIdPrefix="default-money"
+                        />
+                      ) : (
+                        <Input
+                          value={typeof editDefaultValue === "string" ? editDefaultValue : variableValueToDisplayString(editDefaultValue)}
+                          onChange={(e) => setEditDefaultValue(e.target.value)}
+                          className="flex-1"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && metaReady) handleSetDefault(editDefaultValue);
+                            if (e.key === "Escape") setEditingDefault(false);
+                          }}
+                          data-testid="input-edit-default"
+                        />
+                      )}
+                      <div className="flex items-center gap-2 justify-end">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleSetDefault(editDefaultValue)}
+                          disabled={!metaReady}
+                          data-testid="button-save-default"
+                        >
+                          <Check className="w-3.5 h-3.5 text-primary" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => setEditingDefault(false)}
+                          data-testid="button-cancel-default"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2">
                       <span className="text-sm flex-1 truncate">
-                        {definition?.default !== undefined ? `"${definition.default}"` : <span className="text-muted-foreground/60 italic">Not set</span>}
+                        {definition?.default !== undefined ? (
+                          `"${variableValueToDisplayString(definition.default)}"`
+                        ) : (
+                          <span className="text-muted-foreground/60 italic">Not set</span>
+                        )}
                       </span>
                       {!definition?.isReserved && (
                         <Button
                           size="icon"
                           variant="ghost"
                           onClick={() => {
-                            setEditDefaultValue(definition?.default || "");
+                            setEditDefaultValue(
+                              definition?.default ??
+                                (definition?.category === "price"
+                                  ? { amount: 0, currency: "USD" }
+                                  : ""),
+                            );
                             setEditingDefault(true);
                           }}
                           data-testid="button-edit-default"
@@ -1336,6 +1381,7 @@ export function VariableDetailModal({
                           saveLabel="Update"
                           localeOptions={localeOptions}
                           blocked={!metaReady}
+                          isPrice={definition?.category === "price"}
                         />
                       ) : (
                         <div
@@ -1350,7 +1396,9 @@ export function VariableDetailModal({
                                 </Badge>
                               ))}
                               <span className="text-muted-foreground/60">&rarr;</span>
-                              <span className="text-sm truncate">"{cond.value}"</span>
+                              <span className="text-sm truncate">
+                                &quot;{variableValueToDisplayString(cond.value)}&quot;
+                              </span>
                             </div>
                           </div>
                           {!definition?.isReserved && (
@@ -1403,6 +1451,7 @@ export function VariableDetailModal({
                       saveLabel="Add"
                       localeOptions={localeOptions}
                       blocked={!metaReady}
+                      isPrice={definition?.category === "price"}
                     />
                   )}
                 </div>

@@ -204,8 +204,10 @@ export function registerProductTools(
 
   mcp.tool(
     "get_product",
-    "Read full product sidecar (_product.yml): offer, personas/avatar, selling flags, audience_status. " +
+    "Read full product sidecar (_product.yml): offer, personas/avatar, selling flags, audience_status, " +
+      "pricing.list_price_variable and pricing_resolved (amount/currency/display or unresolved). " +
       "Works for soft-removed (not sellable) products too — response warns when not sellable. " +
+      "Missing list-price binding → Course Offer omitted (warning). " +
       "Does not return journey membership — use get_product_funnel. Requires content_view.",
     {
       slug: z.string().describe("Product content slug, e.g. full-stack"),
@@ -325,8 +327,9 @@ export function registerProductTools(
   mcp.tool(
     "create_or_update_product",
     "Create or patch product sidecar (_product.yml). " +
-      "Audience/name/description need content_edit_structure. " +
+      "Audience/name/description/pricing need content_edit_structure. " +
       "purchasable / actively_selling need product_manage (make sellable, remove, pause/resume). " +
+      "pricing.list_price_variable binds a category:price site var for Course Offer JSON-LD (null clears). " +
       "Preview unless confirm:true. " +
       "Persona ids immutable while funnel pages bind; cannot remove last persona while bound. " +
       "Tracking short_key (product + personas): missing keys are filled with a suggestion on every write; " +
@@ -385,6 +388,17 @@ export function registerProductTools(
       replace_personas: z.boolean().optional(),
       actively_selling: z.boolean().optional(),
       purchasable: z.boolean().optional(),
+      pricing: z
+        .object({
+          list_price_variable: z
+            .union([z.string(), z.null()])
+            .optional()
+            .describe(
+              "Site variable for full/list tuition (category:price). null clears. Used for Course Offer JSON-LD.",
+            ),
+        })
+        .nullable()
+        .optional(),
       site: z.string().optional(),
       confirm: z.boolean().optional().describe("Preview when omitted; set true to write"),
       ...requiredAgentSessionIdField,
@@ -404,7 +418,8 @@ export function registerProductTools(
         args.name !== undefined ||
         args.description !== undefined ||
         args.product_id !== undefined ||
-        args.short_key !== undefined;
+        args.short_key !== undefined ||
+        args.pricing !== undefined;
 
       if (touchesSellable) {
         if (!(await checkCap(mcpToken || "", "product_manage", ct))) {
@@ -453,6 +468,7 @@ export function registerProductTools(
       if (args.replace_personas !== undefined) patchBody.replace_personas = args.replace_personas;
       if (args.actively_selling !== undefined) patchBody.actively_selling = args.actively_selling;
       if (args.purchasable !== undefined) patchBody.purchasable = args.purchasable;
+      if (args.pricing !== undefined) patchBody.pricing = args.pricing;
 
       const discoveryNeeded =
         args.purchasable === true ||
@@ -624,6 +640,13 @@ export function registerProductTools(
               "Product is not sellable right now. Store/journey treat it as off until Make sellable again.",
           });
         }
+        if (args.pricing !== undefined) {
+          warnings.push({
+            code: "pricing_does_not_edit_pages",
+            message:
+              "List-price binding does not change page copy or monthly price vars. Course Offer appears on program SSR only when money resolves.",
+          });
+        }
         return ok(
           {
             message: `Product updated for ${args.slug}`,
@@ -634,7 +657,10 @@ export function registerProductTools(
             side_effects: [
               {
                 kind: "content_write",
-                summary: "Patched product sidecar",
+                summary:
+                  args.pricing !== undefined
+                    ? "Patched product sidecar (including pricing.list_price_variable for Course Offer)"
+                    : "Patched product sidecar",
                 paths: data.relativePath ? [String(data.relativePath)] : [],
               },
             ],
@@ -642,7 +668,7 @@ export function registerProductTools(
               {
                 tool: "get_product",
                 args_hint: { slug: args.slug },
-                reason: "Verify product",
+                reason: "Verify product (check pricing_resolved)",
               },
             ],
           },

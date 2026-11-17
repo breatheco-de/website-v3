@@ -13,24 +13,44 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  ToggleButtonBar,
+  ToggleButtonBarTrigger,
+} from "@/components/ui/toggle-button-bar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
+export type IndexingBlockMode = "none" | "ai" | "all";
+
 export interface RobotsSettingsResponse {
-  block_indexing: boolean;
+  indexing_block: IndexingBlockMode;
   include_sitemap: boolean;
   disallow_paths: string[];
   ai_bots: string[];
   robots_txt_preview?: string;
 }
 
+const INDEXING_HELP: Record<IndexingBlockMode, string> = {
+  none: "Search engines and the listed AI crawlers may crawl. Per-page robots still apply.",
+  ai: "Search stays open. Listed AI bots are Disallow’d in robots.txt, and known AI crawlers are refused (403) by the app.",
+  all: "robots.txt disallows everyone and every page serves noindex, nofollow. Known AI crawlers are refused (403). Search bots still get the noindex HTML so they can drop the site.",
+};
+
+function normalizeIndexingBlock(data: RobotsSettingsResponse & { block_indexing?: boolean }): IndexingBlockMode {
+  if (data.indexing_block === "none" || data.indexing_block === "ai" || data.indexing_block === "all") {
+    return data.indexing_block;
+  }
+  if (data.block_indexing === true) return "all";
+  return "none";
+}
+
 export function RobotsTab() {
   const { toast } = useToast();
-  const { data, isLoading } = useQuery<RobotsSettingsResponse>({
+  const { data, isLoading } = useQuery<RobotsSettingsResponse & { block_indexing?: boolean }>({
     queryKey: ["/api/settings/robots"],
   });
 
-  const [blockIndexing, setBlockIndexing] = useState(false);
+  const [indexingBlock, setIndexingBlock] = useState<IndexingBlockMode>("none");
   const [includeSitemap, setIncludeSitemap] = useState(true);
   const [disallowPaths, setDisallowPaths] = useState<string[]>([]);
   const [aiBots, setAiBots] = useState<string[]>([]);
@@ -40,7 +60,7 @@ export function RobotsTab() {
 
   useEffect(() => {
     if (!data) return;
-    setBlockIndexing(data.block_indexing);
+    setIndexingBlock(normalizeIndexingBlock(data));
     setIncludeSitemap(data.include_sitemap);
     setDisallowPaths([...data.disallow_paths]);
     setAiBots([...data.ai_bots]);
@@ -49,12 +69,15 @@ export function RobotsTab() {
   }, [data]);
 
   const markDirty = () => setDirty(true);
+  const siteFullyBlocked = indexingBlock === "all";
+  const aiMode = indexingBlock === "ai";
+  const aiListEmpty = aiBots.map((b) => b.trim()).filter(Boolean).length === 0;
 
   const handleSave = async () => {
     setSaving(true);
     try {
       const res = await apiRequest("PUT", "/api/settings/robots", {
-        block_indexing: blockIndexing,
+        indexing_block: indexingBlock,
         include_sitemap: includeSitemap,
         disallow_paths: disallowPaths.map((p) => p.trim()).filter(Boolean),
         ai_bots: aiBots.map((b) => b.trim()).filter(Boolean),
@@ -63,7 +86,7 @@ export function RobotsTab() {
       setPreview(json.robots_txt_preview || "");
       setDisallowPaths([...json.disallow_paths]);
       setAiBots([...json.ai_bots]);
-      setBlockIndexing(json.block_indexing);
+      setIndexingBlock(json.indexing_block);
       setIncludeSitemap(json.include_sitemap);
       setDirty(false);
       await queryClient.invalidateQueries({ queryKey: ["/api/settings/robots"] });
@@ -106,31 +129,39 @@ export function RobotsTab() {
           <>
             <div
               className={`rounded-md border p-4 space-y-3 ${
-                blockIndexing ? "border-destructive/50 bg-destructive/5" : ""
+                siteFullyBlocked ? "border-destructive/50 bg-destructive/5" : ""
               }`}
             >
-              <div className="flex items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <Label htmlFor="block-indexing" className="text-sm font-medium">
-                    Block indexing for entire site
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    When enabled, robots.txt disallows all crawlers and every page serves{" "}
-                    <code className="text-xs">noindex, nofollow</code>. Per-page robots settings
-                    are ignored until this is turned off.
-                  </p>
-                </div>
-                <Switch
-                  id="block-indexing"
-                  checked={blockIndexing}
-                  onCheckedChange={(v) => {
-                    setBlockIndexing(v);
-                    markDirty();
-                  }}
-                  data-testid="switch-block-indexing"
-                />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Who may crawl this site?</p>
+                <p className="text-xs text-muted-foreground">
+                  Choose how open this site is to search engines and AI crawlers.
+                </p>
               </div>
-              {blockIndexing && (
+              <ToggleButtonBar
+                value={indexingBlock}
+                onValueChange={(v) => {
+                  if (v === "none" || v === "ai" || v === "all") {
+                    setIndexingBlock(v);
+                    markDirty();
+                  }
+                }}
+                listTestId="toggle-indexing-block"
+              >
+                <ToggleButtonBarTrigger value="none" data-testid="indexing-block-none">
+                  None
+                </ToggleButtonBarTrigger>
+                <ToggleButtonBarTrigger value="ai" data-testid="indexing-block-ai">
+                  AI crawlers
+                </ToggleButtonBarTrigger>
+                <ToggleButtonBarTrigger value="all" data-testid="indexing-block-all">
+                  All crawlers
+                </ToggleButtonBarTrigger>
+              </ToggleButtonBar>
+              <p className="text-xs text-muted-foreground" data-testid="text-indexing-help">
+                {INDEXING_HELP[indexingBlock]}
+              </p>
+              {siteFullyBlocked && (
                 <div className="flex items-start gap-2 text-sm text-destructive">
                   <IconAlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                   <span>
@@ -138,6 +169,15 @@ export function RobotsTab() {
                   </span>
                 </div>
               )}
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer select-none">Read more (advanced)</summary>
+                <p className="mt-2 space-y-1">
+                  Stored as <code className="text-xs">robots.indexing_block</code> in{" "}
+                  <code className="text-xs">settings.yml</code>. The AI bot list drives robots.txt
+                  Allow/Disallow lines; hard 403 uses the platform’s known AI crawler detector.
+                  robots.txt is voluntary for non-compliant scrapers; CDN/WAF rules are separate.
+                </p>
+              </details>
             </div>
 
             <div className="flex items-center justify-between gap-4 rounded-md border p-4">
@@ -147,13 +187,13 @@ export function RobotsTab() {
                 </Label>
                 <p className="text-xs text-muted-foreground">
                   Advertise <code className="text-xs">/sitemap.xml</code> when indexing is allowed.
-                  Ignored while the site is blocked.
+                  Ignored while all crawlers are blocked.
                 </p>
               </div>
               <Switch
                 id="include-sitemap"
                 checked={includeSitemap}
-                disabled={blockIndexing}
+                disabled={siteFullyBlocked}
                 onCheckedChange={(v) => {
                   setIncludeSitemap(v);
                   markDirty();
@@ -167,8 +207,6 @@ export function RobotsTab() {
                 <p className="text-sm font-medium">Disallow paths</p>
                 <p className="text-xs text-muted-foreground">
                   Paths listed under <code className="text-xs">User-agent: *</code> in robots.txt.
-                  Stored in <code className="text-xs">settings.yml</code> as{" "}
-                  <code className="text-xs">robots.disallow_paths</code>.
                 </p>
               </div>
               <div className="space-y-2">
@@ -176,7 +214,7 @@ export function RobotsTab() {
                   <div key={index} className="flex items-center gap-2">
                     <Input
                       value={path}
-                      disabled={blockIndexing}
+                      disabled={siteFullyBlocked}
                       onChange={(e) => {
                         const next = [...disallowPaths];
                         next[index] = e.target.value;
@@ -191,7 +229,7 @@ export function RobotsTab() {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      disabled={blockIndexing}
+                      disabled={siteFullyBlocked}
                       onClick={() => {
                         setDisallowPaths(disallowPaths.filter((_, i) => i !== index));
                         markDirty();
@@ -206,7 +244,7 @@ export function RobotsTab() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={blockIndexing}
+                  disabled={siteFullyBlocked}
                   onClick={() => {
                     setDisallowPaths([...disallowPaths, "/"]);
                     markDirty();
@@ -223,15 +261,26 @@ export function RobotsTab() {
               <div className="space-y-1">
                 <p className="text-sm font-medium">AI bot User-agents</p>
                 <p className="text-xs text-muted-foreground">
-                  Explicitly allowed AI/LLM crawlers when the site is indexable.
+                  {aiMode
+                    ? "These names get Disallow: / in robots.txt while AI crawlers are blocked."
+                    : "These names get Allow: / in robots.txt when crawl control is None."}
                 </p>
               </div>
+              {aiMode && aiListEmpty && (
+                <div className="flex items-start gap-2 text-sm text-amber-700 dark:text-amber-400">
+                  <IconAlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>
+                    No AI user-agents listed, so robots.txt will not name any Disallow groups.
+                    Known AI crawlers are still refused with 403.
+                  </span>
+                </div>
+              )}
               <div className="space-y-2">
                 {aiBots.map((bot, index) => (
                   <div key={index} className="flex items-center gap-2">
                     <Input
                       value={bot}
-                      disabled={blockIndexing}
+                      disabled={siteFullyBlocked}
                       onChange={(e) => {
                         const next = [...aiBots];
                         next[index] = e.target.value;
@@ -246,7 +295,7 @@ export function RobotsTab() {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      disabled={blockIndexing}
+                      disabled={siteFullyBlocked}
                       onClick={() => {
                         setAiBots(aiBots.filter((_, i) => i !== index));
                         markDirty();
@@ -261,7 +310,7 @@ export function RobotsTab() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={blockIndexing}
+                  disabled={siteFullyBlocked}
                   onClick={() => {
                     setAiBots([...aiBots, ""]);
                     markDirty();

@@ -34,6 +34,10 @@ export function buildPrivatePreviewHref(opts: {
   const qs = new URLSearchParams();
   qs.set("locale", locale);
   if (variant) qs.set("variant", variant);
+  const location = params.get("location");
+  if (location) qs.set("location", location);
+  const previewMode = params.get("preview_mode");
+  if (previewMode) qs.set("preview_mode", previewMode);
   return `/private/preview/${opts.contentType}/${opts.slug}?${qs.toString()}`;
 }
 

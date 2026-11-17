@@ -18,9 +18,11 @@ import {
   buildOrganicPathTraffic,
   lookupPathTraffic,
   sumPathTraffic,
+  ORGANIC_TRAFFIC_WINDOW_DAYS,
   type PathTrafficStats,
 } from "./gsc-organic-path-traffic";
 import { buildSiteOrganicTraffic } from "./gsc-organic-site-traffic";
+import { completeDataDates } from "./gsc-organic-days";
 import {
   ORGANIC_LEADS_BASIS,
   buildOrganicLeadsByPath,
@@ -41,6 +43,11 @@ import {
 } from "./gsc-url-inspection";
 import type { SeoIndex, SeoIndexEntry } from "./seo-index";
 import { getValidationCacheService } from "./services/validationCacheService";
+import { buildPage1CtrKpi } from "./seo-page1-ctr";
+import {
+  buildTargetedClustersKpi,
+  clusterClicksFromByPath,
+} from "./seo-targeted-clusters";
 
 export type ClusterMetricsPerspective = "traffic" | "potential" | "integrity" | "activity";
 
@@ -104,6 +111,20 @@ function badgeForPath(
   ]);
 }
 
+/** Trailing `days` complete GSC dates, optionally shifted back by `offsetEnd` days. */
+function sliceExpectedWindow(
+  days: number,
+  offsetEnd = 0,
+): { start: string; end: string } | null {
+  const all = completeDataDates();
+  const endIdx = all.length - offsetEnd;
+  const startIdx = endIdx - days;
+  if (startIdx < 0 || endIdx <= 0) return null;
+  const slice = all.slice(startIdx, endIdx);
+  if (slice.length === 0) return null;
+  return { start: slice[0]!, end: slice[slice.length - 1]! };
+}
+
 export async function buildTrafficClusterMetrics(opts: {
   seoIndex: SeoIndex;
   /** Pipeline site id (lead ledger database). */
@@ -113,12 +134,25 @@ export async function buildTrafficClusterMetrics(opts: {
   market: string;
   isKnownUrl: (path: string) => boolean;
 }) {
+  const kpiPaths = clusteredPathsFromSeoIndex(opts.seoIndex);
   const organic = buildOrganicPathTraffic({
     contentFolder: opts.contentFolder,
     contentRoot: opts.contentRoot,
     market: opts.market,
-    kpiPaths: clusteredPathsFromSeoIndex(opts.seoIndex),
+    kpiPaths,
   });
+  const priorWindow = sliceExpectedWindow(ORGANIC_TRAFFIC_WINDOW_DAYS, ORGANIC_TRAFFIC_WINDOW_DAYS);
+  const priorOrganic = priorWindow
+    ? buildOrganicPathTraffic({
+        contentFolder: opts.contentFolder,
+        contentRoot: opts.contentRoot,
+        market: opts.market,
+        start: priorWindow.start,
+        end: priorWindow.end,
+        kpiPaths,
+      })
+    : null;
+
   let leads: OrganicLeadsByPath | null = null;
   try {
     leads = buildOrganicLeadsByPath({ site: opts.site, window: organic.window, market: organic.market });
@@ -136,6 +170,14 @@ export async function buildTrafficClusterMetrics(opts: {
     market: opts.market,
     seoIndex: opts.seoIndex,
     isKnownUrl: opts.isKnownUrl,
+  });
+
+  const page1Ctr = buildPage1CtrKpi({
+    contentFolder: opts.contentFolder,
+    contentRoot: opts.contentRoot,
+    market: opts.market,
+    window: organic.window,
+    days: organic.days_expected,
   });
 
   const clusters = Object.entries(opts.seoIndex.clusters).map(([hubId, cluster]) => {
@@ -163,6 +205,33 @@ export async function buildTrafficClusterMetrics(opts: {
       ...(clusterLeads ? { clusterLeads } : {}),
       members,
     };
+  });
+
+  const currentClicksByHub = new Map<string, number>();
+  const priorClicksByHub = new Map<string, number>();
+  for (const c of clusters) {
+    currentClicksByHub.set(c.hubId, c.clusterTraffic?.clicks ?? 0);
+    if (priorOrganic) {
+      priorClicksByHub.set(
+        c.hubId,
+        clusterClicksFromByPath(opts.seoIndex, c.hubId, priorOrganic.byPath),
+      );
+    }
+  }
+
+  const trendsAvailable =
+    Boolean(organic.window) &&
+    !organic.incomplete &&
+    Boolean(priorOrganic?.window) &&
+    !priorOrganic!.incomplete &&
+    priorOrganic!.days_in_window >= priorOrganic!.days_expected &&
+    organic.days_in_window >= organic.days_expected;
+
+  const targetedClusters = buildTargetedClustersKpi({
+    seoIndex: opts.seoIndex,
+    currentClicksByHub,
+    priorClicksByHub,
+    trendsAvailable,
   });
 
   return {
@@ -207,6 +276,8 @@ export async function buildTrafficClusterMetrics(opts: {
       known: otherHighTraffic.known,
       unknown: otherHighTraffic.unknown,
     },
+    page1Ctr,
+    targetedClusters,
     clusters,
   };
 }

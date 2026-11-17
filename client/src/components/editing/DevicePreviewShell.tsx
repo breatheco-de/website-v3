@@ -3,6 +3,7 @@ import { Monitor } from "lucide-react";
 import { useLocation, useSearch } from "wouter";
 import { LocationOverrideBadge } from "@/components/DebugBubble/components/LocationOverrideBadge";
 import { PreviewDeviceMenu } from "@/components/editing/PreviewDeviceMenu";
+import { PreviewShareButton } from "@/components/editing/PreviewShareButton";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -63,6 +64,7 @@ export function DevicePreviewShell() {
       <div className="flex items-center gap-2">
         <PreviewDeviceMenu trigger="caption" />
         <LocationOverrideBadge />
+        <PreviewShareButton />
       </div>
       <div
         style={{
@@ -106,7 +108,7 @@ export function DevicePreviewShell() {
               Stay here
             </Button>
             <Button
-              onClick={() => editMode?.setPreviewBreakpoint("desktop")}
+              onClick={() => editMode?.setPreviewMode({ kind: "desktop" })}
               data-testid="button-device-embed-desktop"
             >
               <Monitor className="h-4 w-4" />

@@ -175,6 +175,7 @@ import {
   PROPOSAL_STATUS_OPTIONS,
   clearProposalListFilters,
   countActiveProposalFilters,
+  isProposalIdLikeQuery,
   parseProposalListPerspective,
   parseProposalListSearch,
   proposalListApiSearchParams,
@@ -952,6 +953,40 @@ export function ProposalListPanel() {
 
   const proposals = data?.proposals ?? [];
   const resultCount = data?.total ?? proposals.length;
+
+  const shouldProbeIdAcrossStatuses =
+    !isLoading &&
+    proposals.length === 0 &&
+    isProposalIdLikeQuery(view.q) &&
+    view.filters.status !== "all";
+
+  const statusAllApiQuery = useMemo(
+    () =>
+      toProposalListApiQuery(
+        { ...view.filters, status: "all" },
+        view.q,
+      ),
+    [view.filters, view.q],
+  );
+  const statusAllApiQs = useMemo(
+    () => proposalListApiSearchParams(statusAllApiQuery),
+    [statusAllApiQuery],
+  );
+
+  const { data: statusAllProbe, isFetching: statusAllProbeLoading } = useQuery({
+    queryKey: ["/api/admin/proposals", "id-status-probe", statusAllApiQuery],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/admin/proposals?${statusAllApiQs}`, { headers: headers() });
+      if (!res.ok) throw new Error("Failed to probe proposals");
+      return res.json() as Promise<{ proposals: Proposal[]; total?: number }>;
+    },
+    enabled: shouldProbeIdAcrossStatuses,
+  });
+
+  const hiddenByStatusCount =
+    shouldProbeIdAcrossStatuses && !statusAllProbeLoading
+      ? (statusAllProbe?.total ?? statusAllProbe?.proposals?.length ?? 0)
+      : 0;
   const selectionActive = perspective === "table" && selectedIds.size > 0;
   const proposalHref = (id: string) =>
     listSearch ? `${AGENTS_PROPOSALS_BASE}/${id}?${listSearch}` : `${AGENTS_PROPOSALS_BASE}/${id}`;
@@ -1316,7 +1351,36 @@ export function ProposalListPanel() {
               <span className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
                 <IconInbox className="h-5 w-5" aria-hidden />
               </span>
-              {activeFilterCount > 0 || hasSearch ? (
+              {hiddenByStatusCount > 0 ? (
+                <>
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">
+                      Found {hiddenByStatusCount} proposal
+                      {hiddenByStatusCount === 1 ? "" : "s"} with this ID under All statuses
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      This ID may exist under another status. The list is filtered to{" "}
+                      {PROPOSAL_STATUS_OPTIONS.find((o) => o.value === view.filters.status)?.label ??
+                        view.filters.status}
+                      .
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    onClick={() =>
+                      writeView({
+                        filters: { ...view.filters, status: "all" },
+                        q: view.q,
+                      })
+                    }
+                    data-testid="button-empty-show-all-statuses"
+                  >
+                    Show All statuses
+                  </Button>
+                </>
+              ) : activeFilterCount > 0 || hasSearch ? (
                 <>
                   <div className="space-y-1">
                     <p className="text-sm font-medium">No proposals match these filters</p>

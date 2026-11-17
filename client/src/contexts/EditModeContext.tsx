@@ -2,10 +2,12 @@ import { createContext, useContext, useState, useEffect, useRef } from "react";
 import type { Section, EditOperation } from "@shared/schema";
 import { editContent } from "@/lib/contentApi";
 import { navigate } from "wouter/use-browser-location";
+import { useLocation, useSearch } from "wouter";
 import { useContentTypes } from "@/hooks/useContentTypes";
 import { queryClient } from "@/lib/queryClient";
 import { UnresolvedEditModeLinkDialog } from "@/components/editing/UnresolvedEditModeLinkDialog";
 import { prepareEditModeHref } from "@/contexts/editModeHref";
+import { isPrivatePreviewPath } from "@/lib/visual-edit-path";
 import {
   DEFAULT_PREVIEW_DEVICE_ID,
   PREVIEW_BREAKPOINT_KEY,
@@ -18,9 +20,21 @@ import {
   shouldAllowDeviceEmbedHref,
   type PreviewDeviceId,
 } from "@/lib/preview-devices";
+import {
+  PREVIEW_LOCATION_PARAM,
+  PREVIEW_MODE_PARAM,
+  applyPreviewModeToSearchParams,
+  parsePreviewModeParam,
+  persistPreviewMode,
+  readStoredPreviewMode,
+  stashLocationForLlm,
+  takeStashedLocationForLlm,
+  type PreviewMode,
+} from "@/lib/preview-mode";
 
 export type PreviewBreakpoint = 'desktop' | 'mobile';
 export type { PreviewDeviceId };
+export type { PreviewMode };
 
 const EDIT_MODE_KEY = '4geeks_edit_mode';
 
@@ -99,8 +113,11 @@ interface EditModeContextValue {
   saveChanges: (pageKey: string, contentType: string, slug: string, locale: string) => Promise<boolean>;
   previewBreakpoint: PreviewBreakpoint;
   previewDeviceId: PreviewDeviceId;
+  /** Staff LLM crawler viewport on /private/preview (read-only). */
+  isLlmPreview: boolean;
   setPreviewBreakpoint: (breakpoint: PreviewBreakpoint) => void;
   setPreviewDevice: (deviceId: PreviewDeviceId) => void;
+  setPreviewMode: (mode: PreviewMode) => void;
   togglePreviewBreakpoint: () => void;
   /** Slugs that have already been prompted for first-edit this session. */
   promptedPageSlugs: Set<string>;
@@ -122,55 +139,275 @@ function shouldAutoEnableEditMode(): boolean {
   return urlParams.get('edit_mode') === 'true' || urlParams.get('edit') === '1';
 }
 
+function readInitialPreviewFromUrl(): {
+  breakpoint: PreviewBreakpoint;
+  deviceId: PreviewDeviceId;
+  isLlm: boolean;
+  fromUrl: boolean;
+} {
+  if (typeof window === "undefined" || !window.location) {
+    return {
+      breakpoint: "desktop",
+      deviceId: DEFAULT_PREVIEW_DEVICE_ID,
+      isLlm: false,
+      fromUrl: false,
+    };
+  }
+  const fromUrl = parsePreviewModeParam(
+    new URLSearchParams(window.location.search ?? "").get(PREVIEW_MODE_PARAM),
+  );
+  // URL wins; otherwise restore last staff choice on /private/preview only
+  // (keeps LLM across refresh without activating crawler chrome on public URLs).
+  const onPrivatePreview = isPrivatePreviewPath(window.location.pathname ?? "");
+  const mode = fromUrl ?? (onPrivatePreview ? readStoredPreviewMode() : null);
+  if (!mode) {
+    return {
+      breakpoint: getStoredPreviewBreakpoint(),
+      deviceId: getStoredPreviewDeviceId(),
+      isLlm: false,
+      fromUrl: false,
+    };
+  }
+  if (mode.kind === "llm") {
+    return {
+      breakpoint: "desktop",
+      deviceId: getStoredPreviewDeviceId(),
+      isLlm: true,
+      fromUrl: !!fromUrl,
+    };
+  }
+  if (mode.kind === "device") {
+    return {
+      breakpoint: "mobile",
+      deviceId: mode.deviceId,
+      isLlm: false,
+      fromUrl: !!fromUrl,
+    };
+  }
+  return {
+    breakpoint: "desktop",
+    deviceId: getStoredPreviewDeviceId(),
+    isLlm: false,
+    fromUrl: !!fromUrl,
+  };
+}
+
+function replacePreviewSearch(mutate: (params: URLSearchParams) => void): void {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  mutate(url.searchParams);
+  const next = `${url.pathname}${url.search}${url.hash}`;
+  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (next !== current) {
+    window.history.replaceState(window.history.state, "", next);
+  }
+}
+
 export function EditModeProvider({ children }: EditModeProviderProps) {
-  const [isEditMode, setIsEditMode] = useState(() => shouldAutoEnableEditMode() || getStoredEditMode());
+  const initialPreview = readInitialPreviewFromUrl();
+  const [isEditMode, setIsEditMode] = useState(() => {
+    if (initialPreview.isLlm) return false;
+    return shouldAutoEnableEditMode() || getStoredEditMode();
+  });
   const [selectedSectionIndex, setSelectedSectionIndex] = useState<number | null>(null);
   const [pendingChanges, setPendingChanges] = useState<Map<string, EditOperation[]>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
-  const [previewBreakpoint, setPreviewBreakpointState] = useState<PreviewBreakpoint>(getStoredPreviewBreakpoint);
-  const [previewDeviceId, setPreviewDeviceIdState] = useState<PreviewDeviceId>(getStoredPreviewDeviceId);
+  const [previewBreakpoint, setPreviewBreakpointState] = useState<PreviewBreakpoint>(
+    () => initialPreview.breakpoint,
+  );
+  const [previewDeviceId, setPreviewDeviceIdState] = useState<PreviewDeviceId>(
+    () => initialPreview.deviceId,
+  );
+  const [isLlmPreview, setIsLlmPreview] = useState(() => initialPreview.isLlm);
   const [promptedPageSlugs, setPromptedPageSlugs] = useState<Set<string>>(new Set());
   const [unresolvedLinkOpen, setUnresolvedLinkOpen] = useState(false);
   const [unresolvedLinkVar, setUnresolvedLinkVar] = useState<string | undefined>();
   const contentTypesMap = useContentTypes();
   const contentTypesRef = useRef(contentTypesMap);
 
-  const exitDevicePreview = () => {
-    setPreviewBreakpointState("desktop");
-    clearStoredPreviewSelection();
-  };
-
-  const setPreviewBreakpoint = (breakpoint: PreviewBreakpoint) => {
-    setPreviewBreakpointState(breakpoint);
-    persistPreviewSelection(breakpoint, previewDeviceId);
-  };
-
-  const setPreviewDevice = (deviceId: PreviewDeviceId) => {
-    setPreviewDeviceIdState(deviceId);
-    setPreviewBreakpointState("mobile");
-    persistPreviewSelection("mobile", deviceId);
-  };
-
-  const togglePreviewBreakpoint = () => {
-    setPreviewBreakpointState(prev => {
-      const next = prev === "desktop" ? "mobile" : "desktop";
-      persistPreviewSelection(next, previewDeviceId);
-      return next;
+  const syncPreviewModeToUrl = (mode: PreviewMode) => {
+    persistPreviewMode(mode);
+    replacePreviewSearch((params) => {
+      const next = applyPreviewModeToSearchParams(params, mode, { stripLocationForLlm: true });
+      params.clear();
+      next.forEach((value, key) => params.set(key, value));
     });
   };
 
   const persistEditMode = (value: boolean) => {
-    if (typeof localStorage !== 'undefined') {
+    if (typeof localStorage !== "undefined") {
       if (value) {
-        localStorage.setItem(EDIT_MODE_KEY, 'true');
+        localStorage.setItem(EDIT_MODE_KEY, "true");
       } else {
         localStorage.removeItem(EDIT_MODE_KEY);
       }
     }
   };
 
+  const [pathname] = useLocation();
+  const searchString = useSearch();
+
+  // Share links and in-app navigation: URL preview_mode wins while on /private/preview.
+  // When the param is missing but React/localStorage still say LLM, re-stamp the URL so
+  // refresh and Share keep working.
+  useEffect(() => {
+    if (!isPrivatePreviewPath(pathname)) return;
+    const mode = parsePreviewModeParam(
+      new URLSearchParams(searchString.startsWith("?") ? searchString.slice(1) : searchString).get(
+        PREVIEW_MODE_PARAM,
+      ),
+    );
+    if (!mode) {
+      if (isLlmPreview) {
+        syncPreviewModeToUrl({ kind: "llm" });
+      }
+      return;
+    }
+    if (mode.kind === "llm") {
+      // Always force read-only crawler chrome; enableEditMode from enterPrivatePreview
+      // can race and leave edit mode on while isLlmPreview is already true.
+      if (isEditMode) {
+        setIsEditMode(false);
+        persistEditMode(false);
+        setSelectedSectionIndex(null);
+      }
+      if (!isLlmPreview) {
+        setIsLlmPreview(true);
+        setPreviewBreakpointState("desktop");
+        clearStoredPreviewSelection();
+        persistPreviewMode(mode);
+      }
+      const params = new URLSearchParams(
+        searchString.startsWith("?") ? searchString.slice(1) : searchString,
+      );
+      if (params.has(PREVIEW_LOCATION_PARAM)) {
+        params.delete(PREVIEW_LOCATION_PARAM);
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `${pathname}?${params.toString()}${window.location.hash}`,
+        );
+      }
+      return;
+    }
+    if (mode.kind === "desktop") {
+      if (isLlmPreview || previewBreakpoint !== "desktop") {
+        // Leaving LLM restores edit so staff can work again.
+        if (isLlmPreview && !isDeviceEmbedPreview()) {
+          setIsEditMode(true);
+          persistEditMode(true);
+        }
+        setIsLlmPreview(false);
+        setPreviewBreakpointState("desktop");
+        clearStoredPreviewSelection();
+        persistPreviewMode(mode);
+      }
+      return;
+    }
+    if (
+      isLlmPreview ||
+      previewBreakpoint !== "mobile" ||
+      previewDeviceId !== mode.deviceId ||
+      !isEditMode
+    ) {
+      // Device chrome on /private/preview requires edit mode; LLM turns it off.
+      if (!isDeviceEmbedPreview()) {
+        setIsEditMode(true);
+        persistEditMode(true);
+      }
+      setIsLlmPreview(false);
+      setPreviewDeviceIdState(mode.deviceId);
+      setPreviewBreakpointState("mobile");
+      persistPreviewSelection("mobile", mode.deviceId);
+      persistPreviewMode(mode);
+    }
+  }, [pathname, searchString]); // eslint-disable-line react-hooks/exhaustive-deps — URL is source of truth
+
+  const exitDevicePreview = () => {
+    setPreviewBreakpointState("desktop");
+    setIsLlmPreview(false);
+    clearStoredPreviewSelection();
+  };
+
+  const setPreviewMode = (mode: PreviewMode) => {
+    if (mode.kind === "llm") {
+      const currentLocation =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get(PREVIEW_LOCATION_PARAM)
+          : null;
+      stashLocationForLlm(currentLocation);
+      setIsEditMode(false);
+      persistEditMode(false);
+      setSelectedSectionIndex(null);
+      setIsLlmPreview(true);
+      setPreviewBreakpointState("desktop");
+      clearStoredPreviewSelection();
+      syncPreviewModeToUrl(mode);
+      return;
+    }
+
+    const wasLlm = isLlmPreview;
+    setIsLlmPreview(false);
+
+    // Device shell needs edit mode; LLM clears it. Leaving LLM for desktop should restore edit too.
+    if ((wasLlm || mode.kind === "device") && !isDeviceEmbedPreview()) {
+      setIsEditMode(true);
+      persistEditMode(true);
+    }
+
+    if (mode.kind === "desktop") {
+      const stashed = wasLlm ? takeStashedLocationForLlm() : null;
+      setPreviewBreakpointState("desktop");
+      clearStoredPreviewSelection();
+      persistPreviewMode(mode);
+      if (stashed && typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.set(PREVIEW_MODE_PARAM, "desktop");
+        url.searchParams.set(PREVIEW_LOCATION_PARAM, stashed);
+        window.location.assign(`${url.pathname}?${url.searchParams.toString()}${url.hash}`);
+        return;
+      }
+      syncPreviewModeToUrl(mode);
+      return;
+    }
+
+    setPreviewDeviceIdState(mode.deviceId);
+    setPreviewBreakpointState("mobile");
+    persistPreviewSelection("mobile", mode.deviceId);
+    syncPreviewModeToUrl(mode);
+  };
+
+  const setPreviewBreakpoint = (breakpoint: PreviewBreakpoint) => {
+    if (breakpoint === "desktop") {
+      setPreviewMode({ kind: "desktop" });
+      return;
+    }
+    setPreviewMode({ kind: "device", deviceId: previewDeviceId });
+  };
+
+  const setPreviewDevice = (deviceId: PreviewDeviceId) => {
+    setPreviewMode({ kind: "device", deviceId });
+  };
+
+  const togglePreviewBreakpoint = () => {
+    if (isLlmPreview) {
+      setPreviewMode({ kind: "desktop" });
+      return;
+    }
+    setPreviewBreakpointState(prev => {
+      const next = prev === "desktop" ? "mobile" : "desktop";
+      persistPreviewSelection(next, previewDeviceId);
+      syncPreviewModeToUrl(
+        next === "mobile"
+          ? { kind: "device", deviceId: previewDeviceId }
+          : { kind: "desktop" },
+      );
+      return next;
+    });
+  };
+
   const enableEditMode = () => {
-    if (isDeviceEmbedPreview()) return;
+    if (isDeviceEmbedPreview() || isLlmPreview) return;
     setIsEditMode(true);
     persistEditMode(true);
   };
@@ -181,15 +418,17 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
     persistEditMode(false);
     setSelectedSectionIndex(null);
     exitDevicePreview();
+    syncPreviewModeToUrl({ kind: "desktop" });
   };
 
   const toggleEditMode = () => {
-    if (isDeviceEmbedPreview()) return;
+    if (isDeviceEmbedPreview() || isLlmPreview) return;
     if (isEditMode) {
       setIsEditMode(false);
       persistEditMode(false);
       setSelectedSectionIndex(null);
       exitDevicePreview();
+      syncPreviewModeToUrl({ kind: "desktop" });
       return;
     }
     setIsEditMode(true);
@@ -360,8 +599,10 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
     saveChanges,
     previewBreakpoint,
     previewDeviceId,
+    isLlmPreview,
     setPreviewBreakpoint,
     setPreviewDevice,
+    setPreviewMode,
     togglePreviewBreakpoint,
     promptedPageSlugs,
     markPagePrompted,

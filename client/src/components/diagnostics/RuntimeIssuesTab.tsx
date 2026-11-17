@@ -82,12 +82,18 @@ import {
 } from "./runtime-issues-url";
 import { RuntimeIssueSourceBadge } from "./RuntimeIssueSourceBadge";
 import { RuntimeIssueQueryBadges } from "./RuntimeIssueQueryBadges";
+import { RuntimeIssueRecentSamples } from "./RuntimeIssueRecentSamples";
 import { RuntimeIssuesSparkline } from "./RuntimeIssuesSparkline";
 import { referrerDisplayHost } from "./runtime-issues-referrer";
 import { RuntimeIssueListFiltersDialog } from "./RuntimeIssueListFiltersDialog";
 import { RuntimeIssueIngestionFiltersDialog } from "./RuntimeIssueIngestionFiltersDialog";
 import { RuntimeIssueIgnoreRulesDialog } from "./RuntimeIssueIgnoreRulesDialog";
-import type { ByHour, RuntimeIssueProbe, RuntimeQueryAttribution } from "@shared/runtime-issues";
+import type {
+  ByHour,
+  RuntimeHitSample,
+  RuntimeIssueProbe,
+  RuntimeQueryAttribution,
+} from "@shared/runtime-issues";
 import type { IgnoreRule, IgnoreRuleInput } from "@shared/runtime-issues-ignore";
 import { aggregateHitsByDay, isRuntimeIssueProbeSuccess, localePrefixFromPath } from "@shared/runtime-issues";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
@@ -113,6 +119,7 @@ interface RuntimeIssueRow {
   lastProbe?: RuntimeIssueProbe;
   cmsReferrerCount?: number;
   queryAttribution?: RuntimeQueryAttribution;
+  samples?: RuntimeHitSample[];
 }
 
 interface RuntimeIssuesResponse {
@@ -120,6 +127,7 @@ interface RuntimeIssuesResponse {
   updatedAt: number;
   totalCount: number;
   issues: RuntimeIssueRow[];
+  recent?: RuntimeHitSample[];
   ignored?: IgnoreRule[];
   dropScrapers?: boolean;
   linkIndexUpdatedAt?: string | null;
@@ -1063,6 +1071,7 @@ export default function RuntimeIssuesTab() {
   });
 
   const issues = data?.issues ?? [];
+  const recentHits = data?.recent ?? [];
   const filtersActive = isRuntimeIssueFiltersActive(filters);
 
   function ignoreExactPaths(fingerprints: string[]) {
@@ -1643,6 +1652,13 @@ export default function RuntimeIssuesTab() {
                         <RuntimeIssueQueryBadges
                           attribution={issue.queryAttribution}
                           fingerprint={issue.fingerprint}
+                          issuePath={issue.path}
+                        />
+                        <RuntimeIssueRecentSamples
+                          fingerprint={issue.fingerprint}
+                          samples={issue.samples}
+                          recent={recentHits}
+                          windowCount={issue.count}
                         />
                       </span>
                     </TableCell>

@@ -117,6 +117,7 @@ describe("queryRuntimeIssuesForMcp", () => {
       other: { gclid: ["abc"] },
     });
     expect(hit.cmsReferrerCount).toBe(2);
+    expect(Array.isArray(hit.recent_samples)).toBe(true);
   });
 
   it("filters by source tag with windowed hits", () => {

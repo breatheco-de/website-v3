@@ -58,6 +58,12 @@ export const VARIABLES_METADATA_ISSUE_CODES: Record<string, IssueCodeDefinition>
     suggestion:
       "Pick sellable product slugs from the Store / Funnel product list (same as ecommerce_products), or remove the bad slug.",
   },
+  VARIABLE_PRICE_PRODUCTS_REQUIRED: {
+    title: "Price Variable Needs One Product",
+    summary: "Price facts must be linked to exactly one sellable product.",
+    suggestion:
+      "At /private/variables set products to a single program slug (e.g. full-stack). List/full tuition also sets that product's catalog price.",
+  },
   VARIABLE_UNIT_MISMATCH: {
     title: "Variable Value Does Not Match Unit",
     summary:
