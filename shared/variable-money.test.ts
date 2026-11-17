@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatMoneyValue,
   normalizeMoneyValue,
+  parseBareAmountAsUsd,
   parseLegacyPriceString,
   variableValueCompareKey,
   variableValueToDisplayString,
@@ -17,6 +18,18 @@ describe("parseLegacyPriceString", () => {
   it("parses European euro amounts", () => {
     expect(parseLegacyPriceString("6.800 €")).toEqual({ amount: 6800, currency: "EUR" });
     expect(parseLegacyPriceString("200€")).toEqual({ amount: 200, currency: "EUR" });
+  });
+
+  it("leaves bare numbers alone (ratings, rates, counts)", () => {
+    expect(parseLegacyPriceString("4.9")).toBeNull();
+    expect(parseLegacyPriceString("84")).toBeNull();
+    expect(parseLegacyPriceString("16,999")).toBeNull();
+  });
+
+  it("parseBareAmountAsUsd handles price-migration bare amounts", () => {
+    expect(parseBareAmountAsUsd("499")).toEqual({ amount: 499, currency: "USD" });
+    expect(parseBareAmountAsUsd("16,999")).toEqual({ amount: 16999, currency: "USD" });
+    expect(parseBareAmountAsUsd("$299")).toBeNull();
   });
 });
 
@@ -35,6 +48,7 @@ describe("formatMoneyValue / display", () => {
       "$299",
     );
     expect(variableValueToDisplayString("$299", { locale: "en-US" })).toBe("$299");
+    expect(variableValueToDisplayString("4.9", { locale: "en-US" })).toBe("4.9");
   });
 });
 
