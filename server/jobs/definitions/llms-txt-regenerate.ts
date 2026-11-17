@@ -6,10 +6,11 @@ import {
   buildLlmsTxtInputs,
   fillLlmsTxtPrompt,
   LLMS_TEMPLATE_BASENAME,
+  readLlmsTxtPrompt,
 } from "../../llms-txt/regenerate-prompt";
 import { invalidateLlmsCompiledCache } from "../../llms-txt/compile";
+import { notifyContentDirtiesRequeued } from "../../auto-commit";
 import { markFileAsModified } from "../../sync-state";
-import { commitSingleFile } from "../../github";
 import { child } from "../../logger";
 
 const log = child({ module: "job:llms-txt-regenerate" });
@@ -31,7 +32,6 @@ export class LlmsTxtRegenerateJob extends Job {
   async run(payload: LlmsTxtRegeneratePayload): Promise<{
     ok: boolean;
     reason?: string;
-    commitSha?: string;
     bytes?: number;
   }> {
     const contentRoot = payload.contentRoot;
@@ -42,23 +42,13 @@ export class LlmsTxtRegenerateJob extends Job {
     }
 
     try {
-      // Temporary prod-parity probe: OpenAI throws if window+document+navigator exist.
-      const g = globalThis as typeof globalThis & { window?: { document?: unknown }; document?: unknown };
-      log.warn(
-        {
-          siteId,
-          pid: process.pid,
-          weblify: process.env.WEBLIFY_PROCESS,
-          typeof_window: typeof g.window,
-          typeof_document: typeof g.document,
-          typeof_navigator: typeof navigator,
-          has_window_document: !!g.window?.document,
-        },
-        "[env-probe] before getLLMService",
-      );
+      const promptTemplate = readLlmsTxtPrompt(contentRoot);
+      if (!promptTemplate) {
+        return { ok: false, reason: "missing_llms_txt_prompt" };
+      }
 
       const inputs = buildLlmsTxtInputs(contentRoot);
-      const userPrompt = fillLlmsTxtPrompt({
+      const userPrompt = fillLlmsTxtPrompt(promptTemplate, {
         company_profile: inputs.company_profile,
         site_facts: inputs.site_facts,
         products: inputs.products,
@@ -87,29 +77,18 @@ export class LlmsTxtRegenerateJob extends Job {
       fs.writeFileSync(absPath, body, "utf-8");
 
       const folder = path.basename(contentRoot);
+      const trackedPath = `${folder}/${LLMS_TEMPLATE_BASENAME}`;
       markFileAsModified(LLMS_TEMPLATE_BASENAME, "agent", undefined, contentRoot);
-
-      const push = await commitSingleFile({
-        filePath: `${folder}/${LLMS_TEMPLATE_BASENAME}`,
-        message: "Regenerate llms.template.md for /llms.txt",
-        author: "agent",
-        contentRoot,
-      });
+      await notifyContentDirtiesRequeued({ files: [trackedPath], author: "agent" });
 
       invalidateLlmsCompiledCache(contentRoot);
 
-      if (!push.success) {
-        log.warn({ siteId, error: push.error }, "[LlmsTxtRegenerateJob] wrote local template; content push failed");
-        return { ok: true, reason: "written_push_failed", bytes: Buffer.byteLength(body, "utf-8") };
-      }
-
       log.info(
-        { siteId, commitSha: push.commitSha, bytes: Buffer.byteLength(body, "utf-8"), reason: payload.reason },
+        { siteId, bytes: Buffer.byteLength(body, "utf-8"), reason: payload.reason },
         "[LlmsTxtRegenerateJob] finished",
       );
       return {
         ok: true,
-        commitSha: push.commitSha,
         bytes: Buffer.byteLength(body, "utf-8"),
       };
     } catch (err) {

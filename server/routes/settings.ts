@@ -2402,7 +2402,9 @@ export function registerSettingsRoutes(app: Express): void {
       } = await import("../llms-txt/compile");
       const {
         readLlmsTemplate,
-        LLMS_TXT_REGENERATE_PROMPT,
+        readLlmsTxtPrompt,
+        LLMS_PROMPT_INPUT_SLOTS,
+        LLMS_PROMPT_INPUT_SLOT_INFO,
       } = await import("../llms-txt/regenerate-prompt");
       const { getLlmsTxtSettings } = await import("../settings");
       const contentRoot = getContentRoot(res);
@@ -2410,18 +2412,57 @@ export function registerSettingsRoutes(app: Express): void {
       const { enabled } = getLlmsTxtSettings(contentRoot);
       const template = hasTemplate ? readLlmsTemplate(contentRoot) : null;
       const compiled = hasTemplate ? compileLlmsTxt(contentRoot) : null;
+      const prompt = readLlmsTxtPrompt(contentRoot);
       return res.json({
         has_template: hasTemplate,
+        has_prompt: prompt !== null,
         enabled,
         serving: enabled && hasTemplate,
         template,
         template_mtime_ms: getLlmsTemplateMtimeMs(contentRoot),
         markdown: compiled?.ok ? compiled.body : null,
-        prompt: LLMS_TXT_REGENERATE_PROMPT,
+        prompt,
+        prompt_slots: LLMS_PROMPT_INPUT_SLOTS.map((id) => ({
+          id,
+          token: `{{${id}}}`,
+          info: LLMS_PROMPT_INPUT_SLOT_INFO[id],
+        })),
         public_url: "/llms.txt",
       });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "Failed to load llms.txt preview" });
+    }
+  });
+
+  api.put(app, "/api/settings/llms-txt/prompt", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireMutatingStaff(req, res);
+    if (!auth.authorized) return;
+    try {
+      const schema = z.object({ prompt: z.string() });
+      const parsed = schema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        return res.status(400).json({ error: "prompt string required", details: parsed.error.flatten() });
+      }
+      const body = parsed.data.prompt;
+      if (!body.trim()) {
+        return res.status(400).json({ error: "Prompt cannot be empty" });
+      }
+      const {
+        writeLlmsTxtPrompt,
+        readLlmsTxtPrompt,
+        LLMS_TXT_PROMPT_BASENAME,
+      } = await import("../llms-txt/regenerate-prompt");
+      const contentRoot = getContentRoot(res);
+      const author = auth.author || auth.username || "staff";
+      writeLlmsTxtPrompt(body, contentRoot);
+      markFileAsModified(LLMS_TXT_PROMPT_BASENAME, author, undefined, contentRoot);
+      res.json({
+        success: true,
+        prompt: readLlmsTxtPrompt(contentRoot),
+        has_prompt: true,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "Failed to save regenerate prompt" });
     }
   });
 
@@ -2431,9 +2472,17 @@ export function registerSettingsRoutes(app: Express): void {
     try {
       const { enqueueLlmsTxtRegenerate } = await import("../llms-txt/enqueue-llms-txt");
       const { getLlmsTxtSettings } = await import("../settings");
+      const { readLlmsTxtPrompt } = await import("../llms-txt/regenerate-prompt");
       const contentRoot = getContentRoot(res);
       const folder = getContentRootName(res);
       const { enabled } = getLlmsTxtSettings(contentRoot);
+
+      if (!readLlmsTxtPrompt(contentRoot)) {
+        return res.status(400).json({
+          error: "Save a regenerate prompt first (View prompt → edit → Save).",
+          has_prompt: false,
+        });
+      }
 
       // Regenerate only rebuilds the template; serving stays whatever llms_txt.enabled is.
       const result = await enqueueLlmsTxtRegenerate({
@@ -2465,9 +2514,7 @@ export function registerSettingsRoutes(app: Express): void {
       }
       const { updateLlmsTxtSettings, getLlmsTxtSettings } = await import("../settings");
       const { llmsTemplateExists } = await import("../llms-txt/compile");
-      const { commitSingleFile } = await import("../github");
       const contentRoot = getContentRoot(res);
-      const folder = getContentRootName(res);
       const author = auth.author || auth.username || "staff";
       const hasTemplate = llmsTemplateExists(contentRoot);
 
@@ -2480,23 +2527,12 @@ export function registerSettingsRoutes(app: Express): void {
 
       const llms = updateLlmsTxtSettings({ enabled: parsed.data.enabled }, contentRoot);
       markFileAsModified("settings.yml", author, undefined, contentRoot);
-      const push = await commitSingleFile({
-        filePath: `${folder}/settings.yml`,
-        message: llms.enabled
-          ? "Enable public /llms.txt (settings.yml)"
-          : "Disable public /llms.txt (settings.yml)",
-        author,
-        contentRoot,
-      });
 
       res.json({
         success: true,
         enabled: llms.enabled,
         has_template: hasTemplate,
         serving: llms.enabled && hasTemplate,
-        commitSha: push.commitSha ?? null,
-        push_skipped: !push.success,
-        push_error: push.success ? null : push.error ?? null,
         settings: getLlmsTxtSettings(contentRoot),
       });
     } catch (err: any) {

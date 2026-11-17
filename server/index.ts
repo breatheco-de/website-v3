@@ -481,6 +481,26 @@ app.use((req, res, next) => {
     res.json({ ok: true, adopted: adoptHtmlCacheKeys(keys), dropped: dropKeys.length });
   });
 
+  // Sidequest marked content dirty; requeue into this process's auto-commit memory queue.
+  app.post("/api/internal/content/requeue-dirties", async (req, res) => {
+    const addr = req.socket.remoteAddress || "";
+    const loopback = addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+    const secret = process.env.SESSION_SECRET || "";
+    const header = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+    if (!loopback || !secret || header !== `Bearer ${secret}`) {
+      res.status(403).json({ ok: false });
+      return;
+    }
+    const body = req.body as { files?: unknown; author?: unknown } | undefined;
+    const files = Array.isArray(body?.files)
+      ? body.files.filter((f): f is string => typeof f === "string" && f.length > 0)
+      : [];
+    const author = typeof body?.author === "string" && body.author.trim() ? body.author.trim() : "agent";
+    const { requeueTrackedLocalDirties } = await import("./auto-commit");
+    requeueTrackedLocalDirties(files.map((filePath) => ({ filePath, author })));
+    res.json({ ok: true, requeued: files.length });
+  });
+
   // Serve cached anonymous HTML before initial-data resolution / SSR work.
   // Only active in production — development always re-renders for HMR accuracy.
   if (app.get("env") !== "development") {

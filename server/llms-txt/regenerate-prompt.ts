@@ -12,6 +12,27 @@ import { scanProductContent } from "../product/product-index";
 import { getDefaultContentRoot } from "../site-config";
 
 export const LLMS_TEMPLATE_BASENAME = "llms.template.md";
+/** On-disk name (stable); code refers to this as the llms.txt prompt. */
+export const LLMS_TXT_PROMPT_BASENAME = "llms.regenerate-prompt.md";
+
+/** Job input slots filled at regenerate time (not CMS Variables). */
+export const LLMS_PROMPT_INPUT_SLOTS = [
+  "company_profile",
+  "site_facts",
+  "products",
+  "pages",
+  "previous_llms_txt",
+] as const;
+
+export type LlmsPromptInputSlot = (typeof LLMS_PROMPT_INPUT_SLOTS)[number];
+
+export const LLMS_PROMPT_INPUT_SLOT_INFO: Record<LlmsPromptInputSlot, string> = {
+  company_profile: "Organization facts from schema.org (name, what it does, regions, languages).",
+  site_facts: "Approved site figures from Variables (placement rates, ratings, etc.).",
+  products: "Products currently for sale (names, EN/ES URLs, descriptions).",
+  pages: "Approved marketing pages with titles, URLs, sections, and locales.",
+  previous_llms_txt: "The current llms.template.md body, so wording stays stable when inputs are unchanged.",
+};
 
 export const PAGES_DENYLIST = new Set([
   "cookies",
@@ -59,6 +80,25 @@ export function readLlmsTemplate(contentRoot?: string): string | null {
   const p = llmsTemplatePath(contentRoot);
   if (!fs.existsSync(p)) return null;
   return fs.readFileSync(p, "utf-8");
+}
+
+export function llmsTxtPromptPath(contentRoot?: string): string {
+  const root = contentRoot ?? getDefaultContentRoot();
+  return path.join(root, LLMS_TXT_PROMPT_BASENAME);
+}
+
+/** Staff-edited llms.txt job instructions. Null when missing or empty. */
+export function readLlmsTxtPrompt(contentRoot?: string): string | null {
+  const p = llmsTxtPromptPath(contentRoot);
+  if (!fs.existsSync(p)) return null;
+  const body = fs.readFileSync(p, "utf-8");
+  return body.trim() ? body : null;
+}
+
+export function writeLlmsTxtPrompt(body: string, contentRoot?: string): void {
+  const p = llmsTxtPromptPath(contentRoot);
+  const normalized = body.endsWith("\n") ? body : `${body}\n`;
+  fs.writeFileSync(p, normalized, "utf-8");
 }
 
 export function absolutizePath(pathname: string, baseUrl = siteBaseUrl()): string {
@@ -240,127 +280,20 @@ export function buildLlmsTxtInputs(contentRoot?: string): LlmsTxtInputs {
   };
 }
 
-export const LLMS_TXT_REGENERATE_PROMPT = `You write the llms.txt file for 4geeks.com. AI assistants read this file to
-understand 4Geeks Academy and find its most important pages.
-
-You only write. You do not decide what is true. Use ONLY the data in the
-inputs below. If something is not in the inputs, leave it out.
-
-## Inputs
-
-<company_profile>
-{{company_profile}}
-</company_profile>
-Fixed company facts: name, what it does, accreditation, regions, languages.
-
-<site_facts>
-{{site_facts}}
-</site_facts>
-Approved figures. Each one has: name, token (e.g. {{ global.xxx }}), description,
-value, unit, region, products.
-Use site_facts for outcome-style figures (placement rate, salary increase, ratings,
-ratios). Prefer writing the token field in the template so values stay dynamic
-(e.g. {{ global.global_job_placement_rate }}% with the unit). Do not invent tokens.
-Do NOT use site_facts price_* (or any tuition/payment amounts) in the blockquote,
-Key facts, or page link notes. Do NOT infer which programs exist from price variable
-names, descriptions, or a fact's products[] field. site_facts are not a product
-catalog — product detail belongs in ## Programs.
-
-<products>
-{{products}}
-</products>
-Products currently for sale. Each one has: name, EN and ES URLs, description,
-audience / offer fields, personas.
-THIS is the only source for which programs/products are offered and their names.
-If this list is empty, leave "## Programs" with no links — do not invent programs.
-
-<pages>
-{{pages}}
-</pages>
-Approved pages. Each one has: title, URL, section, meta description, locale (en/es).
-section values (server-chosen; do not invent pages):
-- admissions → "## Admissions, cost and support" (EN locale rows only)
-- company_learn → "## How students learn" (EN locale rows only)
-- outcomes_or_resources → "## Outcomes and proof" or "## Learning resources"
-  (EN locale rows only; prefer Learning resources when title/meta is a guide,
-  blog hub, or resource)
-- company → "## Optional" (EN locale rows only)
-All ES locale page rows go under "## En español" (not under the EN section H2s).
-Prefer company / admissions / outcomes framing when wording link notes.
-Never invent URLs; never drop or add pages outside this input.
-Write each link note by paraphrasing title + meta description (: one sentence ≤ ~20 words).
-Do not copy prices or dollar amounts from meta into link notes.
-
-<previous_version>
-{{previous_llms_txt}}
-</previous_version>
-The current published file. Keep its wording wherever the inputs did not
-change, so the file stays stable from one run to the next.
-
-## Output format
-
-Return only the file content, in this exact structure:
-
-# 4Geeks Academy
-
-> One paragraph, 2 to 3 sentences: what 4Geeks is, who it trains, and up to
-> 3 non-price figures from site_facts (prefer tokens).
-
-Key facts:
-- 4 to 8 bullets. High-level only: what 4Geeks offers in broad terms (e.g. career
-  programs and flexible AI paths), a few non-price figures from site_facts
-  (tokens), mentorship/career support if in the inputs, and that prices vary by
-  country (send readers to the product page — no dollar amounts).
-- Do NOT name or describe specific products here (no per-product audience,
-  duration, or feature bullets). That detail belongs under ## Programs.
-
-## Programs
-## Outcomes and proof
-## Admissions, cost and support
-## How students learn
-## Learning resources
-## En español
-## Optional
-
-Each link goes on one line: - [Title](URL): description
-- Description: one sentence, 20 words or fewer.
-- ## Programs: one EN link per product from <products> (do not put ES product
-  URLs here — side-by-side EN/ES looks like two different products).
-- ## En español: Spanish descriptions. Include each product's ES URL (when
-  present) and every pages row with locale es. Do not duplicate EN URLs here.
-- EN page rows: place under the H2 matching their section (above).
-- Use the section each EN page has in the input. Do not move EN pages between
-  sections.
-
-## Rules
-
-- Program / product names and "what we offer" come ONLY from <products>, never
-  from site_facts variable names (price_fullstack, cybersecurity, etc.).
-- Never write a tuition, monthly payment, or dollar amount in the blockquote,
-  Key facts, or page notes. Price talk only as "prices vary by country" unless
-  a product note truly needs a figure that appears on that product's own data.
-- Non-price figures (placement, salary increase, ratings): only from site_facts;
-  prefer the token field over baking the literal value.
-- Never add a URL that is not in products or pages.
-- Never describe a product with a feature, audience or duration that is not
-  in its data.
-- Use plain, factual sentences. No marketing language, no superlatives, no
-  em-dashes.
-- English everywhere except "## En español".
-- The whole file must be under 5 KB.
-`;
-
-export function fillLlmsTxtPrompt(vars: {
-  company_profile: string;
-  site_facts: string;
-  products: string;
-  pages: string;
-  previous_llms_txt: string;
-}): string {
-  return LLMS_TXT_REGENERATE_PROMPT
-    .replace("{{company_profile}}", vars.company_profile)
-    .replace("{{site_facts}}", vars.site_facts)
-    .replace("{{products}}", vars.products)
-    .replace("{{pages}}", vars.pages)
-    .replace("{{previous_llms_txt}}", vars.previous_llms_txt);
+export function fillLlmsTxtPrompt(
+  promptTemplate: string,
+  vars: {
+    company_profile: string;
+    site_facts: string;
+    products: string;
+    pages: string;
+    previous_llms_txt: string;
+  },
+): string {
+  return promptTemplate
+    .replaceAll("{{company_profile}}", vars.company_profile)
+    .replaceAll("{{site_facts}}", vars.site_facts)
+    .replaceAll("{{products}}", vars.products)
+    .replaceAll("{{pages}}", vars.pages)
+    .replaceAll("{{previous_llms_txt}}", vars.previous_llms_txt);
 }

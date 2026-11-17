@@ -179,6 +179,8 @@ export const MCP_MUTATING_TOOLS = new Set<string>([
   "update_entry_field",
   "update_entry_attributes",
   "ensure_content_type_schema_org",
+  "update_llms_txt_prompt",
+  "regenerate_llms_txt",
   "update_content_type",
   "update_redirect",
   "add_section",
