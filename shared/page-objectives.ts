@@ -11,9 +11,14 @@ export type ObjectiveMetricId =
   | "moved_forward_rate"
   | "reached_decision_rate"
   | "conversion_rate"
-  | "task_click_rate";
+  | "task_click_rate"
+  | "lead_or_enroll_rate";
 
-export type CostMetricId = "cost_per_engaged_visit" | "cost_per_decision_visit" | "cost_per_lead";
+export type CostMetricId =
+  | "cost_per_engaged_visit"
+  | "cost_per_decision_visit"
+  | "cost_per_lead"
+  | "cost_per_conversion";
 
 export type GuardrailId =
   | "engaged_rate"
@@ -33,6 +38,7 @@ export type FunnelStepId =
   | "reached_decision"
   | "form_or_cta"
   | "lead"
+  | "lead_or_enroll"
   | "task_click";
 
 export type StageObjective = {
@@ -89,6 +95,7 @@ export const FUNNEL_STEP_LABELS: Record<FunnelStepId, string> = {
   reached_decision: "Reached decision page",
   form_or_cta: "Form or CTA",
   lead: "Lead",
+  lead_or_enroll: "Lead or enrollment click",
   task_click: "Task click",
 };
 
@@ -97,6 +104,7 @@ export const OBJECTIVE_FUNNEL_STEP: Record<ObjectiveMetricId, FunnelStepId> = {
   moved_forward_rate: "moved_forward",
   reached_decision_rate: "reached_decision",
   conversion_rate: "lead",
+  lead_or_enroll_rate: "lead_or_enroll",
   task_click_rate: "task_click",
 };
 
@@ -123,6 +131,38 @@ export function stageRank(stage: string | null | undefined): number {
 
 export function objectiveForStage(stage: string | null | undefined): StageObjective | null {
   return stage && stage in STAGE_OBJECTIVES ? STAGE_OBJECTIVES[stage as FunnelStage] : null;
+}
+
+/**
+ * Return the stage objective, but for decision stage with checkout buttons, return a modified
+ * objective that tracks lead_or_enroll_rate instead of just conversion_rate.
+ */
+export function objectiveFor(
+  stage: string | null | undefined,
+  actions?: { checkout_buttons: number; lead_forms: number },
+): StageObjective | null {
+  if (!stage || !(stage in STAGE_OBJECTIVES)) return null;
+  
+  const base = STAGE_OBJECTIVES[stage as FunnelStage];
+  
+  // Only modify decision stage when checkout buttons are present
+  if (stage === "decision" && actions && actions.checkout_buttons > 0) {
+    const job =
+      actions.lead_forms > 0
+        ? "Get leads or start enrollments."
+        : "Start enrollments.";
+    
+    return {
+      stage: "decision",
+      job,
+      primary: { id: "lead_or_enroll_rate", label: "Leads or enrollment clicks" },
+      guardrails: base.guardrails,
+      cost: { id: "cost_per_conversion", label: "Cost per conversion" },
+      funnel: ["impressions", "clicks", "visits", "engaged", "form_or_cta", "lead_or_enroll"],
+    };
+  }
+  
+  return base;
 }
 
 // ── Campaign goal vs page job ──────────────────────────────────────────────────────────

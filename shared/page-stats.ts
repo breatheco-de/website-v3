@@ -427,6 +427,12 @@ export type PageStatsResponse = {
   first_party_available: boolean;
   /** Last day of the site's own counts when "Optimize for ads" is off now (YYYY-MM-DD). */
   first_party_until: string | null;
+  /** Page actions (checkout buttons, lead forms, micro events) for objective selection. */
+  actions: {
+    checkout_buttons: number;
+    lead_forms: number;
+    micro: { event_names: string[]; broken: boolean };
+  } | null;
   objective: ObjectiveBlock | null;
   advice: PageAdvice;
   sections: {
@@ -461,7 +467,7 @@ export type PageTestInfo = {
 };
 
 /** What decides an A/B test winner. Enrollment clicks are intent (add to cart / checkout), not purchases. */
-export const TEST_GOALS = ["leads", "enrollment_clicks", "both"] as const;
+export const TEST_GOALS = ["leads", "enrollment_clicks", "both", "micro_actions"] as const;
 export type TestGoal = (typeof TEST_GOALS)[number];
 
 export function isTestGoal(v: unknown): v is TestGoal {
@@ -472,6 +478,7 @@ export const TEST_GOAL_LABELS: Record<TestGoal, string> = {
   leads: "Leads",
   enrollment_clicks: "Enrollment clicks",
   both: "Both",
+  micro_actions: "Micro actions",
 };
 
 export type TestGoalChange = { day: string; from: TestGoal; to: TestGoal; author: string | null };
@@ -502,6 +509,7 @@ export type CompareRowId =
   | "enroll"
   | "enroll_rate"
   | "lead_or_enroll_rate"
+  | "micro"
   | "leads_here"
   | "leads_here_rate"
   | "leads_all"

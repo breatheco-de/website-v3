@@ -18,6 +18,7 @@ import { CSSMarquee } from "@/components/ui/CSSMarquee";
 import { getIcon } from "@/lib/icons";
 import UniversalImage from "@/components/UniversalImage";
 import { InternalLink } from "@/components/InternalLink";
+import { useTrackedCtaClick } from "@/hooks/useTrackedCtaClick";
 import { resolveColorVar, hslColor, type ResolvedColor } from "@/components/course_selector/shared";
 import type { AiFlexPathDragAndDrop } from "@shared/schema";
 
@@ -636,6 +637,11 @@ function AvailableDropZone({ children, isDragActive }: { children: React.ReactNo
 }
 
 export default function AiFlexPathDragAndDrop({ data }: { data: AiFlexPathDragAndDrop }) {
+  const { beforeLeaveFor } = useTrackedCtaClick({
+    componentType: "ai_flex_path",
+    componentVariant: "drag_and_drop",
+  });
+
   const [pathCourseNames, setPathCourseNames] = useState<string[]>(data.default_courses);
   const [activeCourseName, setActiveCourseName] = useState<string | null>(null);
   const [overSlot, setOverSlot] = useState<number | null>(null);
@@ -942,6 +948,7 @@ export default function AiFlexPathDragAndDrop({ data }: { data: AiFlexPathDragAn
                   <InternalLink
                     key={i}
                     href={btn.url}
+                    beforeLeave={() => beforeLeaveFor(btn)}
                     className="rounded-[8px] px-[18px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                     style={{ background: "hsl(var(--background))", color: "hsl(var(--primary))", textDecoration: "none" }}
                   >
@@ -957,6 +964,7 @@ export default function AiFlexPathDragAndDrop({ data }: { data: AiFlexPathDragAn
                   <InternalLink
                     key={i}
                     href={btn.url}
+                    beforeLeave={() => beforeLeaveFor(btn)}
                     className="rounded-[8px] px-[22px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                     style={{ background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", textDecoration: "none" }}
                   >

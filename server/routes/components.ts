@@ -63,6 +63,7 @@ import {
   saveExample,
   createExample,
   loadAllFieldEditors,
+  loadAllMicroEvents,
   applyComponentSectionDefaults,
   applyComponentImageSizes,
   getVariantByExample,
@@ -595,6 +596,12 @@ export function registerComponentsRoutes(app: Express): void {
   app.get("/api/component-registry/field-editors", (_req, res) => {
     const fieldEditors = loadAllFieldEditors(getContentRootName(res));
     res.json(fieldEditors);
+  });
+
+  // Optional micro-events.ts maps (Micro-conversions tab + page-stats secondary).
+  app.get("/api/component-registry/micro-events", (_req, res) => {
+    const catalog = loadAllMicroEvents(getContentRootName(res));
+    res.json(catalog);
   });
 
   app.get("/api/component-registry/:componentType", (req, res) => {

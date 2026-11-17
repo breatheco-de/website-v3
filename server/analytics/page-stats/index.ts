@@ -21,9 +21,10 @@ import { firstPartyTraffic, resolveTrafficSource } from "./source";
 import { PageStatsNotFoundError } from "./errors";
 import { resolvePageTest } from "./test-view";
 import { getVersioningManager, type VersioningManager } from "../../versioning/VersioningManager";
-import { STAGE_OBJECTIVES } from "@shared/page-objectives";
+import { objectiveFor } from "@shared/page-objectives";
 import { PAGE_STATS_WINDOW_DAYS, type PageStatsResponse, type Section, type TrafficFacts, type TrafficSource } from "@shared/page-stats";
 import { child } from "../../logger";
+import { resolvePageActions, type PageActions } from "./page-actions";
 
 export { PageStatsNotFoundError, PageTestNotFoundError } from "./errors";
 export { getPageTestStats, clearPageTestStatsCache } from "./test-view";
@@ -142,9 +143,23 @@ export async function getPageStats(opts: {
     }
   }
 
+  // Resolve page actions for objective selection
+  let actions: PageActions | null = null;
+  if (page.entry) {
+    actions = resolvePageActions({
+      contentFolder: opts.site,
+      contentRoot: opts.contentRoot,
+      entry: page.entry,
+      locales: Object.keys(page.locale_urls),
+      vm: opts.versioningManager ?? getVersioningManager(),
+    });
+  }
+
   let objective: PageStatsResponse["objective"] = null;
   if (stage) {
-    const metric = STAGE_OBJECTIVES[stage].primary.id;
+    // Use objectiveFor to get the right objective definition (handles checkout-aware decision stage)
+    const def = objectiveFor(stage, actions ?? undefined);
+    const metric = def?.primary.id ?? "conversion_rate";
     const converted =
       metric === "conversion_rate" && traffic.data
         ? convertedByPath(opts.site, traffic.data.peers.map((p) => p.path), current)
@@ -163,9 +178,12 @@ export async function getPageStats(opts: {
       target: getFunnelSettings(opts.contentRoot).targets?.[stage],
       rateBenchmark: bench.rate,
       rateBenchmarkPages: bench.pages,
+      priorStart: prior.start,
+      actions: actions ?? undefined,
     });
     // Stage benchmarks cache stays GA4-only (Settings → Ads → Targets reads it).
-    if (source === "ga4" && (bench.rate !== null || paid.data?.stage_cost_benchmark?.cost)) {
+    // Skip saving benchmark for lead_or_enroll_rate (staff targets don't use it)
+    if (source === "ga4" && metric !== "lead_or_enroll_rate" && (bench.rate !== null || paid.data?.stage_cost_benchmark?.cost)) {
       saveStageBenchmark(opts.site, stage, {
         rate: bench.rate,
         cost: paid.data?.stage_cost_benchmark?.cost ?? null,
@@ -196,6 +214,7 @@ export async function getPageStats(opts: {
     source,
     first_party_available: hasHistory || flaggedNow,
     first_party_until: firstPartyUntil,
+    actions,
     objective,
     advice,
     sections: { traffic, leads, organic, paid, links, changes },

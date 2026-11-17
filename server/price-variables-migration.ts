@@ -11,6 +11,7 @@ import { markFileAsModified, updateFileAfterCommit } from "./sync-state";
 import { commitAndPush, getConflictInfo } from "./github";
 import {
   isMoneyValue,
+  parseBareAmountAsUsd,
   parseLegacyPriceString,
   type MoneyValue,
   type PriceRole,
@@ -79,7 +80,7 @@ function inferPriceRole(name: string): PriceRole {
 function convertValue(raw: unknown): { next: VariableValue; changed: boolean } | null {
   if (isMoneyValue(raw)) return { next: raw, changed: false };
   if (typeof raw !== "string") return null;
-  const money = parseLegacyPriceString(raw);
+  const money = parseLegacyPriceString(raw) ?? parseBareAmountAsUsd(raw);
   if (!money) return null;
   // Keep original marketing string as display when format would differ meaningfully
   const next: MoneyValue = { amount: money.amount, currency: money.currency, display: raw.trim() };

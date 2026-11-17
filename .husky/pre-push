@@ -1,2 +1,5 @@
+# shellcheck disable=SC1091
+. "$(dirname "$0")/ensure-node.sh"
+
 npm run check:mcp
 npm test

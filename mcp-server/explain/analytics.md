@@ -13,6 +13,12 @@ Call this topic for **site-wide behavioral analytics** from the GA4 BigQuery exp
 
 Do not treat GSC and GA numbers as the same metric. Journey analytics does **not** prove traffic moved between funnel stages. Planning research (`get_or_refresh_seo_research`) is not a substitute for `get_organic_traffic`.
 
+## Page stats drawer (staff) — checkout-aware + micro
+
+- Decision pages with Ecommerce-tracked checkout buttons use primary metric **leads or enrollment clicks** (`lead_or_enroll_rate` over `enroll_visits`), not leads alone.
+- Curated **micro actions** (from `micro-events.ts`) appear as secondary context; they never replace the headline.
+- A/B test goals: `leads` | `enrollment_clicks` | `both` | `micro_actions`. Micro is a separate goal — not folded into leads/enroll.
+
 ## `get_analytics_report`
 
 - **One report per call:** `site_summary` | `top_pages` | `page_detail` | `events_by_name` | `traffic_sources` | `traffic_source_conversions`.

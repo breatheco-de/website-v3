@@ -1,3 +1,6 @@
+# shellcheck disable=SC1091
+. "$(dirname "$0")/ensure-node.sh"
+
 files=$(git diff --cached --name-only --diff-filter=ACMR -- 'client/src/components/*/variants/*.tsx' | paste -sd, -)
 [ -z "$files" ] && exit 0
 npx tsx scripts/section-spacing/check.ts --files "$files"

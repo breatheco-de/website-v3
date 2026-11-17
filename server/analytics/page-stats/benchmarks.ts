@@ -42,6 +42,9 @@ export function peerRate(
       return peer.task_sessions / peer.sessions;
     case "conversion_rate":
       return (converted.get(normalizeLandingPath(peer.path)) ?? 0) / peer.sessions;
+    case "lead_or_enroll_rate":
+      // Only include peers with enroll_sessions > 0
+      return null;
   }
 }
 

@@ -7,19 +7,18 @@ import { UniversalVideo } from "@/components/UniversalVideo";
 import { UniversalImage } from "@/components/UniversalImage";
 import { getIcon } from "@/lib/icons";
 import { cn } from "@/lib/utils";
-import { useInternalNav } from "@/hooks/useInternalNav";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { resolveTemplateFallback } from "@/lib/variable-manager";
 import { lazy, Suspense, useEffect, useRef } from "react";
 import { trackEcommerce } from "@/lib/tracking";
 import { ensureEcommerceProductLookup } from "@/lib/ecommerceProductMap";
 import { resolveProgramIdForPage, programIdFromCtaUrl } from "@/lib/ecommerceProgramId";
+import { useTrackedCtaClick } from "@/hooks/useTrackedCtaClick";
 import { usePageFunnel } from "@/contexts/PageFunnelContext";
 import { resolveProductScope } from "@shared/resolveProductScope";
 import type { FunnelBlock } from "@shared/funnel";
 import { useSectionContext } from "@/contexts/SectionContext";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
-import { isCtaTrackingValue } from "@shared/component-behaviors";
 
 function programIdFromHeroData(
   data: HeroCourseType,
@@ -60,13 +59,17 @@ const BADGE_COLOR_CLASSES: Record<string, string> = {
 };
 
 export default function HeroCourse({ data }: HeroCourseProps) {
-  const handleLinkClick = useInternalNav();
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
   const viewedRef = useRef(false);
   const { contentType, slug } = useSectionContext();
   const funnel = usePageFunnel();
   const scopeCtx = { contentType, contentSlug: slug, funnel };
+  const { onCtaClick, handleLinkClick } = useTrackedCtaClick({
+    componentType: "hero",
+    componentVariant: "course",
+    resolveProgramId: (ctaUrl) => programIdFromHeroData(data, ctaUrl, scopeCtx),
+  });
 
   useEffect(() => {
     if (isEditMode || viewedRef.current) return;
@@ -88,25 +91,9 @@ export default function HeroCourse({ data }: HeroCourseProps) {
       cancelled = true;
     };
   }, [isEditMode, data, contentType, slug, funnel]);
-  const handleCtaClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-    const cta = data.signup_card?.cta_button as
-      | { url?: string; tracking?: string }
-      | undefined;
-    const tracking = cta?.tracking;
-    let sent: Promise<void> | null = null;
-    if (isCtaTrackingValue(tracking) && tracking !== "none") {
-      const programId = programIdFromHeroData(data, cta?.url, scopeCtx);
-      sent = ensureEcommerceProductLookup().then(() =>
-        trackEcommerce(tracking, {
-          program_id: programId,
-          component_type: "hero",
-          component_variant: "course",
-          path: typeof window !== "undefined" ? window.location.pathname : undefined,
-        }),
-      );
-    }
-    handleLinkClick(e, { beforeLeave: sent });
-  };
+  const handleCtaClick = onCtaClick(
+    data.signup_card?.cta_button as { url?: string; tracking?: string } | undefined,
+  );
 
   return (
     <section className="bg-background" data-testid="section-hero">

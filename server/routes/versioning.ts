@@ -1221,7 +1221,7 @@ export function registerVersioningRoutes(app: Express): void {
       const { isTestGoal } = await import("@shared/page-stats");
       const { experiment_id, goal } = (req.body ?? {}) as { experiment_id?: unknown; goal?: unknown };
       if (typeof experiment_id !== "string" || !experiment_id || !isTestGoal(goal)) {
-        res.status(400).json({ error: "experiment_id and goal (leads | enrollment_clicks | both) are required" });
+        res.status(400).json({ error: "experiment_id and goal (leads | enrollment_clicks | both | micro_actions) are required" });
         return;
       }
 

@@ -25,7 +25,7 @@ export const pageStatsSchema = z
     source: z.enum(["ga4", "first_party"]).optional(),
     view: z.enum(["test"]).optional(),
     /** view=test on a finished test: read results by another goal without saving it. */
-    goal: z.enum(["leads", "enrollment_clicks", "both"]).optional(),
+    goal: z.enum(["leads", "enrollment_clicks", "both", "micro_actions"]).optional(),
   })
   .refine((q) => q.view !== "test" || q.scope === "url", {
     message: "view=test needs scope=url: tests run per language.",

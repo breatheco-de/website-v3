@@ -36,6 +36,10 @@ Automatic at click time; no YAML needed. Checkout path = `funnel.stage: decision
 
 The product page is always the **locked decision step** in the journey response, even when `_common.yml` has no `funnel.stage`. Site money-page lists (`list_entries` + `contentType` + `is_money_page`) use overlay `_common.yml` tags — see topic `funnel` (inventory vs journey).
 
+## AI Flex Path CTAs
+
+`ai_flex_path` binds `cta-picker:tracking` on `cta.buttons[]` (all variants) and `simplified:courses[].cta_buttons[]`. Saving requires `tracking`. Payment CTAs fire existing `trackEcommerce` (`add_to_cart` / `click_begin_checkout`). Non-payment clicks stay generic `cta_click` (Micro tab via `micro-events.ts`). Migration `016_ai_flex_path_cta_tracking` infers missing tracking from URL.
+
 ## Product scope — exact property paths per component
 
 | Component | Property path | Notes |

@@ -10,6 +10,18 @@ import {
 
 export type CtaPathResolver = (sectionType: string, variant?: string) => string[];
 
+/**
+ * True when the field editor binds Ecommerce CTA tracking:
+ * `cta-tracking` or `cta-picker:tracking` (picker UI + required tracking).
+ */
+export function isCtaTrackingEditor(editorType: unknown): boolean {
+  const raw = String(editorType ?? "").trim();
+  if (!raw) return false;
+  const [base, ...rest] = raw.split(":");
+  if (base === "cta-tracking") return true;
+  return base === "cta-picker" && rest.includes("tracking");
+}
+
 /** Strip variant prefixes (`course:signup_card.cta` → `signup_card.cta`) for the active variant. */
 export function resolveBoundCtaPaths(
   fieldEditors: Record<string, string>,
@@ -17,7 +29,7 @@ export function resolveBoundCtaPaths(
 ): string[] {
   const paths: string[] = [];
   for (const [fieldPath, editorType] of Object.entries(fieldEditors)) {
-    if (String(editorType).split(":")[0] !== "cta-tracking") continue;
+    if (!isCtaTrackingEditor(editorType)) continue;
     const colonIndex = fieldPath.indexOf(":");
     if (colonIndex > 0 && !fieldPath.startsWith("color-picker:")) {
       const variantPrefix = fieldPath.substring(0, colonIndex);

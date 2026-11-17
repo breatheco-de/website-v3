@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { AlertTriangle, Check, ChevronDown, CloudUpload, Code, Copy, Database, ExternalLink, EyeOff, HelpCircle, Image, Info, Link, Unlink, Loader2, Pencil, Plus, Redo2, RefreshCw, Save, Search, Settings, Trash2, Undo2, Upload, Video, X } from "lucide-react";
-import { IconGitBranch, IconTargetArrow, IconFileCode, IconPencil, IconX, IconShieldCheck, IconShoppingCart } from "@tabler/icons-react";
+import { IconGitBranch, IconTargetArrow, IconFileCode, IconPencil, IconX, IconShieldCheck, IconShoppingCart, IconClick } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BindingConfirmDialog } from "./BindingConfirmDialog";
 import { getIcon } from "@/lib/icons";
@@ -162,6 +162,11 @@ import {
 import { collectExtraConsentYamlFields, consentCardChannels, parseConsentSettingsResponse } from "@shared/consent-settings";
 import { resolveBoundCtaPaths } from "@shared/validateCtaTracking";
 import { showEcommerceEditorTab } from "@shared/wipeOnDuplicate";
+import {
+  resolveMicroTabState,
+  type MicroEventsMap,
+} from "@shared/micro-events";
+import { detectSectionVideoKind } from "@shared/section-video-kind";
 
 function safeYamlLoad(yamlStr: string): unknown {
   const { escaped, map } = escapeTemplateVars(yamlStr);
@@ -2285,6 +2290,16 @@ export function SectionEditorPanel({
     queryKey: ["/api/component-registry/field-editors"],
   });
 
+  type MicroEventsCatalogEntry =
+    | { status: "ok"; map: MicroEventsMap }
+    | { status: "error"; error: string }
+    | { status: "missing" };
+
+  const { data: allMicroEvents } = useQuery<Record<string, MicroEventsCatalogEntry>>({
+    queryKey: ["/api/component-registry/micro-events"],
+    staleTime: 60000,
+  });
+
   const { data: themeConfig } = useQuery<{
     button_variants?: { id: string; label: string }[];
     fontSizes?: { id: string; label: string; value: string; tailwind: string }[];
@@ -2373,6 +2388,15 @@ export function SectionEditorPanel({
   const showFormsTab = formSettingsPath !== null;
   const showEcommerceTab = showEcommerceEditorTab(sectionFieldEditors, currentEditorVariant);
 
+  const microEntry = allMicroEvents?.[sectionType];
+  const videoKind = detectSectionVideoKind(parsedSection);
+  const {
+    microBroken,
+    microActiveRows,
+    showYoutubeMicroWarning,
+    showMicroTab,
+  } = resolveMicroTabState(microEntry, currentEditorVariant, videoKind);
+
   useEffect(() => {
     if (activeTab === "ecommerce" && !showEcommerceTab) {
       setActiveTab("props");
@@ -2380,8 +2404,12 @@ export function SectionEditorPanel({
     }
     if (activeTab === "conversion" && !showFormsTab) {
       setActiveTab("props");
+      return;
     }
-  }, [activeTab, showEcommerceTab, showFormsTab]);
+    if (activeTab === "micro" && !showMicroTab) {
+      setActiveTab("props");
+    }
+  }, [activeTab, showEcommerceTab, showFormsTab, showMicroTab]);
 
   const { data: ecommerceProductsData } = useQuery<{
     products: Array<{
@@ -2396,7 +2424,8 @@ export function SectionEditorPanel({
     staleTime: 60000,
     enabled: showEcommerceTab,
   });
-  const editorTabCount = 2 + (showFormsTab ? 1 : 0) + (showEcommerceTab ? 1 : 0);
+  const editorTabCount =
+    2 + (showFormsTab ? 1 : 0) + (showEcommerceTab ? 1 : 0) + (showMicroTab ? 1 : 0);
 
   // Join helper: "" means form settings at section root (lead_form).
   const formProp = (relative: string) => joinFormSettingsPath(formSettingsPath, relative);
@@ -3106,11 +3135,13 @@ export function SectionEditorPanel({
       >
         <ToggleButtonBarList
           className={`grid w-full rounded-none border-x-0 border-t-0 ${
-            editorTabCount === 4
-              ? "grid-cols-4"
-              : editorTabCount === 3
-                ? "grid-cols-3"
-                : "grid-cols-2"
+            editorTabCount >= 5
+              ? "grid-cols-5"
+              : editorTabCount === 4
+                ? "grid-cols-4"
+                : editorTabCount === 3
+                  ? "grid-cols-3"
+                  : "grid-cols-2"
           }`}
         >
           <ToggleButtonBarTrigger value="code" className="gap-1.5" data-testid="tab-code">
@@ -3143,6 +3174,16 @@ export function SectionEditorPanel({
             >
               <IconShoppingCart className="h-3.5 w-3.5" />
               Ecommerce
+            </ToggleButtonBarTrigger>
+          )}
+          {showMicroTab && (
+            <ToggleButtonBarTrigger
+              value="micro"
+              className="gap-1.5"
+              data-testid="tab-micro"
+            >
+              <IconClick className="h-3.5 w-3.5" />
+              Micro
             </ToggleButtonBarTrigger>
           )}
         </ToggleButtonBarList>
@@ -9325,6 +9366,91 @@ export function SectionEditorPanel({
             </div>
           )}
         </TabsContent>
+
+        {/* Micro-conversions Tab */}
+        {showMicroTab && (
+          <TabsContent
+            value="micro"
+            className="flex-1 overflow-auto p-4 mt-0 data-[state=inactive]:hidden"
+          >
+            <div className="space-y-6" data-testid="micro-tab-content">
+              <div className="rounded-md border bg-muted/30 p-3 space-y-2 text-sm text-muted-foreground">
+                <p className="text-foreground font-medium">Other visitor actions</p>
+                <p>
+                  This tab lists actions this block already records that are not leads (Forms) and not
+                  payment (Ecommerce). Can be chosen as an A/B test goal (Micro actions).
+                </p>
+                <details className="text-xs">
+                  <summary className="cursor-pointer text-foreground font-medium">
+                    Read more (advanced)
+                  </summary>
+                  <ul className="mt-2 list-disc pl-5 font-mono space-y-1">
+                    <li>component-registry/…/micro-events.ts</li>
+                    <li>client/src/lib/section-tracking.ts (cta_click)</li>
+                    <li>client/src/components/UniversalVideo.tsx (file video)</li>
+                    <li>YouTube uses Tag Manager gtm.video — not site video_* pushes</li>
+                  </ul>
+                </details>
+              </div>
+
+              {microBroken && (
+                <div
+                  className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm"
+                  data-testid="micro-map-broken-warning"
+                >
+                  <p className="font-medium text-foreground">
+                    Micro-conversions map couldn&apos;t be loaded — tell engineering.
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {microEntry?.status === "error" ? microEntry.error : "Invalid micro-events.ts"}
+                  </p>
+                </div>
+              )}
+
+              {showYoutubeMicroWarning && (
+                <div
+                  className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm"
+                  data-testid="micro-youtube-warning"
+                >
+                  <p className="font-medium text-foreground">YouTube isn&apos;t tracked by the site</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Uploaded files send video start/complete from this site. YouTube is counted in Tag
+                    Manager as <code className="text-[10px]">gtm.video</code> only.
+                  </p>
+                </div>
+              )}
+
+              {microActiveRows.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-sm font-medium">Recorded on this block</h3>
+                  {microActiveRows.map((row) => (
+                    <div
+                      key={`${row.event}-${row.source}-${row.label ?? ""}`}
+                      className="rounded-md border p-3 space-y-1"
+                      data-testid={`micro-row-${row.event}`}
+                    >
+                      <p className="text-sm text-foreground">
+                        {row.label || row.event.replace(/_/g, " ")}
+                      </p>
+                      <p className="text-xs text-muted-foreground font-mono">
+                        {row.event} · {row.source}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Can be chosen as an A/B test goal (Micro actions).
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!microBroken && !showYoutubeMicroWarning && microActiveRows.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No active micro-conversions for this block right now.
+                </p>
+              )}
+            </div>
+          </TabsContent>
+        )}
 
         {/* Ecommerce Tab */}
         {showEcommerceTab && (

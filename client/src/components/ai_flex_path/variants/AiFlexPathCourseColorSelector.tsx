@@ -19,6 +19,7 @@ import { CSSMarquee } from "@/components/ui/CSSMarquee";
 import { getIcon } from "@/lib/icons";
 import UniversalImage from "@/components/UniversalImage";
 import { InternalLink } from "@/components/InternalLink";
+import { useTrackedCtaClick } from "@/hooks/useTrackedCtaClick";
 import { resolveColorVar, hslColor, type ResolvedColor } from "@/components/course_selector/shared";
 import type { AiFlexPathCourseColorSelector } from "@shared/schema";
 
@@ -989,6 +990,11 @@ function AvailableDropZone({ children, isDragActive }: { children: React.ReactNo
 }
 
 export default function AiFlexPathCourseColorSelector({ data }: { data: AiFlexPathCourseColorSelector }) {
+  const { beforeLeaveFor } = useTrackedCtaClick({
+    componentType: "ai_flex_path",
+    componentVariant: "course_color_selector",
+  });
+
   const [pathCourseNames, setPathCourseNames] = useState<string[]>(data.default_courses);
   const [activeCourseName, setActiveCourseName] = useState<string | null>(null);
   const [overSlot, setOverSlot] = useState<number | null>(null);
@@ -1401,6 +1407,7 @@ export default function AiFlexPathCourseColorSelector({ data }: { data: AiFlexPa
                     <InternalLink
                       key={i}
                       href={btn.url}
+                      beforeLeave={() => beforeLeaveFor(btn)}
                       className="rounded-[8px] px-4 py-2 md:px-[18px] md:py-[10px] text-[12px] md:text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                       style={{ background: "hsl(var(--background))", color: "hsl(var(--primary))", textDecoration: "none" }}
                     >
@@ -1417,6 +1424,7 @@ export default function AiFlexPathCourseColorSelector({ data }: { data: AiFlexPa
                   <InternalLink
                     key={i}
                     href={btn.url}
+                    beforeLeave={() => beforeLeaveFor(btn)}
                     className="rounded-[8px] px-[22px] py-[10px] text-[13px] font-bold cursor-pointer whitespace-nowrap flex-shrink-0 transition-opacity duration-150 hover:opacity-90"
                     style={{ background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", textDecoration: "none" }}
                   >

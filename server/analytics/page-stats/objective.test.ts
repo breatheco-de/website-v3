@@ -10,6 +10,8 @@ function totals(p: Partial<TrafficTotals> = {}): TrafficTotals {
     sessions: 0, page_views: 0, entrances: 0, engaged_sessions: 0, bounces: 0, exits: 0, returning_sessions: 0,
     moved_forward: 0, moved_back: 0, reached_decision: 0, lead_later: 0, form_or_cta: 0, cta_sessions: 0,
     task_clicks: 0, lost: 0, form_starts: 0, video_starts: 0, video_completes: 0, intent_events: 0,
+    enroll_sessions: 0, lead_or_enroll: 0, enroll_visits: 0, enroll_since: null,
+    reached_checkout: null, purchased: null,
     median_engaged_seconds: null, median_session_seconds: null, ...p,
   };
 }
@@ -191,5 +193,88 @@ describe("buildPageAdvice", () => {
     const a = buildPageAdvice({ stage: "consideration", path: "/x", objective: null, traffic: t, leads: null, organic: null, paid: null, links: null });
     expect(a.findings.find((f) => f.id === "back_rate")).toBeUndefined();
     expect(a.verdict.text).toMatch(/Too little traffic/);
+  });
+});
+
+describe("lead_or_enroll_rate metric", () => {
+  it("uses enroll_visits as denominator and lead_or_enroll as numerator", () => {
+    const o = buildObjective({
+      stage: "decision",
+      traffic: traffic({
+        sessions: 500,
+        enroll_visits: 400,
+        lead_or_enroll: 80,
+        enroll_since: "2024-01-01",
+      }),
+      leads: leads(20),
+      paid: null,
+      organic: null,
+      target: { rate: 0.25 },
+      rateBenchmark: null,
+      actions: { checkout_buttons: 2, lead_forms: 1 },
+    });
+    expect(o.primary.value).toBeCloseTo(0.2); // 80 / 400
+    expect(o.primary.denominator).toBe(400);
+    expect(o.primary.numerator).toBe(80);
+  });
+
+  it("sets prior to null when enroll_since is after prior start", () => {
+    const o = buildObjective({
+      stage: "decision",
+      traffic: traffic(
+        { enroll_visits: 400, lead_or_enroll: 80, enroll_since: "2024-02-01" },
+        { enroll_visits: 300, lead_or_enroll: 60, enroll_since: "2024-02-01" }
+      ),
+      leads: leads(20),
+      paid: null,
+      organic: null,
+      target: undefined,
+      rateBenchmark: null,
+      priorStart: "2024-01-01",
+      actions: { checkout_buttons: 2, lead_forms: 1 },
+    });
+    expect(o.primary.prior_value).toBeNull();
+  });
+
+  it("includes prior when enroll_since is before or equal to prior start", () => {
+    const o = buildObjective({
+      stage: "decision",
+      traffic: traffic(
+        { enroll_visits: 400, lead_or_enroll: 80, enroll_since: "2023-12-01" },
+        { enroll_visits: 300, lead_or_enroll: 60, enroll_since: "2023-12-01" }
+      ),
+      leads: leads(20),
+      paid: null,
+      organic: null,
+      target: undefined,
+      rateBenchmark: null,
+      priorStart: "2024-01-01",
+      actions: { checkout_buttons: 2, lead_forms: 1 },
+    });
+    expect(o.primary.prior_value).toBeCloseTo(0.2); // 60 / 300
+  });
+
+  it("computes cost per conversion using lead_or_enroll denominator", () => {
+    const o = buildObjective({
+      stage: "decision",
+      traffic: traffic({
+        sessions: 500,
+        enroll_visits: 400,
+        lead_or_enroll: 50,
+        enroll_since: "2024-01-01",
+      }),
+      leads: leads(20),
+      paid: paid({
+        spend: { USD: 1000 },
+        unique_leads: 20,
+        cost_per_lead: { USD: 50 },
+      }),
+      organic: null,
+      target: { cost: { USD: 25 } },
+      rateBenchmark: null,
+      actions: { checkout_buttons: 2, lead_forms: 1 },
+    });
+    expect(o.cost?.value).toEqual({ USD: 20 }); // 1000 / 50
+    expect(o.cost?.status).toBe("on_track");
   });
 });

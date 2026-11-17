@@ -34,26 +34,9 @@ export function normalizeMoneyValue(raw: unknown): MoneyValue | null {
   return null;
 }
 
-/**
- * Parse marketing price strings used historically in variables.yml.
- * Examples: "$10,999", "6.800 €", "2500 USD", "200€", "$299"
- */
-export function parseLegacyPriceString(raw: string): MoneyValue | null {
-  const s = raw.trim();
-  if (!s || /\{\{/.test(s)) return null;
+const CURRENCY_SIGNAL = /\$|€|£|\b(USD|EUR|GBP)\b/i;
 
-  let currency: string | null = null;
-  if (/\$/.test(s) || /\bUSD\b/i.test(s)) currency = "USD";
-  else if (/€/.test(s) || /\bEUR\b/i.test(s)) currency = "EUR";
-  else if (/\bGBP\b/i.test(s) || /£/.test(s)) currency = "GBP";
-
-  const cleaned = s
-    .replace(/\$/g, "")
-    .replace(/€/g, "")
-    .replace(/£/g, "")
-    .replace(/\b(USD|EUR|GBP)\b/gi, "")
-    .trim();
-
+function parseAmountFromPriceString(cleaned: string): number | null {
   // European thousands: 6.800 or 6.800,50
   let normalized = cleaned;
   if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(cleaned)) {
@@ -67,8 +50,46 @@ export function parseLegacyPriceString(raw: string): MoneyValue | null {
 
   const amount = Number(normalized);
   if (!Number.isFinite(amount) || amount < 0) return null;
-  if (!currency) currency = "USD";
+  return amount;
+}
+
+/**
+ * Parse marketing price strings used historically in variables.yml.
+ * Requires a currency signal so bare numbers ("4.9", "84", "499") stay non-money
+ * (ratings, rates, unmigrated plain strings). Examples: "$10,999", "6.800 €", "2500 USD", "200€", "$299"
+ */
+export function parseLegacyPriceString(raw: string): MoneyValue | null {
+  const s = raw.trim();
+  if (!s || /\{\{/.test(s)) return null;
+
+  let currency: string | null = null;
+  if (/\$/.test(s) || /\bUSD\b/i.test(s)) currency = "USD";
+  else if (/€/.test(s) || /\bEUR\b/i.test(s)) currency = "EUR";
+  else if (/\bGBP\b/i.test(s) || /£/.test(s)) currency = "GBP";
+  if (!currency) return null;
+
+  const cleaned = s
+    .replace(/\$/g, "")
+    .replace(/€/g, "")
+    .replace(/£/g, "")
+    .replace(/\b(USD|EUR|GBP)\b/gi, "")
+    .trim();
+
+  const amount = parseAmountFromPriceString(cleaned);
+  if (amount == null) return null;
   return { amount, currency };
+}
+
+/**
+ * Bare numeric marketing amounts for price-category migration only.
+ * Defaults to USD when no currency marker is present ("499", "16,999").
+ */
+export function parseBareAmountAsUsd(raw: string): MoneyValue | null {
+  const s = raw.trim();
+  if (!s || /\{\{/.test(s) || CURRENCY_SIGNAL.test(s)) return null;
+  const amount = parseAmountFromPriceString(s);
+  if (amount == null) return null;
+  return { amount, currency: "USD" };
 }
 
 export function formatMoneyValue(
