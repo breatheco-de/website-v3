@@ -421,13 +421,20 @@ export function reloadLLMConfig(): void {
   instance = null;
 }
 
+/** Optional OpenAI client flags. Prefer unset; Sidequest may pass dangerouslyAllowBrowser. */
+export type LLMServiceInitOptions = {
+  /** Bypass OpenAI's browser-env guard (false positive when Node globals look browser-like). */
+  dangerouslyAllowBrowser?: boolean;
+};
+
 export class LLMService implements ILLMClient {
   private client: OpenAI;
   private defaultModel: string;
   private defaultTemperature: number;
   private defaultMaxTokens: number;
+  private readonly createdWithBrowserAllow: boolean;
 
-  private constructor() {
+  private constructor(opts?: LLMServiceInitOptions) {
     const cfg = loadYamlConfig();
 
     const apiKeyEnv = cfg?.provider?.api_key_env || "OPENROUTER_API_KEY";
@@ -442,9 +449,13 @@ export class LLMService implements ILLMClient {
       );
     }
 
+    const dangerouslyAllowBrowser = opts?.dangerouslyAllowBrowser === true;
+    this.createdWithBrowserAllow = dangerouslyAllowBrowser;
+
     this.client = new OpenAI({
       apiKey,
       ...(baseURL ? { baseURL } : {}),
+      ...(dangerouslyAllowBrowser ? { dangerouslyAllowBrowser: true } : {}),
     });
 
     this.defaultModel = resolveModel(cfg);
@@ -452,7 +463,7 @@ export class LLMService implements ILLMClient {
     this.defaultMaxTokens = cfg?.max_tokens || 2000;
   }
 
-  static getInstance(): LLMService {
+  static getInstance(opts?: LLMServiceInitOptions): LLMService {
     const currentMtime = getConfigMtime();
     if (
       instance &&
@@ -462,8 +473,13 @@ export class LLMService implements ILLMClient {
       log.info("[LLM] Config file changed, reinitializing...");
       instance = null;
     }
+    const wantsBrowserAllow = opts?.dangerouslyAllowBrowser === true;
+    if (instance && wantsBrowserAllow && !instance.createdWithBrowserAllow) {
+      log.info("[LLM] Reinitializing with dangerouslyAllowBrowser");
+      instance = null;
+    }
     if (!instance) {
-      instance = new LLMService();
+      instance = new LLMService(opts);
       cachedConfigMtime = currentMtime;
     }
     return instance;
@@ -764,6 +780,6 @@ export class LLMService implements ILLMClient {
   }
 }
 
-export function getLLMService(): LLMService {
-  return LLMService.getInstance();
+export function getLLMService(opts?: LLMServiceInitOptions): LLMService {
+  return LLMService.getInstance(opts);
 }
