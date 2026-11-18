@@ -2501,6 +2501,7 @@ export function updateAdsSettings(input: AdsSettingsUpdate, contentRoot?: string
     meta: {
       enabled: m.enabled,
       ad_account_ids: m.ad_account_ids,
+      ...(Object.keys(m.account_locations).length > 0 ? { account_locations: m.account_locations } : {}),
       ...(m.known_external_campaigns.length > 0 ? { known_external_campaigns: m.known_external_campaigns } : {}),
       ...(m.lead_conversions.length > 0 ? { lead_conversions: m.lead_conversions } : {}),
       ...(m.lead_conversions_changed_at ? { lead_conversions_changed_at: m.lead_conversions_changed_at } : {}),
@@ -2511,6 +2512,7 @@ export function updateAdsSettings(input: AdsSettingsUpdate, contentRoot?: string
           google: {
             enabled: g.enabled,
             customer_ids: g.customer_ids,
+            ...(Object.keys(g.account_locations).length > 0 ? { account_locations: g.account_locations } : {}),
             bigquery: g.bigquery,
             ...(g.lead_conversion_actions.length > 0 ? { lead_conversion_actions: g.lead_conversion_actions } : {}),
             ...(g.known_external_campaigns.length > 0 ? { known_external_campaigns: g.known_external_campaigns } : {}),

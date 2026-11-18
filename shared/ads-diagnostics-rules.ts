@@ -44,6 +44,8 @@ export type AdsIssueCode =
   | "google_conversions_not_reporting"
   | "ads_config_unreadable"
   | "utm_convention_invalid"
+  | "account_landing_location_mismatch"
+  | "account_landing_location_missing"
   | UtmIssueCode;
 
 /** UTM convention / GA4 standard violations (universal first, then platform rules). */

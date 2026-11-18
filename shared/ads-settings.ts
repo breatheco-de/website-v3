@@ -11,6 +11,7 @@ import {
   isGa4DisplayMedium,
   isGa4PaidMedium,
 } from "./utm-standards";
+import { parseAccountLocationsMap, type AccountLocationsMap } from "./adsAccountLocations";
 
 export interface AdsAlertThresholds {
   /** An issue is an error when it affects ≥ this % of account spend … */
@@ -76,6 +77,11 @@ export interface MetaAdsSettings {
   enabled: boolean;
   /** Ad account ids without the `act_` prefix. */
   ad_account_ids: string[];
+  /**
+   * Optional per-account content location slugs this account may serve.
+   * Missing or empty list for an id = unrestricted (all locations).
+   */
+  account_locations: AccountLocationsMap;
   /** Mirror of `AdsSettings.alert_thresholds` (read-compat; written at `ads.alert_thresholds`). */
   alert_thresholds: AdsAlertThresholds;
   known_external_campaigns: KnownExternalCampaign[];
@@ -109,6 +115,11 @@ export interface GoogleAdsSettings {
   enabled: boolean;
   /** Google Ads customer ids (10 digits, no dashes) whose spend this site reports. */
   customer_ids: string[];
+  /**
+   * Optional per-customer content location slugs this account may serve.
+   * Missing or empty list for an id = unrestricted (all locations).
+   */
+  account_locations: AccountLocationsMap;
   bigquery: GoogleAdsBigQuerySettings;
   /** Extra conversion action names (or ids) counted as Google-reported leads, besides the "Submit lead form" category. */
   lead_conversion_actions: string[];
@@ -162,6 +173,7 @@ const MAX_KNOWN_CAMPAIGN_CHARS = 200;
 export const DEFAULT_GOOGLE_ADS_SETTINGS: GoogleAdsSettings = {
   enabled: false,
   customer_ids: [],
+  account_locations: {},
   bigquery: { project: null, dataset: null },
   lead_conversion_actions: [],
   known_external_campaigns: [],
@@ -187,6 +199,7 @@ export const DEFAULT_ADS_SETTINGS: AdsSettings = {
   meta: {
     enabled: false,
     ad_account_ids: [],
+    account_locations: {},
     alert_thresholds: { ...DEFAULT_ADS_ALERT_THRESHOLDS },
     known_external_campaigns: [],
     lead_conversions: [],
@@ -250,9 +263,11 @@ export function parseGoogleAdsSettings(raw: unknown): GoogleAdsSettings {
     lead_conversion_actions.push(v);
     if (lead_conversion_actions.length >= MAX_LEAD_CONVERSION_ACTIONS) break;
   }
+  const customer_ids = Array.from(new Set(ids.map(normalizeGoogleCustomerId).filter((x): x is string => !!x)));
   return {
     enabled: g.enabled === true,
-    customer_ids: Array.from(new Set(ids.map(normalizeGoogleCustomerId).filter((x): x is string => !!x))),
+    customer_ids,
+    account_locations: parseAccountLocationsMap(g.account_locations, customer_ids),
     bigquery: { project, dataset },
     lead_conversion_actions,
     known_external_campaigns: parseKnownExternalCampaigns(g.known_external_campaigns),
@@ -404,12 +419,14 @@ export function parseAdsSettings(raw: unknown): AdsSettings {
   const r = raw as Record<string, unknown>;
   const meta = (r.meta && typeof r.meta === "object" ? r.meta : {}) as Record<string, unknown>;
   const ids = Array.isArray(meta.ad_account_ids) ? meta.ad_account_ids : [];
+  const ad_account_ids = Array.from(new Set(ids.map(normalizeAdAccountId).filter((x): x is string => !!x)));
   const patterns = Array.isArray(r.test_email_patterns) ? r.test_email_patterns : [];
   const thresholds = parseAdsAlertThresholds(r.alert_thresholds ?? meta.alert_thresholds);
   return {
     meta: {
       enabled: meta.enabled === true,
-      ad_account_ids: Array.from(new Set(ids.map(normalizeAdAccountId).filter((x): x is string => !!x))),
+      ad_account_ids,
+      account_locations: parseAccountLocationsMap(meta.account_locations, ad_account_ids),
       alert_thresholds: thresholds,
       known_external_campaigns: parseKnownExternalCampaigns(meta.known_external_campaigns),
       lead_conversions: parseMetaLeadConversions(meta.lead_conversions),

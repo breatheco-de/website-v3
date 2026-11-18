@@ -32,6 +32,12 @@ import { addDays, utcDate } from "./meta-ads-days";
 import { lastCompleteGa4Date, loadPaidLandingState, type PaidLandingState } from "./paid-detection";
 import { utmGraceState } from "./utm-convention-history";
 import { loadObservedUtmGroups, utmIssues, type DeclaredUtm, type ObservedUtmGroup } from "./utm-issues";
+import { loadAdsSetup } from "./ads-setup";
+import {
+  accountLocationDiagnosticIssues,
+  makeLandingPageLocationsLookup,
+} from "./account-location-diagnostics";
+import { getDefaultContentRoot } from "../site-config";
 
 /** Transfer more than this many days behind "expected through" is an error, not a warning. */
 export const GOOGLE_STALE_ERROR_DAYS = 3;
@@ -408,6 +414,17 @@ export async function buildGoogleAdsDiagnostics(opts: {
           : {}),
       })
     : [];
+  if (connected) {
+    const contentRoot = opts.contentRoot || getDefaultContentRoot();
+    issues.push(
+      ...accountLocationDiagnosticIssues({
+        platform: "google",
+        account_locations: google.account_locations,
+        catalog: loadAdsSetup(opts.site, "google"),
+        pageLocations: makeLandingPageLocationsLookup(contentRoot),
+      }),
+    );
+  }
   sortAdsIssues(issues);
   return {
     generated_at: now.toISOString(),

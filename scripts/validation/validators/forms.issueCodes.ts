@@ -99,6 +99,16 @@ export const FORMS_ISSUE_CODES: Record<string, IssueCodeDefinition> = {
       { tool: "update_fields", reason: "Set the same fields.location on each language's form", priority: "recommended" },
     ],
   },
+  ADS_ACCOUNT_MULTI_LIVE_ON_LANDING: {
+    title: "Two Ad Accounts Advertise This Page",
+    summary:
+      "Live ads from more than one ad account point at this landing. Publishing is blocked until Locations, Ads account maps, or live ads are fixed.",
+    suggestion:
+      "Narrow the page's Locations so only one account's campuses apply, ask staff to change Settings → Ads account locations, or pause ads from one account. Agents can set page locations via update_fields; Ads maps and pausing are staff-only.",
+    next_actions: [
+      { tool: "update_fields", reason: "Set or narrow the page's locations field", priority: "recommended" },
+    ],
+  },
   FORM_TRACKING_OVERRIDE_USES_CODE: {
     title: "Form Override Uses A Tracking Code",
     summary:

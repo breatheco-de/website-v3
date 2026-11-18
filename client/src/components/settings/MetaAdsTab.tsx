@@ -26,6 +26,11 @@ import { SearchableMultiCombobox, type SearchableMultiComboboxOption } from "@/c
 import { Textarea } from "@/components/ui/textarea";
 import { useSettingsDirty } from "@/components/settings/SettingsShell";
 import { AdsAlertThresholdsCard } from "@/components/settings/AdsAlertThresholdsCard";
+import {
+  AccountLocationsCard,
+  AccountLocationsConfirmDialog,
+  type AccountLocationsAffected,
+} from "@/components/settings/AccountLocationsCard";
 import { MetaTrackingParamsStatus } from "@/components/settings/MetaTrackingParamsStatus";
 import { AdsResyncButton } from "@/components/ads/AdsResyncButton";
 import { AdsPullProductionButton } from "@/components/ads/AdsPullProductionButton";
@@ -34,6 +39,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import type { AccountLocationsMap } from "@shared/adsAccountLocations";
 import {
   DEFAULT_ADS_ALERT_THRESHOLDS,
   MAX_KNOWN_EXTERNAL_CAMPAIGNS,
@@ -151,6 +157,7 @@ export function MetaAdsTab() {
 
   const [enabled, setEnabled] = useState(false);
   const [accountIds, setAccountIds] = useState<string[]>([]);
+  const [accountLocations, setAccountLocations] = useState<AccountLocationsMap>({});
   const [leadConversions, setLeadConversions] = useState<string[]>([]);
   const [patternsText, setPatternsText] = useState("");
   const [thresholds, setThresholds] = useState<AdsAlertThresholds>(DEFAULT_ADS_ALERT_THRESHOLDS);
@@ -164,12 +171,14 @@ export function MetaAdsTab() {
   const [syncing, setSyncing] = useState<null | "refresh" | "older">(null);
   const [testResult, setTestResult] = useState<TestResponse | null>(null);
   const [connectionOpen, setConnectionOpen] = useState(false);
+  const [confirmAffected, setConfirmAffected] = useState<AccountLocationsAffected[] | null>(null);
   useSettingsDirty(dirty);
 
   useEffect(() => {
     if (!data || dirty) return;
     setEnabled(data.ads.meta.enabled);
     setAccountIds(data.ads.meta.ad_account_ids);
+    setAccountLocations(data.ads.meta.account_locations ?? {});
     setLeadConversions(data.ads.meta.lead_conversions ?? []);
     setPatternsText(data.ads.test_email_patterns.join("\n"));
     setThresholds(data.ads.meta.alert_thresholds);
@@ -237,7 +246,7 @@ export function MetaAdsTab() {
   }, [conversions, leadConversions, accountList, data]);
   const conversionErrors = (conversions?.accounts ?? []).filter((a) => a.source === "none" && a.error);
 
-  async function save() {
+  async function save(opts?: { confirmAccountLocations?: boolean }) {
     setSaving(true);
     try {
       const floors: Record<string, number> = {};
@@ -245,15 +254,33 @@ export function MetaAdsTab() {
         const n = Number(v);
         if (/^[A-Z]{3}$/.test(c) && Number.isFinite(n) && v.trim() !== "") floors[c] = n;
       }
-      const res = await apiRequest("PUT", "/api/settings/ads/meta", {
+      const payload = {
         enabled,
         ad_account_ids: accountIds,
+        account_locations: accountLocations,
+        confirm_account_locations: opts?.confirmAccountLocations === true,
         lead_conversions: leadConversions,
         test_email_patterns: patternsText.split(/\n+/).map((s) => s.trim()).filter(Boolean),
         alert_thresholds: { ...thresholds, severity_spend_floor: floors },
         known_external_campaigns: knownCampaigns,
+      };
+      const res = await apiFetch("/api/settings/ads/meta", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
-      const body = (await res.json()) as SettingsResponse & { sync_requested?: boolean };
+      const body = (await res.json().catch(() => ({}))) as SettingsResponse & {
+        sync_requested?: boolean;
+        error?: string;
+        message?: string;
+        affected?: AccountLocationsAffected[];
+      };
+      if (res.status === 409 && body.error === "confirm_account_locations_required") {
+        setConfirmAffected(body.affected ?? []);
+        return;
+      }
+      if (!res.ok) throw new Error(body.message || body.error || "Failed to save Ads settings");
+      setConfirmAffected(null);
       setDirty(false);
       toast({
         title: "Ads settings saved",
@@ -527,6 +554,27 @@ export function MetaAdsTab() {
           )}
         </CardContent>
       </Card>
+
+      <AccountLocationsCard
+        platform="meta"
+        accounts={accountIds.map((id) => ({
+          id,
+          label: accountList?.accounts.find((a) => a.id === id)?.name || data.sync.accounts[id]?.name || id,
+        }))}
+        value={accountLocations}
+        onChange={(next) => {
+          setAccountLocations(next);
+          markDirty();
+        }}
+        disabled={!canEdit}
+      />
+      <AccountLocationsConfirmDialog
+        open={confirmAffected !== null}
+        affected={confirmAffected ?? []}
+        confirming={saving}
+        onCancel={() => setConfirmAffected(null)}
+        onConfirm={() => void save({ confirmAccountLocations: true })}
+      />
 
       <Card data-testid="card-meta-sync">
         <CardHeader className="pb-3">
@@ -852,7 +900,7 @@ export function MetaAdsTab() {
           <Button
             size="sm"
             className="gap-1.5 shrink-0"
-            onClick={save}
+            onClick={() => void save()}
             disabled={!canEdit || !dirty || saving}
             data-testid="button-meta-save"
           >

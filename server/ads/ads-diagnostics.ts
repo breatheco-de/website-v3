@@ -84,6 +84,11 @@ import { loadAdsSetup } from "./ads-setup";
 import { adTargetsInWindow, previousUrls } from "./ad-url-history";
 import { consentDropPct, loadConsentWindow } from "../legal/legal-diagnostics";
 import type { AdsUniverse } from "./diagnostics/grouping";
+import {
+  accountLocationDiagnosticIssues,
+  makeLandingPageLocationsLookup,
+} from "./account-location-diagnostics";
+import { getDefaultContentRoot } from "../site-config";
 
 
 export type MetaChecks = {
@@ -1060,6 +1065,19 @@ export async function buildAdsDiagnostics(opts: {
       site_fixable: d.kind === "missing_page",
       details: detailsFor(ads, ga4Seen),
     });
+  }
+
+  // Restricted ad accounts vs landing Locations (live ads-setup catalog only)
+  if (connected && metaSetup) {
+    const contentRoot = opts.contentRoot || getDefaultContentRoot();
+    issues.push(
+      ...accountLocationDiagnosticIssues({
+        platform: "meta",
+        account_locations: settings.meta.account_locations,
+        catalog: metaSetup,
+        pageLocations: makeLandingPageLocationsLookup(contentRoot),
+      }),
+    );
   }
 
   // ads-config.yml + UTM convention / GA4 standard (declared ad tags, GA4 visits, lead records)

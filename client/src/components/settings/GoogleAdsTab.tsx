@@ -22,11 +22,17 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { SearchableMultiCombobox, type SearchableMultiComboboxOption } from "@/components/ui/searchable-multi-combobox";
 import { useSettingsDirty } from "@/components/settings/SettingsShell";
+import {
+  AccountLocationsCard,
+  AccountLocationsConfirmDialog,
+  type AccountLocationsAffected,
+} from "@/components/settings/AccountLocationsCard";
 import { GoogleAdsSetupGuide } from "@/components/settings/GoogleAdsSetupGuide";
 import { useToast } from "@/hooks/use-toast";
 import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { apiFetch, apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import type { AccountLocationsMap } from "@shared/adsAccountLocations";
 import { formatGoogleCustomerId, normalizeGoogleCustomerId, type GoogleAdsSettings } from "@shared/ads-settings";
 import type { AdsUtmConventionView } from "@/components/ads/ads-types";
 import { AdsUtmConventionCard } from "@/components/ads/AdsUtmConvention";
@@ -143,12 +149,14 @@ export function GoogleAdsTab() {
   const [project, setProject] = useState("");
   const [dataset, setDataset] = useState("");
   const [customerIds, setCustomerIds] = useState<string[]>([]);
+  const [accountLocations, setAccountLocations] = useState<AccountLocationsMap>({});
   const [leadActions, setLeadActions] = useState<string[]>([]);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [testResult, setTestResult] = useState<TestResponse | null>(null);
+  const [confirmAffected, setConfirmAffected] = useState<AccountLocationsAffected[] | null>(null);
   useSettingsDirty(dirty);
 
   useEffect(() => {
@@ -157,6 +165,7 @@ export function GoogleAdsTab() {
     setProject(data.google.bigquery.project ?? "");
     setDataset(data.google.bigquery.dataset ?? "");
     setCustomerIds(data.google.customer_ids);
+    setAccountLocations(data.google.account_locations ?? {});
     setLeadActions(data.google.lead_conversion_actions);
   }, [data, dirty]);
 
@@ -200,16 +209,34 @@ export function GoogleAdsTab() {
     return options;
   }, [data, leadActions]);
 
-  async function save() {
+  async function save(opts?: { confirmAccountLocations?: boolean }) {
     setSaving(true);
     try {
-      const res = await apiRequest("PUT", "/api/settings/ads/google", {
+      const payload = {
         enabled,
         customer_ids: customerIds,
+        account_locations: accountLocations,
+        confirm_account_locations: opts?.confirmAccountLocations === true,
         bigquery: { project: project.trim() || null, dataset: dataset.trim() || null },
         lead_conversion_actions: leadActions,
+      };
+      const res = await apiFetch("/api/settings/ads/google", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
-      const body = (await res.json()) as GoogleSettingsResponse & { sync_requested?: boolean };
+      const body = (await res.json().catch(() => ({}))) as GoogleSettingsResponse & {
+        sync_requested?: boolean;
+        error?: string;
+        message?: string;
+        affected?: AccountLocationsAffected[];
+      };
+      if (res.status === 409 && body.error === "confirm_account_locations_required") {
+        setConfirmAffected(body.affected ?? []);
+        return;
+      }
+      if (!res.ok) throw new Error(body.message || body.error || "Failed to save Google Ads settings");
+      setConfirmAffected(null);
       setDirty(false);
       toast({
         title: "Google Ads settings saved",
@@ -494,6 +521,30 @@ export function GoogleAdsTab() {
         </CardContent>
       </Card>
 
+      <AccountLocationsCard
+        platform="google"
+        accounts={customerIds.map((id) => ({
+          id,
+          label:
+            (testResult?.ok ? testResult.customers : (accountList?.accounts ?? [])).find((c) => c.id === id)?.name ||
+            data.sync.customers[id]?.name ||
+            formatGoogleCustomerId(id),
+        }))}
+        value={accountLocations}
+        onChange={(next) => {
+          setAccountLocations(next);
+          markDirty();
+        }}
+        disabled={!canEdit}
+      />
+      <AccountLocationsConfirmDialog
+        open={confirmAffected !== null}
+        affected={confirmAffected ?? []}
+        confirming={saving}
+        onCancel={() => setConfirmAffected(null)}
+        onConfirm={() => void save({ confirmAccountLocations: true })}
+      />
+
       <Card data-testid="card-google-sync">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
@@ -649,7 +700,7 @@ export function GoogleAdsTab() {
           <p className={cn("text-xs min-w-0 truncate text-right", dirty ? "text-destructive" : "text-muted-foreground")} data-testid="text-ads-google-save-status">
             {saving ? "Saving…" : dirty ? "Unsaved changes" : "All changes saved"}
           </p>
-          <Button size="sm" className="gap-1.5 shrink-0" onClick={save} disabled={!canEdit || !dirty || saving} data-testid="button-google-save">
+          <Button size="sm" className="gap-1.5 shrink-0" onClick={() => void save()} disabled={!canEdit || !dirty || saving} data-testid="button-google-save">
             {saving ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <IconDeviceFloppy className="h-3.5 w-3.5" aria-hidden />}
             {saving ? "Saving…" : "Save"}
           </Button>

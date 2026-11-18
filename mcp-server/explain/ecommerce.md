@@ -38,7 +38,7 @@ The product page is always the **locked decision step** in the journey response,
 
 ## AI Flex Path CTAs
 
-`ai_flex_path` binds `cta-picker:tracking` on `cta.buttons[]` (all variants) and `simplified:courses[].cta_buttons[]`. Saving requires `tracking`. Payment CTAs fire existing `trackEcommerce` (`add_to_cart` / `click_begin_checkout`). Non-payment clicks stay generic `cta_click` (Micro tab via `micro-events.ts`). Migration `016_ai_flex_path_cta_tracking` infers missing tracking from URL.
+`ai_flex_path` binds `cta-picker:tracking` on `cta.buttons[]` (all variants) and `simplified:courses[].cta_buttons[]`. Saving requires `tracking`. Payment CTAs fire existing `trackEcommerce` (`add_to_cart` / `click_begin_checkout`). Non-payment clicks stay generic `cta_click` (Micro tab via `micro-events.ts`). Migration `016_ai_flex_path_cta_tracking` infers missing tracking from URL, pushes content, and emits `site_bulk_synced` so live HTML cache / ContentIndex refresh (re-run refreshes even when YAML already has tracking).
 
 ## Product scope — exact property paths per component
 

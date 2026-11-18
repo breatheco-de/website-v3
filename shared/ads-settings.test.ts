@@ -90,12 +90,28 @@ describe("parseAdsSettings", () => {
     expect(s.google).toEqual({
       enabled: true,
       customer_ids: ["1234567890"],
+      account_locations: {},
       bigquery: { project: "my-project-1", dataset: "google_ads" },
       lead_conversion_actions: ["Apply form", "987654321"],
       known_external_campaigns: [],
     });
     expect(parseAdsSettings({ google: { bigquery: { project: "Bad Project!", dataset: "x-y" } } }).google.bigquery).toEqual({ project: null, dataset: null });
     expect(parseAdsSettings(null).google.enabled).toBe(false);
+  });
+
+  it("parses account_locations for Meta and Google (only connected ids)", () => {
+    const s = parseAdsSettings({
+      meta: {
+        ad_account_ids: ["1111122222", "3333344444"],
+        account_locations: { "1111122222": ["madrid-spain"], "99999": ["ghost"], "3333344444": [] },
+      },
+      google: {
+        customer_ids: ["1234567890"],
+        account_locations: { "1234567890": ["mexicocity-mexico"], "0000000000": ["x"] },
+      },
+    });
+    expect(s.meta.account_locations).toEqual({ "1111122222": ["madrid-spain"] });
+    expect(s.google.account_locations).toEqual({ "1234567890": ["mexicocity-mexico"] });
   });
 
   it("parses Meta lead conversions, change date and expected event pairs", () => {
