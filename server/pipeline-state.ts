@@ -89,6 +89,75 @@ export function takePendingValidationWriteId(site: string, entryKey: string): nu
   }
 }
 
+export type PendingFactLiteralsDelta = {
+  field_path: string;
+  text: string;
+};
+
+function pendingFactLiteralsKey(entryKey: string): string {
+  return `pending_fact_literals_delta:${entryKey}`;
+}
+
+/** Stash changed-field text for a cue-invited fact-literals on-save run (coalesced). */
+export function setPendingFactLiteralsDelta(
+  site: string,
+  entryKey: string,
+  delta: PendingFactLiteralsDelta[],
+): void {
+  if (!delta.length) return;
+  ensureSchema(site);
+  const db = getSiteSqlite(site);
+  const key = pendingFactLiteralsKey(entryKey);
+  let merged = [...delta];
+  const row = db.prepare("SELECT value_json FROM pipeline_state WHERE key = ?").get(key) as
+    | { value_json: string }
+    | undefined;
+  if (row) {
+    try {
+      const prev = JSON.parse(row.value_json) as { delta?: PendingFactLiteralsDelta[] };
+      if (Array.isArray(prev.delta)) merged = [...prev.delta, ...delta];
+    } catch {
+      /* replace */
+    }
+  }
+  // Dedupe by field_path keeping last text
+  const byPath = new Map<string, PendingFactLiteralsDelta>();
+  for (const d of merged) {
+    if (typeof d.field_path === "string" && typeof d.text === "string") {
+      byPath.set(d.field_path, { field_path: d.field_path, text: d.text });
+    }
+  }
+  db.prepare(
+    `INSERT INTO pipeline_state (key, value_json) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json`,
+  ).run(key, JSON.stringify({ delta: [...byPath.values()] }));
+}
+
+/** Read+clear pending fact-literals delta for an entry (job-side). */
+export function takePendingFactLiteralsDelta(
+  site: string,
+  entryKey: string,
+): PendingFactLiteralsDelta[] {
+  ensureSchema(site);
+  const db = getSiteSqlite(site);
+  const key = pendingFactLiteralsKey(entryKey);
+  const row = db.prepare("SELECT value_json FROM pipeline_state WHERE key = ?").get(key) as
+    | { value_json: string }
+    | undefined;
+  if (!row) return [];
+  db.prepare("DELETE FROM pipeline_state WHERE key = ?").run(key);
+  try {
+    const parsed = JSON.parse(row.value_json) as { delta?: PendingFactLiteralsDelta[] };
+    return Array.isArray(parsed.delta)
+      ? parsed.delta.filter(
+          (d) => d && typeof d.field_path === "string" && typeof d.text === "string",
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export function getPersistedLastAppliedSeoIndex(site: string): LastAppliedIndexState | null {
   ensureSchema(site);
   const row = getSiteSqlite(site)

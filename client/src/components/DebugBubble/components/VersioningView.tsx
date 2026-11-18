@@ -7,6 +7,7 @@ import { BROKEN_INTERNAL_LINKS_CODE, type BrokenInternalLink } from "@shared/int
 import {
   BROKEN_LINKS_STAFF_MESSAGE,
   BrokenInternalLinksNotice,
+  promoteFactLiteralWarningsText,
   promoteLinkWarningsText,
 } from "@/components/editing/BrokenInternalLinksNotice";
 import {
@@ -805,12 +806,19 @@ export function VersioningView({
     return true;
   };
 
-  const toastIfRebuilt = (warnings: unknown) => {
+  const toastIfRebuilt = (warnings: unknown, factLiteralWarnings?: unknown) => {
     if (Array.isArray(warnings) && warnings.some((w) => (w as { code?: string })?.code === "draft_rebuilt")) {
       toast({ title: "Published combined with the live changes made after the draft was created." });
     }
     const linkText = promoteLinkWarningsText(warnings);
     if (linkText) toast({ title: "Check the links on this page", description: linkText });
+    const factText = promoteFactLiteralWarningsText(warnings, factLiteralWarnings);
+    if (factText) {
+      toast({
+        title: "Use the site fact variable",
+        description: factText,
+      });
+    }
   };
 
   const handlePromote = async (confirms = promoteConfirms, urlSlugs = promoteUrlSlugs) => {
@@ -840,7 +848,7 @@ export function VersioningView({
           title: `Published "${promoteTarget.slug}"`,
           description: `Live for locale(s): ${(data.locales || []).join(", ") || "all"}`,
         });
-        toastIfRebuilt(data.warnings);
+        toastIfRebuilt(data.warnings, data.fact_literal_warnings);
         resetPromoteIssue();
         emitVariantPromoted({
           contentType: contentInfo.type,
@@ -871,7 +879,7 @@ export function VersioningView({
         return;
       }
       toast({ title: `Variant "${promoteTarget.slug}" promoted to default` });
-      toastIfRebuilt(data.warnings);
+      toastIfRebuilt(data.warnings, data.fact_literal_warnings);
       resetPromoteIssue();
       emitVariantPromoted({ contentType: contentInfo.type, slug: contentInfo.slug, locale: promoteTarget.locale, variantSlug: promoteTarget.slug });
       setPromoteTarget(null);

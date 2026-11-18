@@ -4,6 +4,7 @@ import {
   type VariableContext,
   type VariableDefinition,
 } from "@/lib/variable-manager";
+import { variableValueToDisplayString } from "@shared/variable-money";
 
 export function isVariableOverridden(
   def: VariableDefinition | undefined,
@@ -36,11 +37,12 @@ export function otherLocationDiffs(
   for (const condition of def.conditions as VariableCondition[]) {
     const location = condition.query?.location;
     if (!location) continue;
-    if (condition.value === resolvedValue) continue;
-    const key = `${location}::${condition.value}`;
+    const display = variableValueToDisplayString(condition.value);
+    if (display === resolvedValue) continue;
+    const key = `${location}::${display}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ location, value: condition.value });
+    out.push({ location, value: display });
   }
 
   return out;

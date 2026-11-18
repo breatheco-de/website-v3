@@ -45,4 +45,19 @@ describe("otherLocationDiffs", () => {
   it("returns empty when no location diffs", () => {
     expect(otherLocationDiffs({ default: "x" }, "x")).toEqual([]);
   });
+
+  it("stringifies money condition values for tooltips", () => {
+    const def: VariableDefinition = {
+      default: { amount: 900, currency: "USD", display: "$900" },
+      conditions: [
+        {
+          query: { location: "madrid-spain" },
+          value: { amount: 1940, currency: "EUR", display: "€1940" },
+        },
+      ],
+    };
+    expect(otherLocationDiffs(def, "$900")).toEqual([
+      { location: "madrid-spain", value: "€1940" },
+    ]);
+  });
 });

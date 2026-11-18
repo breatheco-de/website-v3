@@ -5,7 +5,10 @@ import { ContentIndex } from "../../content-index";
 import { MediaGallery } from "../../media-gallery";
 import { DatabaseManager } from "../../database";
 import { ValidationService } from "../../../scripts/validation/service";
-import { ENTRY_LOCAL_VALIDATOR_NAMES } from "../../../scripts/validation/shared/runClass";
+import {
+  ENTRY_LOCAL_VALIDATOR_NAMES,
+  validatorsInvitedOnSave,
+} from "../../../scripts/validation/shared/runClass";
 import { entryKeyFromContentFile } from "../../../scripts/validation/shared/entryKey";
 import type { ContentFile } from "../../../scripts/validation/shared/types";
 import { ValidationCacheService } from "../../services/validationCacheService";
@@ -16,7 +19,12 @@ import {
   listOpenWritesForEntry,
 } from "../../events/event-store";
 import { systemJobAttribution } from "../../events/types";
-import { takePendingValidationWriteId } from "../../pipeline-state";
+import {
+  takePendingFactLiteralsDelta,
+  takePendingValidationWriteId,
+} from "../../pipeline-state";
+import { evaluateClaimCues } from "../../content-proposals/claim-cues";
+import { funnelStageFromData } from "../../fact-literals";
 import { child } from "../../logger";
 import { markJobFinished, markJobStarted } from "../heartbeat";
 
@@ -175,8 +183,31 @@ export class OnSaveValidationJob extends Job {
     }
 
     context.contentFiles = filtered;
+
+    const isLiveWrite = !variant;
+    const delta = isLiveWrite ? takePendingFactLiteralsDelta(site, payload.entryKey) : [];
+    if (delta.length > 0) {
+      context.factLiteralsDelta = delta;
+    }
+    const primary = filtered.find((f) => !f.variant) ?? filtered[0];
+    const funnelStage = funnelStageFromData(
+      (primary?.entryFields as Record<string, unknown> | undefined) ?? undefined,
+    );
+    const cueText = delta.map((d) => d.text).join("\n");
+    // Delta is only stashed when sync path saw clear_yes/ambiguous cues.
+    const claimCue = delta.length
+      ? cueText.trim()
+        ? evaluateClaimCues(cueText)
+        : "ambiguous"
+      : "clear_no";
+    const invited = validatorsInvitedOnSave({
+      isLiveWrite,
+      funnelStage,
+      claimCue: claimCue === "clear_no" && delta.length ? "ambiguous" : claimCue,
+    });
+
     const result = await service.runValidators({
-      validators: [...ENTRY_LOCAL_VALIDATOR_NAMES],
+      validators: [...ENTRY_LOCAL_VALIDATOR_NAMES, ...invited],
       includeArtifacts: false,
     });
 

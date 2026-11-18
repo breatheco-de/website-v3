@@ -27,6 +27,13 @@ export interface ContentEditResponse {
   broken_internal_links?: BrokenInternalLink[];
   /** Saved, but some links redirect, point at drafts, or are not blocked yet on this site. */
   link_warnings?: InternalLinkWarning[];
+  /** Live selling-page copy hardcoded a site fact — prefer a {{ global.* }} token. */
+  fact_literal_warnings?: Array<{
+    message: string;
+    field_path: string;
+    literal: string;
+    variables: string[];
+  }>;
 }
 
 export interface CommonEditResponse {

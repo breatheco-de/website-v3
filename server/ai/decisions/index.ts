@@ -20,6 +20,11 @@ export {
   NAMES_THIRD_PARTIES_MAX_CANDIDATES,
   askNamesThirdParties,
   type NamesThirdPartiesOutcome,
+  DECISION_ID_HARDCODED_SITE_FACT_LITERAL,
+  HARDCODED_SITE_FACT_LITERAL_NOUL_THRESHOLD,
+  HARDCODED_SITE_FACT_LITERAL_MAX_CHARS,
+  askHardcodedSiteFactLiteral,
+  type HardcodedSiteFactLiteralOutcome,
 } from "./catalog";
 export {
   createOpenRouterJevClient,

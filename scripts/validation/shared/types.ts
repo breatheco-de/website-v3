@@ -5,11 +5,21 @@
  * Used by both CLI and API.
  */
 
-import type { ValidationScope, ValidatorRunClass } from "./runClass";
+import type {
+  ValidationScope,
+  ValidatorCost,
+  ValidatorOnSaveInvite,
+  ValidatorRunClass,
+} from "./runClass";
 import type { ContentIndex } from "../../../server/content-index";
 import type { AdsCompletionVerify, AdsIssueLevel, AdsStoredIssueData } from "../../../shared/ads-issues";
 
-export type { ValidationScope, ValidatorRunClass } from "./runClass";
+export type {
+  ValidationScope,
+  ValidatorCost,
+  ValidatorOnSaveInvite,
+  ValidatorRunClass,
+} from "./runClass";
 
 export interface FixHint {
   type: "api" | "script" | "llm" | "manual";
@@ -114,6 +124,13 @@ export interface ValidatorMetadata {
   category: "content" | "seo" | "integrity" | "components" | "performance" | "forms" | "bindings" | "ads" | "design";
   /** Execution / clear-scope class. Defaults via runClass.ts map when omitted. */
   runClass?: ValidatorRunClass;
+  /** free (default) vs paid (e.g. Jev). Paid validators are not in default Diagnostics. */
+  cost?: ValidatorCost;
+  /**
+   * When set, on-save may append this validator when invite gates pass
+   * (live write + selling funnel stage + claim cues). Documented on the validator.
+   */
+  onSaveInvite?: ValidatorOnSaveInvite;
   /** Optional catalog of codes this validator may emit. */
   issueCodes?: Record<string, IssueCodeDefinition>;
 }
@@ -384,6 +401,11 @@ export interface ValidationContext {
   skippedContentTypes?: string[];
   /** Databases whose pages were checked against a copy older than the cache TTL. */
   staleDatabases?: Array<{ name: string; fetchedAt: string; ageMs: number; contentTypes: string[] }>;
+  /**
+   * Changed-field text for paid fact-literals on-save invites (edge 1a).
+   * When set, fact-literals scans this delta only; when omitted (explicit run), scans full entries.
+   */
+  factLiteralsDelta?: Array<{ field_path: string; text: string }>;
 }
 
 export interface ValidationRunOptions {

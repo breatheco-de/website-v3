@@ -60,6 +60,7 @@ import { funnelCompletenessValidator } from "./funnel-completeness";
 import { draftIntegrityValidator } from "./draft-integrity";
 import { corruptedTemplateValuesValidator } from "./corrupted-template-values";
 import { textLimitsValidator } from "./text-limits";
+import { factLiteralsValidator } from "./fact-literals";
 
 export const validators: Validator[] = [
   redirectValidator,
@@ -116,6 +117,7 @@ export const validators: Validator[] = [
   variablesMetadataValidator,
   draftIntegrityValidator,
   corruptedTemplateValuesValidator,
+  factLiteralsValidator,
 ];
 
 /** @deprecated Lighthouse removed from platform diagnostics — use external tools. */
@@ -151,6 +153,8 @@ export function listValidators(): ValidatorMetadata[] {
     estimatedDuration: v.estimatedDuration,
     category: v.category,
     runClass: v.runClass ?? getValidatorRunClass(v.name),
+    ...(v.cost ? { cost: v.cost } : {}),
+    ...(v.onSaveInvite ? { onSaveInvite: v.onSaveInvite } : {}),
     ...(v.issueCodes ? { issueCodes: v.issueCodes } : {}),
   }));
 }

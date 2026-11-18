@@ -185,3 +185,60 @@ export async function askTouchesSiteFacts(
   });
   return { outcome: "ok", categories, raw };
 }
+
+export const DECISION_ID_HARDCODED_SITE_FACT_LITERAL = "content.hardcoded_site_fact_literal";
+
+/** Noul above this → text states a site fact as a literal rather than a variable token. */
+export const HARDCODED_SITE_FACT_LITERAL_NOUL_THRESHOLD = 0.55;
+
+/** Cap changed-field text sent to Jev for the fact-literals layer-2 check. */
+export const HARDCODED_SITE_FACT_LITERAL_MAX_CHARS = 1_500;
+
+export type HardcodedSiteFactLiteralOutcome = "yes" | "no" | "unavailable";
+
+/**
+ * Tiny one-noul: does this changed copy state a site fact (price, hire rate, salary,
+ * rating count, campuses, etc.) as a typed number instead of a {{ global.* }} token?
+ * Fail-open when the decision model is down.
+ */
+export async function askHardcodedSiteFactLiteral(
+  client: DecisionClient,
+  text: string,
+): Promise<{ outcome: HardcodedSiteFactLiteralOutcome; raw?: DecideResult }> {
+  const trimmed = text.trim();
+  if (!trimmed) return { outcome: "no" };
+  const truncated =
+    trimmed.length > HARDCODED_SITE_FACT_LITERAL_MAX_CHARS
+      ? `${trimmed.slice(0, HARDCODED_SITE_FACT_LITERAL_MAX_CHARS)}\n…`
+      : trimmed;
+  const raw = await client.decide({
+    timeoutMs: 2000,
+    state: {
+      decision_id: DECISION_ID_HARDCODED_SITE_FACT_LITERAL,
+      proposed_text: truncated,
+    },
+    questions: {
+      hardcoded_site_fact: {
+        type: "noul",
+        instructions:
+          "Does this text state a company or product fact as a hardcoded number or money amount " +
+          "(tuition, monthly price, hire rate, salary, review count, rating, campuses, hiring partners) " +
+          "that should normally come from a site variable token, rather than only educational examples or one-off cohort chart figures?",
+        true: "States a reusable site fact as a literal number or price.",
+        false:
+          "No reusable site fact — ordinary copy, a one-off cohort/chart figure, or only variable tokens.",
+      },
+    },
+  });
+
+  if (raw.status === "unavailable") {
+    return { outcome: "unavailable", raw };
+  }
+
+  const ans = raw.answers.hardcoded_site_fact as { noul?: number } | undefined;
+  const noul = typeof ans?.noul === "number" ? ans.noul : 0;
+  return {
+    outcome: noul >= HARDCODED_SITE_FACT_LITERAL_NOUL_THRESHOLD ? "yes" : "no",
+    raw,
+  };
+}

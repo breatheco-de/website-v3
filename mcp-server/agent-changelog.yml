@@ -5,6 +5,20 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-18"
+    summary: "Paid fact-literals warnings on live selling-page edits (prefer variable tokens)"
+    agent_impact:
+      - "Live edits, publish_draft, and promote_variant on consideration/decision pages may return warnings fact_literal_prefer_variable when changed copy hardcodes a catalog fact (price/phone/percent). Write is not blocked — swap for {{ global.* }} via list_variables + update_fields."
+      - "Paid validator fact-literals is cue-invited on on-save only (not default Diagnostics). Fuzzy Jev suspects stay Diagnostics-only. Drafts and awareness/post-enrollment skip the auto path."
+      - "explain topic content_system → Hardcoded fact warnings. Reconnect not required for tool list; stress N/A (warnings on existing mutates)."
+    tools_changed: false
+    paths:
+      - server/fact-literals.ts
+      - server/fact-literals-edit.ts
+      - server/versioning/promote-with-teardown.ts
+      - scripts/validation/validators/fact-literals.ts
+      - mcp-server/explain/content_system.md
+      - mcp-server/lib/fact-literals-mcp.ts
   - date: "2026-11-17"
     summary: "Migration 016 emits site_bulk_synced so live HTML cache picks up AI Flex CTA tracking"
     agent_impact:

@@ -40,6 +40,7 @@ import { BROKEN_INTERNAL_LINKS_CODE } from "@shared/internalLinkGate";
 import {
   BROKEN_LINKS_STAFF_MESSAGE,
   brokenLinksToastDescription,
+  promoteFactLiteralWarningsText,
   promoteLinkWarningsText,
 } from "@/components/editing/BrokenInternalLinksNotice";
 
@@ -257,6 +258,10 @@ function FirstEditGate({ children }: { children: React.ReactNode }) {
       });
       const linkText = promoteLinkWarningsText(data.warnings);
       if (linkText) toast({ title: "Check the links on this page", description: linkText });
+      const factText = promoteFactLiteralWarningsText(data.warnings, data.fact_literal_warnings);
+      if (factText) {
+        toast({ title: "Use the site fact variable", description: factText });
+      }
       emitVariantPromoted({
         contentType: contentInfo.type,
         slug: contentInfo.slug,

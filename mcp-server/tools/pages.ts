@@ -79,6 +79,7 @@ import {
   isDeprecatedFieldInfo,
 } from "../lib/deprecated-field-mcp.js";
 import { textLimitWarnings, textLimitsExceededResult } from "../lib/text-limits-mcp.js";
+import { factLiteralWarnings } from "../lib/fact-literals-mcp.js";
 import { consentRequiredResult } from "../lib/consent-gate-mcp.js";
 import { CONSENT_REQUIRED_CODE } from "../../shared/formConsentCheck.js";
 import {
@@ -4330,6 +4331,7 @@ export function registerPageTools(
         appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         warnings.push(...deprecatedTemplateRefWarnings(apiResult.data.deprecated_template_refs));
         warnings.push(...textLimitWarnings(apiResult.data.text_limit_warnings));
+        warnings.push(...factLiteralWarnings(apiResult.data.fact_literal_warnings));
         warnings.push(...internalLinkWarnings(apiResult.data.link_warnings));
         warnings.push(...formLocationMcpWarnings(apiResult.data.form_location_warnings));
         const touchedFormLocation = localeEntries.some(([p]) => /\.fields\.location(\.|$)/.test(p));
@@ -6156,10 +6158,12 @@ export function registerPageTools(
           });
         }
         const serverWarnings = Array.isArray(data.warnings)
-          ? (data.warnings as Array<{ locale?: string; code: string; message: string }>).map((w) => ({
-              code: w.code,
-              message: w.locale ? `[${w.locale}] ${w.message}` : w.message,
-            }))
+          ? (data.warnings as Array<{ locale?: string; code: string; message: string }>)
+              .filter((w) => w.code !== "fact_literal_prefer_variable")
+              .map((w) => ({
+                code: w.code,
+                message: w.locale ? `[${w.locale}] ${w.message}` : w.message,
+              }))
           : [];
         return ok(
           {
@@ -6172,6 +6176,7 @@ export function registerPageTools(
           {
             warnings: [
               ...serverWarnings,
+              ...factLiteralWarnings(data.fact_literal_warnings),
 {
                 code: "page_now_live",
                 message: "Page is live for the listed locales and will appear in the sitemap. Confirm with the user before publishing in the future.",
@@ -6522,6 +6527,10 @@ export function registerPageTools(
           });
         }
         if (data.dry_run === true) {
+          const dryWarns: McpWarning[] = Array.isArray(data.warnings)
+            ? (data.warnings as McpWarning[]).filter((w) => w.code !== "fact_literal_prefer_variable")
+            : [];
+          dryWarns.push(...factLiteralWarnings(data.fact_literal_warnings));
           return ok(
             {
               dry_run: true,
@@ -6530,7 +6539,7 @@ export function registerPageTools(
               ...(data.rebuilt ? { rebuilt: data.rebuilt } : {}),
             },
             {
-              warnings: Array.isArray(data.warnings) ? (data.warnings as McpWarning[]) : [],
+              warnings: dryWarns,
               next_actions: [],
             },
           );
@@ -6546,7 +6555,12 @@ export function registerPageTools(
         next_actions.push(diagnosticsAfterGoLiveNextAction(slug, site));
         {
           const promoteWarns = promoteWarnings(sharedLayout);
-          if (Array.isArray(data.warnings)) promoteWarns.push(...(data.warnings as McpWarning[]));
+          if (Array.isArray(data.warnings)) {
+            promoteWarns.push(
+              ...(data.warnings as McpWarning[]).filter((w) => w.code !== "fact_literal_prefer_variable"),
+            );
+          }
+          promoteWarns.push(...factLiteralWarnings(data.fact_literal_warnings));
           return ok(
             {
               message: `Variant '${variantSlug}' promoted to live for ${contentType}/${slug} (${locale})`,
@@ -7891,6 +7905,7 @@ const ghWarning = githubCommitWarning(commitResult);
         ...schemaOrgPageOverrideWarnings(sectionToAdd),
         ...deprecatedTemplateRefWarnings(apiResult.data.deprecated_template_refs),
         ...textLimitWarnings(apiResult.data.text_limit_warnings),
+        ...factLiteralWarnings(apiResult.data.fact_literal_warnings),
         ...internalLinkWarnings(apiResult.data.link_warnings),
       ];
 appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
@@ -8559,6 +8574,7 @@ appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);
         ...variantWarningsIfNeeded(variant),
         ...deprecatedTemplateRefWarnings(apiResult.data.deprecated_template_refs),
         ...textLimitWarnings(apiResult.data.text_limit_warnings),
+        ...factLiteralWarnings(apiResult.data.fact_literal_warnings),
         ...internalLinkWarnings(apiResult.data.link_warnings),
       ];
 appendSharedTemplateHtmlCacheWarning(warnings, apiResult.data, layoutTarget);

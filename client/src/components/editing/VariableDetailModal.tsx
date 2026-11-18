@@ -1102,7 +1102,7 @@ export function VariableDetailModal({
                               <div className="text-sm mt-1">
                                 <span className="text-muted-foreground/60">&rarr;</span>{" "}
                                 <span className={isMatched ? "font-medium text-foreground" : "text-muted-foreground"}>
-                                  "{cond.value}"
+                                  "{variableValueToDisplayString(cond.value)}"
                                 </span>
                               </div>
                             </div>
@@ -1149,7 +1149,7 @@ export function VariableDetailModal({
                           <div className="text-sm mt-1">
                             <span className="text-muted-foreground/60">&rarr;</span>{" "}
                             <span className={resolvedSource === "default" ? "font-medium text-foreground" : "text-muted-foreground"}>
-                              "{definition.default}"
+                              "{variableValueToDisplayString(definition.default)}"
                             </span>
                           </div>
                         ) : (

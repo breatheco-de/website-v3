@@ -2578,6 +2578,7 @@ export function SectionEditorPanel({
     warning?: string;
     shared_template_html_cache?: string;
     link_warning?: string;
+    fact_literal_warning?: string;
   }> => {
     if (!contentType || !slug || !locale) {
       return { success: false };
@@ -2674,12 +2675,18 @@ export function SectionEditorPanel({
         // Emit event to trigger page refresh
         emitContentUpdated({ contentType, slug, locale });
 
+        const factMsgs = Array.isArray(result.fact_literal_warnings)
+          ? result.fact_literal_warnings
+              .map((w) => (w && typeof w.message === "string" ? w.message : ""))
+              .filter(Boolean)
+          : [];
         // Return warning if present (for GitHub sync failures)
         return {
           success: true,
           warning: result.warning,
           shared_template_html_cache: result.shared_template_html_cache,
           link_warning: linkWarningsToastText(result.link_warnings) ?? undefined,
+          fact_literal_warning: factMsgs.length ? factMsgs.slice(0, 3).join(" ") : undefined,
         };
       } else if (result.code === BROKEN_INTERNAL_LINKS_CODE && result.broken_internal_links?.length) {
         setBrokenLinks(result.broken_internal_links);
@@ -2770,6 +2777,12 @@ export function SectionEditorPanel({
         toast({
           title: "Check the links on this page",
           description: result.link_warning,
+        });
+      }
+      if (result.fact_literal_warning) {
+        toast({
+          title: "Prefer a site variable for this number",
+          description: result.fact_literal_warning,
         });
       }
       if (result.warning) {
