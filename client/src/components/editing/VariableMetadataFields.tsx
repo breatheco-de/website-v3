@@ -83,7 +83,8 @@ export function metadataDraftToBody(draft: VariableMetadataDraft): Record<string
   return {
     description: draft.description.trim(),
     category: draft.category,
-    unit: draft.unit || null,
+    // Price vars carry currency on each money value, not a variable-wide unit.
+    unit: draft.category === "price" ? null : draft.unit || null,
     source: draft.source || null,
     products: draft.products.length > 0 ? draft.products : null,
     price_role: draft.category === "price" && draft.price_role ? draft.price_role : null,
@@ -241,7 +242,7 @@ export function VariableMetadataFields({
             onValueChange={(v) =>
               set({
                 category: v,
-                ...(v !== "price" ? { price_role: "" } : {}),
+                ...(v !== "price" ? { price_role: "" } : { unit: "" }),
               })
             }
           >
@@ -267,7 +268,7 @@ export function VariableMetadataFields({
           )}
         </div>
 
-        {showOptional && (
+        {showOptional && !isPrice && (
           <div className="space-y-1">
             <label className="text-sm font-medium text-foreground">Unit</label>
             <Select value={draft.unit || NONE} onValueChange={(v) => set({ unit: v === NONE ? "" : v })}>
