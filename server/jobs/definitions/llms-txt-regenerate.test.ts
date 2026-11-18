@@ -4,6 +4,7 @@ import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const complete = vi.fn();
+const getLLMService = vi.fn(() => ({ complete }));
 const markFileAsModified = vi.fn();
 const notifyContentDirtiesRequeued = vi.fn();
 const invalidateLlmsCompiledCache = vi.fn();
@@ -12,7 +13,7 @@ const readLlmsTxtPrompt = vi.fn();
 const fillLlmsTxtPrompt = vi.fn();
 
 vi.mock("../../ai/LLMService", () => ({
-  getLLMService: () => ({ complete }),
+  getLLMService,
 }));
 
 vi.mock("../../sync-state", () => ({
@@ -45,6 +46,7 @@ describe("LlmsTxtRegenerateJob", () => {
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "llms-job-"));
     complete.mockReset();
+    getLLMService.mockReset().mockReturnValue({ complete });
     markFileAsModified.mockReset();
     notifyContentDirtiesRequeued.mockReset().mockResolvedValue(undefined);
     invalidateLlmsCompiledCache.mockReset();
@@ -84,6 +86,7 @@ describe("LlmsTxtRegenerateJob", () => {
     const result = await job.run({ contentRoot: tmp, siteId: path.basename(tmp), reason: "test" });
 
     expect(result.ok).toBe(true);
+    expect(getLLMService).toHaveBeenCalledWith({ dangerouslyAllowBrowser: true });
     expect(fs.readFileSync(path.join(tmp, "llms.template.md"), "utf-8")).toContain("# Hello");
     expect(markFileAsModified).toHaveBeenCalledWith(
       "llms.template.md",

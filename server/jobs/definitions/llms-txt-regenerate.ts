@@ -56,7 +56,8 @@ export class LlmsTxtRegenerateJob extends Job {
         previous_llms_txt: inputs.previous_llms_txt,
       });
 
-      const llm = getLLMService();
+      // Sidequest shares a process with HTML SSR; Node globals can look browser-like to OpenAI.
+      const llm = getLLMService({ dangerouslyAllowBrowser: true });
       const result = await llm.complete(userPrompt, {
         temperature: 0.3,
         maxTokens: 4000,
