@@ -75,6 +75,7 @@ import {
   REGION_SLUGS,
   type RegionSlug,
 } from "@/lib/locations";
+import { useLocationCatalog } from "@/hooks/useLocationCatalog";
 import { useContentTypes, getTypeFromFolder } from "@/hooks/useContentTypes";
 import {
   isVariableOverridden,
@@ -361,7 +362,8 @@ export default function VariablesPage() {
     staleTime: Infinity,
   });
 
-  const listedLocations = useMemo(() => getListedLocations(), []);
+  const { data: catalogLocations = [] } = useLocationCatalog();
+  const listedLocations = useMemo(() => getListedLocations(catalogLocations), [catalogLocations]);
   const localeOptions = localeSettings?.supported_locales ?? [
     { code: "en", label: "English" },
     { code: "es", label: "Spanish" },

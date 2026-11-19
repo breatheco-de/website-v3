@@ -165,6 +165,8 @@ import {
   buildRobotsTxtContent,
   getAuthSettings,
   updateAuthSettings,
+  getSessionSettings,
+  updateSessionSettings,
   isSignupConfigured,
   isSignupFieldMapReady,
   getEntryPreviewSettings,
@@ -1020,6 +1022,44 @@ export function registerSettingsRoutes(app: Express): void {
       signup_field_map_ready: isSignupFieldMapReady(auth.signup?.field_map),
       login_page_url: loginPageUrl || undefined,
     });
+  });
+
+  app.get("/api/settings/session", (req, res) => {
+    const contentRoot = getContentRoot(res);
+    const session = getSessionSettings(contentRoot);
+    const { listLocalDatabaseSlugs } = require("../session-location-catalog") as typeof import("../session-location-catalog");
+    res.json({
+      ...session,
+      available_databases: listLocalDatabaseSlugs(contentRoot),
+    });
+  });
+
+  api.put(app, "/api/settings/session", { rate: "staffWrite" }, (req, res) => {
+    try {
+      const schema = z.object({
+        location: z
+          .object({
+            database: z.string().nullable().optional(),
+            fill_from_ip: z.boolean().optional(),
+          })
+          .optional(),
+      });
+      const parsed = schema.safeParse(req.body?.session === undefined ? req.body : req.body.session);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body" });
+      }
+      const contentRoot = getContentRoot(res);
+      const updated = updateSessionSettings(parsed.data, contentRoot);
+      markFileAsModified("settings.yml", undefined, undefined, contentRoot);
+      const { listLocalDatabaseSlugs } = require("../session-location-catalog") as typeof import("../session-location-catalog");
+      res.json({
+        success: true,
+        ...updated,
+        available_databases: listLocalDatabaseSlugs(contentRoot),
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
+    }
   });
 
   app.put("/api/settings/auth", (req, res) => {

@@ -205,6 +205,55 @@ export interface DetachEntryResult {
 }
 
 /**
+ * Mark entries detached while keeping their existing locale shells.
+ * Used when enabling shared layout with exceptions that already own full sections
+ * (do not bake from the new template over them).
+ */
+export function markEntriesDetachedPreservingStructure(params: {
+  contentType: string;
+  slugs: string[];
+  contentRoot?: string;
+  author?: string | null;
+}): { filesWritten: string[]; marked: string[]; skipped: string[] } {
+  const contentRoot = params.contentRoot ?? getDefaultContentRoot();
+  const { contentType, author } = params;
+  if (!isValidType(contentType, contentRoot)) {
+    throw new Error(`Unknown content type: ${contentType}`);
+  }
+  if (!isSharedLayoutType(contentType, contentRoot)) {
+    throw new Error(`Content type "${contentType}" is not a shared-layout type`);
+  }
+  const folder = getFolder(contentType, contentRoot);
+  const filesWritten: string[] = [];
+  const marked: string[] = [];
+  const skipped: string[] = [];
+
+  for (const slug of params.slugs) {
+    if (!slug || isTemplateVersioningSlug(slug)) {
+      skipped.push(slug);
+      continue;
+    }
+    if (isEntryDetached(contentType, slug, contentRoot)) {
+      skipped.push(slug);
+      continue;
+    }
+    const entryDir = path.join(contentRoot, folder, slug);
+    if (!fs.existsSync(entryDir) || !fs.statSync(entryDir).isDirectory()) {
+      skipped.push(slug);
+      continue;
+    }
+    const commonPath = path.join(entryDir, "_common.yml");
+    const common = loadYamlFile(commonPath) ?? {};
+    const next = { ...common, detached: true };
+    writeYamlFile(commonPath, next, author, contentRoot);
+    filesWritten.push(commonPath);
+    marked.push(slug);
+  }
+
+  return { filesWritten, marked, skipped };
+}
+
+/**
  * Bake live template structure into the entry and set detached: true.
  * Preserves {{ single.* }} expressions (does not resolve them).
  */
@@ -392,6 +441,15 @@ export function reattachEntry(params: ReattachEntryParams): ReattachEntryResult 
 
     writeYamlFile(fullPath, next, author, contentRoot);
     filesModified.push(fullPath);
+  }
+
+  // Lazy require avoids circular import with bindings → shared-layout-entry
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { bindingManager } = require("./bindings") as typeof import("./bindings");
+    bindingManager.pruneMemberFromAllGroups(contentType, slug, author ?? undefined);
+  } catch (bindErr) {
+    log.warn({ err: bindErr, contentType, slug }, "[reattach] binding prune failed");
   }
 
   log.info(

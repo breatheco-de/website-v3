@@ -1,6 +1,5 @@
 import type { Session, Location, GeoData, UTMParams, DeviceData, WorkerMessage, WorkerResponse } from '@shared/session';
 import { defaultSession, SESSION_VERSION } from '@shared/session';
-import { locations } from '../lib/locations';
 import {
   channelTouchFor,
   mergeUtmSets,
@@ -13,6 +12,20 @@ import {
 import { normalizeLandingPath } from '@shared/paid-traffic';
 
 const GEO_API_URL = '/api/geo';
+const CATALOG_API_URL = '/api/session/location-catalog';
+
+/** In-worker cache so refresh does not re-hit the catalog every time. */
+let catalogCache: Location[] = [];
+let catalogFetchedAt = 0;
+const CATALOG_TTL_MS = 5 * 60 * 1000;
+
+function workerOrigin(): string {
+  try {
+    return (self as unknown as { location?: { origin?: string } }).location?.origin ?? '';
+  } catch {
+    return '';
+  }
+}
 
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   if (lat1 === lat2 && lon1 === lon2) return 0;
@@ -96,9 +109,7 @@ async function fetchGeoData(): Promise<GeoData | null> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
 
-    const url = typeof self !== 'undefined' && (self as unknown as { location?: { origin?: string } }).location?.origin
-      ? `${(self as unknown as { location: { origin: string } }).location.origin}${GEO_API_URL}`
-      : GEO_API_URL;
+    const url = workerOrigin() ? `${workerOrigin()}${GEO_API_URL}` : GEO_API_URL;
     
     const response = await fetch(url, { 
       signal: controller.signal,
@@ -126,8 +137,37 @@ async function fetchGeoData(): Promise<GeoData | null> {
   }
 }
 
-function findLocationForUser(geo: GeoData | null, browserLang: string): Location {
+async function fetchLocationCatalog(force = false): Promise<Location[]> {
+  const now = Date.now();
+  if (!force && catalogCache.length > 0 && now - catalogFetchedAt < CATALOG_TTL_MS) {
+    return catalogCache;
+  }
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const url = workerOrigin() ? `${workerOrigin()}${CATALOG_API_URL}` : CATALOG_API_URL;
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json' },
+    });
+    clearTimeout(timeout);
+    if (!response.ok) return catalogCache;
+    const data = (await response.json()) as { locations?: Location[] };
+    catalogCache = Array.isArray(data.locations) ? data.locations : [];
+    catalogFetchedAt = now;
+    return catalogCache;
+  } catch {
+    return catalogCache;
+  }
+}
+
+function findLocationForUser(
+  geo: GeoData | null,
+  browserLang: string,
+  locations: Location[],
+): Location | null {
   const listedLocations = locations.filter(loc => loc.visibility === 'listed');
+  if (listedLocations.length === 0) return null;
   
   if (geo?.latitude && geo?.longitude && geo?.country_code) {
     const inCountry = listedLocations.filter(
@@ -176,16 +216,11 @@ function findLocationForUser(geo: GeoData | null, browserLang: string): Location
   );
   
   if (langLocations.length > 0) {
-    const defaultLoc = browserLang === 'es' 
-      ? langLocations.find(loc => loc.slug === 'madrid-spain') || langLocations[0]
-      : langLocations.find(loc => loc.slug === 'miami-usa') || langLocations[0];
-    return { ...defaultLoc, reliable: false };
+    return { ...langLocations[0], reliable: false };
   }
   
-  const miami = listedLocations.find(loc => loc.slug === 'miami-usa');
-  return miami 
-    ? { ...miami, reliable: false }
-    : { ...listedLocations[0], reliable: false };
+  const first = listedLocations.find(loc => loc.slug !== 'online') || listedLocations[0];
+  return first ? { ...first, reliable: false } : null;
 }
 
 function determineLanguage(
@@ -211,7 +246,6 @@ function parseDeviceInfo(deviceJson: string): DeviceData | undefined {
     
     const ua = raw.userAgent.toLowerCase();
     
-    // Detect OS family (order matters - iOS UAs contain "like Mac OS X", so check iOS first)
     let osFamily = 'Unknown';
     if (ua.includes('iphone') || ua.includes('ipad') || ua.includes('ipod')) osFamily = 'iOS';
     else if (ua.includes('android')) osFamily = 'Android';
@@ -221,7 +255,6 @@ function parseDeviceInfo(deviceJson: string): DeviceData | undefined {
     else if (ua.includes('chrome os') || ua.includes('cros')) osFamily = 'ChromeOS';
     else if (ua.includes('linux')) osFamily = 'Linux';
     
-    // Detect browser family
     let browserFamily = 'Unknown';
     if (ua.includes('edg/') || ua.includes('edge/')) browserFamily = 'Edge';
     else if (ua.includes('opr/') || ua.includes('opera')) browserFamily = 'Opera';
@@ -229,15 +262,12 @@ function parseDeviceInfo(deviceJson: string): DeviceData | undefined {
     else if (ua.includes('safari') && !ua.includes('chrome')) browserFamily = 'Safari';
     else if (ua.includes('firefox')) browserFamily = 'Firefox';
     
-    // Detect device category (tablet first, then mobile, then desktop)
     let deviceCategory: DeviceData['deviceCategory'] = 'desktop';
     
-    // Tablet detection
     const isTablet = ua.includes('ipad') || 
       (ua.includes('android') && !ua.includes('mobile')) ||
       ua.includes('tablet');
     
-    // Mobile detection (phones)
     const isMobile = !isTablet && (
       ua.includes('iphone') ||
       ua.includes('ipod') ||
@@ -251,7 +281,6 @@ function parseDeviceInfo(deviceJson: string): DeviceData | undefined {
     if (isTablet) deviceCategory = 'tablet';
     else if (isMobile) deviceCategory = 'mobile';
     
-    // Orientation
     const orientation: DeviceData['orientation'] = 
       (raw.viewportWidth > raw.viewportHeight) ? 'landscape' : 'portrait';
     
@@ -287,7 +316,6 @@ async function initSession(message: WorkerMessage['payload']): Promise<Session> 
   let entry_channel = cachedSession?.entry_channel;
   if (message.referrer !== undefined) {
     const touch = channelTouchFor(newUtm, { referrer: message.referrer, ownHosts, path, now });
-    // A self-referral on a browser with no channel yet still marks the lead as tracked (direct).
     entry_channel = nextEntryChannel(
       entry_channel,
       touch ?? (entry_channel ? null : { channel: 'direct', path: normalizeLandingPath(path), at: now }),
@@ -302,19 +330,25 @@ async function initSession(message: WorkerMessage['payload']): Promise<Session> 
     : Infinity;
   const isStale = sessionAge > 24 * 60 * 60 * 1000;
   
-  if (!geo || isStale) {
-    geo = await fetchGeoData();
+  const needGeo = !geo || isStale;
+  // Catalog always fetched in parallel with geo (or alone when geo is fresh).
+  const [freshGeo, catalog] = await Promise.all([
+    needGeo ? fetchGeoData() : Promise.resolve(geo),
+    fetchLocationCatalog(),
+  ]);
+  if (needGeo) geo = freshGeo;
+
+  const cachedSlugStillValid =
+    !!location?.slug && catalog.some((loc) => loc.slug === location!.slug);
+
+  if (!location || isStale || !location.reliable || !cachedSlugStillValid) {
+    location = findLocationForUser(geo, browserLang, catalog);
   }
   
-  if (!location || isStale || !location.reliable) {
-    location = findLocationForUser(geo, browserLang);
-  }
-  
-  // Check for location override from query string
   const searchParams = new URLSearchParams(search);
   const locationOverride = searchParams.get('location');
   if (locationOverride) {
-    const overrideLocation = locations.find(loc => loc.slug === locationOverride);
+    const overrideLocation = catalog.find(loc => loc.slug === locationOverride);
     if (overrideLocation) {
       location = { ...overrideLocation, reliable: true };
     }
@@ -322,13 +356,10 @@ async function initSession(message: WorkerMessage['payload']): Promise<Session> 
   
   const language = determineLanguage(browserLang, location, path);
   
-  // Parse device info (always refresh since viewport may change between sessions)
   const deviceData = parseDeviceInfo(device);
   
-  // Stable identity precedence: cached session → existing cookie → new UUID
   const userId = cachedSession?.userId || existingUserId || crypto.randomUUID();
 
-  // First-touch landing pathname (write-once); conversion preserved from cache.
   const pathnameOnly = path.split('?')[0] || path;
   const landing_page = cachedSession?.landing_page || pathnameOnly;
   const conversion_page = cachedSession?.conversion_page;

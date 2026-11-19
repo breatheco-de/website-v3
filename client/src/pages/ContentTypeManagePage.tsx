@@ -1944,6 +1944,9 @@ function DataSourceDialog({
           payload.template_entry_source_locale =
             sharedLayoutEnablePayload.template_entry_source_locale;
         }
+        if (Array.isArray(sharedLayoutEnablePayload.detach_slugs)) {
+          payload.detach_slugs = sharedLayoutEnablePayload.detach_slugs;
+        }
         if (sharedLayoutEnablePayload.confirm) payload.confirm = true;
       }
 
@@ -7422,6 +7425,9 @@ export default function ContentTypeManagePage() {
         if (enablePayload.template_entry_source_locale) {
           body.template_entry_source_locale = enablePayload.template_entry_source_locale;
         }
+        if (Array.isArray(enablePayload.detach_slugs)) {
+          body.detach_slugs = enablePayload.detach_slugs;
+        }
         if (enablePayload.confirm) body.confirm = true;
       }
       const res = await apiRequest("PUT", `/api/content-types/${contentType}/config`, body);
@@ -7429,12 +7435,21 @@ export default function ContentTypeManagePage() {
       await queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/content-types"] });
       const dissolvedCount = result?.bindingsDissolved?.count ?? 0;
+      const updatedCount = result?.bindingsDissolved?.updatedCount ?? 0;
+      const detachedCount = result?.detachExceptions?.marked?.length ?? 0;
       toast({
         title: checked ? "Shared template on" : "Shared template off",
         description: checked
-          ? dissolvedCount > 0
-            ? `Shared layout enabled. Removed ${dissolvedCount} section binding${dissolvedCount === 1 ? "" : "s"}.`
-            : "All entries share one layout from template.{locale}.yml."
+          ? [
+              detachedCount > 0
+                ? `${detachedCount} page${detachedCount === 1 ? "" : "s"} kept off the template.`
+                : null,
+              dissolvedCount > 0 || updatedCount > 0
+                ? `Bindings: ${dissolvedCount} removed, ${updatedCount} updated.`
+                : "All attached entries share one layout from template.{locale}.yml.",
+            ]
+              .filter(Boolean)
+              .join(" ")
           : "Each entry keeps its own full layout. Cross-locale sync is off.",
       });
       setEnableSharedLayoutOpen(false);
@@ -8755,15 +8770,23 @@ export default function ContentTypeManagePage() {
               <Button
                 variant="ghost"
                 size="sm"
+                className="text-destructive hover:text-destructive"
                 onClick={() => {
                   setSelectedSlugs(new Set());
                   setSelectedSeoKeys(new Set());
                 }}
                 data-testid="button-bulk-clear-selection"
               >
+                <X className="h-3.5 w-3.5" />
                 Clear
               </Button>
               <div className="flex-1 min-w-[1rem]" />
+              <span
+                className="text-sm text-muted-foreground"
+                data-testid="text-bulk-actions-label"
+              >
+                Available bulk actions
+              </span>
               {listPerspective === "seo" ? (
                 <>
                   <Button
@@ -8772,6 +8795,7 @@ export default function ContentTypeManagePage() {
                     onClick={() => setBulkSeoKeywordOpen(true)}
                     data-testid="button-bulk-seo-keyword-refresh"
                   >
+                    <RefreshCw className="h-3.5 w-3.5" />
                     Refresh keyword metrics
                   </Button>
                   <Button
@@ -8784,6 +8808,7 @@ export default function ContentTypeManagePage() {
                     onClick={() => setBulkSeoOgOpen(true)}
                     data-testid="button-bulk-seo-og-regenerate"
                   >
+                    <ImageIcon className="h-3.5 w-3.5" />
                     Regenerate OG
                   </Button>
                 </>
@@ -8795,6 +8820,7 @@ export default function ContentTypeManagePage() {
                   onClick={() => setBulkFunnelOpen(true)}
                   data-testid="button-bulk-update-funnel"
                 >
+                  <Filter className="h-3.5 w-3.5" />
                   Update funnel
                 </Button>
               ) : null}
@@ -8808,7 +8834,7 @@ export default function ContentTypeManagePage() {
                   }}
                   data-testid="button-bulk-delete"
                 >
-                  <Trash2 className="h-4 w-4 mr-1" />
+                  <Trash2 className="h-3.5 w-3.5" />
                   Delete
                 </Button>
               ) : null}
@@ -8969,11 +8995,19 @@ export default function ContentTypeManagePage() {
                 const statusActive = showStatusFilter && statusFilter != null;
                 const marketActive =
                   listPerspective === "organic" && organicMarket !== organicMarketDefault;
+                const facets =
+                  viewMode === "db"
+                    ? (allItemsData?.facets ?? dbItemsMeta?.facets)
+                    : undefined;
+                const showTagFilters =
+                  viewMode === "db" && !!facets && Object.keys(facets).length > 0;
+                const tagFilterCount = Object.values(tagFilters).flat().length;
                 const listFilterCount =
                   (languageActive ? 1 : 0) +
                   (publishDateActive ? 1 : 0) +
                   (statusActive ? 1 : 0) +
-                  (marketActive ? 1 : 0);
+                  (marketActive ? 1 : 0) +
+                  tagFilterCount;
                 const localeSelectValue =
                   listPerspective === "organic"
                     ? listLocaleEffective
@@ -8999,7 +9033,7 @@ export default function ContentTypeManagePage() {
                     <PopoverContent
                       side="bottom"
                       align="end"
-                      className="p-3 w-72"
+                      className="p-3 w-72 max-h-[min(80vh,32rem)] overflow-y-auto"
                       data-testid="list-filter-bar"
                     >
                       <div className="space-y-3">
@@ -9020,6 +9054,7 @@ export default function ContentTypeManagePage() {
                                   ...(listPerspective === "organic"
                                     ? { organicMarket: organicMarketDefault }
                                     : {}),
+                                  ...(showTagFilters ? { tagFilters: {} } : {}),
                                   page: 1,
                                 });
                               }}
@@ -9236,6 +9271,93 @@ export default function ContentTypeManagePage() {
                             </Select>
                           </div>
                         )}
+                        {showTagFilters && facets && (
+                          <div className="space-y-3 border-t border-border pt-3" data-testid="tag-filter-bar">
+                            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                              Database fields
+                            </p>
+                            {Object.entries(facets).map(([field, values]) => {
+                              const active = tagFilters[field] ?? [];
+                              const available = values.filter((v) => !active.includes(v));
+                              return (
+                                <div key={field} className="space-y-1.5">
+                                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                    {field}
+                                  </p>
+                                  <Select
+                                    value=""
+                                    onValueChange={(v) => {
+                                      writeListView({
+                                        ...listView,
+                                        tagFilters: {
+                                          ...tagFilters,
+                                          [field]: [...(tagFilters[field] ?? []), v],
+                                        },
+                                        page: 1,
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger
+                                      className="h-7 text-xs"
+                                      data-testid={`select-filter-${field}`}
+                                    >
+                                      <SelectValue placeholder="Add filter…" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {available.length === 0 ? (
+                                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                          All selected
+                                        </div>
+                                      ) : (
+                                        available.map((v) => (
+                                          <SelectItem
+                                            key={v}
+                                            value={v}
+                                            className="text-xs"
+                                            data-testid={`chip-filter-${field}-${v}`}
+                                          >
+                                            {v}
+                                          </SelectItem>
+                                        ))
+                                      )}
+                                    </SelectContent>
+                                  </Select>
+                                  {active.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {active.map((v) => (
+                                        <span
+                                          key={v}
+                                          className="inline-flex items-center gap-0.5 bg-primary/10 text-primary text-[11px] rounded px-1.5 py-0.5"
+                                        >
+                                          {v}
+                                          <button
+                                            type="button"
+                                            className="ml-0.5 hover:text-foreground cursor-pointer"
+                                            onClick={() => {
+                                              const nextValues = (tagFilters[field] ?? []).filter(
+                                                (x) => x !== v,
+                                              );
+                                              const nextFilters = { ...tagFilters };
+                                              if (nextValues.length === 0) delete nextFilters[field];
+                                              else nextFilters[field] = nextValues;
+                                              writeListView({
+                                                ...listView,
+                                                tagFilters: nextFilters,
+                                                page: 1,
+                                              });
+                                            }}
+                                          >
+                                            <X className="h-2.5 w-2.5" />
+                                          </button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                         <details className="pt-1">
                           <summary
                             className="text-[11px] text-violet-600 dark:text-violet-400 cursor-pointer hover:underline list-none"
@@ -9250,7 +9372,13 @@ export default function ContentTypeManagePage() {
                               <code className="text-[10px]">pubFrom</code> /{" "}
                               <code className="text-[10px]">pubTo</code>,{" "}
                               <code className="text-[10px]">status</code>,{" "}
-                              <code className="text-[10px]">market</code> (Organic).
+                              <code className="text-[10px]">market</code> (Organic)
+                              {showTagFilters ? (
+                                <>
+                                  , facet tags via <code className="text-[10px]">tagFilters</code>
+                                </>
+                              ) : null}
+                              .
                             </p>
                             <p>
                               Pending Drafts = live entries with at least one variant (including{" "}
@@ -9258,108 +9386,6 @@ export default function ContentTypeManagePage() {
                             </p>
                           </div>
                         </details>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                );
-              })()}
-              {(() => {
-                const facets = allItemsData?.facets ?? dbItemsMeta?.facets;
-                if (viewMode !== "db" || !facets || Object.keys(facets).length === 0) return null;
-                const activeFilterCount = Object.values(tagFilters).flat().length;
-                return (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="shrink-0 relative"
-                        data-testid="button-open-filters"
-                      >
-                        <SlidersHorizontal className="h-4 w-4" />
-                        {activeFilterCount > 0 && (
-                          <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-primary-foreground text-[9px] flex items-center justify-center font-medium leading-none">
-                            {activeFilterCount}
-                          </span>
-                        )}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent side="bottom" align="end" className="p-3 w-64" data-testid="tag-filter-bar">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-medium">Filters</p>
-                          {activeFilterCount > 0 && (
-                            <button
-                              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2"
-                              onClick={() => writeListView({ ...listView, tagFilters: {}, page: 1 })}
-                              data-testid="button-clear-tag-filters"
-                            >
-                              Clear all
-                            </button>
-                          )}
-                        </div>
-                        {Object.entries(facets).map(([field, values]) => {
-                          const active = tagFilters[field] ?? [];
-                          const available = values.filter((v) => !active.includes(v));
-                          return (
-                            <div key={field} className="space-y-1.5">
-                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{field}</p>
-                              <Select
-                                value=""
-                                onValueChange={(v) => {
-                                  writeListView({
-                                    ...listView,
-                                    tagFilters: {
-                                      ...tagFilters,
-                                      [field]: [...(tagFilters[field] ?? []), v],
-                                    },
-                                    page: 1,
-                                  });
-                                }}
-                              >
-                                <SelectTrigger className="h-7 text-xs" data-testid={`select-filter-${field}`}>
-                                  <SelectValue placeholder="Add filter…" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {available.length === 0 ? (
-                                    <div className="px-2 py-1.5 text-xs text-muted-foreground">All selected</div>
-                                  ) : (
-                                    available.map((v) => (
-                                      <SelectItem key={v} value={v} className="text-xs" data-testid={`chip-filter-${field}-${v}`}>
-                                        {v}
-                                      </SelectItem>
-                                    ))
-                                  )}
-                                </SelectContent>
-                              </Select>
-                              {active.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
-                                  {active.map((v) => (
-                                    <span key={v} className="inline-flex items-center gap-0.5 bg-primary/10 text-primary text-[11px] rounded px-1.5 py-0.5">
-                                      {v}
-                                      <button
-                                        className="ml-0.5 hover:text-foreground cursor-pointer"
-                                        onClick={() => {
-                                          const nextValues = (tagFilters[field] ?? []).filter((x) => x !== v);
-                                          const nextFilters = { ...tagFilters };
-                                          if (nextValues.length === 0) delete nextFilters[field];
-                                          else nextFilters[field] = nextValues;
-                                          writeListView({
-                                            ...listView,
-                                            tagFilters: nextFilters,
-                                            page: 1,
-                                          });
-                                        }}
-                                      >
-                                        <X className="h-2.5 w-2.5" />
-                                      </button>
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
                       </div>
                     </PopoverContent>
                   </Popover>

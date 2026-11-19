@@ -4,7 +4,7 @@ import { LocationOverrideModal } from "./LocationOverrideModal";
 import { badgeVariants } from "@/components/ui/badge";
 import { useSession } from "@/contexts/SessionContext";
 import { useToast } from "@/hooks/use-toast";
-import { locations } from "@/lib/locations";
+import { useLocationCatalog } from "@/hooks/useLocationCatalog";
 import { cn } from "@/lib/utils";
 
 const REGION_LABELS: Record<string, string> = {
@@ -21,6 +21,7 @@ export function LocationOverrideBadge({
 }) {
   const { session, refreshGeo } = useSession();
   const { toast } = useToast();
+  const { data: locations = [] } = useLocationCatalog();
   const [open, setOpen] = useState(false);
   const [selectedLocationSlug, setSelectedLocationSlug] = useState("");
   const [isResetting, setIsResetting] = useState(false);
@@ -29,6 +30,19 @@ export function LocationOverrideBadge({
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("location")
       : null;
+
+  const locationsByRegion = useMemo(
+    () =>
+      locations.reduce(
+        (acc, loc) => {
+          if (!acc[loc.region]) acc[loc.region] = [];
+          acc[loc.region].push(loc);
+          return acc;
+        },
+        {} as Record<string, typeof locations>,
+      ),
+    [locations],
+  );
 
   if (readOnlyLlm) {
     return (
@@ -45,19 +59,6 @@ export function LocationOverrideBadge({
       </span>
     );
   }
-
-  const locationsByRegion = useMemo(
-    () =>
-      locations.reduce(
-        (acc, loc) => {
-          if (!acc[loc.region]) acc[loc.region] = [];
-          acc[loc.region].push(loc);
-          return acc;
-        },
-        {} as Record<string, typeof locations>,
-      ),
-    [],
-  );
 
   const handleLocationOverride = () => {
     if (!selectedLocationSlug) return;

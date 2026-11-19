@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -17,8 +18,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ChevronDown } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { previewPruneGroupsForSharedLayoutEnable } from "@shared/bindings-prune";
 
 export interface SharedLayoutDivergence {
   locale: string;
@@ -44,6 +46,8 @@ export interface SharedLayoutEnablePayload {
   shared_layout_base_locale?: string;
   template_entry_source_slug?: string;
   template_entry_source_locale?: string;
+  /** Slugs that stay off the shared template (detached). */
+  detach_slugs?: string[];
   confirm?: boolean;
 }
 
@@ -82,13 +86,14 @@ interface SharedLayoutEnableDialogProps {
     paths_to_overwrite: string[];
   } | null;
   onClearReplacePreview?: () => void;
+  /** Pre-check these slugs as exceptions (e.g. all location campuses). */
+  defaultDetachSlugs?: string[];
 }
 
 export function SharedLayoutEnableFields({
   contentType,
   usableTemplate,
   divergences,
-  bindings = [],
   value,
   onChange,
   disabled,
@@ -189,7 +194,6 @@ export function SharedLayoutEnableFields({
             ...value,
             template_entry_source_locale: locales[0],
           });
-          // Re-run will assess with locale set
           return;
         }
 
@@ -285,6 +289,7 @@ export function SharedLayoutEnableFields({
               disabled={disabled}
               onClick={() =>
                 onChange({
+                  ...value,
                   template_mode: "keep_existing",
                   shared_layout_base_locale:
                     value.shared_layout_base_locale ||
@@ -361,7 +366,7 @@ export function SharedLayoutEnableFields({
       {mode === "from_entry" && (
         <div className="space-y-3">
           <div className="space-y-2">
-            <Label htmlFor="template-entry-search">Search and choose a location</Label>
+            <Label htmlFor="template-entry-search">Search and choose a seed entry</Label>
             <Input
               id="template-entry-search"
               value={entrySearch}
@@ -409,7 +414,7 @@ export function SharedLayoutEnableFields({
             </ul>
             {entryCheck.status === "checking" && (
               <p className="text-xs text-muted-foreground" data-testid="text-entry-check-loading">
-                Checking if this location can be used as a template…
+                Checking if this entry can be used as a template…
               </p>
             )}
             {entryCheck.status === "error" && (
@@ -421,26 +426,17 @@ export function SharedLayoutEnableFields({
                   Cannot use{" "}
                   {entryResults.find((e) => e.slug === value.template_entry_source_slug)?.title ||
                     value.template_entry_source_slug ||
-                    "this location"}{" "}
+                    "this entry"}{" "}
                   as a template
                 </p>
-                {entryCheck.code === "template_entry_not_template_shaped" ? (
-                  <p className="text-muted-foreground">
-                    This location cannot be used as a template. Its sections still have fixed text
-                    or images instead of fields that pull from each entry. Make sure to include{" "}
-                    <code className="text-[11px]">{"{{ entry.variable_name }}"}</code> on the
-                    dynamic sections you expect for the template.
-                  </p>
-                ) : (
-                  <p className="text-muted-foreground">
-                    {templateEntryRejectMessage(entryCheck.code)}
-                  </p>
-                )}
+                <p className="text-muted-foreground">
+                  {templateEntryRejectMessage(entryCheck.code)}
+                </p>
               </div>
             )}
             {entryCheck.status === "ok" && (
               <p className="text-xs text-muted-foreground" data-testid="text-entry-check-ok">
-                This location can be used as a template.
+                This entry can be used as a template.
               </p>
             )}
           </div>
@@ -494,20 +490,208 @@ export function SharedLayoutEnableFields({
         </div>
       )}
 
-      {bindings.length > 0 && (
+      <p className="text-xs text-muted-foreground" data-testid="text-shared-layout-step1-hint">
+        Next: choose which pages stay off the template and review section bindings.
+      </p>
+    </div>
+  );
+}
+
+function SharedLayoutExceptionsStep({
+  contentType,
+  bindings,
+  detachSlugs,
+  onDetachSlugsChange,
+  disabled,
+}: {
+  contentType: string;
+  bindings: SharedLayoutBindingSummary[];
+  detachSlugs: string[];
+  onDetachSlugsChange: (slugs: string[]) => void;
+  disabled?: boolean;
+}) {
+  const [search, setSearch] = useState("");
+  const [entries, setEntries] = useState<Array<{ slug: string; title?: string }>>([]);
+  const [loading, setLoading] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
+  const detachSet = useMemo(() => new Set(detachSlugs), [detachSlugs]);
+
+  useEffect(() => {
+    const q = search.trim();
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({ page: "1", pageSize: "40" });
+        if (q) params.set("q", q);
+        const res = await apiRequest(
+          "GET",
+          `/api/content-types/${encodeURIComponent(contentType)}/static-entries?${params}`,
+        );
+        const data = await res.json();
+        const list = (data.results || data.entries || data.items || []) as Array<{
+          slug: string;
+          title?: string;
+        }>;
+        setEntries(list);
+      } catch {
+        setEntries([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [search, contentType]);
+
+  const preview = useMemo(
+    () => previewPruneGroupsForSharedLayoutEnable(bindings, contentType, detachSlugs),
+    [bindings, contentType, detachSlugs],
+  );
+
+  const toggle = (slug: string, checked: boolean) => {
+    if (checked) {
+      if (detachSet.has(slug)) return;
+      onDetachSlugsChange([...detachSlugs, slug]);
+    } else {
+      onDetachSlugsChange(detachSlugs.filter((s) => s !== slug));
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        Pages you leave off the template keep their own layout and can stay in section bindings with
+        each other. Everyone else uses the shared template and drops out of bindings.
+      </p>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="detach-entry-search">Stay off the shared template</Label>
+          <div className="flex gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              disabled={disabled || entries.length === 0}
+              onClick={() => {
+                const slugs = new Set(detachSlugs);
+                for (const e of entries) slugs.add(e.slug);
+                onDetachSlugsChange([...slugs]);
+              }}
+              data-testid="button-detach-select-visible"
+            >
+              Select visible
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              disabled={disabled || detachSlugs.length === 0}
+              onClick={() => onDetachSlugsChange([])}
+              data-testid="button-detach-clear"
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
+        <Input
+          id="detach-entry-search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search entries…"
+          disabled={disabled}
+          data-testid="input-detach-entry-search"
+        />
+        <ul
+          className="max-h-48 overflow-y-auto rounded-md border border-border divide-y"
+          data-testid="list-detach-exceptions"
+        >
+          {loading && (
+            <li className="px-3 py-2 text-xs text-muted-foreground">Loading…</li>
+          )}
+          {!loading && entries.length === 0 && (
+            <li className="px-3 py-2 text-xs text-muted-foreground">No entries found</li>
+          )}
+          {entries.map((e) => {
+            const checked = detachSet.has(e.slug);
+            return (
+              <li key={e.slug} className="flex items-center gap-2 px-3 py-2">
+                <Checkbox
+                  id={`detach-${e.slug}`}
+                  checked={checked}
+                  disabled={disabled}
+                  onCheckedChange={(v) => toggle(e.slug, v === true)}
+                  data-testid={`checkbox-detach-${e.slug}`}
+                />
+                <label htmlFor={`detach-${e.slug}`} className="flex-1 min-w-0 cursor-pointer">
+                  <span className="text-sm text-foreground">{e.title || e.slug}</span>
+                  <span className="block text-[11px] text-muted-foreground font-mono truncate">
+                    {e.slug}
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="text-[11px] text-muted-foreground" data-testid="text-detach-count">
+          {detachSlugs.length} exception{detachSlugs.length === 1 ? "" : "s"} selected
+        </p>
+      </div>
+
+      {bindings.length === 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="text-bindings-none">
+          No section bindings on this content type.
+        </p>
+      ) : (
         <div
           className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 space-y-2"
           data-testid="shared-layout-bindings-warning"
         >
-          <p className="text-sm font-medium text-foreground">
-            {bindings.length} section binding{bindings.length === 1 ? "" : "s"} will be removed
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Shared layout and section bindings do not mix. Confirming dissolves these binding groups
-            for this content type.
-          </p>
+          <p className="text-sm font-medium text-foreground">Binding impact</p>
+          <ul className="text-xs text-muted-foreground space-y-1">
+            <li data-testid="text-bindings-kept">
+              Kept: {preview.kept.filter((g) => g.members.some((m) => m.contentType === contentType)).length + preview.updated.length}{" "}
+              group
+              {preview.kept.filter((g) => g.members.some((m) => m.contentType === contentType)).length +
+                preview.updated.length ===
+              1
+                ? ""
+                : "s"}{" "}
+              with enough exceptions
+            </li>
+            <li data-testid="text-bindings-updated">
+              Updated (members removed): {preview.updated.length}
+            </li>
+            <li data-testid="text-bindings-removed">
+              Removed (fewer than 2 members left): {preview.removed.length}
+            </li>
+          </ul>
         </div>
       )}
+
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        onClick={() => setAdvanced((v) => !v)}
+        data-testid="button-shared-layout-exceptions-advanced"
+      >
+        {advanced ? "Hide advanced details" : "Read more (advanced)"}
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${advanced ? "rotate-180" : ""}`} />
+      </button>
+      {advanced ? (
+        <div className="rounded-md border border-border bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
+          <p>
+            Exceptions set <code className="font-mono text-[11px]">detached: true</code> on each
+            entry&apos;s <code className="font-mono text-[11px]">_common.yml</code> and keep their
+            existing sections.
+          </p>
+          <p>
+            Binding groups are pruned so only entry-owned members remain; groups with fewer than two
+            members are deleted.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -523,27 +707,32 @@ export function SharedLayoutEnableDialog({
   isLoading = false,
   replacePreview = null,
   onClearReplacePreview,
+  defaultDetachSlugs,
 }: SharedLayoutEnableDialogProps) {
+  const [step, setStep] = useState<1 | 2>(1);
   const [payload, setPayload] = useState<SharedLayoutEnablePayload>(() => ({
     template_mode: usableTemplate ? "keep_existing" : "from_entry",
     shared_layout_base_locale: "en",
+    detach_slugs: defaultDetachSlugs ? [...defaultDetachSlugs] : [],
   }));
   const [sourceEligible, setSourceEligible] = useState(true);
 
   useEffect(() => {
     if (open) {
+      setStep(1);
       setPayload({
         template_mode: usableTemplate ? "keep_existing" : "from_entry",
         shared_layout_base_locale:
           divergences.find((d) => d.sectionCount > 0 && d.locale === "en")?.locale ||
           divergences.find((d) => d.sectionCount > 0)?.locale ||
           "en",
+        detach_slugs: defaultDetachSlugs ? [...defaultDetachSlugs] : [],
       });
       setSourceEligible(usableTemplate);
     }
-  }, [open, usableTemplate, divergences]);
+  }, [open, usableTemplate, divergences, defaultDetachSlugs]);
 
-  const canSubmit =
+  const canGoNext =
     (payload.template_mode === "keep_existing" ||
       !!payload.template_entry_source_slug) &&
     sourceEligible;
@@ -628,52 +817,78 @@ export function SharedLayoutEnableDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-amber-500" />
-            Enable shared layout
+            {step === 1 ? "Enable shared layout" : "Exceptions and bindings"}
           </DialogTitle>
           <DialogDescription>
-            Choose whether to keep the current shared template shell or seed it from one entry.
-            Sibling locale templates are aligned to the chosen structure.
-            {bindings.length > 0
-              ? " Section bindings cannot be used with shared layout and will be removed."
-              : ""}
+            {step === 1
+              ? "Choose whether to keep the current shared template shell or seed it from one entry. Sibling locale templates are aligned to the chosen structure."
+              : "Choose which pages keep their own layout. Confirm shows how section bindings will change."}
           </DialogDescription>
         </DialogHeader>
 
-        <SharedLayoutEnableFields
-          contentType={contentType}
-          usableTemplate={usableTemplate}
-          divergences={divergences}
-          bindings={bindings}
-          value={payload}
-          onChange={setPayload}
-          disabled={isLoading}
-          onSourceEligibleChange={setSourceEligible}
-        />
+        {step === 1 ? (
+          <SharedLayoutEnableFields
+            contentType={contentType}
+            usableTemplate={usableTemplate}
+            divergences={divergences}
+            bindings={bindings}
+            value={payload}
+            onChange={setPayload}
+            disabled={isLoading}
+            onSourceEligibleChange={setSourceEligible}
+          />
+        ) : (
+          <SharedLayoutExceptionsStep
+            contentType={contentType}
+            bindings={bindings}
+            detachSlugs={payload.detach_slugs || []}
+            onDetachSlugsChange={(slugs) => setPayload((p) => ({ ...p, detach_slugs: slugs }))}
+            disabled={isLoading}
+          />
+        )}
 
         <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
-          <Button
-            variant="ghost"
-            onClick={onClose}
-            disabled={isLoading}
-            data-testid="button-shared-layout-enable-cancel"
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={() => onConfirm(payload)}
-            disabled={
-              isLoading ||
-              !canSubmit ||
-              (payload.template_mode === "from_entry" && !payload.template_entry_source_slug)
-            }
-            data-testid="button-shared-layout-enable-confirm"
-          >
-            {isLoading
-              ? "Enabling…"
-              : bindings.length > 0
-                ? "Enable and remove bindings"
-                : "Enable shared layout"}
-          </Button>
+          {step === 1 ? (
+            <>
+              <Button
+                variant="ghost"
+                onClick={onClose}
+                disabled={isLoading}
+                data-testid="button-shared-layout-enable-cancel"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => setStep(2)}
+                disabled={
+                  isLoading ||
+                  !canGoNext ||
+                  (payload.template_mode === "from_entry" && !payload.template_entry_source_slug)
+                }
+                data-testid="button-shared-layout-enable-next"
+              >
+                Next
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                onClick={() => setStep(1)}
+                disabled={isLoading}
+                data-testid="button-shared-layout-enable-back"
+              >
+                Back
+              </Button>
+              <Button
+                onClick={() => onConfirm(payload)}
+                disabled={isLoading}
+                data-testid="button-shared-layout-enable-confirm"
+              >
+                {isLoading ? "Enabling…" : "Enable shared layout"}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

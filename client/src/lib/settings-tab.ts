@@ -1,4 +1,4 @@
-export const GENERAL_SETTINGS_TABS = ["locales", "migrations", "brand", "robots", "legal", "server"] as const;
+export const GENERAL_SETTINGS_TABS = ["locales", "migrations", "brand", "robots", "legal", "session", "server"] as const;
 export type GeneralSettingsTab = (typeof GENERAL_SETTINGS_TABS)[number];
 
 export type SettingsSectionId = "general" | "seo" | "ads" | "ai" | "tracking" | "security";

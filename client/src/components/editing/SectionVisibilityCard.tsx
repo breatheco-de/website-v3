@@ -4,7 +4,7 @@ import { IconPencil, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
-import { locations as allLocations } from "@/lib/locations";
+import { useLocationCatalog } from "@/hooks/useLocationCatalog";
 import { cn } from "@/lib/utils";
 
 function countryCodeToFlag(code: string): string {
@@ -67,6 +67,7 @@ function ShowOnLocationsPicker({
   value: string[];
   onChange: (value: string[]) => void;
 }) {
+  const { data: allLocations = [] } = useLocationCatalog();
   const options = allLocations
     .filter((loc) => loc.visibility === "listed")
     .map((loc) => ({
@@ -112,7 +113,7 @@ function deviceSummary(showOn: string): string {
   return "Desktop & mobile";
 }
 
-function locationsSummary(slugs: string[]): string {
+function locationsSummary(slugs: string[], allLocations: { slug: string; name: string }[]): string {
   if (!slugs.length) return "All locations";
   if (slugs.length === 1) {
     const loc = allLocations.find((l) => l.slug === slugs[0]);
@@ -133,10 +134,11 @@ export function SectionVisibilityCard({
   onShowOnLocationsChange: (value: string[]) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const { data: allLocations = [] } = useLocationCatalog();
 
   const summary = useMemo(() => {
-    return [deviceSummary(showOn), locationsSummary(showOnLocations)].join(" · ");
-  }, [showOn, showOnLocations]);
+    return [deviceSummary(showOn), locationsSummary(showOnLocations, allLocations)].join(" · ");
+  }, [showOn, showOnLocations, allLocations]);
 
   return (
     <div

@@ -1,6 +1,6 @@
 /**
- * Every location entry on a site (listed and hidden), read from the location
- * content type folder. Lead form options show listed ones; checks accept both.
+ * Every location entry on a site (listed and hidden). Prefer the locations
+ * database when present; fall back to the location content type folder.
  */
 
 import fs from "fs";
@@ -9,6 +9,7 @@ import { getDefaultContentRoot } from "./site-config";
 import { getFolder } from "./content-types";
 import { loadYamlWithTemplateVars as safeYamlLoad } from "./yaml-parse-cache";
 import type { LocationNameIndex } from "@shared/formLocationPolicy";
+import { loadLocationsFromDatabase, loadSessionLocationCatalog } from "./session-location-catalog";
 
 export interface SiteLocation {
   slug: string;
@@ -21,8 +22,29 @@ export interface SiteLocation {
   hidden: boolean;
 }
 
+function fromDbRows(
+  rows: ReturnType<typeof loadLocationsFromDatabase>,
+): SiteLocation[] {
+  return rows.map((r) => ({
+    slug: r.slug,
+    name: r.name,
+    city: r.city,
+    country: r.country,
+    ...(r.country_code ? { country_code: r.country_code } : {}),
+    region: r.region || "other",
+    hidden: r.visibility === "unlisted",
+  }));
+}
+
 export function listSiteLocations(contentRoot?: string): SiteLocation[] {
   const root = contentRoot ?? getDefaultContentRoot();
+
+  const fromSession = loadSessionLocationCatalog(root);
+  if (fromSession.length > 0) return fromDbRows(fromSession);
+
+  const fromLocationsDb = loadLocationsFromDatabase("locations", root);
+  if (fromLocationsDb.length > 0) return fromDbRows(fromLocationsDb);
+
   const absRoot = path.isAbsolute(root) ? root : path.join(process.cwd(), root);
   let dir: string;
   try {

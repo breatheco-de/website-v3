@@ -14,6 +14,7 @@ import {
   IconRobot,
   IconSettings,
   IconChevronDown,
+  IconWorld,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { BRAND_LOGO_ENSURE_TAGS, OG_IMAGE_ENSURE_TAGS } from "@shared/standardMediaTags";
@@ -54,6 +55,7 @@ import { Label } from "@/components/ui/label";
 import { ServerTab } from "@/components/settings/ServerTab";
 import { RobotsTab } from "@/components/settings/RobotsTab";
 import { MigrationsTab } from "@/components/settings/MigrationsTab";
+import { SessionTab } from "@/components/settings/SessionTab";
 import { ConsentWindowCard } from "@/components/settings/ConsentWindowCard";
 import {
   consentLabelFromKey,
@@ -71,6 +73,7 @@ const GENERAL_TABS: SettingsSecondaryTab<GeneralSettingsTab>[] = [
   { id: "brand", label: "Brand", href: generalSettingsHref("brand"), Icon: IconPhoto },
   { id: "robots", label: "Robots", href: generalSettingsHref("robots"), Icon: IconRobot },
   { id: "legal", label: "Legal", href: generalSettingsHref("legal"), Icon: IconScale },
+  { id: "session", label: "Session", href: generalSettingsHref("session"), Icon: IconWorld },
   { id: "server", label: "Server", href: generalSettingsHref("server"), Icon: IconServer },
 ];
 
@@ -1399,6 +1402,10 @@ export default function SettingsPage() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+          </TabsContent>
+
+          <TabsContent value="session" className="mt-0">
+            <SessionTab />
           </TabsContent>
 
           <TabsContent value="server" className="mt-0">

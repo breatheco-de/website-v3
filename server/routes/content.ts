@@ -355,7 +355,13 @@ import {
   resolvePreviewBaseSlug,
   resolveVersioningReadSlug,
 } from "../shared-layout-entry";
-import { detachEntry, reattachEntry, getReattachSectionLossPreview, ReattachRequiredFieldsError } from "../shared-layout-detach";
+import {
+  detachEntry,
+  reattachEntry,
+  markEntriesDetachedPreservingStructure,
+  getReattachSectionLossPreview,
+  ReattachRequiredFieldsError,
+} from "../shared-layout-detach";
 import { resolveCommonTemplatePath } from "../shared-layout-paths";
 import {
   buildLocaleUnavailablePayload,
@@ -2332,14 +2338,34 @@ export function registerContentRoutes(app: Express): void {
         }
       }
 
-      // When enabling shared layout, dissolve bindings for this type (bindings and templates don't mix)
+      // When enabling shared layout: surgically prune bindings; mark detach exceptions
       let bindingsDissolved: unknown = undefined;
+      let detachResult: unknown = undefined;
       if (enablingShared) {
-        const dissolved = bindingManager.dissolveGroupsForContentType(type);
-        if (dissolved.count > 0) {
+        const detachSlugs = Array.isArray(body.detach_slugs)
+          ? (body.detach_slugs as unknown[]).filter((s): s is string => typeof s === "string" && !!s.trim())
+          : [];
+        const pruned = bindingManager.pruneGroupsForSharedLayoutEnable(
+          type,
+          detachSlugs,
+        );
+        if (pruned.removedCount > 0 || pruned.updatedCount > 0) {
           bindingsDissolved = {
-            count: dissolved.count,
-            groups: dissolved.dissolved.map((g) => ({
+            count: pruned.removedCount,
+            updatedCount: pruned.updatedCount,
+            groups: pruned.removed.map((g) => ({
+              id: g.id,
+              name: g.name,
+              component: g.component,
+              locale: g.locale,
+              memberCount: g.members.length,
+              members: g.members.map((m) => ({
+                contentType: m.contentType,
+                slug: m.slug,
+                sectionId: m.sectionId,
+              })),
+            })),
+            updated: pruned.updated.map((g) => ({
               id: g.id,
               name: g.name,
               component: g.component,
@@ -2352,6 +2378,19 @@ export function registerContentRoutes(app: Express): void {
               })),
             })),
           };
+        }
+        if (detachSlugs.length > 0) {
+          try {
+            detachResult = markEntriesDetachedPreservingStructure({
+              contentType: type,
+              slugs: detachSlugs,
+              contentRoot: getContentRoot(res),
+            });
+            getCI(res).refresh();
+            invalidateContentCaches(type, getCI(res));
+          } catch (detachErr) {
+            log.warn({ err: detachErr, type }, "mark detach exceptions after shared-layout enable failed");
+          }
         }
       }
 
@@ -2380,6 +2419,7 @@ export function registerContentRoutes(app: Express): void {
         success: true,
         ...(alignResult ? { align: alignResult } : {}),
         ...(bindingsDissolved ? { bindingsDissolved } : {}),
+        ...(detachResult ? { detachExceptions: detachResult } : {}),
         ...(enableBootstrap?.ok
           ? {
               shared_layout_enable: {

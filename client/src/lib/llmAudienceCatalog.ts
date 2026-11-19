@@ -1,4 +1,9 @@
-import { getLocationBySlug, getRegionForLocation, getRegionLabel } from "@/lib/locations";
+import {
+  getLocationBySlug,
+  getRegionForLocation,
+  getRegionLabel,
+  getLocationCatalog,
+} from "@/lib/locations";
 import {
   describeSectionAudience,
   type LlmLocationCatalog,
@@ -8,10 +13,10 @@ import {
 
 const catalog: LlmLocationCatalog = {
   regionOf(slug) {
-    return getRegionForLocation(slug) as LlmRegionSlug | null;
+    return getRegionForLocation(slug, getLocationCatalog()) as LlmRegionSlug | null;
   },
   cityName(slug) {
-    return getLocationBySlug(slug)?.name || slug;
+    return getLocationBySlug(slug, getLocationCatalog())?.name || slug;
   },
   regionLabel(slug, locale) {
     return getRegionLabel(slug, locale);

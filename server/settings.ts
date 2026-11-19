@@ -10,6 +10,11 @@ import {
   parseConsentWindowSettings,
   type ConsentWindowSettings,
 } from "@shared/consent";
+import {
+  DEFAULT_SESSION_SETTINGS,
+  parseSessionSettings,
+  type SessionSettings,
+} from "@shared/session-settings";
 import { parseAdsSettings, type AdsSettings, type GoogleAdsSettings, type MetaAdsSettings } from "@shared/ads-settings";
 import {
   ADS_CONFIG_FILENAME,
@@ -1062,6 +1067,8 @@ export interface SiteConsentSettings {
   window: ConsentWindowSettings;
 }
 
+export type { SessionSettings };
+
 interface SiteSettings {
   i18n: I18nSettings;
   home_page: HomePageSettings;
@@ -1078,6 +1085,7 @@ interface SiteSettings {
   auth: AuthSettings;
   entry_preview: EntryPreviewSettings;
   consent: SiteConsentSettings;
+  session: SessionSettings;
   /** Legacy `ads:` block; ads-config.yml wins when it exists (read through getAdsSettings). */
   ads: AdsSettings;
   ads_legacy_present: boolean;
@@ -1217,6 +1225,9 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
     auth: {},
     entry_preview: { ...DEFAULT_ENTRY_PREVIEW_SETTINGS },
     consent: { fallback: null, window: { ...DEFAULT_CONSENT_WINDOW } },
+    session: {
+      location: { ...DEFAULT_SESSION_SETTINGS.location },
+    },
     ads: parseAdsSettings(undefined),
     ads_legacy_present: false,
   };
@@ -1442,6 +1453,7 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
       auth,
       entry_preview: parseEntryPreviewSettings(parsed.entry_preview),
       consent: parseSiteConsentSettings(parsed.consent),
+      session: parseSessionSettings(parsed.session),
       ads: parseAdsSettings(parsed.ads),
       ads_legacy_present: parsed.ads != null && typeof parsed.ads === "object",
     };
@@ -1862,6 +1874,64 @@ export function getEntryPreviewSettings(contentRoot?: string): EntryPreviewSetti
 
 export function getAuthSettings(contentRoot?: string): AuthSettings {
   return loadSettings(contentRoot).auth;
+}
+
+export function getSessionSettings(contentRoot?: string): SessionSettings {
+  return loadSettings(contentRoot).session;
+}
+
+/**
+ * Persist visitor session config to settings.yml → session.
+ * `location.database` null/empty = do not fill session.location from a campus bank.
+ */
+export function updateSessionSettings(
+  input: Partial<SessionSettings> & { location?: Partial<SessionSettings["location"]> },
+  contentRoot?: string,
+): SessionSettings {
+  const settingsPath = getSettingsPath(contentRoot);
+  let existing: Record<string, unknown> = {};
+  if (fs.existsSync(settingsPath)) {
+    try {
+      const raw = fs.readFileSync(settingsPath, "utf-8");
+      existing = (yaml.load(raw) as Record<string, unknown>) || {};
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const current = loadSettings(contentRoot).session;
+  const nextLoc = input.location ?? {};
+  let database = current.location.database;
+  if (nextLoc.database !== undefined) {
+    if (nextLoc.database === null || nextLoc.database === "") {
+      database = null;
+    } else if (typeof nextLoc.database === "string") {
+      database = nextLoc.database.trim() || null;
+    } else {
+      throw new Error("session.location.database must be a string or null");
+    }
+  }
+  const fill_from_ip =
+    nextLoc.fill_from_ip !== undefined ? nextLoc.fill_from_ip !== false : current.location.fill_from_ip;
+
+  const updated: SessionSettings = {
+    location: { database, fill_from_ip },
+  };
+
+  existing.session = {
+    location: {
+      database: updated.location.database,
+      fill_from_ip: updated.location.fill_from_ip,
+    },
+  };
+
+  const output = yaml.dump(existing, { lineWidth: 120, noRefs: true });
+  fs.writeFileSync(settingsPath, output, "utf-8");
+  resetSettings(resolveSettingsRoot(contentRoot));
+  log.info(
+    `[Settings] Updated session: location.database="${updated.location.database ?? ""}", fill_from_ip=${updated.location.fill_from_ip}`,
+  );
+  return loadSettings(contentRoot).session;
 }
 
 /**

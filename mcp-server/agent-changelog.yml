@@ -6,6 +6,19 @@ window_days: 6
 
 entries:
   - date: "2026-11-19"
+    summary: "session.location from campus DB + shared-layout detach exceptions"
+    agent_impact:
+      - "Visitor session.location is filled from settings.yml session.location.database (campus private DB + IP geo) via GET /api/session/location-catalog — not a hardcoded client list. None / fill_from_ip off → location null; geo still fills. Staff: Settings → Session."
+      - "Known campus slugs for forms/validators prefer the locations DB when present. explain_site topic lead-forms → Location."
+      - "Shared-layout enable may pass detach_slugs (exceptions keep entry-owned shells); bindings prune attached members only. Detached members may bind with each other. explain_site topic shared-layout → enable playbook. No new MCP tools. Stress N/A."
+    tools_changed: false
+    paths:
+      - mcp-server/explain/lead-forms.md
+      - mcp-server/explain/shared-layout.md
+      - shared/session-settings.ts
+      - server/session-location-catalog.ts
+      - client/src/workers/session.worker.ts
+  - date: "2026-11-19"
     summary: "1 persona → 1 product is intentional policy; refuse shared/multi-product persona designs"
     agent_impact:
       - "Personas stay product-owned on `_product.yml` only. Do not invent a shared catalog, multi-product membership, or reuse the same persona id across products because the buyer looks the same."
