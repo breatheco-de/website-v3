@@ -65,9 +65,9 @@ Rules:
 - Success shapes:
   {"status":"persona","persona":{"id":"slug-id","label":"Short label","role":"…","industry_or_context":"…","demographics":"…","buying_behavior":"…","avatar":{"fears":["…"],"internal_dialogue":"…","objections":["…"],"aspirational_identity":"…"}}}
   {"status":"none","reason":"short plain-English reason"}
-- persona.id must be a unique kebab-case slug (letters, numbers, hyphens). Never reuse an existing id.
+- persona.id must be a unique kebab-case slug (letters, numbers, hyphens). Never reuse an existing id on this product or any other product on the site (1 persona → 1 product).
 - persona.role must be non-empty and meaningfully different from existing roles (not a rename/paraphrase).
-- avatar.fears and avatar.objections must be non-empty arrays (≥1 item each).
+- avatar.fears and avatar.objections must be non-empty arrays (≥1 item each). Write product-specific copy — do not clone a peer product's avatar (same segment on another SKU needs different fears/objections).
 - avatar.internal_dialogue must be a first-person thought (non-empty).
 - Optional fields may be omitted.
 - When existing personas already cover who_its_for, return status "none" with a brief reason.

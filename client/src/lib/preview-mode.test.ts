@@ -5,6 +5,7 @@ import {
   PREVIEW_MODE_STORAGE_KEY,
   buildShareablePreviewUrl,
   clearStoredPreviewMode,
+  decidePreviewUrlSync,
   parsePreviewModeParam,
   persistPreviewMode,
   previewModeFromEditState,
@@ -139,5 +140,71 @@ describe("preview mode localStorage", () => {
     expect(readStoredPreviewMode()).toEqual({ kind: "llm" });
     clearStoredPreviewMode();
     expect(readStoredPreviewMode()).toBeNull();
+  });
+});
+
+describe("decidePreviewUrlSync", () => {
+  it("re-stamps llm on public content pages when the param was dropped", () => {
+    expect(
+      decidePreviewUrlSync({
+        pathname: "/us/coding-bootcamp",
+        mode: null,
+        isLlmPreview: true,
+      }),
+    ).toEqual({ action: "restamp-llm" });
+  });
+
+  it("applies llm from the URL on public pages", () => {
+    expect(
+      decidePreviewUrlSync({
+        pathname: "/us/coding-bootcamp",
+        mode: { kind: "llm" },
+        isLlmPreview: false,
+      }),
+    ).toEqual({ action: "apply-llm", stripLocation: true });
+  });
+
+  it("ignores desktop and device modes on public pages", () => {
+    expect(
+      decidePreviewUrlSync({
+        pathname: "/us/coding-bootcamp",
+        mode: { kind: "desktop" },
+        isLlmPreview: false,
+      }),
+    ).toEqual({ action: "ignore" });
+    expect(
+      decidePreviewUrlSync({
+        pathname: "/us/coding-bootcamp",
+        mode: { kind: "device", deviceId: "iphone-se" },
+        isLlmPreview: false,
+      }),
+    ).toEqual({ action: "ignore" });
+  });
+
+  it("ignores admin private paths", () => {
+    expect(
+      decidePreviewUrlSync({
+        pathname: "/private/settings",
+        mode: { kind: "llm" },
+        isLlmPreview: true,
+      }),
+    ).toEqual({ action: "ignore" });
+  });
+
+  it("handles private preview desktop and device", () => {
+    expect(
+      decidePreviewUrlSync({
+        pathname: "/private/preview/page/home",
+        mode: { kind: "desktop" },
+        isLlmPreview: true,
+      }),
+    ).toEqual({ action: "apply-desktop" });
+    expect(
+      decidePreviewUrlSync({
+        pathname: "/private/preview/page/home",
+        mode: { kind: "device", deviceId: "ipad-mini" },
+        isLlmPreview: false,
+      }),
+    ).toEqual({ action: "apply-device", deviceId: "ipad-mini" });
   });
 });

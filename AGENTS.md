@@ -8,7 +8,7 @@ A multi-site, content-driven marketing platform: Vite + React (SSR), Express, YA
 
 ## Where guidance lives
 
-- Rules: `.cursor/rules/*.mdc` — start with `cursor-instructions.mdc` (architecture, content model) and `project-architecture.mdc` (aliases).
+- Rules: `.cursor/rules/*.mdc` — start with `cursor-instructions.mdc` (architecture, content model) and `project-architecture.mdc` (aliases). Product personas: `product-audience.mdc` (1 persona → 1 product).
 - Skills: `.agents/skills/` (also linked at `.claude/skills`). Building a section component or variant, including from a picture: `.agents/skills/internal-new-component/SKILL.md`.
 - Design values: `design_guidelines.md` (pointer to the real sources).
 - MCP server conventions: `mcp-server/agent-conventions.md`; append `mcp-server/agent-changelog.yml` when MCP docs or tools change.
@@ -16,6 +16,7 @@ A multi-site, content-driven marketing platform: Vite + React (SSR), Express, YA
 ## Hard rules
 
 - **Content is YAML.** Pages, sections and copy live in `site_*` YAML; components render props and never hardcode content.
+- **1 persona → 1 product.** Personas are product-owned; do not build shared/multi-product persona membership (`.cursor/rules/product-audience.mdc`, `mcp-server/explain/product.md`).
 - **Colors are theme IDs** from the site's `site_<name>/theme.json` (or the parent's). No hex, no Tailwind palette colors, no raw CSS colors in YAML. Shared components use only the shared base palette (`SHARED_BASE_PALETTE` in `shared/theme-palette.ts`).
 - **The section wrapper owns background and vertical spacing** (`background`, `paddingY`, `marginY` in section YAML). Components do not add outer `py-*` or paint `data.background`. Enforced by `npm run check:section-spacing` (pre-commit, `prebuild`, `npm test`); a variant that must pad itself carries `// section-spacing: self-padded`.
 - **Icons are Lucide names** via `getIcon` (`client/src/lib/icons.ts`).

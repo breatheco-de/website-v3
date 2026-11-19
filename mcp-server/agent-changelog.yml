@@ -5,6 +5,19 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-19"
+    summary: "1 persona → 1 product is intentional policy; refuse shared/multi-product persona designs"
+    agent_impact:
+      - "Personas stay product-owned on `_product.yml` only. Do not invent a shared catalog, multi-product membership, or reuse the same persona id across products because the buyer looks the same."
+      - "Same segment on Flex + AI Engineering (or similar pace vs intensity) = two product-specific personas with different ids/fears/objections. Funnel multi-bind means different product-owned personas, not one persona on two SKUs. explain_site topic product → Audience; funnel-classification-proposals updated."
+      - "Coding agents: .cursor/rules/product-audience.mdc. generatePersona must not reuse ids across products or clone peer avatars. No save-time cross-product id uniqueness; no new MCP tools. Stress N/A."
+    tools_changed: false
+    paths:
+      - mcp-server/explain/product.md
+      - mcp-server/explain/funnel-classification-proposals.md
+      - server/ai/generatePersona.ts
+      - .cursor/rules/product-audience.mdc
+      - AGENTS.md
   - date: "2026-11-18"
     summary: "Paid fact-literals warnings on live selling-page edits (prefer variable tokens)"
     agent_impact:

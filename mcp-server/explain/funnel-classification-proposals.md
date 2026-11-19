@@ -35,10 +35,12 @@ Score **each entry row** in the proposal. Soft prefer ≤10 related posts per pa
 | Dimension | Pass when | Fail when | Warn when |
 |---|---|---|---|
 | **Persona** | Content intent matches a real persona id on a product (`get_product`) | Invented persona id, or persona from the wrong product’s story | Product has no usable personas — product-only bind OK; do not invent ids |
-| **Product** | Bindings follow that fit; **multiple** `{ product, persona? }` OK when two+ personas truly fit | Bound to a product whose buyers do not match; or `all` used only because the topic feels company-wide | — |
+| **Product** | Bindings follow that fit; **multiple** `{ product, persona? }` OK when two+ **product-owned** personas truly fit (each persona id must exist on **that** product — not one shared persona on two SKUs) | Bound to a product whose buyers do not match; or `all` used only because the topic feels company-wide | — |
 | **Stage** | `awareness` / `consideration` / `decision` / `post-enrollment` matches readiness | Money-page (`decision`) for top-of-funnel education; or awareness on a buy-now page | — |
 
 **`products: all`:** only when **no single product’s personas are a better fit** (true site/brand story). `"all"` **never** carries personas.
+
+**1 persona → 1 product:** Multi-bind rows are different personas on different products. Pace vs intensity (e.g. Flex vs bootcamp/AI Engineering) for the same human segment ⇒ usually **two product-specific personas**, not one shared id reused across products (topic `product` → Audience ownership).
 
 **Partial edits:** if only `funnel.stage` or only `funnel.products` moves, still re-check the **full** cascade against live + proposed — the untouched half must still fit.
 
@@ -50,7 +52,7 @@ Score **each entry row** in the proposal. Soft prefer ≤10 related posts per pa
 |---|---|
 | `funnel.stage` and/or `funnel.products` only | Mix `content` or `meta.page_title` / `meta.description` in the same proposal |
 | `{ product, persona? }` when a persona fits | Invent a persona id that is not on `_product.yml` |
-| Multiple product rows when two real personas fit | Default to `all` because the title says “report” or “outcomes” |
+| Multiple product rows when two real **product-owned** personas fit (each on its own product) | Default to `all` because the title says “report” or “outcomes”; reuse one persona id across two products “because it’s the same buyer” |
 | Pick the persona from who **this page** talks to (title, hero, CTAs) | Copy the persona most sibling pages use — how common a persona is says nothing about this page |
 | Soft batch ≤10 related posts | Megabatch without per-row rationale |
 | Summary names intent + cascade rationale | “Improve funnel” with no buyer story |

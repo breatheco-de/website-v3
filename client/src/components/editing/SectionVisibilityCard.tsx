@@ -3,7 +3,6 @@ import { Eye, Laptop, MapPin, Monitor, Smartphone } from "lucide-react";
 import { IconPencil, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
 import { locations as allLocations } from "@/lib/locations";
 import { cn } from "@/lib/utils";
@@ -125,29 +124,19 @@ function locationsSummary(slugs: string[]): string {
 export function SectionVisibilityCard({
   showOn,
   showOnLocations,
-  showOnLlm,
   onShowOnChange,
   onShowOnLocationsChange,
-  onShowOnLlmChange,
 }: {
   showOn: string;
   showOnLocations: string[];
-  /** true when visible to AI crawlers (default). */
-  showOnLlm: boolean;
   onShowOnChange: (value: string) => void;
   onShowOnLocationsChange: (value: string[]) => void;
-  onShowOnLlmChange: (visible: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
 
   const summary = useMemo(() => {
-    const parts = [
-      deviceSummary(showOn),
-      locationsSummary(showOnLocations),
-      showOnLlm ? "Visible to AI crawlers" : "Hidden from AI crawlers",
-    ];
-    return parts.join(" · ");
-  }, [showOn, showOnLocations, showOnLlm]);
+    return [deviceSummary(showOn), locationsSummary(showOnLocations)].join(" · ");
+  }, [showOn, showOnLocations]);
 
   return (
     <div
@@ -180,37 +169,15 @@ export function SectionVisibilityCard({
         ) : (
           <>
             <p className="text-xs text-muted-foreground">
-              Who sees this section on the live site: by device, by campus, and whether AI crawlers
-              include it (on by default).
+              Who sees this section on the live site: by device and by campus.
             </p>
             <ShowOnPicker value={showOn} onChange={onShowOnChange} />
             <ShowOnLocationsPicker value={showOnLocations} onChange={onShowOnLocationsChange} />
-            <div
-              className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
-              data-testid="props-show-on-llm-row"
-            >
-              <div className="min-w-0 space-y-0.5">
-                <Label htmlFor="show-on-llm" className="text-sm font-medium">
-                  Visible to AI crawlers
-                </Label>
-                <p className="text-[11px] text-muted-foreground leading-snug">
-                  Off hides this block from AI crawlers and LLM preview only. Human visitors still
-                  follow device and location rules above.
-                </p>
-              </div>
-              <Switch
-                id="show-on-llm"
-                checked={showOnLlm}
-                onCheckedChange={onShowOnLlmChange}
-                data-testid="props-toggle-show-on-llm"
-              />
-            </div>
             <details className="text-[11px] text-muted-foreground">
               <summary className="cursor-pointer hover:text-foreground">Read more (advanced)</summary>
               <p className="mt-1 leading-snug">
                 YAML: <code className="text-[10px]">showOn</code>,{" "}
-                <code className="text-[10px]">showOnLocations</code>,{" "}
-                <code className="text-[10px]">show_on_llm</code> (omit or true = visible to crawlers).
+                <code className="text-[10px]">showOnLocations</code>.
               </p>
             </details>
           </>

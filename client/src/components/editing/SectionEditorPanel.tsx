@@ -1148,7 +1148,6 @@ export function SectionEditorPanel({
   const currentShowOn = (parsedSection?.showOn as string) || "";
   const currentShowOnLocations =
     (parsedSection?.showOnLocations as string[]) || [];
-  const currentShowOnLlm = parsedSection?.show_on_llm !== false;
   const currentHiddenUntilRedirection =
     parsedSection?.hidden_until_redirection === true ||
     parsedSection?.hidden_until_redirection === "true";
@@ -3317,16 +3316,9 @@ export function SectionEditorPanel({
             <SectionVisibilityCard
               showOn={currentShowOn}
               showOnLocations={currentShowOnLocations}
-              showOnLlm={currentShowOnLlm}
               onShowOnChange={(value) => updateProperty("showOn", value)}
               onShowOnLocationsChange={(value) =>
                 updateArrayProperty("showOnLocations", value)
-              }
-              onShowOnLlmChange={(visible) =>
-                updatePropertyWithValue(
-                  "show_on_llm",
-                  visible ? undefined : false,
-                )
               }
             />
 

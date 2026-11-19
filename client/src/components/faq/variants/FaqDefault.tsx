@@ -13,6 +13,7 @@ import { useInternalNav } from "@/hooks/useInternalNav";
 import { faqItemKey, normalizeFaqEntries, applyFaqHideOnLocations } from "@shared/faq-listing";
 import { useSession } from "@/contexts/SessionContext";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
+import { useLlmAudience } from "@/contexts/LlmAudienceContext";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { inlineMarkdownToHtml } from "@/lib/inline-markdown";
 
@@ -26,6 +27,7 @@ export function FAQSection({ data }: FAQSectionProps) {
   const { session } = useSession();
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
+  const llmAudience = useLlmAudience();
   const sessionLocationSlug = session.location?.slug;
 
   const locationSlugMatch = pathname.match(
@@ -61,10 +63,12 @@ export function FAQSection({ data }: FAQSectionProps) {
         : fromItems;
     }
 
+    // AI crawler / LLM preview: no visitor campus — only the page's own campus
+    // (location pages) filters questions; otherwise show every question.
     items = applyFaqHideOnLocations(
       items,
       itemOverrides,
-      locationSlug || sessionLocationSlug,
+      llmAudience ? locationSlug : locationSlug || sessionLocationSlug,
     );
 
     const dyn = (data as Record<string, unknown>).dynamic_entries as

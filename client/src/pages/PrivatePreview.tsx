@@ -19,9 +19,7 @@ import { getMenuChromeHeights } from "@/lib/menuChrome";
 import { restoreEditModeScrollPosition } from "@/lib/editModeScroll";
 import { useScrollToLocationHashWhenReady } from "@/hooks/useScrollToLocationHashWhenReady";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
-import { LlmAudienceContext } from "@/contexts/LlmAudienceContext";
 import { DevicePreviewShell } from "@/components/editing/DevicePreviewShell";
-import { LlmPreviewTopBar } from "@/components/editing/LlmPreviewTopBar";
 import Staff404Layout from "@/components/editing/Staff404Layout";
 import Staff404VariantModal, { type Staff404VariantOption } from "@/components/editing/Staff404VariantModal";
 import { isPreviewListingSharedTemplate, isSharedLayoutType } from "@/lib/sharedLayoutEntry";
@@ -445,9 +443,8 @@ export default function PrivatePreview() {
     </Suspense>
   ) : null;
 
-  const pageBody = (
+  return (
     <div data-testid={`preview-${contentType}-${slug}`}>
-      {isLlmPreview ? <LlmPreviewTopBar /> : null}
       <MenuVisualContextProvider
         value={{
           sectionBackgroundOverlapsMenu,
@@ -521,11 +518,5 @@ export default function PrivatePreview() {
         </Suspense>
       ) : null}
     </div>
-  );
-
-  return (
-    <LlmAudienceContext.Provider value={isLlmPreview}>
-      {pageBody}
-    </LlmAudienceContext.Provider>
   );
 }
