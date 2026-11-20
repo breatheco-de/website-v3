@@ -58,6 +58,10 @@ import { TEXT_LIMITS_ISSUE_CODES, TEXT_LIMITS_VALIDATOR_NAME } from "../validato
 import { RENDER_REVIEW_ISSUE_CODES, RENDER_REVIEW_VALIDATOR_NAME } from "../validators/render-review.issueCodes";
 import { RICH_TEXT_STYLES_ISSUE_CODES, RICH_TEXT_STYLES_VALIDATOR_NAME } from "../validators/rich-text-styles.issueCodes";
 import { DESIGN_LAYOUT_ISSUE_CODES, DESIGN_LAYOUT_VALIDATOR_NAME } from "../validators/design-layout.issueCodes";
+import {
+  FACT_LITERALS_ISSUE_CODES,
+  FACT_LITERALS_VALIDATOR_NAME,
+} from "../validators/fact-literals.issueCodes";
 
 /** Explicit map: add new `*.issueCodes.ts` modules here as catalogs grow. */
 export const ISSUE_CODE_CATALOGS: Record<string, Record<string, IssueCodeDefinition>> = {
@@ -113,6 +117,7 @@ export const ISSUE_CODE_CATALOGS: Record<string, Record<string, IssueCodeDefinit
   [DRAFT_INTEGRITY_VALIDATOR_NAME]: DRAFT_INTEGRITY_ISSUE_CODES,
   [CORRUPTED_TEMPLATE_VALUES_VALIDATOR_NAME]: CORRUPTED_TEMPLATE_VALUES_ISSUE_CODES,
   [TEXT_LIMITS_VALIDATOR_NAME]: TEXT_LIMITS_ISSUE_CODES,
+  [FACT_LITERALS_VALIDATOR_NAME]: FACT_LITERALS_ISSUE_CODES,
 };
 
 export function getIssueCodeDefinition(

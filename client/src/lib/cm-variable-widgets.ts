@@ -28,10 +28,23 @@ export interface TemplateSpan {
   defaultValue?: string;
 }
 
+export type VariablePillTooltip =
+  | string
+  | {
+      /** Short plain-English label (what this is). */
+      title: string;
+      /** Where it comes from / how it is filled. */
+      body: string;
+    };
+
 export interface VariableWidgetPluginOptions {
   getDefinitions?: () => Record<string, TemplateUnbindDefinition>;
   getContext?: () => TemplateUnbindContext;
   onRequestUnbind?: (detail: TemplateSpan) => void;
+  /** Override the floating tip on variable pills (Auth/Session previews). */
+  getTooltip?: (span: TemplateSpan) => VariablePillTooltip;
+  /** hover (default) or click — Session example uses click. */
+  tooltipTrigger?: "hover" | "click";
   readOnly?: boolean;
 }
 
@@ -58,26 +71,36 @@ export function formatVariablePillLabel(span: Pick<TemplateSpan, "name" | "defau
 }
 
 /** Floating tip (body-mounted) — native `title` does not show inside CM contenteditable. */
-function attachFloatingTooltip(host: HTMLElement, text: string): void {
+function attachFloatingTooltip(
+  host: HTMLElement,
+  content: VariablePillTooltip,
+  trigger: "hover" | "click" = "hover",
+): void {
   let tip: HTMLElement | null = null;
   let showTimer: ReturnType<typeof setTimeout> | null = null;
+  let onDocPointer: ((e: Event) => void) | null = null;
+  let onKey: ((e: KeyboardEvent) => void) | null = null;
 
   const hide = () => {
     if (showTimer) {
       clearTimeout(showTimer);
       showTimer = null;
     }
+    if (onDocPointer) {
+      document.removeEventListener("pointerdown", onDocPointer, true);
+      onDocPointer = null;
+    }
+    if (onKey) {
+      document.removeEventListener("keydown", onKey, true);
+      onKey = null;
+    }
     tip?.remove();
     tip = null;
+    host.removeAttribute("aria-expanded");
   };
 
-  const show = () => {
-    hide();
-    tip = document.createElement("div");
-    tip.className = "cm-variable-pill-tooltip";
-    tip.textContent = text;
-    tip.setAttribute("role", "tooltip");
-    document.body.appendChild(tip);
+  const position = () => {
+    if (!tip) return;
     const rect = host.getBoundingClientRect();
     const tipRect = tip.getBoundingClientRect();
     const left = Math.min(
@@ -90,11 +113,74 @@ function attachFloatingTooltip(host: HTMLElement, text: string): void {
     tip.style.top = `${top}px`;
   };
 
-  host.addEventListener("mouseenter", () => {
-    showTimer = setTimeout(show, 400);
-  });
-  host.addEventListener("mouseleave", hide);
-  host.addEventListener("mousedown", hide);
+  const show = () => {
+    hide();
+    tip = document.createElement("div");
+    tip.className =
+      trigger === "click"
+        ? "cm-variable-pill-tooltip cm-variable-pill-tooltip--click"
+        : "cm-variable-pill-tooltip";
+    tip.setAttribute("role", trigger === "click" ? "dialog" : "tooltip");
+    if (typeof content === "string") {
+      tip.textContent = content;
+    } else {
+      const title = document.createElement("p");
+      title.className = "cm-variable-pill-tooltip-title";
+      title.textContent = content.title;
+      const body = document.createElement("p");
+      body.className = "cm-variable-pill-tooltip-body";
+      body.textContent = content.body;
+      tip.appendChild(title);
+      tip.appendChild(body);
+    }
+    document.body.appendChild(tip);
+    position();
+    host.setAttribute("aria-expanded", "true");
+
+    if (trigger === "click") {
+      onDocPointer = (e: Event) => {
+        const t = e.target as Node | null;
+        if (!t) return;
+        if (host.contains(t) || tip?.contains(t)) return;
+        hide();
+      };
+      onKey = (e: KeyboardEvent) => {
+        if (e.key === "Escape") hide();
+      };
+      // Defer so the opening click does not immediately close.
+      window.setTimeout(() => {
+        if (onDocPointer) document.addEventListener("pointerdown", onDocPointer, true);
+        if (onKey) document.addEventListener("keydown", onKey, true);
+      }, 0);
+    }
+  };
+
+  if (trigger === "click") {
+    host.style.cursor = "pointer";
+    host.setAttribute("tabindex", "0");
+    host.setAttribute("role", "button");
+    host.setAttribute("aria-haspopup", "dialog");
+    host.setAttribute("aria-expanded", "false");
+    host.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (tip) hide();
+      else show();
+    });
+    host.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        if (tip) hide();
+        else show();
+      }
+    });
+  } else {
+    host.addEventListener("mouseenter", () => {
+      showTimer = setTimeout(show, 400);
+    });
+    host.addEventListener("mouseleave", hide);
+    host.addEventListener("mousedown", hide);
+  }
 }
 
 function spansOverlap(
@@ -149,6 +235,8 @@ class VariablePillWidget extends WidgetType {
     private readonly span: TemplateSpan,
     private readonly onUnbind: () => void,
     private readonly readOnly: boolean,
+    private readonly tipContent: VariablePillTooltip,
+    private readonly tipTrigger: "hover" | "click",
   ) {
     super();
   }
@@ -157,7 +245,9 @@ class VariablePillWidget extends WidgetType {
     return (
       other.span.from === this.span.from &&
       other.span.to === this.span.to &&
-      other.span.expr === this.span.expr
+      other.span.expr === this.span.expr &&
+      JSON.stringify(other.tipContent) === JSON.stringify(this.tipContent) &&
+      other.tipTrigger === this.tipTrigger
     );
   }
 
@@ -165,10 +255,7 @@ class VariablePillWidget extends WidgetType {
     const pill = document.createElement("span");
     pill.className = "cm-variable-pill";
     // Native `title` is unreliable inside CodeMirror's contenteditable — use a floating tip.
-    const tipText = this.span.defaultValue
-      ? `Template binding — value comes from entry data; falls back to “${this.span.defaultValue}” if empty. Click × to replace with static text.`
-      : "Template binding — value comes from entry data. Click × to replace with static text.";
-    attachFloatingTooltip(pill, tipText);
+    attachFloatingTooltip(pill, this.tipContent, this.tipTrigger);
 
     const label = document.createElement("span");
     label.className = "cm-variable-pill-label";
@@ -210,12 +297,19 @@ function buildDecorations(
   const ranges: Range<Decoration>[] = [];
 
   for (const span of spans) {
+    const tipContent: VariablePillTooltip =
+      options.getTooltip?.(span) ??
+      (span.defaultValue
+        ? `Template binding — value comes from entry data; falls back to “${span.defaultValue}” if empty. Click × to replace with static text.`
+        : "Template binding — value comes from entry data. Click × to replace with static text.");
     ranges.push(
       Decoration.replace({
         widget: new VariablePillWidget(
           span,
           () => options.onRequestUnbind?.(span),
           !!options.readOnly,
+          tipContent,
+          options.tooltipTrigger ?? "hover",
         ),
         inclusive: false,
       }).range(span.from, span.to),

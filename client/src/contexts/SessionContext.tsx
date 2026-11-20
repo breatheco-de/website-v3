@@ -9,7 +9,13 @@ import {
   setUserIdCookie,
   getUserIdFromCookie,
 } from '../lib/sessionBootstrap';
-import { locations, getLocationBySlug } from '../lib/locations';
+import {
+  getLocationBySlug,
+  getLocationCatalog,
+  fetchLocationCatalog,
+  readCachedLocationCatalog,
+  setLocationCatalog,
+} from '../lib/locations';
 import { setSessionHeaders } from '../lib/sessionHeaders';
 import { setVisitorContext } from '../lib/tracking';
 import { clearOverlayGeoCache } from '@/hooks/useOverlays';
@@ -72,6 +78,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     const cached = getCachedSession();
     return cached || defaultSession;
   });
+  const [catalog, setCatalog] = useState<Location[]>(() => readCachedLocationCatalog());
   const [isLoading, setIsLoading] = useState(true);
   const workerRef = useRef<Worker | null>(null);
   const initRef = useRef(false);
@@ -82,6 +89,10 @@ export function SessionProvider({ children }: SessionProviderProps) {
 
     const initWorker = async () => {
       try {
+        void fetchLocationCatalog().then((list) => {
+          setLocationCatalog(list);
+          setCatalog(list);
+        });
         workerRef.current = new Worker(
           new URL('../workers/session.worker.ts', import.meta.url),
           { type: 'module' }
@@ -163,7 +174,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
   }, []);
 
   const setLocation = (slug: string) => {
-    const location = getLocationBySlug(slug);
+    const location = getLocationBySlug(slug, catalog.length ? catalog : getLocationCatalog());
     if (location) {
       setSession(prev => {
         const updated = { 
@@ -291,7 +302,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
     });
   }, []);
 
-  const nearestLocations = locations
+  const catalogList = catalog.length ? catalog : getLocationCatalog();
+
+  const nearestLocations = catalogList
     .filter(loc => loc.visibility === 'listed' && loc.slug !== 'online')
     .sort((a, b) => {
       if (!session.geo?.latitude || !session.geo?.longitude) return 0;
@@ -312,7 +325,7 @@ export function SessionProvider({ children }: SessionProviderProps) {
     });
 
   const getLocationsByRegion = (region: Location['region']) => {
-    return locations.filter(loc => loc.region === region && loc.visibility === 'listed');
+    return catalogList.filter(loc => loc.region === region && loc.visibility === 'listed');
   };
 
   useEffect(() => {

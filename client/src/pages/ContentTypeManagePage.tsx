@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { typeUsesSharedTemplate } from "@shared/sharedLayoutPaths";
-import { AlertTriangle, Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Copy, Crosshair, Database, Download, ExternalLink, Eye, EyeOff, FileText, Filter, Folder, GitBranch, Globe, HelpCircle, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, Megaphone, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Copy, Crosshair, Database, Download, ExternalLink, Eye, EyeOff, FileText, Filter, Folder, GitBranch, Globe, HelpCircle, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, Megaphone, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Sparkles, Table2, Trash2, Wand2, X } from "lucide-react";
 import { ContentTypeAdsList } from "@/components/ads/ContentTypeAdsList";
 import { IconChess, IconChevronDown, IconChevronRight, IconExternalLink, IconWebhook } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
@@ -31,6 +31,7 @@ import { PrivateHistoryBackButton } from "@/components/private/PrivateHistoryBac
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
+import { humanizeDatabaseLabel } from "@/lib/staff404";
 import {
   Select,
   SelectContent,
@@ -71,6 +72,7 @@ import { DeletePageModal } from "@/components/DebugBubble/components/DeletePageM
 import { deleteResultDescription } from "@/lib/urlRemoval";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import { BulkUpdateFunnelDialog } from "@/components/content-type/BulkUpdateFunnelDialog";
+import { BulkProposeFunnelDialog } from "@/components/content-type/BulkProposeFunnelDialog";
 import {
   BulkDeleteStaticDialog,
   BulkDeleteDbInfoDialog,
@@ -87,6 +89,7 @@ import {
 } from "@/components/editing/SeoContextPickerDialog";
 import type { SeoModalTab } from "@/components/DebugBubble/components/SeoModal";
 import {
+  FUNNEL_STAGES,
   isFunnelStage,
   normalizeFunnelBinding,
   type FunnelBlock,
@@ -190,6 +193,19 @@ interface SeoEntriesResponse {
   totalPages?: number;
 }
 
+interface FunnelSuggestionPayload {
+  stage: string;
+  products: FunnelProductBinding[] | "all";
+  confidence: {
+    stage: number;
+    bindings: Array<{ product: string; persona?: string; score: number }>;
+    products_all?: number;
+  };
+  model: string;
+  created_at: string;
+  created_by: string;
+}
+
 interface FunnelEntry {
   slug: string;
   contentType: string;
@@ -198,6 +214,7 @@ interface FunnelEntry {
   title: string;
   pageTitle: string;
   funnel: FunnelBlock;
+  suggestion?: FunnelSuggestionPayload | null;
 }
 
 interface FunnelEntriesResponse {
@@ -1944,6 +1961,9 @@ function DataSourceDialog({
           payload.template_entry_source_locale =
             sharedLayoutEnablePayload.template_entry_source_locale;
         }
+        if (Array.isArray(sharedLayoutEnablePayload.detach_slugs)) {
+          payload.detach_slugs = sharedLayoutEnablePayload.detach_slugs;
+        }
         if (sharedLayoutEnablePayload.confirm) payload.confirm = true;
       }
 
@@ -3650,6 +3670,85 @@ function SpecialFieldInfoDialog({
   );
 }
 
+/** Warns when `_slug` points at a DB column that is empty on some rows (public URLs will 404). */
+function MissingSlugSourceHelp({
+  databaseSlug,
+  sourceField,
+  missingCount,
+  totalCount,
+}: {
+  databaseSlug: string;
+  sourceField: string;
+  missingCount: number;
+  totalCount: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const dbLabel = humanizeDatabaseLabel(databaseSlug) || databaseSlug;
+
+  return (
+    <p
+      className="ml-[7.5rem] text-[11px] leading-snug text-amber-700 dark:text-amber-400"
+      data-testid="note-missing-slug-source"
+    >
+      <AlertTriangle className="inline h-3 w-3 mr-1 align-[-0.125em]" aria-hidden />
+      Some of the{" "}
+      <code className="font-mono text-[10px] bg-muted px-1 rounded text-foreground/80">{databaseSlug}</code>{" "}
+      database entries don&apos;t have a{" "}
+      <code className="font-mono text-[10px] bg-muted px-1 rounded text-foreground/80">{sourceField}</code>{" "}
+      value — this is a problem
+      {totalCount > 0 ? ` (${missingCount} of ${totalCount})` : ""}.{" "}
+      <Popover modal={false} open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline underline underline-offset-2 hover:text-amber-800 dark:hover:text-amber-300"
+            data-testid="button-learn-why-missing-slug"
+          >
+            Learn why
+          </button>
+        </PopoverTrigger>
+        {/* Above Field Mapping dialog (z-[10000]); portal to body; non-modal so clicks work. */}
+        <PopoverContent
+          side="top"
+          align="start"
+          sideOffset={8}
+          collisionPadding={16}
+          className="z-[10003] w-80 p-3 space-y-2 text-xs text-muted-foreground pointer-events-auto shadow-lg"
+          data-testid="popover-learn-why-missing-slug"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
+          <p className="font-medium text-foreground text-sm">Why empty {sourceField} breaks public pages</p>
+          <p>
+            <code className="font-mono text-[10px] bg-muted px-1 rounded">_slug → {sourceField}</code> means each{" "}
+            {dbLabel} row must already have a non-empty{" "}
+            <code className="font-mono text-[10px] bg-muted px-1 rounded">{sourceField}</code>. The mapping does not
+            invent one.
+          </p>
+          <p>
+            Rows without that value never get a live URL — visitors see “not found” even when the story exists in
+            the database. The manage list may still show a title-based address for display only.
+          </p>
+          <p>
+            Fix: fill <code className="font-mono text-[10px] bg-muted px-1 rounded">{sourceField}</code> on each row,
+            or point <code className="font-mono text-[10px] bg-muted px-1 rounded">_slug</code> at a field that is
+            always set (for example <code className="font-mono text-[10px] bg-muted px-1 rounded">id</code>), then
+            rebuild Content URLs.
+          </p>
+          <button
+            type="button"
+            className="text-[11px] underline underline-offset-2 text-foreground hover:text-primary"
+            onClick={() => setOpen(false)}
+            data-testid="button-close-learn-why-missing-slug"
+          >
+            Close
+          </button>
+        </PopoverContent>
+      </Popover>
+    </p>
+  );
+}
+
 function FieldMappingDialog({
   open,
   onOpenChange,
@@ -3771,6 +3870,30 @@ function FieldMappingDialog({
     enabled: open && !!dbSlugForHints,
     staleTime: 60_000,
   });
+
+  /** Sample rows to detect empty `_slug` source values (public URL index skips those). */
+  const { data: slugCoverageData } = useQuery<{ items: Record<string, unknown>[] }>({
+    queryKey: ["/api/databases", dbSlugForHints, "items", "slug-coverage"],
+    queryFn: () =>
+      fetch(`/api/databases/${dbSlugForHints}/items?page=1&limit=1000`).then((r) => r.json()),
+    enabled: open && !!dbSlugForHints,
+    staleTime: 60_000,
+  });
+
+  const slugSourceCoverage = useMemo(() => {
+    if (!isDbBacked || !dbSlugForHints || transformerModes._slug) return null;
+    const source = String(mappings._slug ?? "").trim();
+    if (!source) return null;
+    const items = slugCoverageData?.items;
+    if (!items) return null;
+    let missing = 0;
+    for (const item of items) {
+      const raw = source.includes(".") ? getValueByDotPath(item, source) : item[source];
+      if (raw == null || String(raw).trim() === "") missing += 1;
+    }
+    if (missing === 0) return null;
+    return { source, missing, total: items.length, databaseSlug: dbSlugForHints };
+  }, [isDbBacked, dbSlugForHints, transformerModes._slug, mappings._slug, slugCoverageData?.items]);
 
   const mergedSourceOptions = useMemo(() => {
     const set = new Set<string>();
@@ -4846,6 +4969,14 @@ function FieldMappingDialog({
                     <p className="text-[11px] text-muted-foreground ml-[7.5rem]">
                       Locale usually comes from the file name / URL. Map a source only if the entry stores locale explicitly.
                     </p>
+                  )}
+                  {key === "_slug" && slugSourceCoverage && (
+                    <MissingSlugSourceHelp
+                      databaseSlug={slugSourceCoverage.databaseSlug}
+                      sourceField={slugSourceCoverage.source}
+                      missingCount={slugSourceCoverage.missing}
+                      totalCount={slugSourceCoverage.total}
+                    />
                   )}
                   {staticImageGuidance && !transformerModes[key] && !(mappings[key] || "").trim() && !config?.preview?.component && (
                     <p className="text-[11px] text-muted-foreground ml-[7.5rem]" data-testid={`note-mapping-${key}`}>
@@ -6357,6 +6488,11 @@ export default function ContentTypeManagePage() {
   /** SEO perspective: exact `slug:locale` keys (not slug-only). */
   const [selectedSeoKeys, setSelectedSeoKeys] = useState<Set<string>>(() => new Set());
   const [bulkFunnelOpen, setBulkFunnelOpen] = useState(false);
+  const [bulkProposeFunnelOpen, setBulkProposeFunnelOpen] = useState(false);
+  const [funnelStageFilter, setFunnelStageFilter] = useState("");
+  const [funnelProductFilter, setFunnelProductFilter] = useState("");
+  const [funnelPersonaFilter, setFunnelPersonaFilter] = useState("");
+  const [funnelSuggestionBusy, setFunnelSuggestionBusy] = useState<string | null>(null);
   const [bulkSeoKeywordOpen, setBulkSeoKeywordOpen] = useState(false);
   const [bulkSeoOgOpen, setBulkSeoOgOpen] = useState(false);
   const [bulkSeoKeywordApplying, setBulkSeoKeywordApplying] = useState(false);
@@ -6622,6 +6758,9 @@ export default function ContentTypeManagePage() {
       listPage,
       debouncedSearch,
       ...sharedFilterQueryKey,
+      funnelStageFilter,
+      funnelProductFilter,
+      funnelPersonaFilter,
     ],
     queryFn: () => {
       const params = new URLSearchParams({
@@ -6630,6 +6769,9 @@ export default function ContentTypeManagePage() {
       });
       if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
       appendSharedListFilters(params);
+      if (funnelStageFilter.trim()) params.set("funnel_stage", funnelStageFilter.trim());
+      if (funnelProductFilter.trim()) params.set("funnel_product", funnelProductFilter.trim());
+      if (funnelPersonaFilter.trim()) params.set("funnel_persona", funnelPersonaFilter.trim());
       return fetch(
         `/api/content-types/${contentType}/funnel-entries?${params.toString()}`,
       ).then((r) => r.json());
@@ -6639,6 +6781,91 @@ export default function ContentTypeManagePage() {
     refetchOnMount: "always",
     placeholderData: (prev) => prev,
   });
+
+  const { data: funnelProductMap } = useQuery<{
+    products: {
+      content_slug: string;
+      name: string;
+      actively_selling?: boolean;
+      personas?: { id: string; label: string }[];
+    }[];
+  }>({
+    queryKey: ["/api/ecommerce/product-map"],
+    enabled: listPerspective === "funnel",
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const funnelProductOptions = useMemo(
+    () => (funnelProductMap?.products ?? []).filter((p) => p.actively_selling !== false),
+    [funnelProductMap?.products],
+  );
+  const funnelPersonaOptions = useMemo(() => {
+    const out: { id: string; label: string; product: string }[] = [];
+    for (const p of funnelProductOptions) {
+      for (const pe of p.personas ?? []) {
+        out.push({ id: pe.id, label: pe.label || pe.id, product: p.content_slug });
+      }
+    }
+    return out;
+  }, [funnelProductOptions]);
+
+  const invalidateFunnelEntries = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: ["/api/content-types", contentType, "funnel-entries"],
+    });
+  }, [contentType]);
+
+  const acceptFunnelSuggestion = useCallback(
+    async (slug: string) => {
+      setFunnelSuggestionBusy(slug);
+      try {
+        const res = await apiRequest(
+          "POST",
+          `/api/content-types/${contentType}/funnel/${encodeURIComponent(slug)}/suggestion/accept`,
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            title: "Could not accept suggestion",
+            description: json.error || "Accept failed",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "Funnel suggestion applied", description: slug });
+        }
+        invalidateFunnelEntries();
+      } finally {
+        setFunnelSuggestionBusy(null);
+      }
+    },
+    [contentType, invalidateFunnelEntries, toast],
+  );
+
+  const rejectFunnelSuggestion = useCallback(
+    async (slug: string) => {
+      setFunnelSuggestionBusy(slug);
+      try {
+        const res = await apiRequest(
+          "DELETE",
+          `/api/content-types/${contentType}/funnel/${encodeURIComponent(slug)}/suggestion`,
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            title: "Could not reject suggestion",
+            description: json.error || "Reject failed",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "Suggestion cleared", description: slug });
+        }
+        invalidateFunnelEntries();
+      } finally {
+        setFunnelSuggestionBusy(null);
+      }
+    },
+    [contentType, invalidateFunnelEntries, toast],
+  );
 
   const {
     data: organicEntriesData,
@@ -7422,6 +7649,9 @@ export default function ContentTypeManagePage() {
         if (enablePayload.template_entry_source_locale) {
           body.template_entry_source_locale = enablePayload.template_entry_source_locale;
         }
+        if (Array.isArray(enablePayload.detach_slugs)) {
+          body.detach_slugs = enablePayload.detach_slugs;
+        }
         if (enablePayload.confirm) body.confirm = true;
       }
       const res = await apiRequest("PUT", `/api/content-types/${contentType}/config`, body);
@@ -7429,12 +7659,21 @@ export default function ContentTypeManagePage() {
       await queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "config"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/content-types"] });
       const dissolvedCount = result?.bindingsDissolved?.count ?? 0;
+      const updatedCount = result?.bindingsDissolved?.updatedCount ?? 0;
+      const detachedCount = result?.detachExceptions?.marked?.length ?? 0;
       toast({
         title: checked ? "Shared template on" : "Shared template off",
         description: checked
-          ? dissolvedCount > 0
-            ? `Shared layout enabled. Removed ${dissolvedCount} section binding${dissolvedCount === 1 ? "" : "s"}.`
-            : "All entries share one layout from template.{locale}.yml."
+          ? [
+              detachedCount > 0
+                ? `${detachedCount} page${detachedCount === 1 ? "" : "s"} kept off the template.`
+                : null,
+              dissolvedCount > 0 || updatedCount > 0
+                ? `Bindings: ${dissolvedCount} removed, ${updatedCount} updated.`
+                : "All attached entries share one layout from template.{locale}.yml.",
+            ]
+              .filter(Boolean)
+              .join(" ")
           : "Each entry keeps its own full layout. Cross-locale sync is off.",
       });
       setEnableSharedLayoutOpen(false);
@@ -8415,6 +8654,7 @@ export default function ContentTypeManagePage() {
           />
           <FormLocationCard
             contentType={contentType}
+            contentTypeLabel={typeConfig?.label || label}
             value={typeConfig?.forms?.location ?? null}
             editor={typeConfig?.editor as Record<string, { type?: string; source?: string; label?: string }> | undefined}
             loading={typeConfig === undefined}
@@ -8755,15 +8995,23 @@ export default function ContentTypeManagePage() {
               <Button
                 variant="ghost"
                 size="sm"
+                className="text-destructive hover:text-destructive"
                 onClick={() => {
                   setSelectedSlugs(new Set());
                   setSelectedSeoKeys(new Set());
                 }}
                 data-testid="button-bulk-clear-selection"
               >
+                <X className="h-3.5 w-3.5" />
                 Clear
               </Button>
               <div className="flex-1 min-w-[1rem]" />
+              <span
+                className="text-sm text-muted-foreground"
+                data-testid="text-bulk-actions-label"
+              >
+                Available bulk actions
+              </span>
               {listPerspective === "seo" ? (
                 <>
                   <Button
@@ -8772,6 +9020,7 @@ export default function ContentTypeManagePage() {
                     onClick={() => setBulkSeoKeywordOpen(true)}
                     data-testid="button-bulk-seo-keyword-refresh"
                   >
+                    <RefreshCw className="h-3.5 w-3.5" />
                     Refresh keyword metrics
                   </Button>
                   <Button
@@ -8784,19 +9033,32 @@ export default function ContentTypeManagePage() {
                     onClick={() => setBulkSeoOgOpen(true)}
                     data-testid="button-bulk-seo-og-regenerate"
                   >
+                    <ImageIcon className="h-3.5 w-3.5" />
                     Regenerate OG
                   </Button>
                 </>
               ) : null}
               {listPerspective === "funnel" ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setBulkFunnelOpen(true)}
-                  data-testid="button-bulk-update-funnel"
-                >
-                  Update funnel
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkProposeFunnelOpen(true)}
+                    data-testid="button-bulk-propose-funnel"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Propose funnel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkFunnelOpen(true)}
+                    data-testid="button-bulk-update-funnel"
+                  >
+                    <Filter className="h-3.5 w-3.5" />
+                    Update funnel
+                  </Button>
+                </>
               ) : null}
               {listPerspective === "default" ? (
                 <Button
@@ -8808,7 +9070,7 @@ export default function ContentTypeManagePage() {
                   }}
                   data-testid="button-bulk-delete"
                 >
-                  <Trash2 className="h-4 w-4 mr-1" />
+                  <Trash2 className="h-3.5 w-3.5" />
                   Delete
                 </Button>
               ) : null}
@@ -8969,11 +9231,23 @@ export default function ContentTypeManagePage() {
                 const statusActive = showStatusFilter && statusFilter != null;
                 const marketActive =
                   listPerspective === "organic" && organicMarket !== organicMarketDefault;
+                const facets =
+                  viewMode === "db"
+                    ? (allItemsData?.facets ?? dbItemsMeta?.facets)
+                    : undefined;
+                const showTagFilters =
+                  viewMode === "db" && !!facets && Object.keys(facets).length > 0;
+                const tagFilterCount = Object.values(tagFilters).flat().length;
+                const funnelFilterActive =
+                  listPerspective === "funnel" &&
+                  (!!funnelStageFilter || !!funnelProductFilter || !!funnelPersonaFilter);
                 const listFilterCount =
                   (languageActive ? 1 : 0) +
                   (publishDateActive ? 1 : 0) +
                   (statusActive ? 1 : 0) +
-                  (marketActive ? 1 : 0);
+                  (marketActive ? 1 : 0) +
+                  (funnelFilterActive ? 1 : 0) +
+                  tagFilterCount;
                 const localeSelectValue =
                   listPerspective === "organic"
                     ? listLocaleEffective
@@ -8999,7 +9273,7 @@ export default function ContentTypeManagePage() {
                     <PopoverContent
                       side="bottom"
                       align="end"
-                      className="p-3 w-72"
+                      className="p-3 w-72 max-h-[min(80vh,32rem)] overflow-y-auto"
                       data-testid="list-filter-bar"
                     >
                       <div className="space-y-3">
@@ -9020,8 +9294,12 @@ export default function ContentTypeManagePage() {
                                   ...(listPerspective === "organic"
                                     ? { organicMarket: organicMarketDefault }
                                     : {}),
+                                  ...(showTagFilters ? { tagFilters: {} } : {}),
                                   page: 1,
                                 });
+                                setFunnelStageFilter("");
+                                setFunnelProductFilter("");
+                                setFunnelPersonaFilter("");
                               }}
                               data-testid="button-clear-list-filters"
                             >
@@ -9199,6 +9477,101 @@ export default function ContentTypeManagePage() {
                             </Select>
                           </div>
                         )}
+                        {listPerspective === "funnel" && (
+                          <>
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                Funnel stage
+                              </p>
+                              <Select
+                                value={funnelStageFilter || "__any__"}
+                                onValueChange={(v) => {
+                                  setFunnelStageFilter(v === "__any__" ? "" : v);
+                                  writeListView({ ...listView, page: 1 });
+                                }}
+                              >
+                                <SelectTrigger
+                                  className="h-8"
+                                  aria-label="Funnel stage"
+                                  data-testid="select-funnel-stage-filter"
+                                >
+                                  <SelectValue placeholder="Any stage" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__any__">Any stage</SelectItem>
+                                  <SelectItem value="missing">Missing / unassigned</SelectItem>
+                                  {FUNNEL_STAGES.map((s) => (
+                                    <SelectItem key={s} value={s}>
+                                      {FUNNEL_STAGE_LABELS[s] ?? s}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                Product
+                              </p>
+                              <Select
+                                value={funnelProductFilter || "__any__"}
+                                onValueChange={(v) => {
+                                  setFunnelProductFilter(v === "__any__" ? "" : v);
+                                  writeListView({ ...listView, page: 1 });
+                                }}
+                              >
+                                <SelectTrigger
+                                  className="h-8"
+                                  aria-label="Funnel product"
+                                  data-testid="select-funnel-product-filter"
+                                >
+                                  <SelectValue placeholder="Any product" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__any__">Any product</SelectItem>
+                                  <SelectItem value="missing">Missing / unassigned</SelectItem>
+                                  <SelectItem value="all">All products</SelectItem>
+                                  {funnelProductOptions.map((p) => (
+                                    <SelectItem key={p.content_slug} value={p.content_slug}>
+                                      {p.name || p.content_slug}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                Persona
+                              </p>
+                              <Select
+                                value={funnelPersonaFilter || "__any__"}
+                                onValueChange={(v) => {
+                                  setFunnelPersonaFilter(v === "__any__" ? "" : v);
+                                  writeListView({ ...listView, page: 1 });
+                                }}
+                              >
+                                <SelectTrigger
+                                  className="h-8"
+                                  aria-label="Funnel persona"
+                                  data-testid="select-funnel-persona-filter"
+                                >
+                                  <SelectValue placeholder="Any persona" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__any__">Any persona</SelectItem>
+                                  <SelectItem value="missing">Missing / unassigned</SelectItem>
+                                  {funnelPersonaOptions.map((pe) => (
+                                    <SelectItem
+                                      key={`${pe.product}:${pe.id}`}
+                                      value={pe.id}
+                                    >
+                                      {pe.label} ({pe.product})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </>
+                        )}
                         {listPerspective === "organic" && (
                           <div className="space-y-1.5">
                             <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
@@ -9236,6 +9609,93 @@ export default function ContentTypeManagePage() {
                             </Select>
                           </div>
                         )}
+                        {showTagFilters && facets && (
+                          <div className="space-y-3 border-t border-border pt-3" data-testid="tag-filter-bar">
+                            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                              Database fields
+                            </p>
+                            {Object.entries(facets).map(([field, values]) => {
+                              const active = tagFilters[field] ?? [];
+                              const available = values.filter((v) => !active.includes(v));
+                              return (
+                                <div key={field} className="space-y-1.5">
+                                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                    {field}
+                                  </p>
+                                  <Select
+                                    value=""
+                                    onValueChange={(v) => {
+                                      writeListView({
+                                        ...listView,
+                                        tagFilters: {
+                                          ...tagFilters,
+                                          [field]: [...(tagFilters[field] ?? []), v],
+                                        },
+                                        page: 1,
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger
+                                      className="h-7 text-xs"
+                                      data-testid={`select-filter-${field}`}
+                                    >
+                                      <SelectValue placeholder="Add filter…" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {available.length === 0 ? (
+                                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                                          All selected
+                                        </div>
+                                      ) : (
+                                        available.map((v) => (
+                                          <SelectItem
+                                            key={v}
+                                            value={v}
+                                            className="text-xs"
+                                            data-testid={`chip-filter-${field}-${v}`}
+                                          >
+                                            {v}
+                                          </SelectItem>
+                                        ))
+                                      )}
+                                    </SelectContent>
+                                  </Select>
+                                  {active.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {active.map((v) => (
+                                        <span
+                                          key={v}
+                                          className="inline-flex items-center gap-0.5 bg-primary/10 text-primary text-[11px] rounded px-1.5 py-0.5"
+                                        >
+                                          {v}
+                                          <button
+                                            type="button"
+                                            className="ml-0.5 hover:text-foreground cursor-pointer"
+                                            onClick={() => {
+                                              const nextValues = (tagFilters[field] ?? []).filter(
+                                                (x) => x !== v,
+                                              );
+                                              const nextFilters = { ...tagFilters };
+                                              if (nextValues.length === 0) delete nextFilters[field];
+                                              else nextFilters[field] = nextValues;
+                                              writeListView({
+                                                ...listView,
+                                                tagFilters: nextFilters,
+                                                page: 1,
+                                              });
+                                            }}
+                                          >
+                                            <X className="h-2.5 w-2.5" />
+                                          </button>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
                         <details className="pt-1">
                           <summary
                             className="text-[11px] text-violet-600 dark:text-violet-400 cursor-pointer hover:underline list-none"
@@ -9250,7 +9710,13 @@ export default function ContentTypeManagePage() {
                               <code className="text-[10px]">pubFrom</code> /{" "}
                               <code className="text-[10px]">pubTo</code>,{" "}
                               <code className="text-[10px]">status</code>,{" "}
-                              <code className="text-[10px]">market</code> (Organic).
+                              <code className="text-[10px]">market</code> (Organic)
+                              {showTagFilters ? (
+                                <>
+                                  , facet tags via <code className="text-[10px]">tagFilters</code>
+                                </>
+                              ) : null}
+                              .
                             </p>
                             <p>
                               Pending Drafts = live entries with at least one variant (including{" "}
@@ -9258,108 +9724,6 @@ export default function ContentTypeManagePage() {
                             </p>
                           </div>
                         </details>
-                      </div>
-                    </PopoverContent>
-                  </Popover>
-                );
-              })()}
-              {(() => {
-                const facets = allItemsData?.facets ?? dbItemsMeta?.facets;
-                if (viewMode !== "db" || !facets || Object.keys(facets).length === 0) return null;
-                const activeFilterCount = Object.values(tagFilters).flat().length;
-                return (
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="shrink-0 relative"
-                        data-testid="button-open-filters"
-                      >
-                        <SlidersHorizontal className="h-4 w-4" />
-                        {activeFilterCount > 0 && (
-                          <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-primary-foreground text-[9px] flex items-center justify-center font-medium leading-none">
-                            {activeFilterCount}
-                          </span>
-                        )}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent side="bottom" align="end" className="p-3 w-64" data-testid="tag-filter-bar">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-medium">Filters</p>
-                          {activeFilterCount > 0 && (
-                            <button
-                              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer underline underline-offset-2"
-                              onClick={() => writeListView({ ...listView, tagFilters: {}, page: 1 })}
-                              data-testid="button-clear-tag-filters"
-                            >
-                              Clear all
-                            </button>
-                          )}
-                        </div>
-                        {Object.entries(facets).map(([field, values]) => {
-                          const active = tagFilters[field] ?? [];
-                          const available = values.filter((v) => !active.includes(v));
-                          return (
-                            <div key={field} className="space-y-1.5">
-                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{field}</p>
-                              <Select
-                                value=""
-                                onValueChange={(v) => {
-                                  writeListView({
-                                    ...listView,
-                                    tagFilters: {
-                                      ...tagFilters,
-                                      [field]: [...(tagFilters[field] ?? []), v],
-                                    },
-                                    page: 1,
-                                  });
-                                }}
-                              >
-                                <SelectTrigger className="h-7 text-xs" data-testid={`select-filter-${field}`}>
-                                  <SelectValue placeholder="Add filter…" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {available.length === 0 ? (
-                                    <div className="px-2 py-1.5 text-xs text-muted-foreground">All selected</div>
-                                  ) : (
-                                    available.map((v) => (
-                                      <SelectItem key={v} value={v} className="text-xs" data-testid={`chip-filter-${field}-${v}`}>
-                                        {v}
-                                      </SelectItem>
-                                    ))
-                                  )}
-                                </SelectContent>
-                              </Select>
-                              {active.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
-                                  {active.map((v) => (
-                                    <span key={v} className="inline-flex items-center gap-0.5 bg-primary/10 text-primary text-[11px] rounded px-1.5 py-0.5">
-                                      {v}
-                                      <button
-                                        className="ml-0.5 hover:text-foreground cursor-pointer"
-                                        onClick={() => {
-                                          const nextValues = (tagFilters[field] ?? []).filter((x) => x !== v);
-                                          const nextFilters = { ...tagFilters };
-                                          if (nextValues.length === 0) delete nextFilters[field];
-                                          else nextFilters[field] = nextValues;
-                                          writeListView({
-                                            ...listView,
-                                            tagFilters: nextFilters,
-                                            page: 1,
-                                          });
-                                        }}
-                                      >
-                                        <X className="h-2.5 w-2.5" />
-                                      </button>
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
                       </div>
                     </PopoverContent>
                   </Popover>
@@ -9728,7 +10092,8 @@ export default function ContentTypeManagePage() {
                 <div className="space-y-3">
                   <p className="px-4 pt-2 text-xs text-muted-foreground max-w-3xl" data-testid="text-funnel-perspective-edu">
                     Funnel membership for this content type: stage and products drive Store journey and tracking.
-                    Red badges mark pages still missing a stage or products.
+                    Red badges mark pages still missing a stage or products. Use Propose funnel on selected rows to
+                    suggest with Jev — Accept writes live; Reject or Edit Funnel drops the suggestion.
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm" data-testid="table-funnel-entries">
@@ -9774,6 +10139,18 @@ export default function ContentTypeManagePage() {
                           const hasProducts = funnelHasProducts(products);
                           const stageKnown = isFunnelStage(stage);
                           const taper = stageKnown ? FUNNEL_STAGE_TAPER[stage] : null;
+                          const suggestion = entry.suggestion ?? null;
+                          const sugStage =
+                            suggestion && typeof suggestion.stage === "string"
+                              ? suggestion.stage.trim()
+                              : "";
+                          const sugStageKnown = isFunnelStage(sugStage);
+                          const sugTaper = sugStageKnown ? FUNNEL_STAGE_TAPER[sugStage] : null;
+                          const sugProducts = suggestion?.products;
+                          const sugHasProducts =
+                            sugProducts === "all" ||
+                            (Array.isArray(sugProducts) && sugProducts.length > 0);
+                          const busy = funnelSuggestionBusy === slug;
                           return (
                             <tr
                               key={slug}
@@ -9795,72 +10172,159 @@ export default function ContentTypeManagePage() {
                                 <div className="text-xs text-muted-foreground font-mono mt-0.5">{slug}</div>
                               </td>
                               <td className="px-4 py-3">
-                                {stage ? (
-                                  <Badge
-                                    variant="outline"
-                                    className={cn(
-                                      "text-xs font-medium",
-                                      taper ? FUNNEL_STAGE_TONE[taper] : "border-border",
-                                    )}
-                                    data-testid={`badge-funnel-stage-${slug}`}
-                                  >
-                                    {FUNNEL_STAGE_LABELS[stage] ?? stage}
-                                  </Badge>
-                                ) : (
-                                  <Badge
-                                    variant="destructive"
-                                    className="text-xs"
-                                    data-testid={`badge-funnel-no-stage-${slug}`}
-                                  >
-                                    No stage yet
-                                  </Badge>
-                                )}
+                                <div className="flex flex-col gap-1.5 items-start">
+                                  {stage ? (
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        "text-xs font-medium",
+                                        taper ? FUNNEL_STAGE_TONE[taper] : "border-border",
+                                      )}
+                                      data-testid={`badge-funnel-stage-${slug}`}
+                                    >
+                                      {FUNNEL_STAGE_LABELS[stage] ?? stage}
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="destructive"
+                                      className="text-xs"
+                                      data-testid={`badge-funnel-no-stage-${slug}`}
+                                    >
+                                      No stage yet
+                                    </Badge>
+                                  )}
+                                  {suggestion && sugStage ? (
+                                    <Badge
+                                      variant="secondary"
+                                      className={cn(
+                                        "text-xs font-medium border border-dashed",
+                                        sugTaper ? FUNNEL_STAGE_TONE[sugTaper] : "",
+                                      )}
+                                      title={`Suggested · confidence ${Math.round((suggestion.confidence?.stage ?? 0) * 100)}%`}
+                                      data-testid={`badge-funnel-suggested-stage-${slug}`}
+                                    >
+                                      → {FUNNEL_STAGE_LABELS[sugStage] ?? sugStage}
+                                      {typeof suggestion.confidence?.stage === "number"
+                                        ? ` · ${Math.round(suggestion.confidence.stage * 100)}%`
+                                        : ""}
+                                    </Badge>
+                                  ) : null}
+                                </div>
                               </td>
                               <td className="px-4 py-3">
-                                {hasProducts ? (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {products === "all" ? (
-                                      <Badge
-                                        variant="secondary"
-                                        className="text-xs"
-                                        data-testid={`badge-funnel-products-all-${slug}`}
-                                      >
-                                        All products
-                                      </Badge>
-                                    ) : (
-                                      (products as FunnelProductBinding[])
-                                        .map((raw) => normalizeFunnelBinding(raw))
-                                        .filter((b): b is FunnelProductBinding => b != null)
-                                        .map((b) => {
+                                <div className="space-y-1.5">
+                                  {hasProducts ? (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {products === "all" ? (
+                                        <Badge
+                                          variant="secondary"
+                                          className="text-xs"
+                                          data-testid={`badge-funnel-products-all-${slug}`}
+                                        >
+                                          All products
+                                        </Badge>
+                                      ) : (
+                                        (products as FunnelProductBinding[])
+                                          .map((raw) => normalizeFunnelBinding(raw))
+                                          .filter((b): b is FunnelProductBinding => b != null)
+                                          .map((b) => {
+                                            const label = b.persona
+                                              ? `${b.product} · ${b.persona}`
+                                              : b.product;
+                                            const key = `${b.product}\0${b.persona ?? ""}`;
+                                            return (
+                                              <Badge
+                                                key={key}
+                                                variant="outline"
+                                                className="text-xs font-mono font-normal"
+                                                data-testid={`badge-funnel-product-${slug}-${b.product}${b.persona ? `-${b.persona}` : ""}`}
+                                              >
+                                                {label}
+                                              </Badge>
+                                            );
+                                          })
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <Badge
+                                      variant="destructive"
+                                      className="text-xs"
+                                      data-testid={`badge-funnel-no-products-${slug}`}
+                                    >
+                                      No product yet
+                                    </Badge>
+                                  )}
+                                  {suggestion && sugHasProducts ? (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {sugProducts === "all" ? (
+                                        <Badge
+                                          variant="secondary"
+                                          className="text-xs border border-dashed"
+                                          data-testid={`badge-funnel-suggested-products-all-${slug}`}
+                                        >
+                                          → All products
+                                          {typeof suggestion.confidence?.products_all === "number"
+                                            ? ` · ${Math.round(suggestion.confidence.products_all * 100)}%`
+                                            : ""}
+                                        </Badge>
+                                      ) : (
+                                        (sugProducts as FunnelProductBinding[]).map((b) => {
+                                          const score =
+                                            suggestion.confidence?.bindings?.find(
+                                              (x) =>
+                                                x.product === b.product &&
+                                                (x.persona ?? "") === (b.persona ?? ""),
+                                            )?.score;
                                           const label = b.persona
                                             ? `${b.product} · ${b.persona}`
                                             : b.product;
-                                          const key = `${b.product}\0${b.persona ?? ""}`;
                                           return (
                                             <Badge
-                                              key={key}
-                                              variant="outline"
-                                              className="text-xs font-mono font-normal"
-                                              data-testid={`badge-funnel-product-${slug}-${b.product}${b.persona ? `-${b.persona}` : ""}`}
+                                              key={`sug-${b.product}-${b.persona ?? ""}`}
+                                              variant="secondary"
+                                              className="text-xs font-mono font-normal border border-dashed"
+                                              data-testid={`badge-funnel-suggested-product-${slug}-${b.product}${b.persona ? `-${b.persona}` : ""}`}
                                             >
-                                              {label}
+                                              → {label}
+                                              {typeof score === "number"
+                                                ? ` · ${Math.round(score * 100)}%`
+                                                : ""}
                                             </Badge>
                                           );
                                         })
-                                    )}
-                                  </div>
-                                ) : (
-                                  <Badge
-                                    variant="destructive"
-                                    className="text-xs"
-                                    data-testid={`badge-funnel-no-products-${slug}`}
-                                  >
-                                    No product yet
-                                  </Badge>
-                                )}
+                                      )}
+                                    </div>
+                                  ) : null}
+                                </div>
                               </td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                  {suggestion ? (
+                                    <>
+                                      <Button
+                                        variant="default"
+                                        size="sm"
+                                        className="text-xs gap-1"
+                                        disabled={busy}
+                                        data-testid={`button-accept-funnel-suggestion-${slug}`}
+                                        onClick={() => void acceptFunnelSuggestion(slug)}
+                                      >
+                                        <Check className="h-3.5 w-3.5" />
+                                        Accept
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs gap-1"
+                                        disabled={busy}
+                                        data-testid={`button-reject-funnel-suggestion-${slug}`}
+                                        onClick={() => void rejectFunnelSuggestion(slug)}
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                        Reject
+                                      </Button>
+                                    </>
+                                  ) : null}
                                   {entry.url && (
                                     <Button
                                       variant="ghost"
@@ -11390,6 +11854,33 @@ export default function ContentTypeManagePage() {
                   .map((f) => `${f.slug}: ${f.error}`)
                   .join("; ")}`
               : `Updated ${ok.length} entr${ok.length === 1 ? "y" : "ies"}.`,
+            variant: failed.length ? "destructive" : undefined,
+          });
+          if (failed.length === 0) {
+            setSelectedSlugs(new Set());
+          } else {
+            setSelectedSlugs(new Set(failed.map((f) => f.slug)));
+          }
+          queryClient.invalidateQueries({
+            queryKey: ["/api/content-types", contentType, "funnel-entries"],
+          });
+        }}
+      />
+      <BulkProposeFunnelDialog
+        open={bulkProposeFunnelOpen}
+        onOpenChange={setBulkProposeFunnelOpen}
+        contentType={contentType}
+        slugs={selectedSlugList}
+        onDone={({ ok, failed }) => {
+          const already = ok.filter((r) => r.outcome === "already_correct").length;
+          toast({
+            title: failed.length ? "Propose finished with errors" : "Funnel suggestions ready",
+            description: failed.length
+              ? `${ok.length} ok, ${failed.length} failed: ${failed
+                  .slice(0, 5)
+                  .map((f) => `${f.slug}: ${f.error}`)
+                  .join("; ")}`
+              : `Suggested ${ok.length - already}, already correct ${already}.`,
             variant: failed.length ? "destructive" : undefined,
           });
           if (failed.length === 0) {

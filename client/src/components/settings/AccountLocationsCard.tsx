@@ -63,13 +63,15 @@ export function AccountLocationsCard({
   disabled,
   testId = `card-${platform}-account-locations`,
 }: Props) {
+  // English is the reference locale for location slugs (ads-config / diagnostics).
+  // Omitting locale would also return Spanish rows with translated slugs (e.g. barcelona-espana).
   const { data: locData, isLoading } = useQuery<{ options: Array<{ value: string; label: string }> }>({
-    queryKey: ["/api/query-options", "location", "slug", "name", "any-locale"],
+    queryKey: ["/api/query-options", "location", "slug", "name", "en"],
     staleTime: 60_000,
     queryFn: async () => {
       const url = buildQueryOptionsUrl(
-        { content_type: "location", value: "slug", label: "name" },
-        undefined,
+        { content_type: "location", value_path: "slug", label_path: "name" },
+        "en",
       );
       const res = await apiFetch(url);
       if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);

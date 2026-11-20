@@ -17,7 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { locations } from "@/lib/locations";
+import type { Location } from "@shared/session";
+import { useLocationCatalog } from "@/hooks/useLocationCatalog";
 import { useToast } from "@/hooks/use-toast";
 import { getDebugUserName } from "@/hooks/useDebugAuth";
 import {
@@ -89,7 +90,11 @@ const QUERY_KEY_OPTIONS: { value: string; label: string }[] = [
   { value: "locale", label: "Locale" },
 ];
 
-function getValueOptionsForKey(queryKey: string, localeOptions: { value: string; label: string }[]): { value: string; label: string }[] {
+function getValueOptionsForKey(
+  queryKey: string,
+  localeOptions: { value: string; label: string }[],
+  locations: Location[],
+): { value: string; label: string }[] {
   if (queryKey === "location") {
     return locations
       .filter((loc) => loc.visibility === "listed")
@@ -132,6 +137,7 @@ function ConditionForm({
   blocked?: boolean;
   isPrice?: boolean;
 }) {
+  const { data: locations = [] } = useLocationCatalog();
   const [queryPairs, setQueryPairs] = useState<{ key: string; value: string }[]>(
     initialQuery
       ? Object.entries(initialQuery).map(([k, v]) => ({ key: k, value: v }))
@@ -214,7 +220,7 @@ function ConditionForm({
                   <SelectValue placeholder="Value..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {getValueOptionsForKey(pair.key, localeOptions).map((opt) => (
+                  {getValueOptionsForKey(pair.key, localeOptions, locations).map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>
                       {opt.label}
                     </SelectItem>
@@ -1102,7 +1108,7 @@ export function VariableDetailModal({
                               <div className="text-sm mt-1">
                                 <span className="text-muted-foreground/60">&rarr;</span>{" "}
                                 <span className={isMatched ? "font-medium text-foreground" : "text-muted-foreground"}>
-                                  "{cond.value}"
+                                  "{variableValueToDisplayString(cond.value)}"
                                 </span>
                               </div>
                             </div>
@@ -1149,7 +1155,7 @@ export function VariableDetailModal({
                           <div className="text-sm mt-1">
                             <span className="text-muted-foreground/60">&rarr;</span>{" "}
                             <span className={resolvedSource === "default" ? "font-medium text-foreground" : "text-muted-foreground"}>
-                              "{definition.default}"
+                              "{variableValueToDisplayString(definition.default)}"
                             </span>
                           </div>
                         ) : (

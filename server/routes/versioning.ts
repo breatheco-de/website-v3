@@ -1484,6 +1484,15 @@ export function registerVersioningRoutes(app: Express): void {
 
       const publishedLocales: string[] = [];
       const warnings: Array<{ locale: string; code: string; message: string }> = [];
+      const factLiteralWarnings: Array<{
+        locale: string;
+        message: string;
+        field_path: string;
+        literal: string;
+        variables: string[];
+        status: string;
+        kind: string;
+      }> = [];
       for (const locale of draftLocales) {
         const result = await promoteLocale(locale, false);
         if (!result.ok) {
@@ -1498,6 +1507,9 @@ export function registerVersioningRoutes(app: Express): void {
         }
         publishedLocales.push(locale);
         for (const w of result.warnings) warnings.push({ locale, code: w.code, message: w.message });
+        for (const w of result.factLiteralWarnings ?? []) {
+          factLiteralWarnings.push({ locale, ...w });
+        }
       }
 
       res.json({
@@ -1506,6 +1518,7 @@ export function registerVersioningRoutes(app: Express): void {
         variantSlug,
         locales: publishedLocales,
         warnings,
+        ...(factLiteralWarnings.length ? { fact_literal_warnings: factLiteralWarnings } : {}),
       });
     } catch (error) {
       res.status(500).json({ error: String(error) });
@@ -1600,6 +1613,9 @@ export function registerVersioningRoutes(app: Express): void {
       deletedSiblings: result.deletedSiblings,
       warnings: result.warnings,
       published_diff: result.publishedDiff,
+      ...(result.factLiteralWarnings?.length
+        ? { fact_literal_warnings: result.factLiteralWarnings }
+        : {}),
       ...(result.rebuilt ? { rebuilt: result.rebuilt } : {}),
       versioning_deleted: result.versioningDeleted === true,
     });

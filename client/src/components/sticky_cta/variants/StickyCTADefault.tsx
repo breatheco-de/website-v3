@@ -1,7 +1,10 @@
 // section-spacing: overlay
 import { useState, useEffect, lazy, Suspense } from "react";
-import { ChevronDown, ChevronUp, X } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import RigobotPeek from "@/components/custom-icons/RigobotPeek";
+import { rigobotVisibilityClass, type StickyShowRigobot } from "@/components/sticky_cta/rigobotVisibility";
+import { useHiddenAtPageTop } from "@/components/sticky_cta/useHiddenAtPageTop";
 import { cn } from "@/lib/utils";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import type { LeadFormData } from "@shared/schema";
@@ -84,6 +87,9 @@ export interface StickyCtaData {
   heading: string;
   button_label?: string;
   show_dismiss?: boolean;
+  /** Default false: hide until scrolled a few px. True: allow at page top. */
+  show_at_top?: boolean | string;
+  show_rigobot?: StickyShowRigobot | boolean;
   form?: LeadFormData;
 }
 
@@ -108,11 +114,14 @@ function FormSkeleton() {
 export function StickyCallToAction({ data, landingLocations }: StickyCallToActionProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isDismissed, setIsDismissed] = useState(false);
-  const { isFormVisible: isHiddenByForm, enableTransition } = useInlineFormVisible();
+  const { isFormVisible: isHiddenByForm } = useInlineFormVisible();
+  const isHiddenAtTop = useHiddenAtPageTop(data.show_at_top);
+  const isHidden = isHiddenByForm || isHiddenAtTop;
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
 
   const buttonLabel = data.button_label || "Apply Now";
+  const rigobotClass = rigobotVisibilityClass(data.show_rigobot);
 
   if (isEditMode) {
     return (
@@ -146,70 +155,93 @@ export function StickyCallToAction({ data, landingLocations }: StickyCallToActio
   return (
     <div
       className={cn(
-        "fixed bottom-0 left-0 right-0 z-50 bg-card border-t shadow-lg",
-        enableTransition && "transition-transform duration-300",
+        "fixed inset-x-0 bottom-0 z-50 flex flex-col gap-2 px-4 pt-2.5 pb-[calc(14px+env(safe-area-inset-bottom))]",
+        "bg-background/95 backdrop-blur-md border-t shadow-[0_-8px_24px_hsl(var(--foreground)/0.08)]",
+        "transition-[transform,opacity] duration-300 ease-out",
         isExpanded && "max-h-[80vh] overflow-auto",
-        isHiddenByForm && "translate-y-full"
+        isHidden && "translate-y-[110%] opacity-0 pointer-events-none",
       )}
+      aria-hidden={isHidden || undefined}
       data-testid="sticky-cta-bar"
     >
-      <div className="container mx-auto px-2">
-        {!isExpanded ? (
-          <div className="flex items-center justify-center flex-wrap py-4 gap-4">
-            <p className="text-sm md:text-base font-medium text-foreground">
+      {rigobotClass !== null && <RigobotPeek className={rigobotClass || undefined} />}
+      {!isExpanded ? (
+        <>
+          <div className="relative flex items-center justify-center">
+            <p
+              className="m-0 flex items-center justify-center gap-2 text-sm text-muted-foreground"
+              data-testid="text-sticky-cta-heading"
+            >
+              <span className="relative w-2 h-2 flex-shrink-0" aria-hidden="true">
+                <span
+                  className="absolute inset-0 rounded-full motion-safe:animate-ping [animation-duration:2.2s]"
+                  style={{ background: "hsl(var(--color-green))" }}
+                />
+                <span className="absolute inset-0 rounded-full" style={{ background: "hsl(var(--color-green))" }} />
+              </span>
               {data.heading}
             </p>
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={() => setIsExpanded(true)}
-                data-testid="sticky-cta-expand-button"
-              >
-                {buttonLabel}
-                <ChevronUp className="h-4 w-4 ml-1" />
-              </Button>
-              {data.show_dismiss && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsDismissed(true)}
-                  aria-label="Dismiss"
-                  data-testid="sticky-cta-dismiss"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="py-4">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-base font-medium text-foreground">
-                {data.heading}
-              </p>
+            {data.show_dismiss && (
               <Button
                 variant="ghost"
-                size="sm"
-                onClick={() => setIsExpanded(false)}
-                data-testid="sticky-cta-collapse-button"
+                size="icon"
+                className="absolute right-0 h-8 w-8 text-muted-foreground"
+                onClick={() => setIsDismissed(true)}
+                aria-label="Dismiss"
+                data-testid="sticky-cta-dismiss"
               >
-                <ChevronDown className="h-4 w-4 mr-1" />
-                Collapse
+                <X className="h-4 w-4" />
               </Button>
-            </div>
-            {data.form && (
-              <Suspense fallback={<FormSkeleton />}>
-                <LeadForm 
-                  data={{
-                    ...data.form,
-                    variant: data.form.variant || "inline",
-                    className: cn(data.form.className, "max-w-2xl mx-auto"),
-                  }}
-                />
-              </Suspense>
             )}
           </div>
-        )}
-      </div>
+          <Button
+            type="button"
+            className="w-full h-[52px] text-base font-semibold"
+            onClick={() => setIsExpanded(true)}
+            tabIndex={isHidden ? -1 : undefined}
+            data-testid="sticky-cta-expand-button"
+          >
+            <ChevronRight className="h-[18px] w-[18px]" strokeWidth={2.5} />
+            {buttonLabel}
+          </Button>
+        </>
+      ) : (
+        <div className="w-full max-w-2xl mx-auto">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="m-0 flex items-center gap-2 text-sm text-muted-foreground">
+              <span className="relative w-2 h-2 flex-shrink-0" aria-hidden="true">
+                <span
+                  className="absolute inset-0 rounded-full motion-safe:animate-ping [animation-duration:2.2s]"
+                  style={{ background: "hsl(var(--color-green))" }}
+                />
+                <span className="absolute inset-0 rounded-full" style={{ background: "hsl(var(--color-green))" }} />
+              </span>
+              {data.heading}
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              onClick={() => setIsExpanded(false)}
+              data-testid="sticky-cta-collapse-button"
+            >
+              <ChevronDown className="h-4 w-4 mr-1" />
+              Collapse
+            </Button>
+          </div>
+          {data.form && (
+            <Suspense fallback={<FormSkeleton />}>
+              <LeadForm
+                data={{
+                  ...data.form,
+                  variant: data.form.variant || "inline",
+                  className: cn(data.form.className, "max-w-2xl mx-auto"),
+                }}
+              />
+            </Suspense>
+          )}
+        </div>
+      )}
     </div>
   );
 }

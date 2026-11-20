@@ -94,6 +94,9 @@ export default function Staff404Recovery({
   typeLabel = "page",
   slug,
   contentType,
+  listingSharedTemplate = false,
+  hasDatabase = false,
+  databaseLabel,
   yamlExists = false,
   onEditYaml,
 }: {
@@ -102,6 +105,9 @@ export default function Staff404Recovery({
   typeLabel?: string;
   slug?: string;
   contentType?: string;
+  listingSharedTemplate?: boolean;
+  hasDatabase?: boolean;
+  databaseLabel?: string;
   yamlExists?: boolean;
   onEditYaml?: () => void;
 }) {
@@ -116,6 +122,9 @@ export default function Staff404Recovery({
         slug={slug}
         contentType={contentType}
         isValidType={surface === "databaseSingle" ? !!contentType : false}
+        listingSharedTemplate={listingSharedTemplate}
+        hasDatabase={hasDatabase}
+        databaseLabel={databaseLabel}
         yamlExists={yamlExists}
         staffOrEditMode
         compact

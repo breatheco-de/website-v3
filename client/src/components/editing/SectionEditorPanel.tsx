@@ -81,10 +81,20 @@ import { ReplaceBindingModal } from "./ReplaceBindingModal";
 import { VariableTypeChooserModal } from "./VariableTypeChooserModal";
 import { SingleVariablePickerModal } from "./SingleVariablePickerModal";
 import { VariableDetailModal } from "./VariableDetailModal";
-import { FormLocationBox } from "@/components/editing/FormLocationBox";
+import {
+  FormLocationBox,
+  locationSlugsFromFormConfig,
+  nextFormLocationConfig,
+  type FormLocationPendingSelection,
+} from "@/components/editing/FormLocationBox";
 import { SectionVisibilityCard } from "@/components/editing/SectionVisibilityCard";
 import { resolveBoundFormSettingsPath } from "@shared/wipeOnDuplicate";
-import { formSetsLocation } from "@shared/formLocationPolicy";
+import {
+  formSetsLocation,
+  pageLocationValues,
+  parseFormLocationPolicy,
+} from "@shared/formLocationPolicy";
+import { Checkbox } from "@/components/ui/checkbox";
 import { RichTextArea } from "./RichTextArea";
 import { MarkdownEditorField } from "./MarkdownEditorField";
 import { SectionBindingDialog } from "./SectionBindingDialog";
@@ -159,7 +169,12 @@ import {
   joinFormSettingsPath,
   normalizeFormSettingsPath,
 } from "@shared/joinFormSettingsPath";
-import { collectExtraConsentYamlFields, consentCardChannels, parseConsentSettingsResponse } from "@shared/consent-settings";
+import {
+  collectExtraConsentYamlFields,
+  consentCardChannels,
+  eventConsentToCardValues,
+  parseConsentSettingsResponse,
+} from "@shared/consent-settings";
 import { resolveBoundCtaPaths } from "@shared/validateCtaTracking";
 import { showEcommerceEditorTab } from "@shared/wipeOnDuplicate";
 import {
@@ -522,6 +537,13 @@ export function SectionEditorPanel({
   const [activeTab, setActiveTab] = useState("code");
   const [scopeDialogOpen, setScopeDialogOpen] = useState(false);
   const [templateSaveConfirmOpen, setTemplateSaveConfirmOpen] = useState(false);
+  const [formLocationPending, setFormLocationPending] = useState<FormLocationPendingSelection | null>(null);
+  const [locationScopeDialogOpen, setLocationScopeDialogOpen] = useState(false);
+  const [locationScopeClearOthers, setLocationScopeClearOthers] = useState(true);
+  /** After a successful whole-page location write in this Save, skip form-locale sync. */
+  const formLocationPageWriteDoneRef = useRef(false);
+  /** YAML to save after page location write (setState may not flush before executeSave). */
+  const yamlContentForSaveRef = useRef<string | null>(null);
   /** Cleared `{{ entry.* }}` paths approved via the shared-template confirm. */
   const [pendingClearedTemplatePaths, setPendingClearedTemplatePaths] = useState<string[]>([]);
   /** Unbound paths → static literals for shared-template save confirm. */
@@ -1148,7 +1170,6 @@ export function SectionEditorPanel({
   const currentShowOn = (parsedSection?.showOn as string) || "";
   const currentShowOnLocations =
     (parsedSection?.showOnLocations as string[]) || [];
-  const currentShowOnLlm = parsedSection?.show_on_llm !== false;
   const currentHiddenUntilRedirection =
     parsedSection?.hidden_until_redirection === true ||
     parsedSection?.hidden_until_redirection === "true";
@@ -2367,6 +2388,38 @@ export function SectionEditorPanel({
     return out;
   }, [allSections, allFieldEditors, sectionIndex]);
 
+  const { data: formLocationTypeConfig } = useQuery<Record<string, unknown>>({
+    queryKey: [`/api/content-types/${contentType}/config`],
+    enabled: !!contentType,
+    staleTime: 5 * 60 * 1000,
+  });
+  const formLocationPolicy = parseFormLocationPolicy(formLocationTypeConfig);
+  const formLocationEntryField = formLocationPolicy?.entryField ?? null;
+
+  const formLocationFormLabels = useMemo(() => {
+    const labels: Array<{ index: number; label: string; overrides: boolean }> = [];
+    (allSections ?? []).forEach((raw, i) => {
+      if (!raw || typeof raw !== "object") return;
+      const sec = raw as Record<string, unknown>;
+      const editors = (allFieldEditors?.[String(sec.type ?? "")] ?? {}) as Record<string, string>;
+      const path = resolveBoundFormSettingsPath(editors, typeof sec.variant === "string" ? sec.variant : undefined);
+      if (path == null) return;
+      const form = (path ? getValueAtFieldPath(sec, path) : sec) as Record<string, unknown> | undefined;
+      if (!form || typeof form !== "object") return;
+      const conv =
+        typeof form.conversion_name === "string" && form.conversion_name.trim()
+          ? form.conversion_name.trim()
+          : null;
+      const type = String(sec.type ?? "form");
+      labels.push({
+        index: i,
+        label: conv ?? `${type} · section ${i + 1}`,
+        overrides: formSetsLocation(form),
+      });
+    });
+    return labels;
+  }, [allSections, allFieldEditors]);
+
   const sectionFieldEditors = allFieldEditors?.[sectionType] || {};
   const currentEditorVariant = (parsedSection as Record<string, unknown>)?.variant as
     | string
@@ -2578,14 +2631,18 @@ export function SectionEditorPanel({
     warning?: string;
     shared_template_html_cache?: string;
     link_warning?: string;
+    fact_literal_warning?: string;
   }> => {
     if (!contentType || !slug || !locale) {
       return { success: false };
     }
 
+    const yamlToSave = yamlContentForSaveRef.current ?? yamlContent;
+    yamlContentForSaveRef.current = null;
+
     let parsed: Section;
     try {
-      parsed = safeYamlLoad(yamlContent) as Section;
+      parsed = safeYamlLoad(yamlToSave) as Section;
       if (!parsed || typeof parsed !== "object") {
         setParseError("Invalid section structure");
         return { success: false };
@@ -2653,19 +2710,99 @@ export function SectionEditorPanel({
             "Server did not return updated section, using local parsed data",
           );
         }
+        const savedSection = (confirmedSection || parsed) as Record<string, unknown>;
         onUpdate(
           mergeSavedSectionForLivePreview(
             section as Record<string, unknown>,
-            (confirmedSection || parsed) as Record<string, unknown>,
+            savedSection,
           ) as Section,
         );
+
+        // Other languages: sync this form's location when it changed (this locale already saved).
+        // Skip when this Save already wrote page Locations (other locales handled there).
+        if (
+          formSettingsPath != null &&
+          boundFormObjectPresent &&
+          !formLocationPageWriteDoneRef.current
+        ) {
+          const locPath = formProp("fields.location");
+          const nextLoc = getValueAtFieldPath(savedSection, locPath);
+          let prevLoc: unknown;
+          try {
+            const initial = safeYamlLoad(initialYamlRef.current ?? "") as Record<string, unknown> | null;
+            prevLoc =
+              initial && typeof initial === "object"
+                ? getValueAtFieldPath(initial, locPath)
+                : undefined;
+          } catch {
+            prevLoc = undefined;
+          }
+          const nextSlugs = locationSlugsFromFormConfig(nextLoc);
+          const prevSlugs = locationSlugsFromFormConfig(prevLoc);
+          const locationChanged =
+            nextSlugs.join(",") !== prevSlugs.join(",") ||
+            (prevLoc != null && nextLoc == null) ||
+            (prevLoc == null && nextLoc != null);
+          if (locationChanged) {
+            try {
+              const sectionId =
+                typeof savedSection.section_id === "string"
+                  ? savedSection.section_id
+                  : typeof (savedSection as { id?: unknown }).id === "string"
+                    ? ((savedSection as { id: string }).id)
+                    : null;
+              const res = await apiRequest("POST", "/api/content/form-location", {
+                contentType,
+                slug,
+                locale,
+                ...(effectiveVariant ? { variant: effectiveVariant } : {}),
+                scope: "form",
+                locations: nextSlugs,
+                section: {
+                  index: sectionIndex,
+                  type: String(savedSection.type ?? sectionType ?? ""),
+                  id: sectionId,
+                },
+              });
+              const out = (await res.json()) as {
+                updated_locales?: string[];
+                unmatched_locales?: string[];
+              };
+              const updated = out.updated_locales ?? [];
+              const unmatched = out.unmatched_locales ?? [];
+              if (updated.length || unmatched.length) {
+                toast({
+                  title: "Form location saved",
+                  description: [
+                    updated.length ? `Also updated: ${updated.join(", ")}.` : "",
+                    unmatched.length
+                      ? `Couldn't find this form in: ${unmatched.join(", ")} — set it there by hand.`
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
+                });
+              }
+            } catch (err) {
+              toast({
+                title: "Could not update form location in other languages",
+                description: String(err),
+                variant: "destructive",
+              });
+            }
+          }
+        }
+
         setHasChanges(false);
         setPendingClearedTemplatePaths([]);
         setPendingUnboundTemplateDetails([]);
         sessionUnboundPathsRef.current = new Set();
+        setFormLocationPending(null);
+        formLocationPageWriteDoneRef.current = false;
 
         // Update initial state reference so next undo session starts from saved state
-        initialYamlRef.current = yamlContent;
+        initialYamlRef.current = yamlToSave;
+        if (yamlToSave !== yamlContent) setYamlContent(yamlToSave);
 
         // Shared-template editor loads YAML from a cached query — refresh so
         // reopening the editor shows what was actually written to the template.
@@ -2674,12 +2811,18 @@ export function SectionEditorPanel({
         // Emit event to trigger page refresh
         emitContentUpdated({ contentType, slug, locale });
 
+        const factMsgs = Array.isArray(result.fact_literal_warnings)
+          ? result.fact_literal_warnings
+              .map((w) => (w && typeof w.message === "string" ? w.message : ""))
+              .filter(Boolean)
+          : [];
         // Return warning if present (for GitHub sync failures)
         return {
           success: true,
           warning: result.warning,
           shared_template_html_cache: result.shared_template_html_cache,
           link_warning: linkWarningsToastText(result.link_warnings) ?? undefined,
+          fact_literal_warning: factMsgs.length ? factMsgs.slice(0, 3).join(" ") : undefined,
         };
       } else if (result.code === BROKEN_INTERNAL_LINKS_CODE && result.broken_internal_links?.length) {
         setBrokenLinks(result.broken_internal_links);
@@ -2763,13 +2906,20 @@ export function SectionEditorPanel({
   };
 
   // Save without closing editor
-  const executeSave = async () => {
+  const executeSave = async (): Promise<{ success: boolean }> => {
     const result = await saveToServer();
-    if (result && result.success) {
+    const ok = !!(result && result.success);
+    if (ok) {
       if (result.link_warning) {
         toast({
           title: "Check the links on this page",
           description: result.link_warning,
+        });
+      }
+      if (result.fact_literal_warning) {
+        toast({
+          title: "Prefer a site variable for this number",
+          description: result.fact_literal_warning,
         });
       }
       if (result.warning) {
@@ -2791,7 +2941,16 @@ export function SectionEditorPanel({
           description: "Your section has been updated successfully.",
         });
       }
+    } else if (formLocationPageWriteDoneRef.current) {
+      toast({
+        title: "Page locations saved, but this section did not save",
+        description:
+          "The page Locations field was updated. Fix the section error and Save again (location scope will not re-ask unless you change locations).",
+        variant: "destructive",
+      });
+      formLocationPageWriteDoneRef.current = false;
     }
+    return { success: ok };
   };
 
   // Save section only for this specific DB entry (per-entry override)
@@ -2852,25 +3011,19 @@ export function SectionEditorPanel({
     }
   };
 
-  const handleSave = async () => {
+  const continueSaveAfterLocationScope = async () => {
     const isPerEntrySection = !!(section as Record<string, unknown>)._perEntrySource;
     if (isSharedTemplate && singleEntry && !isPerEntrySection) {
       if (!allowEntryStructuralOverrides) {
-        // Attached shared-layout: only template saves — confirm blast radius first
         openSharedTemplateConfirm();
         return;
       }
-      // Skip the scope dialog when previewing a variant — destination is already the variant file.
       const _vp = new URLSearchParams(window.location.search);
       const inVariantPreview = !!(_vp.get("force_variant") || _vp.get("variant"));
       if (!inVariantPreview) {
-        // On a DB entry page with a shared-template section: ask scope first.
-        // Binding confirmation (if needed) is handled inside the scope dialog's
-        // "Update shared template" branch.
         setScopeDialogOpen(true);
         return;
       }
-      // Variant preview: still confirm when unbinding template fields.
       const cleared = computeClearedTemplatePaths();
       const unbound = computeUnboundTemplateDetails();
       if (cleared.length > 0 || unbound.length > 0) {
@@ -2879,13 +3032,138 @@ export function SectionEditorPanel({
         setTemplateSaveConfirmOpen(true);
         return;
       }
-      // Fall through to executeSave, which writes to the variant template.
     }
     if (boundSiblings.length > 0) {
       setBindingConfirmOpen(true);
       return;
     }
     await executeSave();
+  };
+
+  const writeFormLocationPage = async (locations: string[]) => {
+    if (!contentType || !slug || !locale) return false;
+    const _urlParams = new URLSearchParams(window.location.search);
+    const draft =
+      _urlParams.get("force_variant") || _urlParams.get("variant") || variant || null;
+    try {
+      const res = await apiRequest("POST", "/api/content/form-location", {
+        contentType,
+        slug,
+        locale,
+        ...(draft ? { variant: draft } : {}),
+        scope: "page",
+        locations,
+        clearOverrideIndexes: locationScopeClearOthers ? otherFormLocationOverrideIndexes : [],
+      });
+      const out = (await res.json()) as { cleared_overrides?: number };
+
+      // Clear this form's override so it follows the page; flush YAML for the upcoming section Save.
+      if (formSettingsPath != null) {
+        try {
+          const parsed = safeYamlLoad(yamlContent) as Record<string, unknown>;
+          if (parsed && typeof parsed === "object") {
+            applyRawValuesAtPaths(parsed, {
+              [formProp("fields.location")]: nextFormLocationConfig(
+                getValueAtFieldPath(parsed, formProp("fields.location")),
+                [],
+              ),
+              [formProp("locations")]: undefined,
+            });
+            const newYaml = safeYamlDump(parsed, {
+              lineWidth: -1,
+              noRefs: true,
+              quotingType: '"',
+            });
+            setYamlContent(newYaml);
+            yamlContentForSaveRef.current = newYaml;
+            setHasChanges(true);
+            if (onPreviewChange) onPreviewChange(parsed as Section);
+          }
+        } catch (err) {
+          console.error("Error clearing form location after page write:", err);
+        }
+      }
+
+      formLocationPageWriteDoneRef.current = true;
+      setFormLocationPending(null);
+      emitContentUpdated({ contentType, slug, locale });
+      toast({
+        title: draft ? "Page locations saved in this draft" : "Page locations saved",
+        description: [
+          draft
+            ? "Goes live for every language when the draft is published."
+            : locations.length
+              ? "Every form on this page without its own location uses it now."
+              : "Page Locations were cleared.",
+          out.cleared_overrides ? `Cleared ${out.cleared_overrides} form override(s).` : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+      });
+      return true;
+    } catch (err) {
+      toast({
+        title: "Could not save page locations",
+        description: String(err),
+        variant: "destructive",
+      });
+      return false;
+    }
+  };
+
+  const handleSave = async () => {
+    formLocationPageWriteDoneRef.current = false;
+
+    // Location scope first (before shared-template / binding dialogs) when the
+    // content type has a page Locations field and locations changed.
+    if (formSettingsPath != null && boundFormObjectPresent && formLocationEntryField) {
+      const locPath = formProp("fields.location");
+      let prevLoc: unknown;
+      try {
+        const initial = safeYamlLoad(initialYamlRef.current ?? "") as Record<string, unknown> | null;
+        prevLoc =
+          initial && typeof initial === "object" ? getValueAtFieldPath(initial, locPath) : undefined;
+      } catch {
+        prevLoc = undefined;
+      }
+      const prevFormSlugs = locationSlugsFromFormConfig(prevLoc);
+      const pageVals = pageLocationValues(singleEntry, formLocationEntryField);
+      const pending = formLocationPending;
+
+      const baselineSlugs =
+        pending?.baselineLayer === "entry"
+          ? pending.baselinePageValues
+          : pending?.baselineLayer === "form"
+            ? prevFormSlugs
+            : prevFormSlugs.length
+              ? prevFormSlugs
+              : pageVals;
+      const nextSlugs = pending
+        ? pending.locations
+        : locationSlugsFromFormConfig(getValueAtFieldPath(parsedSection, locPath));
+
+      const locationChanged =
+        nextSlugs.join("\0") !== baselineSlugs.join("\0") ||
+        (pending == null &&
+          (prevLoc != null) !==
+            (getValueAtFieldPath(parsedSection, locPath) != null) &&
+          prevFormSlugs.join("\0") !== nextSlugs.join("\0"));
+
+      // Follow the page / clear form override only: no scope dialog.
+      const followPageOnly =
+        pending != null &&
+        pending.locations.length === 0 &&
+        pending.baselineLayer === "form" &&
+        (pending.baselinePageValues.length > 0 || pageVals.length > 0);
+
+      if (locationChanged && !followPageOnly) {
+        setLocationScopeClearOthers(true);
+        setLocationScopeDialogOpen(true);
+        return;
+      }
+    }
+
+    await continueSaveAfterLocationScope();
   };
 
   // Handle close with unsaved changes warning
@@ -3304,16 +3582,9 @@ export function SectionEditorPanel({
             <SectionVisibilityCard
               showOn={currentShowOn}
               showOnLocations={currentShowOnLocations}
-              showOnLlm={currentShowOnLlm}
               onShowOnChange={(value) => updateProperty("showOn", value)}
               onShowOnLocationsChange={(value) =>
                 updateArrayProperty("showOnLocations", value)
-              }
-              onShowOnLlmChange={(visible) =>
-                updatePropertyWithValue(
-                  "show_on_llm",
-                  visible ? undefined : false,
-                )
               }
             />
 
@@ -8424,6 +8695,8 @@ export function SectionEditorPanel({
                 otherOverrideIndexes={otherFormLocationOverrideIndexes}
                 formOptions={formOptions}
                 formOptionsLoading={formOptionsLoading}
+                pendingSelection={formLocationPending}
+                onPendingSelectionChange={setFormLocationPending}
                 onFormLocationChange={(next) =>
                   updatePropertiesWithValues({
                     [formProp("fields.location")]: next,
@@ -8994,14 +9267,20 @@ export function SectionEditorPanel({
                   const rawMarketing   = getValueAtFieldPath(parsedSection, formProp("consent.marketing"));
                   const rawSms         = getValueAtFieldPath(parsedSection, formProp("consent.sms"));
                   const rawWhatsapp    = getValueAtFieldPath(parsedSection, formProp("consent.whatsapp"));
-                  const rawSmsUsaOnly  = getValueAtFieldPath(parsedSection, formProp("consent.sms_usa_only"));
+                  const rawSmsCountries = getValueAtFieldPath(parsedSection, formProp("consent.sms_countries"));
+                  const rawSmsMode = getValueAtFieldPath(parsedSection, formProp("consent.sms_countries_mode"));
+                  const rawWaCountries = getValueAtFieldPath(parsedSection, formProp("consent.whatsapp_countries"));
+                  const rawWaMode = getValueAtFieldPath(parsedSection, formProp("consent.whatsapp_countries_mode"));
                   const rawShowTerms   = getValueAtFieldPath(parsedSection, formProp("show_terms"));
 
                   const specificFields: Partial<Record<string, boolean>> = {
                     marketing:  rawMarketing  !== null && rawMarketing  !== undefined,
                     sms:        rawSms        !== null && rawSms        !== undefined,
                     whatsapp:   rawWhatsapp   !== null && rawWhatsapp   !== undefined,
-                    smsUsaOnly: rawSmsUsaOnly !== null && rawSmsUsaOnly !== undefined,
+                    smsCountries: Array.isArray(rawSmsCountries) && rawSmsCountries.length > 0,
+                    smsCountriesMode: rawSmsMode !== null && rawSmsMode !== undefined,
+                    whatsappCountries: Array.isArray(rawWaCountries) && rawWaCountries.length > 0,
+                    whatsappCountriesMode: rawWaMode !== null && rawWaMode !== undefined,
                     showTerms:  rawShowTerms  !== null && rawShowTerms  !== undefined,
                     termsUrl:   false,
                     privacyUrl: false,
@@ -9021,12 +9300,38 @@ export function SectionEditorPanel({
                     extraConsentFields.map((field) => [field, !!convEvent?.consent?.[field]]),
                   );
 
+                  const asStringList = (raw: unknown): string[] =>
+                    Array.isArray(raw)
+                      ? raw.filter((el): el is string => typeof el === "string" && el.trim() !== "").map((el) => el.trim().toUpperCase())
+                      : [];
+                  const cardFromConsent = (consent: Record<string, unknown> | null | undefined) => {
+                    const fromEvent = eventConsentToCardValues(consent ?? undefined);
+                    return {
+                      smsCountries: fromEvent.smsCountries,
+                      smsCountriesMode: fromEvent.smsCountriesMode,
+                      whatsappCountries: fromEvent.whatsappCountries,
+                      whatsappCountriesMode: fromEvent.whatsappCountriesMode,
+                      smsUsaOnly: fromEvent.smsUsaOnly,
+                    };
+                  };
+                  const resolvedConsentObj = {
+                    marketing: getValueAtFieldPath(resolvedParsedSection, formProp("consent.marketing")),
+                    sms: getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms")),
+                    whatsapp: getValueAtFieldPath(resolvedParsedSection, formProp("consent.whatsapp")),
+                    sms_countries: getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms_countries")),
+                    sms_countries_mode: getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms_countries_mode")),
+                    whatsapp_countries: getValueAtFieldPath(resolvedParsedSection, formProp("consent.whatsapp_countries")),
+                    whatsapp_countries_mode: getValueAtFieldPath(resolvedParsedSection, formProp("consent.whatsapp_countries_mode")),
+                    sms_usa_only: getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms_usa_only")),
+                  };
+                  const resolvedCardCountries = cardFromConsent(resolvedConsentObj as Record<string, unknown>);
+
                   const inheritedValues: Partial<ConsentValues> | undefined = convEvent
                     ? {
                         marketing:  !!convEvent.consent?.marketing,
                         sms:        !!convEvent.consent?.sms,
                         whatsapp:   !!convEvent.consent?.whatsapp,
-                        smsUsaOnly: !!convEvent.consent?.sms_usa_only,
+                        ...cardFromConsent(convEvent.consent as Record<string, unknown> | undefined),
                         showTerms:  !!convEvent.consent?.show_terms,
                         termsUrl:   convEvent.consent?.terms_url ?? "",
                         privacyUrl: convEvent.consent?.privacy_url ?? "",
@@ -9041,7 +9346,7 @@ export function SectionEditorPanel({
                         marketing: !!getValueAtFieldPath(resolvedParsedSection, formProp("consent.marketing")),
                         sms: !!getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms")),
                         whatsapp: !!getValueAtFieldPath(resolvedParsedSection, formProp("consent.whatsapp")),
-                        smsUsaOnly: !!getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms_usa_only")),
+                        ...resolvedCardCountries,
                         showTerms: !!getValueAtFieldPath(resolvedParsedSection, formProp("show_terms")),
                         termsUrl: String(getValueAtFieldPath(resolvedParsedSection, formProp("terms_url")) ?? ""),
                         privacyUrl: String(getValueAtFieldPath(resolvedParsedSection, formProp("privacy_url")) ?? ""),
@@ -9057,12 +9362,24 @@ export function SectionEditorPanel({
                           marketing: formProp("consent.marketing"),
                           sms: formProp("consent.sms"),
                           whatsapp: formProp("consent.whatsapp"),
-                          smsUsaOnly: formProp("consent.sms_usa_only"),
+                          smsCountries: formProp("consent.sms_countries"),
+                          smsCountriesMode: formProp("consent.sms_countries_mode"),
+                          whatsappCountries: formProp("consent.whatsapp_countries"),
+                          whatsappCountriesMode: formProp("consent.whatsapp_countries_mode"),
                           showTerms: formProp("show_terms"),
                           termsUrl: formProp("terms_url"),
                           privacyUrl: formProp("privacy_url"),
                         };
                         const path = pathMap[field] ?? formProp(`consent.${field}`);
+                        if (field === "smsCountries" || field === "whatsappCountries") {
+                          const list = asStringList(value);
+                          if (list.length === 0) {
+                            updatePropertyWithValue(path, undefined);
+                          } else {
+                            updatePropertyWithValue(path, list);
+                          }
+                          return;
+                        }
                         if (typeof value === "boolean") {
                           updatePropertyWithValue(path, value);
                         } else {
@@ -9089,7 +9406,16 @@ export function SectionEditorPanel({
                             setProp(formProp("consent.marketing"),    !!eff(formProp("consent.marketing")));
                             setProp(formProp("consent.sms"),          !!eff(formProp("consent.sms")));
                             setProp(formProp("consent.whatsapp"),     !!eff(formProp("consent.whatsapp")));
-                            setProp(formProp("consent.sms_usa_only"), !!eff(formProp("consent.sms_usa_only")));
+                            const smsCountries = asStringList(eff(formProp("consent.sms_countries")));
+                            const waCountries = asStringList(eff(formProp("consent.whatsapp_countries")));
+                            if (smsCountries.length > 0) {
+                              setProp(formProp("consent.sms_countries"), smsCountries);
+                              setProp(formProp("consent.sms_countries_mode"), eff(formProp("consent.sms_countries_mode")) || "include");
+                            }
+                            if (waCountries.length > 0) {
+                              setProp(formProp("consent.whatsapp_countries"), waCountries);
+                              setProp(formProp("consent.whatsapp_countries_mode"), eff(formProp("consent.whatsapp_countries_mode")) || "include");
+                            }
                             setProp(formProp("show_terms"),           !!eff(formProp("show_terms")));
                             for (const field of extraConsentFields) {
                               setProp(formProp(`consent.${field}`), !!eff(formProp(`consent.${field}`)));
@@ -9098,6 +9424,10 @@ export function SectionEditorPanel({
                             setProp(formProp("consent.marketing"),    undefined);
                             setProp(formProp("consent.sms"),          undefined);
                             setProp(formProp("consent.whatsapp"),     undefined);
+                            setProp(formProp("consent.sms_countries"), undefined);
+                            setProp(formProp("consent.sms_countries_mode"), undefined);
+                            setProp(formProp("consent.whatsapp_countries"), undefined);
+                            setProp(formProp("consent.whatsapp_countries_mode"), undefined);
                             setProp(formProp("consent.sms_usa_only"), undefined);
                             setProp(formProp("show_terms"),           undefined);
                             for (const field of extraConsentFields) {
@@ -10923,6 +11253,200 @@ export function SectionEditorPanel({
               data-testid="button-template-save-confirm"
             >
               Update shared template
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={locationScopeDialogOpen}
+        onOpenChange={(o) => {
+          if (!o && !isSaving) setLocationScopeDialogOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {formLocationPending &&
+              formLocationPending.locations.length === 0 &&
+              formLocationPending.baselineLayer === "entry" &&
+              formLocationPending.baselinePageValues.length > 0
+                ? "Clear locations for the whole page?"
+                : "Where should these locations apply?"}
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                {(() => {
+                  const pending = formLocationPending;
+                  const nextLocs = pending?.locations ?? [];
+                  const isPageClear =
+                    !!pending &&
+                    pending.locations.length === 0 &&
+                    pending.baselineLayer === "entry" &&
+                    pending.baselinePageValues.length > 0;
+                  const draftName = (() => {
+                    if (typeof window === "undefined") return variant ?? null;
+                    const p = new URLSearchParams(window.location.search);
+                    return p.get("force_variant") || p.get("variant") || variant || null;
+                  })();
+                  const following = formLocationFormLabels.filter((f) => !f.overrides || f.index === sectionIndex);
+                  const overriding = formLocationFormLabels.filter(
+                    (f) => f.overrides && f.index !== sectionIndex,
+                  );
+                  const nameOf = (slug: string) =>
+                    formOptions?.locations.find((l) => l.slug === slug)?.name ?? slug;
+                  const listNames = (slugs: string[]) => slugs.map(nameOf).join(", ") || "(none)";
+
+                  return (
+                    <>
+                      {isPageClear ? (
+                        <p className="text-foreground">
+                          This clears the page Locations field
+                          {pending?.baselinePageValues.length
+                            ? ` (was ${listNames(pending.baselinePageValues)})`
+                            : ""}
+                          . Forms that follow the page will no longer get a location from it.
+                        </p>
+                      ) : (
+                        <p>
+                          Choose whether {nextLocs.length ? listNames(nextLocs) : "these locations"} apply only to
+                          this form, or to the whole page.
+                        </p>
+                      )}
+                      {draftName ? (
+                        <p>Saved in the draft &quot;{draftName}&quot; — goes live when the draft is published.</p>
+                      ) : null}
+                      <div className="rounded-md border bg-muted/40 p-2 space-y-1">
+                        <p className="text-xs font-medium text-foreground">Forms on this page</p>
+                        <ul className="text-xs list-disc pl-4 space-y-0.5">
+                          {formLocationFormLabels.length === 0 ? (
+                            <li>No forms found on this page.</li>
+                          ) : (
+                            formLocationFormLabels.map((f) => (
+                              <li key={f.index}>
+                                {f.label}
+                                {f.index === sectionIndex ? " (this form)" : ""}
+                                {f.overrides ? " — has its own location" : " — follows the page"}
+                              </li>
+                            ))
+                          )}
+                        </ul>
+                        {locationScopeClearOthers && overriding.length > 0 ? (
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            Clearing own locations on: {overriding.map((f) => f.label).join(", ")}.
+                          </p>
+                        ) : null}
+                        {!locationScopeClearOthers && following.length > 0 && !isPageClear ? (
+                          <p className="text-xs">
+                            Whole page will update forms that follow the page
+                            {following.length ? `: ${following.map((f) => f.label).join(", ")}` : ""}.
+                          </p>
+                        ) : null}
+                      </div>
+                      {otherFormLocationOverrideIndexes.length > 0 ? (
+                        <label className="flex items-start gap-2 text-foreground">
+                          <Checkbox
+                            checked={locationScopeClearOthers}
+                            onCheckedChange={(v) => setLocationScopeClearOthers(v === true)}
+                            data-testid="checkbox-form-location-clear-others"
+                          />
+                          <span>
+                            Also clear {otherFormLocationOverrideIndexes.length} other form(s) that set their own
+                            location, so they follow the page.
+                          </span>
+                        </label>
+                      ) : null}
+                    </>
+                  );
+                })()}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3 py-2">
+            {!(
+              formLocationPending &&
+              formLocationPending.locations.length === 0 &&
+              formLocationPending.baselineLayer === "entry" &&
+              formLocationPending.baselinePageValues.length > 0
+            ) ? (
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-3 h-auto py-3 px-4"
+                disabled={isSaving}
+                onClick={() => {
+                  setLocationScopeDialogOpen(false);
+                  // Empty + this form only = follow page / keep staged form clear; non-empty already staged.
+                  void continueSaveAfterLocationScope();
+                }}
+                data-testid="button-form-location-scope-form"
+              >
+                <div className="flex flex-col items-start gap-0.5 text-left whitespace-normal">
+                  <span className="font-medium">This form only</span>
+                  <span className="text-xs text-muted-foreground">
+                    {formLocationPending && formLocationPending.locations.length === 0
+                      ? "This form follows the page (or detection). Other forms stay as they are."
+                      : "Only this form. Other forms on the page stay as they are. Save still syncs this form in other languages."}
+                  </span>
+                </div>
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                className="w-full justify-start gap-3 h-auto py-3 px-4"
+                disabled={isSaving}
+                onClick={() => {
+                  // Keep following the page: discard clear intent.
+                  setFormLocationPending(null);
+                  setLocationScopeDialogOpen(false);
+                  void continueSaveAfterLocationScope();
+                }}
+                data-testid="button-form-location-scope-keep-page"
+              >
+                <div className="flex flex-col items-start gap-0.5 text-left whitespace-normal">
+                  <span className="font-medium">Keep page locations</span>
+                  <span className="text-xs text-muted-foreground">
+                    Discard the clear. This form keeps following the page Locations.
+                  </span>
+                </div>
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-3 h-auto py-3 px-4"
+              disabled={isSaving}
+              onClick={async () => {
+                const locs = formLocationPending?.locations ?? [];
+                setLocationScopeDialogOpen(false);
+                const ok = await writeFormLocationPage(locs);
+                if (!ok) return;
+                await continueSaveAfterLocationScope();
+              }}
+              data-testid="button-form-location-scope-page"
+            >
+              <div className="flex flex-col items-start gap-0.5 text-left whitespace-normal">
+                <span className="font-medium">
+                  {formLocationPending &&
+                  formLocationPending.locations.length === 0 &&
+                  formLocationPending.baselineLayer === "entry"
+                    ? "Clear whole page"
+                    : "Whole page"}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {formLocationPending && formLocationPending.locations.length === 0
+                    ? "Removes the page Locations field for every language."
+                    : "Writes the page Locations field. Forms without their own location follow it."}
+                </span>
+              </div>
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              disabled={isSaving}
+              onClick={() => setLocationScopeDialogOpen(false)}
+              data-testid="button-form-location-scope-cancel"
+            >
+              Cancel
             </Button>
           </DialogFooter>
         </DialogContent>

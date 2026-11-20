@@ -62,6 +62,40 @@ export function promoteLinkWarningsText(warnings: unknown): string | null {
   return messages.length ? messages.join(" ") : null;
 }
 
+const FACT_LITERAL_WARNING_CODE = "fact_literal_prefer_variable";
+
+/**
+ * Exact catalog fact-literal warnings from publish/promote (`warnings[]` and/or
+ * `fact_literal_warnings[]`). Soft toast only — prefer {{ global.* }} tokens.
+ */
+export function promoteFactLiteralWarningsText(
+  warnings: unknown,
+  factLiteralWarnings?: unknown,
+): string | null {
+  const messages: string[] = [];
+  if (Array.isArray(warnings)) {
+    for (const w of warnings) {
+      if (
+        w &&
+        typeof w === "object" &&
+        (w as { code?: string }).code === FACT_LITERAL_WARNING_CODE &&
+        typeof (w as { message?: string }).message === "string"
+      ) {
+        messages.push((w as { message: string }).message);
+      }
+    }
+  }
+  if (Array.isArray(factLiteralWarnings)) {
+    for (const w of factLiteralWarnings) {
+      if (w && typeof w === "object" && typeof (w as { message?: string }).message === "string") {
+        const msg = (w as { message: string }).message.trim();
+        if (msg && !messages.includes(msg)) messages.push(msg);
+      }
+    }
+  }
+  return messages.length ? messages.slice(0, 3).join(" ") : null;
+}
+
 export function BrokenInternalLinksNotice({
   links,
   className,

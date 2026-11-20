@@ -388,12 +388,16 @@ export interface ConsentDefaults {
   sms?: boolean;
   whatsapp?: boolean;
   sms_usa_only?: boolean;
+  sms_countries?: string[];
+  sms_countries_mode?: "include" | "exclude";
+  whatsapp_countries?: string[];
+  whatsapp_countries_mode?: "include" | "exclude";
   marketing_text?: string;
   sms_text?: string;
   show_terms?: boolean;
   terms_url?: string;
   privacy_url?: string;
-  [key: string]: boolean | string | undefined;
+  [key: string]: boolean | string | string[] | undefined;
 }
 
 export interface SuccessDefaults {

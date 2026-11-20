@@ -94,7 +94,8 @@ export const FORMS_ISSUE_CODES: Record<string, IssueCodeDefinition> = {
     title: "Form Location Differs By Language",
     summary:
       "The same form has a different location in each language file, so visitors to each language version get a different campus.",
-    suggestion: "Set the location with Forms tab → Locations → This form only (it updates every language), or use the page's Locations.",
+    suggestion:
+      "Set the location with Forms tab → Locations → pick campuses → Save (updates every language), or use the page's Locations.",
     next_actions: [
       { tool: "update_fields", reason: "Set the same fields.location on each language's form", priority: "recommended" },
     ],

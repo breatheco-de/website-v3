@@ -19,10 +19,9 @@ import { getMenuChromeHeights } from "@/lib/menuChrome";
 import { restoreEditModeScrollPosition } from "@/lib/editModeScroll";
 import { useScrollToLocationHashWhenReady } from "@/hooks/useScrollToLocationHashWhenReady";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
-import { LlmAudienceContext } from "@/contexts/LlmAudienceContext";
 import { DevicePreviewShell } from "@/components/editing/DevicePreviewShell";
-import { LlmPreviewTopBar } from "@/components/editing/LlmPreviewTopBar";
 import Staff404Layout from "@/components/editing/Staff404Layout";
+import { humanizeDatabaseLabel } from "@/lib/staff404";
 import Staff404VariantModal, { type Staff404VariantOption } from "@/components/editing/Staff404VariantModal";
 import { isPreviewListingSharedTemplate, isSharedLayoutType } from "@/lib/sharedLayoutEntry";
 import { staff404PreviewHref } from "@/lib/staff404";
@@ -379,6 +378,8 @@ export default function PrivatePreview() {
               contentType={normalizedType}
               isValidType
               listingSharedTemplate={listingSharedTemplate}
+              hasDatabase={!!typeInfo?.has_database}
+              databaseLabel={humanizeDatabaseLabel(typeInfo?.database_slug)}
               isDraftOnly={isDraftOnly}
               hasEntryVariants={!listingSharedTemplate && availableVariants.length > 0}
               variantsLoading={variantsPending}
@@ -445,9 +446,8 @@ export default function PrivatePreview() {
     </Suspense>
   ) : null;
 
-  const pageBody = (
+  return (
     <div data-testid={`preview-${contentType}-${slug}`}>
-      {isLlmPreview ? <LlmPreviewTopBar /> : null}
       <MenuVisualContextProvider
         value={{
           sectionBackgroundOverlapsMenu,
@@ -521,11 +521,5 @@ export default function PrivatePreview() {
         </Suspense>
       ) : null}
     </div>
-  );
-
-  return (
-    <LlmAudienceContext.Provider value={isLlmPreview}>
-      {pageBody}
-    </LlmAudienceContext.Provider>
   );
 }

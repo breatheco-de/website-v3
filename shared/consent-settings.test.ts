@@ -170,6 +170,8 @@ describe("eventConsentToCardValues / cardValuesToEventConsent", () => {
     });
     expect(card.test).toBe(true);
     expect(card.smsUsaOnly).toBe(true);
+    expect(card.smsCountries).toEqual(["US"]);
+    expect(card.smsCountriesMode).toBe("include");
     expect((card as { extras?: unknown }).extras).toBeUndefined();
 
     expect(
@@ -178,11 +180,27 @@ describe("eventConsentToCardValues / cardValuesToEventConsent", () => {
       marketing: true,
       sms: false,
       whatsapp: false,
-      sms_usa_only: true,
+      sms_countries: ["US"],
+      sms_countries_mode: "include",
       show_terms: true,
       terms_url: "/terms",
       marketing_text: "Keep me",
       test: true,
+    });
+  });
+
+  it("round-trips whatsapp exclude US", () => {
+    const card = eventConsentToCardValues({
+      whatsapp: true,
+      whatsapp_countries: ["US"],
+      whatsapp_countries_mode: "exclude",
+    });
+    expect(card.whatsappCountries).toEqual(["US"]);
+    expect(card.whatsappCountriesMode).toBe("exclude");
+    expect(cardValuesToEventConsent(card)).toMatchObject({
+      whatsapp: true,
+      whatsapp_countries: ["US"],
+      whatsapp_countries_mode: "exclude",
     });
   });
 });

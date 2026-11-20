@@ -216,6 +216,7 @@ export default function PrivateRouter() {
           <Route path="/private/settings/robots" component={SettingsPage} />
           <Route path="/private/settings/llms-txt" component={LlmsTxtSettingsRedirect} />
           <Route path="/private/settings/legal" component={SettingsPage} />
+          <Route path="/private/settings/session" component={SettingsPage} />
           <Route path="/private/settings/server" component={SettingsPage} />
           <Route path="/private/settings" component={SettingsPage} />
           <Route path="/private/sync-log" component={SyncLogRedirect} />

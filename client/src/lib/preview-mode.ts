@@ -1,14 +1,15 @@
 /**
- * Shareable staff preview viewport mode on /private/preview.
- * URL `preview_mode` wins over localStorage when present.
- * localStorage keeps the last mode so refresh still restores LLM/device when the
- * query param was dropped by an intermediate navigate.
+ * Shareable staff preview viewport mode on /private/preview and public pages
+ * (LLM crawler only on public). URL `preview_mode` wins over localStorage when
+ * present. localStorage keeps the last mode so refresh still restores LLM/device
+ * when the query param was dropped by an intermediate navigate.
  */
 
 import {
   isPreviewDeviceId,
   type PreviewDeviceId,
 } from "@/lib/preview-devices";
+import { isPrivatePreviewPath, isVisualEditPath } from "@/lib/visual-edit-path";
 
 export const PREVIEW_MODE_PARAM = "preview_mode";
 export const PREVIEW_LOCATION_PARAM = "location";
@@ -21,6 +22,44 @@ export type PreviewMode =
   | { kind: "desktop" }
   | { kind: "device"; deviceId: PreviewDeviceId }
   | { kind: "llm" };
+
+/**
+ * What the URL sync effect should do for the current path + `preview_mode`.
+ * Public content pages only re-stamp / apply LLM; desktop and device stay
+ * private-preview-only. Admin `/private/*` paths are ignored.
+ */
+export type PreviewUrlSyncDecision =
+  | { action: "ignore" }
+  | { action: "restamp-llm" }
+  | { action: "apply-llm"; stripLocation: boolean }
+  | { action: "apply-desktop" }
+  | { action: "apply-device"; deviceId: PreviewDeviceId };
+
+export function decidePreviewUrlSync(opts: {
+  pathname: string;
+  mode: PreviewMode | null;
+  isLlmPreview: boolean;
+}): PreviewUrlSyncDecision {
+  const { pathname, mode, isLlmPreview } = opts;
+  if (!isVisualEditPath(pathname)) return { action: "ignore" };
+
+  const onPrivate = isPrivatePreviewPath(pathname);
+
+  if (!onPrivate) {
+    // Public content pages: LLM crawler preview only.
+    if (mode?.kind === "llm") return { action: "apply-llm", stripLocation: true };
+    if (!mode && isLlmPreview) return { action: "restamp-llm" };
+    return { action: "ignore" };
+  }
+
+  if (!mode) {
+    if (isLlmPreview) return { action: "restamp-llm" };
+    return { action: "ignore" };
+  }
+  if (mode.kind === "llm") return { action: "apply-llm", stripLocation: true };
+  if (mode.kind === "desktop") return { action: "apply-desktop" };
+  return { action: "apply-device", deviceId: mode.deviceId };
+}
 
 export function parsePreviewModeParam(raw: string | null | undefined): PreviewMode | null {
   if (raw == null || raw === "") return null;

@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { locations as allLocations } from "@/lib/locations";
+import { useLocationCatalog } from "@/hooks/useLocationCatalog";
 import { filterFaqsByRelatedFeatures, faqItemKey, type FaqItem } from "@/lib/faqConstants";
 import { getDebugToken } from "@/hooks/useDebugAuth";
 import type { Location } from "@shared/session";
@@ -31,6 +31,7 @@ function ItemLocationPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const { data: allLocations = [] } = useLocationCatalog();
 
   const hasOverrides = hideOnLocations.length > 0;
 

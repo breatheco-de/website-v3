@@ -68,7 +68,12 @@ import {
   parseFormLocationPolicy,
   resolveFormLocationSource,
 } from "@shared/formLocationPolicy";
-import { isUsVisitor } from "@shared/usVisitor";
+import {
+  resolveConsentCountryCode,
+  resolveSmsCountryFilter,
+  resolveWhatsappCountryFilter,
+  shouldShowConsentChannel,
+} from "@shared/consentCountryFilter";
 import { resolveConsentCopy, extraConsentYamlFieldsFromObject, consentKeyFromYamlField, isBlankConsentHtml, parseConsentSettingsResponse, resolveConsentRequirement } from "@shared/consent-settings";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import {
@@ -353,7 +358,11 @@ export interface LeadFormData {
     marketing_text?: string;
     sms_text?: string;
     sms_usa_only?: boolean;
-    [key: string]: boolean | string | undefined;
+    sms_countries?: string[];
+    sms_countries_mode?: "include" | "exclude";
+    whatsapp_countries?: string[];
+    whatsapp_countries_mode?: "include" | "exclude";
+    [key: string]: boolean | string | string[] | undefined;
   };
   show_terms?: boolean;
   terms_url?: string;
@@ -420,6 +429,8 @@ interface ConsentSectionProps {
   formOptions?: FormOptions;
   sessionLocation: { slug: string; region: string; country?: string; country_code?: string } | null;
   geo?: { country_code?: string } | null;
+  /** Single locked campus from form/page location plan when the field is not a picker. */
+  lockedLocationSlug?: string | null;
   consentSettings?: Record<string, Record<string, string> | string>;
   fallbackKey?: string | null;
   textStyle?: React.CSSProperties;
@@ -496,14 +507,56 @@ function FallbackConsentField({
   );
 }
 
-function ConsentSection({ consent, form, locale, formOptions, sessionLocation, geo, consentSettings, fallbackKey, textStyle }: ConsentSectionProps) {
-  const selectedLocationSlug = form.watch("location");
-  const selectedLocation = selectedLocationSlug
+function ConsentSection({
+  consent,
+  form,
+  locale,
+  formOptions,
+  sessionLocation,
+  geo,
+  lockedLocationSlug,
+  consentSettings,
+  fallbackKey,
+  textStyle,
+}: ConsentSectionProps) {
+  const selectedLocationSlug = form.watch("location") || lockedLocationSlug || undefined;
+  const formLocation = selectedLocationSlug
     ? formOptions?.locations.find((loc) => loc.slug === selectedLocationSlug)
     : undefined;
 
-  const showSmsConsent =
-    consent.sms && (!consent.sms_usa_only || isUsVisitor({ selectedLocation, sessionLocation, geo }));
+  // Locked/picked slug without catalog row yet → unknown (hide filtered channels).
+  // No slug yet → fall through to session/geo (autodetect).
+  const countryCode = formLocation
+    ? resolveConsentCountryCode({ formLocation, sessionLocation, geo })
+    : selectedLocationSlug
+      ? null
+      : resolveConsentCountryCode({ formLocation: null, sessionLocation, geo });
+
+  const smsFilter = resolveSmsCountryFilter(consent as Record<string, unknown>);
+  const whatsappFilter = resolveWhatsappCountryFilter(consent as Record<string, unknown>);
+  const showSmsConsent = shouldShowConsentChannel({
+    channelOn: !!consent.sms,
+    countries: smsFilter.countries,
+    mode: smsFilter.mode,
+    countryCode,
+  });
+  const showWhatsappConsent =
+    !consent.marketing &&
+    shouldShowConsentChannel({
+      channelOn: !!consent.whatsapp,
+      countries: whatsappFilter.countries,
+      mode: whatsappFilter.mode,
+      countryCode,
+    });
+
+  useEffect(() => {
+    if (!showSmsConsent && form.getValues("consent_sms")) {
+      form.setValue("consent_sms", false);
+    }
+    if (!showWhatsappConsent && form.getValues("consent_whatsapp")) {
+      form.setValue("consent_whatsapp", false);
+    }
+  }, [showSmsConsent, showWhatsappConsent, form]);
 
   const defaultMarketingText = resolveConsentCopy("consent_marketing", consentSettings?.consent_marketing, locale);
   const defaultSmsText = resolveConsentCopy("consent_sms", consentSettings?.consent_sms, locale);
@@ -621,7 +674,7 @@ function ConsentSection({ consent, form, locale, formOptions, sessionLocation, g
         />
       )}
 
-      {!consent.marketing && consent.whatsapp && (
+      {showWhatsappConsent && (
         <FormField
           control={form.control}
           name="consent_whatsapp"
@@ -2732,6 +2785,7 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
                   formOptions={formOptions}
                   sessionLocation={sessionLocation}
                   geo={session.geo}
+                  lockedLocationSlug={singleLandingLocation}
                   consentSettings={consentSettings}
                   fallbackKey={consentFallbackKey}
                   textStyle={termsStyle}
@@ -3183,13 +3237,14 @@ export default function LeadForm({ data, termsStyle }: LeadFormProps) {
           )}
 
           {showLegalAndConsent && allRequiredFieldsFilled && (
-            <ConsentSection 
+            <ConsentSection
               consent={consent}
               form={form}
               locale={locale}
               formOptions={formOptions}
               sessionLocation={sessionLocation}
               geo={session.geo}
+              lockedLocationSlug={singleLandingLocation}
               consentSettings={consentSettings}
               fallbackKey={consentFallbackKey}
               textStyle={termsStyle}

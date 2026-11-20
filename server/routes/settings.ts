@@ -31,6 +31,13 @@ import {
   refreshSitemapEntriesForContentKey,
 } from "../sitemap";
 import { markFileAsModified } from "../sync-state";
+import {
+  databaseHasGeoFields,
+  listLocalDatabaseSlugs,
+  listLocationDatabaseGeoErrors,
+  listLocationGeoOkDatabases,
+  SESSION_LOCATION_GEO_ERROR,
+} from "../session-location-catalog";
 import { emitMenuChanged, emitTagManagerChanged, emitThemeChanged } from "../content-events";
 import { checkThemeWrite, createOwnSiteTheme, loadSiteTheme, resolveSiteTheme, sitesInheritingThemeFrom } from "../theme-config";
 import { scanThemeBackgroundUsage, replaceSectionBackgroundEverywhere } from "../design/theme-usage";
@@ -165,6 +172,8 @@ import {
   buildRobotsTxtContent,
   getAuthSettings,
   updateAuthSettings,
+  getSessionSettings,
+  updateSessionSettings,
   isSignupConfigured,
   isSignupFieldMapReady,
   getEntryPreviewSettings,
@@ -1020,6 +1029,52 @@ export function registerSettingsRoutes(app: Express): void {
       signup_field_map_ready: isSignupFieldMapReady(auth.signup?.field_map),
       login_page_url: loginPageUrl || undefined,
     });
+  });
+
+  app.get("/api/settings/session", (req, res) => {
+    const contentRoot = getContentRoot(res);
+    const session = getSessionSettings(contentRoot);
+    const available_databases = listLocalDatabaseSlugs(contentRoot);
+    res.json({
+      ...session,
+      available_databases,
+      location_geo_ok_databases: listLocationGeoOkDatabases(contentRoot, available_databases),
+      location_database_errors: listLocationDatabaseGeoErrors(contentRoot, available_databases),
+    });
+  });
+
+  api.put(app, "/api/settings/session", { rate: "staffWrite" }, (req, res) => {
+    try {
+      const schema = z.object({
+        location: z
+          .object({
+            database: z.string().nullable().optional(),
+            fill_from_ip: z.boolean().optional(),
+          })
+          .optional(),
+      });
+      const parsed = schema.safeParse(req.body?.session === undefined ? req.body : req.body.session);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid request body" });
+      }
+      const contentRoot = getContentRoot(res);
+      const nextDb = parsed.data.location?.database;
+      if (typeof nextDb === "string" && nextDb.trim() && !databaseHasGeoFields(nextDb.trim(), contentRoot)) {
+        return res.status(400).json({ error: SESSION_LOCATION_GEO_ERROR });
+      }
+      const updated = updateSessionSettings(parsed.data, contentRoot);
+      markFileAsModified("settings.yml", undefined, undefined, contentRoot);
+      const available_databases = listLocalDatabaseSlugs(contentRoot);
+      res.json({
+        success: true,
+        ...updated,
+        available_databases,
+        location_geo_ok_databases: listLocationGeoOkDatabases(contentRoot, available_databases),
+        location_database_errors: listLocationDatabaseGeoErrors(contentRoot, available_databases),
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || String(err) });
+    }
   });
 
   app.put("/api/settings/auth", (req, res) => {

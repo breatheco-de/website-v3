@@ -27,7 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { locations as allLocations } from "@/lib/locations";
+import { useLocationCatalog } from "@/hooks/useLocationCatalog";
 import { faqItemKey, normalizeFaqEntries, type FaqItem } from "@/lib/faqConstants";
 import type { Location } from "@shared/session";
 import { FaqScopeDialog } from "@/components/editing/FaqScopeDialog";
@@ -113,6 +113,7 @@ function ItemLocationPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const { data: allLocations = [] } = useLocationCatalog();
 
   const hasOverrides = hideOnLocations.length > 0;
 
@@ -133,7 +134,7 @@ function ItemLocationPicker({
       groups[region].push(loc);
     }
     return groups;
-  }, [search]);
+  }, [search, allLocations]);
 
   const regionLabels: Record<string, string> = {
     "usa-canada": "USA & Canada",

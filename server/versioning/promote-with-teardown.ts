@@ -86,6 +86,10 @@ import {
   summarizeTextLimitViolations,
 } from "@shared/component-text-limits";
 import {
+  evaluateFactLiteralWarnings,
+  type FactLiteralWarning,
+} from "../fact-literals-edit";
+import {
   normalizeRobotsValue,
   parseRobotsOnPublish,
   robotsLabel,
@@ -196,6 +200,8 @@ export type PromoteWithTeardownResult =
       rebuilt?: { kept_live_fields: string[]; author_fields: string[] };
       /** What changed on the published page (fields, before/after). */
       publishedDiff: FieldChange[];
+      /** Exact catalog fact-literal hits on changed fields (warn-only). */
+      factLiteralWarnings?: FactLiteralWarning[];
       /** Raw files before the write (for revert). */
       preApplySnapshot: PromoteSnapshot;
       versioningDeleted: boolean;
@@ -981,6 +987,37 @@ export async function promoteVariantWithOptionalTeardown(
         common: routed.commonChanged ? parseOrNull(routed.commonRaw) : parseOrNull(commonBefore),
       } as BaseSnapshot,
     );
+
+    // Exact site-fact literals on fields this publish touched (warn-only; cue-invited on-save).
+    let factLiteralWarnings: FactLiteralWarning[] = [];
+    try {
+      factLiteralWarnings = evaluateFactLiteralWarnings({
+        contentRoot,
+        site: contentRootName,
+        entryKey: buildEntryKey(contentType, slug, locale),
+        isLiveWrite: true,
+        entryData: mergedForGate,
+        changes: publishedDiff.map((c) => ({ field_path: c.field_path, value: c.after })),
+        locale,
+        stashForOnSave: args.dryRun !== true,
+      });
+      for (const w of factLiteralWarnings) {
+        warnings.push({
+          code: "fact_literal_prefer_variable",
+          message: w.message,
+          fields: [w.field_path],
+          details: {
+            literal: w.literal,
+            variables: w.variables,
+            status: w.status,
+            kind: w.kind,
+          },
+        });
+      }
+    } catch {
+      /* non-fatal */
+    }
+
     const preApplySnapshot: PromoteSnapshot = { live: liveContent, common: commonBefore };
     if (routed.paths.length > 0) {
       warnings.push({
@@ -998,6 +1035,7 @@ export async function promoteVariantWithOptionalTeardown(
         warnings,
         rebuilt,
         publishedDiff,
+        ...(factLiteralWarnings.length ? { factLiteralWarnings } : {}),
         preApplySnapshot,
         versioningDeleted: false,
         dryRun: true,
@@ -1163,6 +1201,7 @@ export async function promoteVariantWithOptionalTeardown(
       warnings,
       rebuilt,
       publishedDiff,
+      ...(factLiteralWarnings.length ? { factLiteralWarnings } : {}),
       preApplySnapshot,
       versioningDeleted,
     };

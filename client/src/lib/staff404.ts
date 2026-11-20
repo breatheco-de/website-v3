@@ -20,6 +20,10 @@ export interface Staff404Facts {
   contentType?: string;
   isValidType: boolean;
   listingSharedTemplate: boolean;
+  /** Database-backed type (e.g. news → press_mentions). */
+  hasDatabase?: boolean;
+  /** Staff-facing database name (e.g. "Press Mentions"). */
+  databaseLabel?: string;
   isDraftOnly: boolean;
   hasEntryVariants: boolean;
   variantsLoading: boolean;
@@ -41,7 +45,18 @@ export interface Staff404Facts {
 export interface Staff404Model {
   title: string;
   happened: string[];
+  /** Opt-in under-the-hood lines for Read more (advanced). */
+  advanced?: string[];
   actions: Staff404ActionId[];
+}
+
+/** Turn `press_mentions` into `Press Mentions` for staff copy. */
+export function humanizeDatabaseLabel(databaseSlug: string | null | undefined): string | undefined {
+  const raw = String(databaseSlug ?? "").trim();
+  if (!raw) return undefined;
+  return raw
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export const STAFF_404_UNKNOWN_PUBLIC_PAGE =
@@ -93,6 +108,7 @@ export function staff404PreviewHref(opts: {
 
 export function buildStaff404Model(facts: Staff404Facts): Staff404Model {
   const happened: string[] = [];
+  let advanced: string[] | undefined;
 
   if (facts.hops.length > 0) {
     const from = facts.hops[0]?.from ?? "";
@@ -106,6 +122,12 @@ export function buildStaff404Model(facts: Staff404Facts): Staff404Model {
     );
   }
 
+  const dbLabel = facts.databaseLabel?.trim() || "the linked database";
+  const dbMiss =
+    !!facts.hasDatabase &&
+    !!facts.slug &&
+    (facts.listingSharedTemplate || facts.surface === "databaseSingle");
+
   if (!facts.isValidType && facts.surface === "privatePreview") {
     happened.push(`\`${facts.contentType ?? ""}\` is not a valid content type.`);
   } else if (facts.yamlLoadFailed) {
@@ -114,6 +136,19 @@ export function buildStaff404Model(facts: Staff404Facts): Staff404Model {
     );
   } else if (facts.surface === "public") {
     happened.push(STAFF_404_UNKNOWN_PUBLIC_PAGE);
+  } else if (dbMiss) {
+    if (facts.requestedVariantMissing && facts.requestedVariant) {
+      happened.push(
+        `Variant \`${facts.requestedVariant}\` for \`${facts.locale ?? "en"}\` could not be loaded for \`${facts.slug}\`.`,
+      );
+    }
+    happened.push(
+      `This URL matches ${facts.typeLabel}, but nothing in ${dbLabel} uses that address as its slug. Rows without a slug never get a public page — so visitors hit "not found" even when the story exists in the database.`,
+    );
+    happened.push(`Open ${dbLabel}, give this row a slug, then rebuild Content URLs.`);
+    advanced = [
+      "Content URLs only index database pages that already have a slug. Title→slug fallback exists in one mapping path, not in the public URL index. Row id is separate from the public address.",
+    ];
   } else if (facts.listingSharedTemplate) {
     if (facts.requestedVariantMissing && facts.requestedVariant) {
       happened.push(
@@ -121,7 +156,7 @@ export function buildStaff404Model(facts: Staff404Facts): Staff404Model {
       );
     }
     happened.push(
-      `The ${facts.typeLabel} entry \`${facts.slug}\` was not found. ${facts.typeLabel}s share a common template you can edit if you like.`,
+      `The ${facts.typeLabel} entry \`${facts.slug}\` was not found. ${facts.typeLabel} entries share a common template you can edit if you like.`,
     );
   } else if (facts.requestedVariantMissing && facts.requestedVariant) {
     happened.push(
@@ -191,7 +226,7 @@ export function buildStaff404Model(facts: Staff404Facts): Staff404Model {
     actions.push("openRedirects");
   }
 
-  return { title, happened, actions };
+  return { title, happened, ...(advanced ? { advanced } : {}), actions };
 }
 
 export function staff404ActionCopy(
@@ -280,6 +315,8 @@ export function defaultStaff404Facts(overrides: Partial<Staff404Facts> = {}): St
     contentType: "blog",
     isValidType: true,
     listingSharedTemplate: false,
+    hasDatabase: false,
+    databaseLabel: undefined,
     isDraftOnly: false,
     hasEntryVariants: false,
     variantsLoading: false,

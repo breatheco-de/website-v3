@@ -1,6 +1,6 @@
 /**
- * US check behind `consent.sms_usa_only` (SMS checkbox only for US visitors).
- * Uses two-letter country codes, in order: the location the visitor picked, then the
+ * US check by two-letter country codes (legacy helper; consent channels now use
+ * `shared/consentCountryFilter.ts`). Order: the location the visitor picked, then the
  * detected session location. A location whose country is unknown (`XX`, e.g. `remote`)
  * falls through to the visitor's own geo country.
  */

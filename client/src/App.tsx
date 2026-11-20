@@ -6,6 +6,7 @@ import { lazy, Suspense, useState, useEffect, type ReactNode } from "react";
 import NotFound from "@/pages/not-found";
 import { SessionProvider } from "@/contexts/SessionContext";
 import { EditModeWrapper } from "@/components/editing/EditModeWrapper";
+import { LlmCrawlerPreview } from "@/components/editing/LlmCrawlerPreview";
 import { DebugAuthProvider, useDebugAuth } from "@/hooks/useDebugAuth";
 import { ImagePickerProvider } from "@/contexts/ImagePickerContext";
 import { usePageTracking } from "@/hooks/usePageTracking";
@@ -294,6 +295,7 @@ function App({ ssrQueryClient }: AppProps = {}) {
         <DebugAuthProvider>
         <DeferredTooltipProvider>
           <EditModeWrapper>
+            <LlmCrawlerPreview>
             <ImagePickerProvider>
             <PageTracker />
             <EcommerceBootstrap />
@@ -316,6 +318,7 @@ function App({ ssrQueryClient }: AppProps = {}) {
               </IdleMounted>
             </ClientOnly>
             </ImagePickerProvider>
+            </LlmCrawlerPreview>
           </EditModeWrapper>
         </DeferredTooltipProvider>
         </DebugAuthProvider>

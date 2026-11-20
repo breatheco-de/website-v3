@@ -233,6 +233,7 @@ import {
 // =============================================================================
 
 import { registerGeoRoutes } from "./geo";
+import { registerSessionRoutes } from "./session";
 import { registerAuthRoutes } from "./auth";
 import { registerFormsRoutes } from "./forms";
 import { registerSettingsRoutes } from "./settings";
@@ -334,6 +335,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
 
   registerGeoRoutes(app);
+  registerSessionRoutes(app);
   registerAuthRoutes(app);
   registerStaffAuthRoutes(app);
   registerFormsRoutes(app);

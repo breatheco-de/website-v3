@@ -24,6 +24,7 @@ import {
   PREVIEW_LOCATION_PARAM,
   PREVIEW_MODE_PARAM,
   applyPreviewModeToSearchParams,
+  decidePreviewUrlSync,
   parsePreviewModeParam,
   persistPreviewMode,
   readStoredPreviewMode,
@@ -247,25 +248,27 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
   const [pathname] = useLocation();
   const searchString = useSearch();
 
-  // Share links and in-app navigation: URL preview_mode wins while on /private/preview.
-  // When the param is missing but React/localStorage still say LLM, re-stamp the URL so
-  // refresh and Share keep working.
+  // Share links and in-app navigation: URL preview_mode wins on visual-edit paths.
+  // Public pages only sync LLM; desktop/device stay /private/preview-only.
+  // When the param is missing but React still says LLM, re-stamp the URL so
+  // refresh and Share keep working across navbar clicks.
   useEffect(() => {
-    if (!isPrivatePreviewPath(pathname)) return;
     const mode = parsePreviewModeParam(
       new URLSearchParams(searchString.startsWith("?") ? searchString.slice(1) : searchString).get(
         PREVIEW_MODE_PARAM,
       ),
     );
-    if (!mode) {
-      if (isLlmPreview) {
-        syncPreviewModeToUrl({ kind: "llm" });
-      }
+    const decision = decidePreviewUrlSync({ pathname, mode, isLlmPreview });
+    if (decision.action === "ignore") return;
+
+    if (decision.action === "restamp-llm") {
+      syncPreviewModeToUrl({ kind: "llm" });
       return;
     }
-    if (mode.kind === "llm") {
-      // Always force read-only crawler chrome; enableEditMode from enterPrivatePreview
-      // can race and leave edit mode on while isLlmPreview is already true.
+
+    if (decision.action === "apply-llm") {
+      // Always force read-only crawler chrome; enableEditMode can race and leave
+      // edit mode on while isLlmPreview is already true.
       if (isEditMode) {
         setIsEditMode(false);
         persistEditMode(false);
@@ -275,24 +278,28 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
         setIsLlmPreview(true);
         setPreviewBreakpointState("desktop");
         clearStoredPreviewSelection();
-        persistPreviewMode(mode);
+        persistPreviewMode({ kind: "llm" });
       }
-      const params = new URLSearchParams(
-        searchString.startsWith("?") ? searchString.slice(1) : searchString,
-      );
-      if (params.has(PREVIEW_LOCATION_PARAM)) {
-        params.delete(PREVIEW_LOCATION_PARAM);
-        window.history.replaceState(
-          window.history.state,
-          "",
-          `${pathname}?${params.toString()}${window.location.hash}`,
+      if (decision.stripLocation) {
+        const params = new URLSearchParams(
+          searchString.startsWith("?") ? searchString.slice(1) : searchString,
         );
+        if (params.has(PREVIEW_LOCATION_PARAM)) {
+          params.delete(PREVIEW_LOCATION_PARAM);
+          const qs = params.toString();
+          window.history.replaceState(
+            window.history.state,
+            "",
+            `${pathname}${qs ? `?${qs}` : ""}${window.location.hash}`,
+          );
+        }
       }
       return;
     }
-    if (mode.kind === "desktop") {
+
+    if (decision.action === "apply-desktop") {
       if (isLlmPreview || previewBreakpoint !== "desktop") {
-        // Leaving LLM restores edit so staff can work again.
+        // Leaving LLM on private preview restores edit so staff can work again.
         if (isLlmPreview && !isDeviceEmbedPreview()) {
           setIsEditMode(true);
           persistEditMode(true);
@@ -300,14 +307,16 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
         setIsLlmPreview(false);
         setPreviewBreakpointState("desktop");
         clearStoredPreviewSelection();
-        persistPreviewMode(mode);
+        persistPreviewMode({ kind: "desktop" });
       }
       return;
     }
+
+    // apply-device
     if (
       isLlmPreview ||
       previewBreakpoint !== "mobile" ||
-      previewDeviceId !== mode.deviceId ||
+      previewDeviceId !== decision.deviceId ||
       !isEditMode
     ) {
       // Device chrome on /private/preview requires edit mode; LLM turns it off.
@@ -316,10 +325,10 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
         persistEditMode(true);
       }
       setIsLlmPreview(false);
-      setPreviewDeviceIdState(mode.deviceId);
+      setPreviewDeviceIdState(decision.deviceId);
       setPreviewBreakpointState("mobile");
-      persistPreviewSelection("mobile", mode.deviceId);
-      persistPreviewMode(mode);
+      persistPreviewSelection("mobile", decision.deviceId);
+      persistPreviewMode({ kind: "device", deviceId: decision.deviceId });
     }
   }, [pathname, searchString]); // eslint-disable-line react-hooks/exhaustive-deps — URL is source of truth
 
@@ -347,19 +356,33 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
     }
 
     const wasLlm = isLlmPreview;
+    const onPrivatePreview =
+      typeof window !== "undefined" && isPrivatePreviewPath(window.location.pathname);
     setIsLlmPreview(false);
-
-    // Device shell needs edit mode; LLM clears it. Leaving LLM for desktop should restore edit too.
-    if ((wasLlm || mode.kind === "device") && !isDeviceEmbedPreview()) {
-      setIsEditMode(true);
-      persistEditMode(true);
-    }
 
     if (mode.kind === "desktop") {
       const stashed = wasLlm ? takeStashedLocationForLlm() : null;
       setPreviewBreakpointState("desktop");
       clearStoredPreviewSelection();
       persistPreviewMode(mode);
+
+      // Leaving LLM on a public page: stay put, editing off, strip the param.
+      if (wasLlm && !onPrivatePreview) {
+        replacePreviewSearch((params) => {
+          params.delete(PREVIEW_MODE_PARAM);
+          if (stashed) {
+            params.set(PREVIEW_LOCATION_PARAM, stashed);
+          }
+        });
+        return;
+      }
+
+      // Private preview: restore edit when leaving LLM.
+      if (wasLlm && !isDeviceEmbedPreview()) {
+        setIsEditMode(true);
+        persistEditMode(true);
+      }
+
       if (stashed && typeof window !== "undefined") {
         const url = new URL(window.location.href);
         url.searchParams.set(PREVIEW_MODE_PARAM, "desktop");
@@ -371,6 +394,11 @@ export function EditModeProvider({ children }: EditModeProviderProps) {
       return;
     }
 
+    // Device shell needs edit mode; LLM clears it.
+    if (!isDeviceEmbedPreview()) {
+      setIsEditMode(true);
+      persistEditMode(true);
+    }
     setPreviewDeviceIdState(mode.deviceId);
     setPreviewBreakpointState("mobile");
     persistPreviewSelection("mobile", mode.deviceId);

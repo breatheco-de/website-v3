@@ -5,6 +5,68 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-20"
+    summary: "Staff form location: Save asks this form vs whole page"
+    agent_impact:
+      - "Forms tab → Location: pick locations, then section Save. When the content type has forms.location.entry_field, Save asks this form only vs whole page (lists affected forms; clear-others defaults on). Page write runs before section Save; section failure does not roll back the page field. Prefer update_fields on the page Locations field when available."
+      - "Empty + this form only follows the page; empty + whole page clears page Locations. explain_site topic lead-forms → Location. No new MCP tools. Stress N/A."
+    tools_changed: false
+    paths:
+      - mcp-server/explain/lead-forms.md
+      - client/src/components/editing/FormLocationBox.tsx
+      - client/src/components/editing/SectionEditorPanel.tsx
+  - date: "2026-11-20"
+    summary: "SMS/WhatsApp consent country include/exclude filters (form location)"
+    agent_impact:
+      - "Optional SMS/WhatsApp checkboxes can use sms_countries / whatsapp_countries + *_countries_mode (include|exclude), matched to the form-calculated location country_code — not page locale. Empty form countries inherit the conversion event; unknown country hides filtered channels; XX→geo."
+      - "request_more_info defaults: SMS include [US], WhatsApp exclude [US] (world except US). Legacy sms_usa_only: true → include [US]. CRM payload unchanged (display-only filters)."
+      - "explain_site topic lead-forms → Consent checkboxes. No new MCP tools. Stress N/A."
+    tools_changed: false
+    paths:
+      - mcp-server/explain/lead-forms.md
+      - shared/consentCountryFilter.ts
+      - shared/consent-settings.ts
+      - client/src/components/lead_form/variants/LeadFormDefault.tsx
+  - date: "2026-11-19"
+    summary: "session.location from campus DB + shared-layout detach exceptions"
+    agent_impact:
+      - "Visitor session.location is filled from settings.yml session.location.database (campus private DB + IP geo) via GET /api/session/location-catalog — not a hardcoded client list. None / fill_from_ip off → location null; geo still fills. Staff: Settings → Session."
+      - "Known campus slugs for forms/validators prefer the locations DB when present. explain_site topic lead-forms → Location."
+      - "Shared-layout enable may pass detach_slugs (exceptions keep entry-owned shells); bindings prune attached members only. Detached members may bind with each other. explain_site topic shared-layout → enable playbook. No new MCP tools. Stress N/A."
+    tools_changed: false
+    paths:
+      - mcp-server/explain/lead-forms.md
+      - mcp-server/explain/shared-layout.md
+      - shared/session-settings.ts
+      - server/session-location-catalog.ts
+      - client/src/workers/session.worker.ts
+  - date: "2026-11-19"
+    summary: "1 persona → 1 product is intentional policy; refuse shared/multi-product persona designs"
+    agent_impact:
+      - "Personas stay product-owned on `_product.yml` only. Do not invent a shared catalog, multi-product membership, or reuse the same persona id across products because the buyer looks the same."
+      - "Same segment on Flex + AI Engineering (or similar pace vs intensity) = two product-specific personas with different ids/fears/objections. Funnel multi-bind means different product-owned personas, not one persona on two SKUs. explain_site topic product → Audience; funnel-classification-proposals updated."
+      - "Coding agents: .cursor/rules/product-audience.mdc. generatePersona must not reuse ids across products or clone peer avatars. No save-time cross-product id uniqueness; no new MCP tools. Stress N/A."
+    tools_changed: false
+    paths:
+      - mcp-server/explain/product.md
+      - mcp-server/explain/funnel-classification-proposals.md
+      - server/ai/generatePersona.ts
+      - .cursor/rules/product-audience.mdc
+      - AGENTS.md
+  - date: "2026-11-18"
+    summary: "Paid fact-literals warnings on live selling-page edits (prefer variable tokens)"
+    agent_impact:
+      - "Live edits, publish_draft, and promote_variant on consideration/decision pages may return warnings fact_literal_prefer_variable when changed copy hardcodes a catalog fact (price/phone/percent). Write is not blocked — swap for {{ global.* }} via list_variables + update_fields."
+      - "Paid validator fact-literals is cue-invited on on-save only (not default Diagnostics). Fuzzy Jev suspects stay Diagnostics-only. Drafts and awareness/post-enrollment skip the auto path."
+      - "explain topic content_system → Hardcoded fact warnings. Reconnect not required for tool list; stress N/A (warnings on existing mutates)."
+    tools_changed: false
+    paths:
+      - server/fact-literals.ts
+      - server/fact-literals-edit.ts
+      - server/versioning/promote-with-teardown.ts
+      - scripts/validation/validators/fact-literals.ts
+      - mcp-server/explain/content_system.md
+      - mcp-server/lib/fact-literals-mcp.ts
   - date: "2026-11-17"
     summary: "Migration 016 emits site_bulk_synced so live HTML cache picks up AI Flex CTA tracking"
     agent_impact:

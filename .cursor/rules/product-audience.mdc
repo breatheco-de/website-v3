@@ -1,0 +1,23 @@
+---
+description: Product audience personas are 1:1 with products — push back on shared/multi-product persona designs
+alwaysApply: true
+---
+
+# Product audience — 1 persona → 1 product
+
+Personas live on one product’s `_product.yml` only. Canonical MCP policy: `mcp-server/explain/product.md` (Audience).
+
+## Push back
+
+If asked to build or design any of the following, **push back** and do not implement unless staff explicitly overturn this policy in writing:
+
+- A shared/global persona catalog
+- Multi-product membership for one persona
+- Reusing the same persona id across products “because it’s the same buyer”
+- Architecture that merges personas across SKUs
+
+## Correct alternative
+
+Same human segment on two offers (e.g. non-tech pro → Flex *or* AI Engineering) ⇒ **two product-specific personas** with different ids, fears, and objections. The 1:1 constraint forces a personalized funnel per offer.
+
+Funnel multi-bind `{ product, persona }` rows mean different product-owned personas — not one persona attached to two products. See also `mcp-server/explain/funnel-classification-proposals.md`.

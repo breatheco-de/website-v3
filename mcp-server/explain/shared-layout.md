@@ -23,7 +23,8 @@ When a type does **not** yet use shared layout and you need to turn it on:
    - `template_mode: "from_entry"` + **`template_entry_source_slug`** (mandatory). Pass **`template_entry_source_locale`** only when that entry folder has more than one live locale file.
 3. Source entry sections must be fully `{{ entry.* }}`-shaped (exact binds). Legacy `{{ single.* }}` is rewritten to `{{ entry.* }}` when copied into `template.*.yml`.
 4. If a usable template already exists and you use `from_entry`, first call without `confirm` → `action_required: confirm_template_replace` with preview; re-call with `confirm: true`.
-5. Success returns `side_effects.paths` for written `template.*.yml` / `_common.template.yml` and dissolves section bindings for the type.
+5. Optional **`detach_slugs`**: those entries stay off the shared template (`detached: true`, keep their own sections). Staff enable UI is two-step (template seed → exceptions). Binding groups are pruned surgically: attached members drop out; a group stays if ≥2 entry-owned members remain (any content types); dissolve only when fewer than two remain. Detached members on a shared-layout type may still join bindings with each other; attached (`layout_owner: shared_template`) members cannot.
+6. Success returns `side_effects.paths` for written `template.*.yml` / `_common.template.yml`.
 
 ## Playbook (new attached post)
 

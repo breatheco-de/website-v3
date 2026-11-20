@@ -118,6 +118,9 @@ import { runScan as runComponentInsightsScan, readInsightsFile, suggestNext as s
 import { validateFieldSource, validateFieldMapping, extractByDotPath } from "../../scripts/validation/shared/fieldMappingValidator";
 import { validateSectionOperations } from "../section-save-validation";
 import { evaluateEditTextLimits } from "../text-limits-edit";
+import { evaluateFactLiteralWarnings, type FactLiteralWarning } from "../fact-literals-edit";
+import { buildEntryKey } from "../../scripts/validation/shared/entryKey";
+import { loadEntry } from "../entry-layer";
 import {
   evaluateEditThemeColors,
   summarizeThemeViolations,
@@ -1221,6 +1224,7 @@ export function registerSectionsRoutes(app: Express): void {
       // edits only warn; an agent's live edit that lengthens limited text is
       // rejected. Unchanged over-limit copy never blocks an unrelated edit.
       let textLimitWarnings: TextLimitViolation[] = [];
+      let factLiteralWarnings: FactLiteralWarning[] = [];
       if (!isTypeLayoutTarget(resolvedLayoutTarget)) {
         const textLimits = evaluateEditTextLimits({
           ci: getCI(res),
@@ -1241,6 +1245,45 @@ export function registerSectionsRoutes(app: Express): void {
             return;
           }
           textLimitWarnings = textLimits.violations;
+        }
+
+        // Exact site-fact literals: warn-only on live selling pages (consideration/decision).
+        const isLiveFactWrite = !effectiveVariant && !textLimits.isDraftWrite;
+        if (isLiveFactWrite) {
+          const normalizedLoc = normalizeLocale(locale);
+          let entryData: Record<string, unknown> | null = null;
+          try {
+            entryData =
+              loadEntry(getCI(res), contentType, slug, normalizedLoc, undefined, {
+                entryVariant: effectiveVariant,
+              })?.data ?? null;
+          } catch {
+            entryData = null;
+          }
+          const changes: Array<{ field_path: string; value: unknown }> = [];
+          for (const op of finalOperations as Array<{
+            action?: string;
+            path?: string;
+            value?: unknown;
+            index?: number;
+            data?: unknown;
+          }>) {
+            if (op.action === "update_field" && typeof op.path === "string") {
+              changes.push({ field_path: op.path, value: op.value });
+            } else if (op.action === "update_section" && typeof op.index === "number") {
+              changes.push({ field_path: `sections.${op.index}`, value: op.data ?? op });
+            }
+          }
+          const baseSlug = getCI(res).resolveBaseSlug(slug, contentType);
+          factLiteralWarnings = evaluateFactLiteralWarnings({
+            contentRoot: getContentRoot(res),
+            site: getContentRootName(res),
+            entryKey: buildEntryKey(contentType, baseSlug, normalizedLoc),
+            isLiveWrite: true,
+            entryData,
+            changes,
+            locale: normalizedLoc,
+          });
         }
       }
 
@@ -1452,6 +1495,7 @@ export function registerSectionsRoutes(app: Express): void {
           shared_template_html_cache?: string;
           deprecated_template_refs?: unknown;
           text_limit_warnings?: TextLimitViolation[];
+          fact_literal_warnings?: FactLiteralWarning[];
           theme_color_warnings?: ThemeViolation[];
           link_warnings?: InternalLinkWarning[];
           form_location_warnings?: unknown[];
@@ -1467,6 +1511,9 @@ export function registerSectionsRoutes(app: Express): void {
         }
         if (textLimitWarnings.length > 0) {
           response.text_limit_warnings = textLimitWarnings;
+        }
+        if (factLiteralWarnings.length > 0) {
+          response.fact_literal_warnings = factLiteralWarnings;
         }
         if (themeColorWarnings.length > 0) {
           response.theme_color_warnings = themeColorWarnings;

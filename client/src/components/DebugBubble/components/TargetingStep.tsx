@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Globe, MapPin, Monitor, Smartphone } from "lucide-react";
-import { locations } from "@/lib/locations";
+import { useLocationCatalog } from "@/hooks/useLocationCatalog";
 import { TagInput } from "./TagInput";
 import { deslugify } from "../utils/debugHelpers";
 import type { TargetingStepProps } from "../types";
@@ -14,6 +14,7 @@ export function TargetingStep({
   targetUtmMediums, setTargetUtmMediums,
   targetCountries, setTargetCountries,
 }: TargetingStepProps) {
+  const { data: locations = [] } = useLocationCatalog();
   const locationSlugs = locations.map(l => l.slug);
   
   return (

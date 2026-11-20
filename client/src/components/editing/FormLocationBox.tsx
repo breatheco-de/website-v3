@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ChevronDown, Link2, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   AlertDialog,
@@ -16,9 +15,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
-import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
-import { emitContentUpdated } from "@/lib/contentEvents";
 import { cn } from "@/lib/utils";
 import {
   formPageLocationMismatch,
@@ -29,6 +25,15 @@ import {
 } from "@shared/formLocationPolicy";
 
 type LocationOption = { slug: string; name: string; city: string; country: string; region: string };
+
+/** Pending location picker state for Save-time scope (this form vs whole page). */
+export interface FormLocationPendingSelection {
+  locations: string[];
+  /** Layer when the staff started editing the picker (before this pending edit). */
+  baselineLayer: "form" | "entry" | "autodetect" | "missing";
+  /** Page Locations values at baseline (for clear-page detection). */
+  baselinePageValues: string[];
+}
 
 export interface FormLocationBoxProps {
   contentType: string;
@@ -46,9 +51,16 @@ export interface FormLocationBoxProps {
   formOptionsLoading?: boolean;
   /** Write this form's `fields.location` in the section YAML (saved with the section). */
   onFormLocationChange: (next: Record<string, unknown> | undefined) => void;
+  /** Controlled pending picker (null = show derived source). Parent clears after Save. */
+  pendingSelection?: FormLocationPendingSelection | null;
+  onPendingSelectionChange?: (pending: FormLocationPendingSelection | null) => void;
 }
 
-function nextConfig(current: unknown, locations: string[]): Record<string, unknown> | undefined {
+/** The new `fields.location` object for a form: one = default, several = allowed, none = cleared. */
+export function nextFormLocationConfig(
+  current: unknown,
+  locations: string[],
+): Record<string, unknown> | undefined {
   const base =
     current && typeof current === "object" && !Array.isArray(current) ? { ...(current as Record<string, unknown>) } : {};
   delete base.default;
@@ -58,8 +70,24 @@ function nextConfig(current: unknown, locations: string[]): Record<string, unkno
   return Object.keys(base).length > 0 ? base : undefined;
 }
 
+/** Slugs stored on a form's `fields.location` (default or allowed). */
+export function locationSlugsFromFormConfig(formLocation: unknown): string[] {
+  if (!formLocation || typeof formLocation !== "object" || Array.isArray(formLocation)) return [];
+  const loc = formLocation as Record<string, unknown>;
+  if (Array.isArray(loc.allowed)) {
+    return loc.allowed.filter((s): s is string => typeof s === "string" && !!s.trim()).map((s) => s.trim());
+  }
+  if (typeof loc.default === "string" && loc.default.trim() && loc.default.trim() !== "auto") {
+    if (hasUnresolvedTemplate(loc.default)) return [];
+    return [loc.default.trim()];
+  }
+  if (Array.isArray(loc.default)) {
+    return loc.default.filter((s): s is string => typeof s === "string" && !!s.trim()).map((s) => s.trim());
+  }
+  return [];
+}
+
 export function FormLocationBox(props: FormLocationBoxProps) {
-  const { toast } = useToast();
   const { data: typeConfig } = useQuery<Record<string, unknown>>({
     queryKey: [`/api/content-types/${props.contentType}/config`],
     enabled: !!props.contentType,
@@ -77,16 +105,16 @@ export function FormLocationBox(props: FormLocationBoxProps) {
     return typeof loc?.default === "string" && hasUnresolvedTemplate(loc.default) ? loc.default : null;
   })();
 
-  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const draft = props.variant || urlParams?.get("force_variant") || urlParams?.get("variant") || null;
+  const pending = props.pendingSelection ?? null;
 
-  const current = source.layer === "form" ? source.locations : source.layer === "entry" ? source.locations : [];
-  const [pending, setPending] = useState<string[] | null>(null);
-  const selected = pending ?? current;
-  const dirty = pending !== null && pending.join(",") !== current.join(",");
-  const [confirm, setConfirm] = useState<null | "page" | "form">(null);
-  const [clearOthers, setClearOthers] = useState(true);
-  const [saving, setSaving] = useState(false);
+  /** Derived locations shown when there is no pending picker edit. */
+  const derivedSelected =
+    source.layer === "form" ? source.locations : source.layer === "entry" ? source.locations : [];
+
+  const [unlinkOpen, setUnlinkOpen] = useState(false);
+  const [pendingUnlink, setPendingUnlink] = useState<string[] | null>(null);
+
+  const selected = pending?.locations ?? derivedSelected;
 
   const nameOf = (slug: string) => props.formOptions?.locations.find((l) => l.slug === slug)?.name ?? slug;
   const list = (values: string[]) => values.map(nameOf).join(", ");
@@ -104,96 +132,76 @@ export function FormLocationBox(props: FormLocationBoxProps) {
   );
   const groupLabels = Object.fromEntries((props.formOptions?.regions ?? []).map((r) => [r.slug, r.label]));
 
-  const post = async (body: Record<string, unknown>) => {
-    const res = await apiRequest("POST", "/api/content/form-location", {
-      contentType: props.contentType,
-      slug: props.slug,
-      locale: props.locale,
-      ...(draft ? { variant: draft } : {}),
-      ...body,
-    });
-    return (await res.json()) as {
-      updated_locales?: string[];
-      unmatched_locales?: string[];
-      cleared_overrides?: number;
+  const applyFormLocations = (locations: string[]) => {
+    props.onFormLocationChange(nextFormLocationConfig(props.formLocation, locations));
+  };
+
+  const commitPick = (vals: string[]) => {
+    const layer = pending?.baselineLayer ?? source.layer;
+    const pageBaseline = pending != null ? pending.baselinePageValues : pageValues;
+    const nextPending: FormLocationPendingSelection = {
+      locations: vals,
+      baselineLayer: layer,
+      baselinePageValues: pageBaseline,
     };
-  };
+    props.onPendingSelectionChange?.(nextPending);
 
-  const saveWholePage = async () => {
-    if (!pending) return;
-    setSaving(true);
-    try {
-      const out = await post({
-        scope: "page",
-        locations: pending,
-        clearOverrideIndexes: clearOthers ? props.otherOverrideIndexes : [],
-      });
-      // This form follows the page from now on.
-      props.onFormLocationChange(nextConfig(props.formLocation, []));
-      setPending(null);
-      emitContentUpdated({ contentType: props.contentType, slug: props.slug, locale: props.locale });
-      toast({
-        title: draft ? "Saved in this draft" : "Page locations saved",
-        description: [
-          draft
-            ? "Goes live for every language when the draft is published."
-            : "Every form on this page without its own location uses it now.",
-          out.cleared_overrides ? `Cleared ${out.cleared_overrides} form override(s).` : "",
-          "Save this section to stop this form overriding the page.",
-        ]
-          .filter(Boolean)
-          .join(" "),
-      });
-    } catch (err) {
-      toast({ title: "Could not save page locations", description: String(err), variant: "destructive" });
-    } finally {
-      setSaving(false);
-      setConfirm(null);
+    // Stage form YAML for non-empty picks and for clearing a form override.
+    // When following the page and clearing to empty, do not stage (would snap back to page).
+    if (vals.length > 0) {
+      applyFormLocations(vals);
+    } else if (source.layer === "form" || layer === "form") {
+      applyFormLocations([]);
     }
   };
 
-  const saveThisForm = async () => {
-    if (!pending) return;
-    setSaving(true);
-    try {
-      props.onFormLocationChange(nextConfig(props.formLocation, pending));
-      const out = await post({ scope: "form", locations: pending, section: props.section });
-      setPending(null);
-      const updated = out.updated_locales ?? [];
-      const unmatched = out.unmatched_locales ?? [];
-      toast({
-        title: "Form location set",
-        description: [
-          "Save this section to apply it here.",
-          updated.length ? `Already saved in: ${updated.join(", ")}.` : "",
-          unmatched.length ? `Couldn't find this form in: ${unmatched.join(", ")} — set it there by hand.` : "",
-        ]
-          .filter(Boolean)
-          .join(" "),
-      });
-    } catch (err) {
-      toast({ title: "Could not save the other languages", description: String(err), variant: "destructive" });
-    } finally {
-      setSaving(false);
-      setConfirm(null);
+  const onPickLocations = (vals: string[]) => {
+    if (linkedVariable) {
+      setPendingUnlink(vals);
+      setUnlinkOpen(true);
+      return;
     }
+    commitPick(vals);
+  };
+
+  const confirmUnlink = () => {
+    if (pendingUnlink) commitPick(pendingUnlink);
+    setPendingUnlink(null);
+    setUnlinkOpen(false);
   };
 
   const clearOwn = () => {
-    props.onFormLocationChange(nextConfig(props.formLocation, []));
-    setPending(null);
+    const nextPending: FormLocationPendingSelection = {
+      locations: [],
+      baselineLayer: "form",
+      baselinePageValues: pageValues,
+    };
+    props.onPendingSelectionChange?.(nextPending);
+    applyFormLocations([]);
   };
 
   const sourceLine = (() => {
+    if (pending != null) {
+      if (pending.locations.length === 0) {
+        return pending.baselineLayer === "entry"
+          ? "Cleared — Save to keep following the page, or clear locations for the whole page."
+          : entryField
+            ? "Cleared on this form — Save to follow the page (or choose whole page)."
+            : "Cleared on this form — Save to use detection.";
+      }
+      return entryField
+        ? `Pending: ${list(pending.locations)}. Save to choose this form or the whole page.`
+        : `Pending: ${list(pending.locations)}. Save the section to apply.`;
+    }
     switch (source.layer) {
       case "form":
         return source.own?.mode === "picker" && source.locations.length === 0
-          ? "Visitors pick from every campus (set on this form)."
+          ? "Visitors pick from every location (set on this form)."
           : `Set on this form: ${list(source.locations)}.`;
       case "entry":
         return `From this page's Locations: ${list(source.locations)}.`;
       case "autodetect":
-        return "Detected from the visitor's location.";
+        return "Detected from the visitor's location. Pick locations, then Save the section.";
       default:
         return null;
     }
@@ -206,28 +214,34 @@ export function FormLocationBox(props: FormLocationBoxProps) {
           <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-sm font-medium">Location</span>
         </div>
-        {source.layer === "missing" ? (
+        {source.layer === "missing" && pending == null ? (
           <Badge variant="destructive" className="text-[10px]" data-testid="badge-form-location-missing">
             Missing
           </Badge>
         ) : (
           <Badge variant="outline" className="text-[10px]">
-            {source.layer === "form" ? "This form" : source.layer === "entry" ? "This page" : "Detected"}
+            {pending != null
+              ? "Pending"
+              : source.layer === "form"
+                ? "This form"
+                : source.layer === "entry"
+                  ? "This page"
+                  : "Detected"}
           </Badge>
         )}
       </div>
 
-      {source.layer === "missing" ? (
+      {source.layer === "missing" && pending == null ? (
         <p className="text-xs text-destructive" data-testid="text-form-location-missing">
           No location yet. This page type doesn't allow detection, so saving or publishing is blocked until you set one
-          for the whole page or for this form.
+          for the whole page or for this form (pick locations, then Save).
         </p>
       ) : (
         <p className="text-xs text-muted-foreground" data-testid="text-form-location-source">
           {sourceLine}
         </p>
       )}
-      {mismatch ? (
+      {mismatch && pending == null ? (
         <p className="text-xs text-amber-600 dark:text-amber-400 flex gap-1" data-testid="text-form-location-mismatch">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           This form overrides the page ({list(pageValues)}). The form's location wins.
@@ -243,8 +257,8 @@ export function FormLocationBox(props: FormLocationBoxProps) {
       <SearchableMultiSelect
         options={options}
         value={selected}
-        onChange={(vals) => setPending(vals)}
-        label="Pick campuses"
+        onChange={onPickLocations}
+        label="Pick locations"
         searchPlaceholder="Search locations…"
         groupLabels={groupLabels}
         isLoading={props.formOptionsLoading}
@@ -253,38 +267,7 @@ export function FormLocationBox(props: FormLocationBoxProps) {
       />
 
       <div className="flex flex-wrap gap-2">
-        {dirty && entryField ? (
-          <>
-            <Button size="sm" disabled={saving} onClick={() => setConfirm("page")} data-testid="button-form-location-page">
-              Whole page
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={saving}
-              onClick={() => (linkedVariable ? setConfirm("form") : void saveThisForm())}
-              data-testid="button-form-location-form"
-            >
-              This form only
-            </Button>
-          </>
-        ) : null}
-        {dirty && !entryField ? (
-          <Button
-            size="sm"
-            disabled={saving}
-            onClick={() => (linkedVariable ? setConfirm("form") : void saveThisForm())}
-            data-testid="button-form-location-form"
-          >
-            Set on this form
-          </Button>
-        ) : null}
-        {dirty ? (
-          <Button size="sm" variant="ghost" onClick={() => setPending(null)} disabled={saving}>
-            Cancel
-          </Button>
-        ) : null}
-        {!dirty && source.layer === "form" ? (
+        {source.layer === "form" && pending == null ? (
           <Button size="sm" variant="ghost" onClick={clearOwn} data-testid="button-form-location-clear">
             {entryField ? "Follow the page" : "Use detection"}
           </Button>
@@ -307,47 +290,32 @@ export function FormLocationBox(props: FormLocationBoxProps) {
           </p>
           <p>One location is hidden and locked; several show a required dropdown with the visitor's city pre-selected.</p>
           <p>
-            "This form only" also updates the same form in the page's other languages. The page type setting lives in the
+            Picking locations stages a change. Section Save asks whether to apply it on this form only or the whole page
+            (when this page type has a Locations field). This form only writes this language and the same form in the
+            page's other languages. Whole page writes the page Locations field. The page type setting lives in the
             content type dashboard (Form location).
           </p>
         </CollapsibleContent>
       </Collapsible>
 
-      <AlertDialog open={confirm !== null} onOpenChange={(open) => (!open ? setConfirm(null) : undefined)}>
+      <AlertDialog
+        open={unlinkOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setUnlinkOpen(false);
+            setPendingUnlink(null);
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirm === "page" ? "Use these locations for the whole page?" : "Set this form's location?"}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Disconnect linked location?</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2 text-sm">
-                {confirm === "page" ? (
-                  <>
-                    <p>
-                      The page's Locations become: <strong>{list(pending ?? [])}</strong>
-                      {pageValues.length ? ` (was ${list(pageValues)})` : ""}. Every form without its own location
-                      follows it, in every language.
-                    </p>
-                    {draft ? (
-                      <p>This is saved in the draft "{draft}" and goes live when the draft is published.</p>
-                    ) : null}
-                    {props.otherOverrideIndexes.length > 0 ? (
-                      <label className="flex items-start gap-2">
-                        <Checkbox
-                          checked={clearOthers}
-                          onCheckedChange={(v) => setClearOthers(v === true)}
-                          data-testid="checkbox-form-location-clear-others"
-                        />
-                        <span>
-                          Also clear {props.otherOverrideIndexes.length} other form(s) on this page that set their own
-                          location, so they follow the page.
-                        </span>
-                      </label>
-                    ) : null}
-                  </>
-                ) : (
-                  <p>This form's location becomes {list(pending ?? [])}, in every language of this page.</p>
-                )}
+                <p>
+                  This form's location becomes {list(pendingUnlink ?? [])}. Save the section to apply it here and in
+                  other languages.
+                </p>
                 {linkedVariable ? (
                   <p className={cn("text-amber-600 dark:text-amber-400")}>
                     This form's location is linked to <code className="font-mono">{linkedVariable}</code>. Continuing
@@ -358,16 +326,15 @@ export function FormLocationBox(props: FormLocationBoxProps) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={saving}
               onClick={(e) => {
                 e.preventDefault();
-                void (confirm === "page" ? saveWholePage() : saveThisForm());
+                confirmUnlink();
               }}
               data-testid="button-form-location-confirm"
             >
-              {confirm === "page" ? "Save for the whole page" : "Set on this form"}
+              Disconnect and set
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

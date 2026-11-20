@@ -1,532 +1,117 @@
-import type { Location } from '@shared/session';
+/**
+ * Campus catalog helpers. Data comes from GET /api/session/location-catalog
+ * (settings.yml → session.location.database). No hardcoded campuses.
+ */
 
-export const locations: Location[] = [
-  {
-    slug: "atlanta-usa",
-    name: "Atlanta",
-    city: "Atlanta",
-    country: "United States",
-    country_code: "US",
-    latitude: 33.7490,
-    longitude: -84.3880,
-    region: "usa-canada",
-    default_language: "en",
-    timezone: "America/New_York",
-    visibility: "listed",
-    phone: "+1 404-555-0100",
-    address: "191 Peachtree St NE, Atlanta, GA 30303"
-  },
-  {
-    slug: "austin-usa",
-    name: "Austin",
-    city: "Austin",
-    country: "United States",
-    country_code: "US",
-    latitude: 30.2672,
-    longitude: -97.7431,
-    region: "usa-canada",
-    default_language: "en",
-    timezone: "America/Chicago",
-    visibility: "listed",
-    phone: "+1 512-887-4460",
-    address: "701 Brazos St, Austin, TX 78701"
-  },
-  {
-    slug: "barcelona-spain",
-    name: "Barcelona",
-    city: "Barcelona",
-    country: "Spain",
-    country_code: "ES",
-    latitude: 41.3851,
-    longitude: 2.1734,
-    region: "europe",
-    default_language: "es",
-    timezone: "Europe/Madrid",
-    visibility: "listed",
-    phone: "+34 932 20 80 80",
-    address: "Carrer de Balmes 200, 08006 Barcelona"
-  },
-  {
-    slug: "berlin-germany",
-    name: "Berlin",
-    city: "Berlin",
-    country: "Germany",
-    country_code: "DE",
-    latitude: 52.5200,
-    longitude: 13.4050,
-    region: "europe",
-    default_language: "en",
-    timezone: "Europe/Berlin",
-    visibility: "listed",
-    phone: "+49 30 555 0100",
-    address: "Friedrichstraße 123, 10117 Berlin"
-  },
-  {
-    slug: "bogota-colombia",
-    name: "Bogota",
-    city: "Bogota",
-    country: "Colombia",
-    country_code: "CO",
-    latitude: 4.7110,
-    longitude: -74.0721,
-    region: "latam",
-    default_language: "es",
-    timezone: "America/Bogota",
-    visibility: "listed",
-    phone: "+57 1 234 5678",
-    address: "Carrera 7 #71-21, Bogota"
-  },
-  {
-    slug: "buenosaires-argentina",
-    name: "Buenos Aires",
-    city: "Buenos Aires",
-    country: "Argentina",
-    country_code: "AR",
-    latitude: -34.6037,
-    longitude: -58.3816,
-    region: "latam",
-    default_language: "es",
-    timezone: "America/Argentina/Buenos_Aires",
-    visibility: "listed",
-    phone: "+54 11 1234 5678",
-    address: "Av. Corrientes 1234, Buenos Aires"
-  },
-  {
-    slug: "caracas-venezuela",
-    name: "Caracas",
-    city: "Caracas",
-    country: "Venezuela",
-    country_code: "VE",
-    latitude: 10.4806,
-    longitude: -66.9036,
-    region: "latam",
-    default_language: "es",
-    timezone: "America/Caracas",
-    visibility: "listed",
-    phone: "+58 212 123 4567",
-    address: "Av. Francisco de Miranda, Caracas"
-  },
-  {
-    slug: "chicago-usa",
-    name: "Chicago",
-    city: "Chicago",
-    country: "United States",
-    country_code: "US",
-    latitude: 41.8781,
-    longitude: -87.6298,
-    region: "usa-canada",
-    default_language: "en",
-    timezone: "America/Chicago",
-    visibility: "listed",
-    phone: "+1 312-555-0100",
-    address: "233 S Wacker Dr, Chicago, IL 60606"
-  },
-  {
-    slug: "costa-rica",
-    name: "Costa Rica",
-    city: "San Jose",
-    country: "Costa Rica",
-    country_code: "CR",
-    latitude: 9.9281,
-    longitude: -84.0907,
-    region: "latam",
-    default_language: "es",
-    timezone: "America/Costa_Rica",
-    visibility: "listed",
-    phone: "+506 2222 3333",
-    address: "Avenida Central, San Jose"
-  },
-  {
-    slug: "dallas-usa",
-    name: "Dallas",
-    city: "Dallas",
-    country: "United States",
-    country_code: "US",
-    latitude: 32.7767,
-    longitude: -96.7970,
-    region: "usa-canada",
-    default_language: "en",
-    timezone: "America/Chicago",
-    visibility: "listed",
-    phone: "+1 214-555-0100",
-    address: "1401 Elm St, Dallas, TX 75202"
-  },
-  {
-    slug: "miami-usa",
-    name: "Miami",
-    city: "Miami",
-    country: "United States",
-    country_code: "US",
-    latitude: 25.7617,
-    longitude: -80.1918,
-    region: "usa-canada",
-    default_language: "en",
-    timezone: "America/New_York",
-    visibility: "listed",
-    phone: "+1 786-416-6640",
-    address: "1395 Brickell Ave, Miami, FL 33131"
-  },
-  {
-    slug: "dublin-ireland",
-    name: "Dublin",
-    city: "Dublin",
-    country: "Ireland",
-    country_code: "IE",
-    latitude: 53.3498,
-    longitude: -6.2603,
-    region: "europe",
-    default_language: "en",
-    timezone: "Europe/Dublin",
-    visibility: "listed",
-    phone: "+353 1 555 0100",
-    address: "1 Grand Canal Square, Dublin 2"
-  },
-  {
-    slug: "hamburg-germany",
-    name: "Hamburg",
-    city: "Hamburg",
-    country: "Germany",
-    country_code: "DE",
-    latitude: 53.5511,
-    longitude: 9.9937,
-    region: "europe",
-    default_language: "en",
-    timezone: "Europe/Berlin",
-    visibility: "listed",
-    phone: "+49 40 555 0100",
-    address: "Jungfernstieg 1, 20095 Hamburg"
-  },
-  {
-    slug: "houston-usa",
-    name: "Houston",
-    city: "Houston",
-    country: "United States",
-    country_code: "US",
-    latitude: 29.7604,
-    longitude: -95.3698,
-    region: "usa-canada",
-    default_language: "en",
-    timezone: "America/Chicago",
-    visibility: "listed",
-    phone: "+1 713-555-0100",
-    address: "1000 Main St, Houston, TX 77002"
-  },
-  {
-    slug: "lapaz-bolivia",
-    name: "La Paz",
-    city: "La Paz",
-    country: "Bolivia",
-    country_code: "BO",
-    latitude: -16.4897,
-    longitude: -68.1193,
-    region: "latam",
-    default_language: "es",
-    timezone: "America/La_Paz",
-    visibility: "listed",
-    phone: "+591 2 123 4567",
-    address: "Av. 16 de Julio, La Paz"
-  },
-  {
-    slug: "lima-peru",
-    name: "Lima",
-    city: "Lima",
-    country: "Peru",
-    country_code: "PE",
-    latitude: -12.0464,
-    longitude: -77.0428,
-    region: "latam",
-    default_language: "es",
-    timezone: "America/Lima",
-    visibility: "listed",
-    phone: "+51 1 123 4567",
-    address: "Av. Javier Prado Este 123, Lima"
-  },
-  {
-    slug: "lisbon-portugal",
-    name: "Lisbon",
-    city: "Lisbon",
-    country: "Portugal",
-    country_code: "PT",
-    latitude: 38.7223,
-    longitude: -9.1393,
-    region: "europe",
-    default_language: "en",
-    timezone: "Europe/Lisbon",
-    visibility: "listed",
-    phone: "+351 21 123 4567",
-    address: "Avenida da Liberdade 110, 1250-146 Lisboa"
-  },
-  {
-    slug: "losangeles-usa",
-    name: "Los Angeles",
-    city: "Los Angeles",
-    country: "United States",
-    country_code: "US",
-    latitude: 34.0522,
-    longitude: -118.2437,
-    region: "usa-canada",
-    default_language: "en",
-    timezone: "America/Los_Angeles",
-    visibility: "listed",
-    phone: "+1 323-892-2050",
-    address: "315 W 9th St, Los Angeles, CA 90015"
-  },
-  {
-    slug: "madrid-spain",
-    name: "Madrid",
-    city: "Madrid",
-    country: "Spain",
-    country_code: "ES",
-    latitude: 40.4168,
-    longitude: -3.7038,
-    region: "europe",
-    default_language: "es",
-    timezone: "Europe/Madrid",
-    visibility: "listed",
-    phone: "+34 910 86 69 83",
-    address: "Calle de Alcalá 54, 28014 Madrid"
-  },
-  {
-    slug: "malaga-spain",
-    name: "Malaga",
-    city: "Malaga",
-    country: "Spain",
-    country_code: "ES",
-    latitude: 36.7213,
-    longitude: -4.4214,
-    region: "europe",
-    default_language: "es",
-    timezone: "Europe/Madrid",
-    visibility: "listed",
-    phone: "+34 952 55 01 00",
-    address: "Calle Larios 12, 29005 Málaga"
-  },
-  {
-    slug: "mexicocity-mexico",
-    name: "Mexico City",
-    city: "Mexico City",
-    country: "Mexico",
-    country_code: "MX",
-    latitude: 19.4326,
-    longitude: -99.1332,
-    region: "latam",
-    default_language: "es",
-    timezone: "America/Mexico_City",
-    visibility: "listed",
-    phone: "+52 55 1234 5678",
-    address: "Paseo de la Reforma 222, 06600 CDMX"
-  },
-  {
-    slug: "milan-italy",
-    name: "Milan",
-    city: "Milan",
-    country: "Italy",
-    country_code: "IT",
-    latitude: 45.4642,
-    longitude: 9.1900,
-    region: "europe",
-    default_language: "en",
-    timezone: "Europe/Rome",
-    visibility: "listed",
-    phone: "+39 02 555 0100",
-    address: "Via Montenapoleone 8, 20121 Milano"
-  },
-  {
-    slug: "montevideo-uruguay",
-    name: "Montevideo",
-    city: "Montevideo",
-    country: "Uruguay",
-    country_code: "UY",
-    latitude: -34.9011,
-    longitude: -56.1645,
-    region: "latam",
-    default_language: "es",
-    timezone: "America/Montevideo",
-    visibility: "listed",
-    phone: "+598 2 123 4567",
-    address: "18 de Julio 1234, Montevideo"
-  },
-  {
-    slug: "munich-germany",
-    name: "Munich",
-    city: "Munich",
-    country: "Germany",
-    country_code: "DE",
-    latitude: 48.1351,
-    longitude: 11.5820,
-    region: "europe",
-    default_language: "en",
-    timezone: "Europe/Berlin",
-    visibility: "listed",
-    phone: "+49 89 555 0100",
-    address: "Marienplatz 1, 80331 München"
-  },
-  {
-    slug: "newyork-usa",
-    name: "New York",
-    city: "New York",
-    country: "United States",
-    country_code: "US",
-    latitude: 40.7128,
-    longitude: -74.0060,
-    region: "usa-canada",
-    default_language: "en",
-    timezone: "America/New_York",
-    visibility: "listed",
-    phone: "+1 212-555-0100",
-    address: "350 5th Ave, New York, NY 10118"
-  },
-  {
-    slug: "orlando-usa",
-    name: "Orlando",
-    city: "Orlando",
-    country: "United States",
-    country_code: "US",
-    latitude: 28.5383,
-    longitude: -81.3792,
-    region: "usa-canada",
-    default_language: "en",
-    timezone: "America/New_York",
-    visibility: "listed",
-    phone: "+1 407-205-1760",
-    address: "100 S Orange Ave, Orlando, FL 32801"
-  },
-  {
-    slug: "panamacity-panama",
-    name: "Panama City",
-    city: "Panama City",
-    country: "Panama",
-    country_code: "PA",
-    latitude: 8.9824,
-    longitude: -79.5199,
-    region: "latam",
-    default_language: "es",
-    timezone: "America/Panama",
-    visibility: "listed",
-    phone: "+507 123 4567",
-    address: "Calle 50, Panama City"
-  },
-  {
-    slug: "quito-ecuador",
-    name: "Quito",
-    city: "Quito",
-    country: "Ecuador",
-    country_code: "EC",
-    latitude: -0.1807,
-    longitude: -78.4678,
-    region: "latam",
-    default_language: "es",
-    timezone: "America/Guayaquil",
-    visibility: "listed",
-    phone: "+593 2 123 4567",
-    address: "Av. Amazonas N21-147, Quito"
-  },
-  {
-    slug: "rome-italy",
-    name: "Rome",
-    city: "Rome",
-    country: "Italy",
-    country_code: "IT",
-    latitude: 41.9028,
-    longitude: 12.4964,
-    region: "europe",
-    default_language: "en",
-    timezone: "Europe/Rome",
-    visibility: "listed",
-    phone: "+39 06 555 0100",
-    address: "Via del Corso 123, 00186 Roma"
-  },
-  {
-    slug: "santiago-chile",
-    name: "Santiago",
-    city: "Santiago",
-    country: "Chile",
-    country_code: "CL",
-    latitude: -33.4489,
-    longitude: -70.6693,
-    region: "latam",
-    default_language: "es",
-    timezone: "America/Santiago",
-    visibility: "listed",
-    phone: "+56 2 1234 5678",
-    address: "Av. Apoquindo 3000, Las Condes, Santiago"
-  },
-  {
-    slug: "tampa-usa",
-    name: "Tampa",
-    city: "Tampa",
-    country: "United States",
-    country_code: "US",
-    latitude: 27.9506,
-    longitude: -82.4572,
-    region: "usa-canada",
-    default_language: "en",
-    timezone: "America/New_York",
-    visibility: "listed",
-    phone: "+1 813-555-0100",
-    address: "100 N Tampa St, Tampa, FL 33602"
-  },
-  {
-    slug: "toronto-canada",
-    name: "Toronto",
-    city: "Toronto",
-    country: "Canada",
-    country_code: "CA",
-    latitude: 43.6532,
-    longitude: -79.3832,
-    region: "usa-canada",
-    default_language: "en",
-    timezone: "America/Toronto",
-    visibility: "listed",
-    phone: "+1 416-850-4600",
-    address: "100 King St W, Toronto, ON M5X 1A9"
-  },
-  {
-    slug: "valencia-spain",
-    name: "Valencia",
-    city: "Valencia",
-    country: "Spain",
-    country_code: "ES",
-    latitude: 39.4699,
-    longitude: -0.3763,
-    region: "europe",
-    default_language: "es",
-    timezone: "Europe/Madrid",
-    visibility: "listed",
-    phone: "+34 963 55 01 00",
-    address: "Calle Colón 48, 46004 Valencia"
-  }
-];
+import type { Location } from "@shared/session";
 
-export const getListedLocations = (): Location[] => 
-  locations.filter(loc => loc.visibility === 'listed');
-
-export const getLocationBySlug = (slug: string): Location | undefined =>
-  locations.find(loc => loc.slug === slug);
-
-export const getLocationsByRegion = (region: Location['region']): Location[] =>
-  locations.filter(loc => loc.region === region && loc.visibility === 'listed');
-
-export const getLocationsByLanguage = (language: 'en' | 'es'): Location[] =>
-  locations.filter(loc => loc.default_language === language && loc.visibility === 'listed');
-
-export type RegionSlug = 'usa-canada' | 'europe' | 'latam';
+export type RegionSlug = "usa-canada" | "europe" | "latam";
 
 const REGION_LABELS: Record<RegionSlug, { en: string; es: string }> = {
-  'usa-canada': { en: 'US & Canada', es: 'EE.UU. y Canadá' },
-  'europe': { en: 'Europe', es: 'Europa' },
-  'latam': { en: 'Latin America', es: 'Latinoamérica' },
+  "usa-canada": { en: "US & Canada", es: "EE.UU. y Canadá" },
+  europe: { en: "Europe", es: "Europa" },
+  latam: { en: "Latin America", es: "Latinoamérica" },
 };
 
-export const REGION_SLUGS: RegionSlug[] = ['usa-canada', 'europe', 'latam'];
+export const REGION_SLUGS: RegionSlug[] = ["usa-canada", "europe", "latam"];
 
-export function getRegionLabel(slug: string, locale: string = 'en'): string {
-  const entry = REGION_LABELS[slug as RegionSlug];
-  if (!entry) return slug;
-  return locale === 'es' ? entry.es : entry.en;
+/** Module cache filled by SessionProvider / useLocationCatalog / worker. */
+let catalogCache: Location[] = [];
+
+export function setLocationCatalog(locations: Location[]): void {
+  catalogCache = Array.isArray(locations) ? locations : [];
 }
 
-export function getRegionForLocation(locationSlug: string): RegionSlug | null {
-  const loc = locations.find(l => l.slug === locationSlug);
+export function getLocationCatalog(): Location[] {
+  return catalogCache;
+}
+
+/** @deprecated Prefer getLocationCatalog() — kept for gradual migration. */
+export const locations: Location[] = new Proxy([] as Location[], {
+  get(_target, prop, receiver) {
+    const list = catalogCache;
+    if (prop === "length") return list.length;
+    if (prop === Symbol.iterator) return list[Symbol.iterator].bind(list);
+    if (typeof prop === "string" && /^\d+$/.test(prop)) return list[Number(prop)];
+    const value = Reflect.get(list, prop, receiver);
+    return typeof value === "function" ? value.bind(list) : value;
+  },
+});
+
+export const getListedLocations = (list: Location[] = catalogCache): Location[] =>
+  list.filter((loc) => loc.visibility === "listed");
+
+export const getLocationBySlug = (
+  slug: string,
+  list: Location[] = catalogCache,
+): Location | undefined => list.find((loc) => loc.slug === slug);
+
+export const getLocationsByRegion = (
+  region: Location["region"],
+  list: Location[] = catalogCache,
+): Location[] => list.filter((loc) => loc.region === region && loc.visibility === "listed");
+
+export const getLocationsByLanguage = (
+  language: "en" | "es",
+  list: Location[] = catalogCache,
+): Location[] =>
+  list.filter((loc) => loc.default_language === language && loc.visibility === "listed");
+
+export function getRegionLabel(slug: string, locale: string = "en"): string {
+  const entry = REGION_LABELS[slug as RegionSlug];
+  if (!entry) return slug;
+  return locale === "es" ? entry.es : entry.en;
+}
+
+export function getRegionForLocation(
+  locationSlug: string,
+  list: Location[] = catalogCache,
+): RegionSlug | null {
+  const loc = list.find((l) => l.slug === locationSlug);
   return (loc?.region as RegionSlug) || null;
+}
+
+export const LOCATION_CATALOG_URL = "/api/session/location-catalog";
+export const LOCATION_CATALOG_CACHE_KEY = "session.location-catalog.v1";
+
+export async function fetchLocationCatalog(origin?: string): Promise<Location[]> {
+  const base =
+    origin ||
+    (typeof self !== "undefined" && (self as unknown as { location?: { origin?: string } }).location?.origin) ||
+    "";
+  const url = `${base}${LOCATION_CATALOG_URL}`;
+  try {
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!response.ok) return [];
+    const data = (await response.json()) as { locations?: Location[] };
+    const list = Array.isArray(data.locations) ? data.locations : [];
+    setLocationCatalog(list);
+    try {
+      if (typeof sessionStorage !== "undefined") {
+        sessionStorage.setItem(LOCATION_CATALOG_CACHE_KEY, JSON.stringify(list));
+      }
+    } catch {
+      /* ignore */
+    }
+    return list;
+  } catch {
+    return [];
+  }
+}
+
+/** Sync read of last sessionStorage catalog (worker / early UI). */
+export function readCachedLocationCatalog(): Location[] {
+  try {
+    if (typeof sessionStorage === "undefined") return catalogCache;
+    const raw = sessionStorage.getItem(LOCATION_CATALOG_CACHE_KEY);
+    if (!raw) return catalogCache;
+    const parsed = JSON.parse(raw) as Location[];
+    if (Array.isArray(parsed)) {
+      setLocationCatalog(parsed);
+      return parsed;
+    }
+  } catch {
+    /* ignore */
+  }
+  return catalogCache;
 }

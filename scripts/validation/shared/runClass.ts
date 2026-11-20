@@ -2,7 +2,12 @@
  * Validator run-class taxonomy for the unified issue store.
  */
 
-export type ValidatorRunClass = "entry-local" | "cross-entry" | "media" | "database";
+export type ValidatorRunClass = "entry-local" | "cross-entry" | "media" | "database" | "decision";
+
+/** When a paid/decision validator may be appended to on-save validation. */
+export type ValidatorOnSaveInvite = "claim_cues";
+
+export type ValidatorCost = "free" | "paid";
 
 export type ValidationScope =
   | "site"
@@ -36,6 +41,7 @@ const RUN_CLASS_BY_NAME: Record<string, ValidatorRunClass> = {
   "hero-image-tags": "media",
   "database-health": "database",
   "database-singles": "database",
+  "fact-literals": "decision",
   // everything else defaults to entry-local
 };
 
@@ -64,6 +70,10 @@ export function isDatabaseValidator(name: string): boolean {
   return getValidatorRunClass(name) === "database";
 }
 
+export function isDecisionValidator(name: string): boolean {
+  return getValidatorRunClass(name) === "decision";
+}
+
 /** Scopes typically associated with a validator for indexing. */
 export function scopesForValidator(name: string): ValidationScope[] {
   const runClass = getValidatorRunClass(name);
@@ -76,9 +86,31 @@ export function scopesForValidator(name: string): ValidationScope[] {
       return ["site", "media", "entry"];
     case "database":
       return ["site", "database"];
+    case "decision":
+      return ["entry"];
     default:
       return ["entry"];
   }
+}
+
+export type OnSaveInviteOpts = {
+  /** Write lands on live locale (not draft/variant). */
+  isLiveWrite: boolean;
+  /** Entry funnel.stage — consideration/decision invite; others skip. */
+  funnelStage: string | null | undefined;
+  /** Claim-cue verdict on changed-field text. */
+  claimCue: "clear_yes" | "clear_no" | "ambiguous";
+};
+
+/**
+ * Paid validators invited onto an on-save run. Not in ENTRY_LOCAL_VALIDATOR_NAMES —
+ * callers append these when gates pass.
+ */
+export function validatorsInvitedOnSave(opts: OnSaveInviteOpts): string[] {
+  if (!opts.isLiveWrite) return [];
+  if (opts.funnelStage !== "consideration" && opts.funnelStage !== "decision") return [];
+  if (opts.claimCue === "clear_no") return [];
+  return ["fact-literals"];
 }
 
 /** Entry-local validators safe to run on save / run-page / slug-filtered jobs. */

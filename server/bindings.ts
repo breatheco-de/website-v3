@@ -13,11 +13,12 @@ import {
 } from "./leases";
 import { generateSectionId } from "./utils/generateSectionId";
 import { contentIndex } from "./content-index";
-import { isSharedLayoutType } from "./shared-layout-entry";
+import { isEntryDetached, isSharedLayoutType } from "./shared-layout-entry";
+import { previewPruneGroupsForSharedLayoutEnable as previewPruneShared } from "@shared/bindings-prune";
 import { child } from "./logger";
 const log = child({ module: "bindings" });
 
-
+export { previewPruneGroupsForSharedLayoutEnable } from "@shared/bindings-prune";
 
 function safeYamlDump(obj: unknown, opts?: yaml.DumpOptions): string {
   return dumpContentYaml(obj, opts);
@@ -35,14 +36,18 @@ export function isSharedLayoutContentType(
   return isSharedLayoutType(contentType, contentRoot);
 }
 
-function assertMembersNotOnSharedLayout(members: BindingMember[]): void {
+/**
+ * Bindings are allowed on ordinary types and on **detached** shared-layout entries.
+ * Attached shared-layout members (structure from the type template) are refused.
+ */
+function assertMembersAllowBindings(members: BindingMember[], contentRoot?: string): void {
   for (const member of members) {
-    if (isSharedLayoutContentType(member.contentType)) {
-      throw new Error(
-        `Section bindings cannot be used on shared-layout content types (${member.contentType}). ` +
-          `Bindings only work on ordinary page types without a shared template.`,
-      );
-    }
+    if (!isSharedLayoutContentType(member.contentType, contentRoot)) continue;
+    if (isEntryDetached(member.contentType, member.slug, contentRoot)) continue;
+    throw new Error(
+      `Section bindings cannot include attached shared-layout entries (${member.contentType}/${member.slug}). ` +
+        `Detach the entry first, or bind only pages that own their own layout.`,
+    );
   }
 }
 
@@ -283,7 +288,7 @@ class BindingManager {
 
   /**
    * Dissolve every binding group that includes this content type.
-   * Used when enabling shared layout — bindings and shared templates do not mix.
+   * Prefer {@link pruneGroupsForSharedLayoutEnable} when enabling with detach exceptions.
    */
   dissolveGroupsForContentType(
     contentType: string,
@@ -299,6 +304,75 @@ class BindingManager {
     this.rebuildIndex();
     this.save(author);
     return { dissolved: toRemove, count: toRemove.length };
+  }
+
+  /**
+   * When enabling shared layout: drop members of `contentType` that will stay attached
+   * (not in `detachSlugs`). Keep groups that still have ≥2 entry-owned members.
+   */
+  pruneGroupsForSharedLayoutEnable(
+    contentType: string,
+    detachSlugs: string[],
+    author?: string,
+  ): {
+    kept: BindingGroup[];
+    updated: BindingGroup[];
+    removed: BindingGroup[];
+    removedCount: number;
+    updatedCount: number;
+  } {
+    this.ensureLoaded();
+    const preview = previewPruneShared(this.data.groups, contentType, detachSlugs);
+    const updatedWithStamp = preview.updated.map(({ after }) => ({
+      ...after,
+      updatedAt: new Date().toISOString(),
+    }));
+    this.data.groups = [...preview.kept, ...updatedWithStamp];
+    this.rebuildIndex();
+    if (preview.removed.length > 0 || preview.updated.length > 0) {
+      this.save(author);
+    }
+    return {
+      kept: preview.kept,
+      updated: updatedWithStamp,
+      removed: preview.removed,
+      removedCount: preview.removed.length,
+      updatedCount: preview.updated.length,
+    };
+  }
+
+  /** Remove one entry from every binding group (e.g. after reattach). */
+  pruneMemberFromAllGroups(
+    contentType: string,
+    slug: string,
+    author?: string,
+  ): { removedGroups: BindingGroup[]; updatedGroups: BindingGroup[] } {
+    this.ensureLoaded();
+    const removedGroups: BindingGroup[] = [];
+    const updatedGroups: BindingGroup[] = [];
+    const next: BindingGroup[] = [];
+    for (const group of this.data.groups) {
+      const filtered = group.members.filter(
+        (m) => !(m.contentType === contentType && m.slug === slug),
+      );
+      if (filtered.length === group.members.length) {
+        next.push(group);
+        continue;
+      }
+      if (filtered.length < 2) {
+        removedGroups.push(group);
+        continue;
+      }
+      const updated = { ...group, members: filtered, updatedAt: new Date().toISOString() };
+      updatedGroups.push(updated);
+      next.push(updated);
+    }
+    if (removedGroups.length > 0 || updatedGroups.length > 0) {
+      this.data.groups = next;
+      this.rebuildIndex();
+      this.save(author);
+    }
+    return { removedGroups, updatedGroups };
   }
 
   private validateMemberComponent(member: BindingMember, expectedComponent: string, locale: string): void {
@@ -330,7 +404,7 @@ class BindingManager {
       throw new Error("A binding group requires at least 2 members");
     }
 
-    assertMembersNotOnSharedLayout(members);
+    assertMembersAllowBindings(members);
 
     for (const member of members) {
       this.validateMemberComponent(member, component, locale);
@@ -420,7 +494,7 @@ class BindingManager {
     const group = this.data.groups.find(g => g.id === groupId);
     if (!group) throw new Error(`Binding group ${groupId} not found`);
 
-    assertMembersNotOnSharedLayout([member]);
+    assertMembersAllowBindings([member]);
 
     this.validateMemberComponent(member, group.component, group.locale);
 

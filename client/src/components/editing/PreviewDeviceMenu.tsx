@@ -10,8 +10,14 @@ import {
 import { useEditMode } from "@/contexts/EditModeContext";
 import { cn } from "@/lib/utils";
 import { getPreviewDevice, PREVIEW_PHONES, PREVIEW_TABLETS } from "@/lib/preview-devices";
+import { isPrivatePreviewPath } from "@/lib/visual-edit-path";
 
 type PreviewDeviceMenuTrigger = "icon" | "caption";
+
+function isOnPrivatePreview(): boolean {
+  if (typeof window === "undefined") return false;
+  return isPrivatePreviewPath(window.location.pathname);
+}
 
 export function PreviewDeviceMenu({
   trigger = "icon",
@@ -39,36 +45,32 @@ export function PreviewDeviceMenu({
       : "Desktop";
 
   const selectDevice = (deviceId: typeof editMode.previewDeviceId) => {
-    if (!editMode.isEditMode) {
+    const alreadyPreview = isOnPrivatePreview();
+    if (!alreadyPreview) {
+      // Device frames live on /private/preview. If we cannot open it, stay put.
+      onNeedEditMode?.();
+      if (!isOnPrivatePreview()) return;
+    } else if (!editMode.isEditMode) {
       editMode.enableEditMode();
     }
-    // Open /private/preview first when needed; setPreviewMode last so it owns the URL.
-    onNeedEditMode?.();
+    // setPreviewMode last so it owns the URL (and leaves LLM when needed).
     editMode.setPreviewMode({ kind: "device", deviceId });
   };
 
   const selectDesktop = () => {
+    // Leaving LLM: turn off in place (no jump to private preview).
+    if (isLlmPreview) {
+      editMode.setPreviewMode({ kind: "desktop" });
+      return;
+    }
     onNeedEditMode?.();
     editMode.setPreviewMode({ kind: "desktop" });
   };
 
   const selectLlm = () => {
-    // Pre-stamp the query so enterPrivatePreview copies preview_mode into /private/preview.
-    // setPreviewMode must still run LAST: enterPrivatePreview calls enableEditMode(), and if
-    // that runs after LLM is applied, edit flips back on and the switch looks like a no-op.
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      if (url.searchParams.get("preview_mode") !== "llm") {
-        url.searchParams.set("preview_mode", "llm");
-        url.searchParams.delete("location");
-        window.history.replaceState(
-          window.history.state,
-          "",
-          `${url.pathname}${url.search}${url.hash}`,
-        );
-      }
-    }
-    onNeedEditMode?.();
+    // Already on: no-op so we do not jump away from a public page.
+    if (isLlmPreview) return;
+    // Turn on where you are — no private-preview jump, no URL pre-stamp.
     editMode.setPreviewMode({ kind: "llm" });
   };
 
@@ -185,7 +187,11 @@ export function PreviewDeviceMenu({
           onPointerDown={(e) => e.preventDefault()}
         >
           <p>
-            Device preview always lives on <code className="bg-muted px-1 rounded">/private/preview/…</code> (locale, variant, version). LLM crawler shows the page the way AI crawlers see it — all regions at once; editing is off until you switch back to Desktop or a phone. Share copies the current viewport and campus (campus omitted in LLM mode).
+            LLM crawler turns on where you are and stays on while you browse; Desktop turns it off.
+            Device preview always lives on <code className="bg-muted px-1 rounded">/private/preview/…</code>{" "}
+            (locale, variant, version). LLM crawler shows the page the way AI crawlers see it — all
+            regions at once; editing is off until you switch back to Desktop or a phone. Share copies
+            the current viewport and campus (campus omitted in LLM mode).
           </p>
           <details>
             <summary className="cursor-pointer hover:text-foreground">Read more (advanced)</summary>

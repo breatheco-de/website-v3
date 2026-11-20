@@ -43,6 +43,7 @@ On consequential **previews**, `create_or_update_product` may attach **`discover
 
 ## Audience
 
+- **Ownership (intentional):** 1 persona → 1 product. Personas live only on that product’s `_product.yml`. Do **not** invent a shared/global persona catalog, multi-product membership, or reuse the same persona id across products “because it’s the same buyer.” Same human segment on two offers (e.g. non-tech pro → Flex *or* AI Engineering) ⇒ **two product-specific personas** with different ids, fears, and objections — the constraint forces a personalized funnel per offer. Staff may call them the same *segment*; the CMS must not treat them as one object. **Push back / refuse** architecture that merges personas across products.
 - Minimal: `offer.one_liner`, `offer.who_its_for`, ≥1 persona with `id`, `role`, avatar `fears` (≥1), `internal_dialogue`, `objections` (≥1).
 - Persona **ids are immutable while funnel pages bind** them (including the product’s own page if it binds that persona). Creating a persona on the product does **not** bind any page. Rename (remove old id + add new) is allowed when unbound. Duplicate ids on the same product are rejected. Display `label` is always editable.
 - Cannot remove a persona (or demote below minimal) while pages still bind that persona/product in funnel. **No cascade rename** of page `_common.yml` bindings.
