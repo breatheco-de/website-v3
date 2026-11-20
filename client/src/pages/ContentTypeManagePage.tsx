@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { typeUsesSharedTemplate } from "@shared/sharedLayoutPaths";
-import { AlertTriangle, Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Copy, Crosshair, Database, Download, ExternalLink, Eye, EyeOff, FileText, Filter, Folder, GitBranch, Globe, HelpCircle, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, Megaphone, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Table2, Trash2, Wand2, X } from "lucide-react";
+import { AlertTriangle, Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Asterisk, Check, CircleDashed, Clipboard, Clock, Code, Copy, Crosshair, Database, Download, ExternalLink, Eye, EyeOff, FileText, Filter, Folder, GitBranch, Globe, HelpCircle, History, Image as ImageIcon, Info, LayoutList, Link as LinkIcon, List, Loader2, Megaphone, MoreVertical, Pencil, Plus, RefreshCw, Search, Shuffle, SlidersHorizontal, Sparkles, Table2, Trash2, Wand2, X } from "lucide-react";
 import { ContentTypeAdsList } from "@/components/ads/ContentTypeAdsList";
 import { IconChess, IconChevronDown, IconChevronRight, IconExternalLink, IconWebhook } from "@tabler/icons-react";
 import { queryClient } from "@/lib/queryClient";
@@ -71,6 +71,7 @@ import { DeletePageModal } from "@/components/DebugBubble/components/DeletePageM
 import { deleteResultDescription } from "@/lib/urlRemoval";
 import { LocaleFlag } from "@/components/DebugBubble/components/LocaleFlag";
 import { BulkUpdateFunnelDialog } from "@/components/content-type/BulkUpdateFunnelDialog";
+import { BulkProposeFunnelDialog } from "@/components/content-type/BulkProposeFunnelDialog";
 import {
   BulkDeleteStaticDialog,
   BulkDeleteDbInfoDialog,
@@ -87,6 +88,7 @@ import {
 } from "@/components/editing/SeoContextPickerDialog";
 import type { SeoModalTab } from "@/components/DebugBubble/components/SeoModal";
 import {
+  FUNNEL_STAGES,
   isFunnelStage,
   normalizeFunnelBinding,
   type FunnelBlock,
@@ -190,6 +192,19 @@ interface SeoEntriesResponse {
   totalPages?: number;
 }
 
+interface FunnelSuggestionPayload {
+  stage: string;
+  products: FunnelProductBinding[] | "all";
+  confidence: {
+    stage: number;
+    bindings: Array<{ product: string; persona?: string; score: number }>;
+    products_all?: number;
+  };
+  model: string;
+  created_at: string;
+  created_by: string;
+}
+
 interface FunnelEntry {
   slug: string;
   contentType: string;
@@ -198,6 +213,7 @@ interface FunnelEntry {
   title: string;
   pageTitle: string;
   funnel: FunnelBlock;
+  suggestion?: FunnelSuggestionPayload | null;
 }
 
 interface FunnelEntriesResponse {
@@ -6360,6 +6376,11 @@ export default function ContentTypeManagePage() {
   /** SEO perspective: exact `slug:locale` keys (not slug-only). */
   const [selectedSeoKeys, setSelectedSeoKeys] = useState<Set<string>>(() => new Set());
   const [bulkFunnelOpen, setBulkFunnelOpen] = useState(false);
+  const [bulkProposeFunnelOpen, setBulkProposeFunnelOpen] = useState(false);
+  const [funnelStageFilter, setFunnelStageFilter] = useState("");
+  const [funnelProductFilter, setFunnelProductFilter] = useState("");
+  const [funnelPersonaFilter, setFunnelPersonaFilter] = useState("");
+  const [funnelSuggestionBusy, setFunnelSuggestionBusy] = useState<string | null>(null);
   const [bulkSeoKeywordOpen, setBulkSeoKeywordOpen] = useState(false);
   const [bulkSeoOgOpen, setBulkSeoOgOpen] = useState(false);
   const [bulkSeoKeywordApplying, setBulkSeoKeywordApplying] = useState(false);
@@ -6625,6 +6646,9 @@ export default function ContentTypeManagePage() {
       listPage,
       debouncedSearch,
       ...sharedFilterQueryKey,
+      funnelStageFilter,
+      funnelProductFilter,
+      funnelPersonaFilter,
     ],
     queryFn: () => {
       const params = new URLSearchParams({
@@ -6633,6 +6657,9 @@ export default function ContentTypeManagePage() {
       });
       if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
       appendSharedListFilters(params);
+      if (funnelStageFilter.trim()) params.set("funnel_stage", funnelStageFilter.trim());
+      if (funnelProductFilter.trim()) params.set("funnel_product", funnelProductFilter.trim());
+      if (funnelPersonaFilter.trim()) params.set("funnel_persona", funnelPersonaFilter.trim());
       return fetch(
         `/api/content-types/${contentType}/funnel-entries?${params.toString()}`,
       ).then((r) => r.json());
@@ -6642,6 +6669,91 @@ export default function ContentTypeManagePage() {
     refetchOnMount: "always",
     placeholderData: (prev) => prev,
   });
+
+  const { data: funnelProductMap } = useQuery<{
+    products: {
+      content_slug: string;
+      name: string;
+      actively_selling?: boolean;
+      personas?: { id: string; label: string }[];
+    }[];
+  }>({
+    queryKey: ["/api/ecommerce/product-map"],
+    enabled: listPerspective === "funnel",
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const funnelProductOptions = useMemo(
+    () => (funnelProductMap?.products ?? []).filter((p) => p.actively_selling !== false),
+    [funnelProductMap?.products],
+  );
+  const funnelPersonaOptions = useMemo(() => {
+    const out: { id: string; label: string; product: string }[] = [];
+    for (const p of funnelProductOptions) {
+      for (const pe of p.personas ?? []) {
+        out.push({ id: pe.id, label: pe.label || pe.id, product: p.content_slug });
+      }
+    }
+    return out;
+  }, [funnelProductOptions]);
+
+  const invalidateFunnelEntries = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: ["/api/content-types", contentType, "funnel-entries"],
+    });
+  }, [contentType]);
+
+  const acceptFunnelSuggestion = useCallback(
+    async (slug: string) => {
+      setFunnelSuggestionBusy(slug);
+      try {
+        const res = await apiRequest(
+          "POST",
+          `/api/content-types/${contentType}/funnel/${encodeURIComponent(slug)}/suggestion/accept`,
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            title: "Could not accept suggestion",
+            description: json.error || "Accept failed",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "Funnel suggestion applied", description: slug });
+        }
+        invalidateFunnelEntries();
+      } finally {
+        setFunnelSuggestionBusy(null);
+      }
+    },
+    [contentType, invalidateFunnelEntries, toast],
+  );
+
+  const rejectFunnelSuggestion = useCallback(
+    async (slug: string) => {
+      setFunnelSuggestionBusy(slug);
+      try {
+        const res = await apiRequest(
+          "DELETE",
+          `/api/content-types/${contentType}/funnel/${encodeURIComponent(slug)}/suggestion`,
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast({
+            title: "Could not reject suggestion",
+            description: json.error || "Reject failed",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: "Suggestion cleared", description: slug });
+        }
+        invalidateFunnelEntries();
+      } finally {
+        setFunnelSuggestionBusy(null);
+      }
+    },
+    [contentType, invalidateFunnelEntries, toast],
+  );
 
   const {
     data: organicEntriesData,
@@ -8814,15 +8926,26 @@ export default function ContentTypeManagePage() {
                 </>
               ) : null}
               {listPerspective === "funnel" ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setBulkFunnelOpen(true)}
-                  data-testid="button-bulk-update-funnel"
-                >
-                  <Filter className="h-3.5 w-3.5" />
-                  Update funnel
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkProposeFunnelOpen(true)}
+                    data-testid="button-bulk-propose-funnel"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Propose funnel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBulkFunnelOpen(true)}
+                    data-testid="button-bulk-update-funnel"
+                  >
+                    <Filter className="h-3.5 w-3.5" />
+                    Update funnel
+                  </Button>
+                </>
               ) : null}
               {listPerspective === "default" ? (
                 <Button
@@ -9002,11 +9125,15 @@ export default function ContentTypeManagePage() {
                 const showTagFilters =
                   viewMode === "db" && !!facets && Object.keys(facets).length > 0;
                 const tagFilterCount = Object.values(tagFilters).flat().length;
+                const funnelFilterActive =
+                  listPerspective === "funnel" &&
+                  (!!funnelStageFilter || !!funnelProductFilter || !!funnelPersonaFilter);
                 const listFilterCount =
                   (languageActive ? 1 : 0) +
                   (publishDateActive ? 1 : 0) +
                   (statusActive ? 1 : 0) +
                   (marketActive ? 1 : 0) +
+                  (funnelFilterActive ? 1 : 0) +
                   tagFilterCount;
                 const localeSelectValue =
                   listPerspective === "organic"
@@ -9057,6 +9184,9 @@ export default function ContentTypeManagePage() {
                                   ...(showTagFilters ? { tagFilters: {} } : {}),
                                   page: 1,
                                 });
+                                setFunnelStageFilter("");
+                                setFunnelProductFilter("");
+                                setFunnelPersonaFilter("");
                               }}
                               data-testid="button-clear-list-filters"
                             >
@@ -9233,6 +9363,101 @@ export default function ContentTypeManagePage() {
                               </SelectContent>
                             </Select>
                           </div>
+                        )}
+                        {listPerspective === "funnel" && (
+                          <>
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                Funnel stage
+                              </p>
+                              <Select
+                                value={funnelStageFilter || "__any__"}
+                                onValueChange={(v) => {
+                                  setFunnelStageFilter(v === "__any__" ? "" : v);
+                                  writeListView({ ...listView, page: 1 });
+                                }}
+                              >
+                                <SelectTrigger
+                                  className="h-8"
+                                  aria-label="Funnel stage"
+                                  data-testid="select-funnel-stage-filter"
+                                >
+                                  <SelectValue placeholder="Any stage" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__any__">Any stage</SelectItem>
+                                  <SelectItem value="missing">Missing / unassigned</SelectItem>
+                                  {FUNNEL_STAGES.map((s) => (
+                                    <SelectItem key={s} value={s}>
+                                      {FUNNEL_STAGE_LABELS[s] ?? s}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                Product
+                              </p>
+                              <Select
+                                value={funnelProductFilter || "__any__"}
+                                onValueChange={(v) => {
+                                  setFunnelProductFilter(v === "__any__" ? "" : v);
+                                  writeListView({ ...listView, page: 1 });
+                                }}
+                              >
+                                <SelectTrigger
+                                  className="h-8"
+                                  aria-label="Funnel product"
+                                  data-testid="select-funnel-product-filter"
+                                >
+                                  <SelectValue placeholder="Any product" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__any__">Any product</SelectItem>
+                                  <SelectItem value="missing">Missing / unassigned</SelectItem>
+                                  <SelectItem value="all">All products</SelectItem>
+                                  {funnelProductOptions.map((p) => (
+                                    <SelectItem key={p.content_slug} value={p.content_slug}>
+                                      {p.name || p.content_slug}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                                Persona
+                              </p>
+                              <Select
+                                value={funnelPersonaFilter || "__any__"}
+                                onValueChange={(v) => {
+                                  setFunnelPersonaFilter(v === "__any__" ? "" : v);
+                                  writeListView({ ...listView, page: 1 });
+                                }}
+                              >
+                                <SelectTrigger
+                                  className="h-8"
+                                  aria-label="Funnel persona"
+                                  data-testid="select-funnel-persona-filter"
+                                >
+                                  <SelectValue placeholder="Any persona" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__any__">Any persona</SelectItem>
+                                  <SelectItem value="missing">Missing / unassigned</SelectItem>
+                                  {funnelPersonaOptions.map((pe) => (
+                                    <SelectItem
+                                      key={`${pe.product}:${pe.id}`}
+                                      value={pe.id}
+                                    >
+                                      {pe.label} ({pe.product})
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </>
                         )}
                         {listPerspective === "organic" && (
                           <div className="space-y-1.5">
@@ -9754,7 +9979,8 @@ export default function ContentTypeManagePage() {
                 <div className="space-y-3">
                   <p className="px-4 pt-2 text-xs text-muted-foreground max-w-3xl" data-testid="text-funnel-perspective-edu">
                     Funnel membership for this content type: stage and products drive Store journey and tracking.
-                    Red badges mark pages still missing a stage or products.
+                    Red badges mark pages still missing a stage or products. Use Propose funnel on selected rows to
+                    suggest with Jev — Accept writes live; Reject or Edit Funnel drops the suggestion.
                   </p>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm" data-testid="table-funnel-entries">
@@ -9800,6 +10026,18 @@ export default function ContentTypeManagePage() {
                           const hasProducts = funnelHasProducts(products);
                           const stageKnown = isFunnelStage(stage);
                           const taper = stageKnown ? FUNNEL_STAGE_TAPER[stage] : null;
+                          const suggestion = entry.suggestion ?? null;
+                          const sugStage =
+                            suggestion && typeof suggestion.stage === "string"
+                              ? suggestion.stage.trim()
+                              : "";
+                          const sugStageKnown = isFunnelStage(sugStage);
+                          const sugTaper = sugStageKnown ? FUNNEL_STAGE_TAPER[sugStage] : null;
+                          const sugProducts = suggestion?.products;
+                          const sugHasProducts =
+                            sugProducts === "all" ||
+                            (Array.isArray(sugProducts) && sugProducts.length > 0);
+                          const busy = funnelSuggestionBusy === slug;
                           return (
                             <tr
                               key={slug}
@@ -9821,72 +10059,159 @@ export default function ContentTypeManagePage() {
                                 <div className="text-xs text-muted-foreground font-mono mt-0.5">{slug}</div>
                               </td>
                               <td className="px-4 py-3">
-                                {stage ? (
-                                  <Badge
-                                    variant="outline"
-                                    className={cn(
-                                      "text-xs font-medium",
-                                      taper ? FUNNEL_STAGE_TONE[taper] : "border-border",
-                                    )}
-                                    data-testid={`badge-funnel-stage-${slug}`}
-                                  >
-                                    {FUNNEL_STAGE_LABELS[stage] ?? stage}
-                                  </Badge>
-                                ) : (
-                                  <Badge
-                                    variant="destructive"
-                                    className="text-xs"
-                                    data-testid={`badge-funnel-no-stage-${slug}`}
-                                  >
-                                    No stage yet
-                                  </Badge>
-                                )}
+                                <div className="flex flex-col gap-1.5 items-start">
+                                  {stage ? (
+                                    <Badge
+                                      variant="outline"
+                                      className={cn(
+                                        "text-xs font-medium",
+                                        taper ? FUNNEL_STAGE_TONE[taper] : "border-border",
+                                      )}
+                                      data-testid={`badge-funnel-stage-${slug}`}
+                                    >
+                                      {FUNNEL_STAGE_LABELS[stage] ?? stage}
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="destructive"
+                                      className="text-xs"
+                                      data-testid={`badge-funnel-no-stage-${slug}`}
+                                    >
+                                      No stage yet
+                                    </Badge>
+                                  )}
+                                  {suggestion && sugStage ? (
+                                    <Badge
+                                      variant="secondary"
+                                      className={cn(
+                                        "text-xs font-medium border border-dashed",
+                                        sugTaper ? FUNNEL_STAGE_TONE[sugTaper] : "",
+                                      )}
+                                      title={`Suggested · confidence ${Math.round((suggestion.confidence?.stage ?? 0) * 100)}%`}
+                                      data-testid={`badge-funnel-suggested-stage-${slug}`}
+                                    >
+                                      → {FUNNEL_STAGE_LABELS[sugStage] ?? sugStage}
+                                      {typeof suggestion.confidence?.stage === "number"
+                                        ? ` · ${Math.round(suggestion.confidence.stage * 100)}%`
+                                        : ""}
+                                    </Badge>
+                                  ) : null}
+                                </div>
                               </td>
                               <td className="px-4 py-3">
-                                {hasProducts ? (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {products === "all" ? (
-                                      <Badge
-                                        variant="secondary"
-                                        className="text-xs"
-                                        data-testid={`badge-funnel-products-all-${slug}`}
-                                      >
-                                        All products
-                                      </Badge>
-                                    ) : (
-                                      (products as FunnelProductBinding[])
-                                        .map((raw) => normalizeFunnelBinding(raw))
-                                        .filter((b): b is FunnelProductBinding => b != null)
-                                        .map((b) => {
+                                <div className="space-y-1.5">
+                                  {hasProducts ? (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {products === "all" ? (
+                                        <Badge
+                                          variant="secondary"
+                                          className="text-xs"
+                                          data-testid={`badge-funnel-products-all-${slug}`}
+                                        >
+                                          All products
+                                        </Badge>
+                                      ) : (
+                                        (products as FunnelProductBinding[])
+                                          .map((raw) => normalizeFunnelBinding(raw))
+                                          .filter((b): b is FunnelProductBinding => b != null)
+                                          .map((b) => {
+                                            const label = b.persona
+                                              ? `${b.product} · ${b.persona}`
+                                              : b.product;
+                                            const key = `${b.product}\0${b.persona ?? ""}`;
+                                            return (
+                                              <Badge
+                                                key={key}
+                                                variant="outline"
+                                                className="text-xs font-mono font-normal"
+                                                data-testid={`badge-funnel-product-${slug}-${b.product}${b.persona ? `-${b.persona}` : ""}`}
+                                              >
+                                                {label}
+                                              </Badge>
+                                            );
+                                          })
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <Badge
+                                      variant="destructive"
+                                      className="text-xs"
+                                      data-testid={`badge-funnel-no-products-${slug}`}
+                                    >
+                                      No product yet
+                                    </Badge>
+                                  )}
+                                  {suggestion && sugHasProducts ? (
+                                    <div className="flex flex-wrap gap-1.5">
+                                      {sugProducts === "all" ? (
+                                        <Badge
+                                          variant="secondary"
+                                          className="text-xs border border-dashed"
+                                          data-testid={`badge-funnel-suggested-products-all-${slug}`}
+                                        >
+                                          → All products
+                                          {typeof suggestion.confidence?.products_all === "number"
+                                            ? ` · ${Math.round(suggestion.confidence.products_all * 100)}%`
+                                            : ""}
+                                        </Badge>
+                                      ) : (
+                                        (sugProducts as FunnelProductBinding[]).map((b) => {
+                                          const score =
+                                            suggestion.confidence?.bindings?.find(
+                                              (x) =>
+                                                x.product === b.product &&
+                                                (x.persona ?? "") === (b.persona ?? ""),
+                                            )?.score;
                                           const label = b.persona
                                             ? `${b.product} · ${b.persona}`
                                             : b.product;
-                                          const key = `${b.product}\0${b.persona ?? ""}`;
                                           return (
                                             <Badge
-                                              key={key}
-                                              variant="outline"
-                                              className="text-xs font-mono font-normal"
-                                              data-testid={`badge-funnel-product-${slug}-${b.product}${b.persona ? `-${b.persona}` : ""}`}
+                                              key={`sug-${b.product}-${b.persona ?? ""}`}
+                                              variant="secondary"
+                                              className="text-xs font-mono font-normal border border-dashed"
+                                              data-testid={`badge-funnel-suggested-product-${slug}-${b.product}${b.persona ? `-${b.persona}` : ""}`}
                                             >
-                                              {label}
+                                              → {label}
+                                              {typeof score === "number"
+                                                ? ` · ${Math.round(score * 100)}%`
+                                                : ""}
                                             </Badge>
                                           );
                                         })
-                                    )}
-                                  </div>
-                                ) : (
-                                  <Badge
-                                    variant="destructive"
-                                    className="text-xs"
-                                    data-testid={`badge-funnel-no-products-${slug}`}
-                                  >
-                                    No product yet
-                                  </Badge>
-                                )}
+                                      )}
+                                    </div>
+                                  ) : null}
+                                </div>
                               </td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                                  {suggestion ? (
+                                    <>
+                                      <Button
+                                        variant="default"
+                                        size="sm"
+                                        className="text-xs gap-1"
+                                        disabled={busy}
+                                        data-testid={`button-accept-funnel-suggestion-${slug}`}
+                                        onClick={() => void acceptFunnelSuggestion(slug)}
+                                      >
+                                        <Check className="h-3.5 w-3.5" />
+                                        Accept
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs gap-1"
+                                        disabled={busy}
+                                        data-testid={`button-reject-funnel-suggestion-${slug}`}
+                                        onClick={() => void rejectFunnelSuggestion(slug)}
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                        Reject
+                                      </Button>
+                                    </>
+                                  ) : null}
                                   {entry.url && (
                                     <Button
                                       variant="ghost"
@@ -11416,6 +11741,33 @@ export default function ContentTypeManagePage() {
                   .map((f) => `${f.slug}: ${f.error}`)
                   .join("; ")}`
               : `Updated ${ok.length} entr${ok.length === 1 ? "y" : "ies"}.`,
+            variant: failed.length ? "destructive" : undefined,
+          });
+          if (failed.length === 0) {
+            setSelectedSlugs(new Set());
+          } else {
+            setSelectedSlugs(new Set(failed.map((f) => f.slug)));
+          }
+          queryClient.invalidateQueries({
+            queryKey: ["/api/content-types", contentType, "funnel-entries"],
+          });
+        }}
+      />
+      <BulkProposeFunnelDialog
+        open={bulkProposeFunnelOpen}
+        onOpenChange={setBulkProposeFunnelOpen}
+        contentType={contentType}
+        slugs={selectedSlugList}
+        onDone={({ ok, failed }) => {
+          const already = ok.filter((r) => r.outcome === "already_correct").length;
+          toast({
+            title: failed.length ? "Propose finished with errors" : "Funnel suggestions ready",
+            description: failed.length
+              ? `${ok.length} ok, ${failed.length} failed: ${failed
+                  .slice(0, 5)
+                  .map((f) => `${f.slug}: ${f.error}`)
+                  .join("; ")}`
+              : `Suggested ${ok.length - already}, already correct ${already}.`,
             variant: failed.length ? "destructive" : undefined,
           });
           if (failed.length === 0) {

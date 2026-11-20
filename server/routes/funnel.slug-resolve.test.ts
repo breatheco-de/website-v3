@@ -19,12 +19,22 @@ const { registerFunnelRoutes } = await import("./funnel");
 
 type Handler = (req: Request, res: Response) => Promise<void>;
 const routes = new Map<string, Handler>();
+function capture(method: string, routePath: string, ...handlers: unknown[]) {
+  const handler = handlers[handlers.length - 1] as Handler;
+  routes.set(`${method} ${routePath}`, handler);
+}
 registerFunnelRoutes({
-  get(routePath: string, handler: Handler) {
-    routes.set(`GET ${routePath}`, handler);
+  get(routePath: string, ...handlers: unknown[]) {
+    capture("GET", routePath, ...handlers);
   },
-  put(routePath: string, handler: Handler) {
-    routes.set(`PUT ${routePath}`, handler);
+  put(routePath: string, ...handlers: unknown[]) {
+    capture("PUT", routePath, ...handlers);
+  },
+  post(routePath: string, ...handlers: unknown[]) {
+    capture("POST", routePath, ...handlers);
+  },
+  delete(routePath: string, ...handlers: unknown[]) {
+    capture("DELETE", routePath, ...handlers);
   },
 } as unknown as Express);
 

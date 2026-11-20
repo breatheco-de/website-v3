@@ -3,9 +3,13 @@ import os from "os";
 import path from "path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  databaseHasGeoFields,
   listLocalDatabaseSlugs,
+  listLocationDatabaseGeoErrors,
+  listLocationGeoOkDatabases,
   loadLocationsFromDatabase,
   loadSessionLocationCatalog,
+  SESSION_LOCATION_GEO_ERROR,
 } from "./session-location-catalog";
 import { resetSettings, updateSessionSettings } from "./settings";
 
@@ -81,5 +85,37 @@ describe("session location catalog", () => {
       "db/remote/config.yml": "name: R\nsource:\n  type: api\n  api:\n    url: https://example.com\n",
     });
     expect(listLocalDatabaseSlugs(root)).toEqual(["locations"]);
+  });
+
+  it("loads rows that use short lat/lon field names", () => {
+    const root = tmp();
+    writeSite(root, {
+      "db/locations/config.yml":
+        "name: L\nsource:\n  type: local\n  local:\n    filename: locations.yml\neditor:\n  lat:\n    type: number\n  lon:\n    type: number\n",
+      "db/locations/locations.yml":
+        "- slug: short-pin\n  name: Short\n  lat: 10.5\n  lon: -66.9\n  region: latam\n  default_language: es\n  visibility: listed\n",
+    });
+    const list = loadLocationsFromDatabase("locations", root);
+    expect(list).toHaveLength(1);
+    expect(list[0].latitude).toBe(10.5);
+    expect(list[0].longitude).toBe(-66.9);
+    expect(databaseHasGeoFields("locations", root)).toBe(true);
+  });
+
+  it("flags databases missing lat/lon as unusable for session location", () => {
+    const root = tmp();
+    writeSite(root, {
+      "db/locations/config.yml":
+        "name: L\nsource:\n  type: local\n  local:\n    filename: locations.yml\neditor:\n  latitude:\n    type: number\n  longitude:\n    type: number\n",
+      "db/faqs/config.yml":
+        "name: FAQ\nsource:\n  type: local\n  local:\n    filename: faqs.yml\neditor:\n  question:\n    type: text\n  answer:\n    type: text\n",
+      "db/faqs/faqs.yml": "- question: Q\n  answer: A\n",
+    });
+    expect(databaseHasGeoFields("locations", root)).toBe(true);
+    expect(databaseHasGeoFields("faqs", root)).toBe(false);
+    expect(listLocationGeoOkDatabases(root)).toEqual(["locations"]);
+    expect(listLocationDatabaseGeoErrors(root)).toEqual({
+      faqs: SESSION_LOCATION_GEO_ERROR,
+    });
   });
 });

@@ -25,6 +25,17 @@ export {
   HARDCODED_SITE_FACT_LITERAL_MAX_CHARS,
   askHardcodedSiteFactLiteral,
   type HardcodedSiteFactLiteralOutcome,
+  DECISION_ID_FUNNEL_CLASSIFICATION,
+  FUNNEL_CLASSIFY_NOUL_THRESHOLD,
+  FUNNEL_CLASSIFY_MAX_PERSONAS,
+  askFunnelClassification,
+  funnelBlocksEqual,
+  funnelBlockSnapshot,
+  type FunnelClassifyPersona,
+  type FunnelClassifyProduct,
+  type FunnelClassifyConfidence,
+  type FunnelClassifyResult,
+  type FunnelClassifyOk,
 } from "./catalog";
 export {
   createOpenRouterJevClient,

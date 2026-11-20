@@ -37,7 +37,12 @@ import { SECTION_LAYOUT_DEFAULT_KEYS } from "../section-layout-defaults";
 import { databaseManager, DatabaseManager } from "../database";
 import { TESTIMONIALS_DATABASE } from "@shared/testimonials-listing";
 import { commonYmlPath, readFunnelBlockFromFile } from "../funnel-fields";
-import type { FunnelBlock } from "@shared/funnel";
+import { attachFunnelSuggestionForList } from "./funnel";
+import {
+  normalizeFunnelProducts,
+  type FunnelBlock,
+  type FunnelProductBinding,
+} from "@shared/funnel";
 
 function getDB(res: import("express").Response): DatabaseManager {
   return (res.locals.site as import("../site-manager").SiteContext)?.database ?? databaseManager;
@@ -3658,6 +3663,18 @@ export function registerContentRoutes(app: Express): void {
         typeof req.query.locale === "string" && req.query.locale.trim()
           ? req.query.locale.trim()
           : "";
+      const funnelStageFilter =
+        typeof req.query.funnel_stage === "string" && req.query.funnel_stage.trim()
+          ? req.query.funnel_stage.trim().toLowerCase()
+          : "";
+      const funnelProductFilter =
+        typeof req.query.funnel_product === "string" && req.query.funnel_product.trim()
+          ? req.query.funnel_product.trim()
+          : "";
+      const funnelPersonaFilter =
+        typeof req.query.funnel_persona === "string" && req.query.funnel_persona.trim()
+          ? req.query.funnel_persona.trim()
+          : "";
       const publishDateRange = parseManagePublishDateRange(
         req.query as Record<string, unknown>,
       );
@@ -3734,8 +3751,64 @@ export function registerContentRoutes(app: Express): void {
         title: string;
         pageTitle: string;
         funnel: FunnelBlock;
+        suggestion?: ReturnType<typeof attachFunnelSuggestionForList>;
         /** Present for YAML draft-only rows */
         status?: "draft" | "published";
+      };
+
+      const isMissingOrUnassigned = (v: string) =>
+        v === "missing" || v === "unassigned";
+
+      const matchesLiveFunnelFilters = (funnel: FunnelBlock): boolean => {
+        const stage =
+          typeof funnel.stage === "string" && funnel.stage.trim() ? funnel.stage.trim() : "";
+        const products = normalizeFunnelProducts(funnel.products as unknown);
+        const hasProducts =
+          products === "all" || (Array.isArray(products) && products.length > 0);
+
+        if (funnelStageFilter) {
+          if (isMissingOrUnassigned(funnelStageFilter)) {
+            if (stage) return false;
+          } else if (stage.toLowerCase() !== funnelStageFilter) {
+            return false;
+          }
+        }
+
+        if (funnelProductFilter) {
+          if (isMissingOrUnassigned(funnelProductFilter)) {
+            if (hasProducts) return false;
+          } else if (funnelProductFilter === "all") {
+            if (products !== "all") return false;
+          } else if (products === "all") {
+            /* site-wide includes every product for inventory filters */
+          } else if (!Array.isArray(products) || !products.some((b) => b.product === funnelProductFilter)) {
+            return false;
+          }
+        }
+
+        if (funnelPersonaFilter) {
+          if (isMissingOrUnassigned(funnelPersonaFilter)) {
+            if (products === "all") return false;
+            if (
+              Array.isArray(products) &&
+              products.some((b: FunnelProductBinding) => !!b.persona)
+            ) {
+              return false;
+            }
+            if (!hasProducts) {
+              /* missing products counts as unassigned persona */
+            }
+          } else if (products === "all") {
+            return false;
+          } else if (
+            !Array.isArray(products) ||
+            !products.some((b) => b.persona === funnelPersonaFilter)
+          ) {
+            return false;
+          }
+        }
+
+        return true;
       };
 
       const finish = (entries: FunnelEntryRow[], source: "yaml" | "db") => {
@@ -3762,6 +3835,18 @@ export function registerContentRoutes(app: Express): void {
               hasUnallocated,
             );
           });
+        }
+        if (funnelStageFilter || funnelProductFilter || funnelPersonaFilter) {
+          filtered = filtered.filter((e) => matchesLiveFunnelFilters(e.funnel));
+        }
+        // Attach suggestions after filters (stale cleanup is best-effort).
+        for (const e of filtered) {
+          e.suggestion = attachFunnelSuggestionForList(
+            type,
+            e.slug,
+            e.funnel,
+            contentRoot,
+          );
         }
         if (!pagination.paginate) {
           res.json({ contentType: type, source, count: filtered.length, entries: filtered });
