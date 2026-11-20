@@ -99,6 +99,58 @@ function itemLocale(
   return value || getLocaleDefault(contentType, contentRoot);
 }
 
+function parseItemPriority(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
+/**
+ * Page pipeline hygiene for database-backed types: drop empty lookup slugs, then
+ * keep one row per slug+locale (higher `priority` wins; ties keep the earlier row).
+ * Locale is the row's own language (or the type default). Not used for raw database
+ * section reads (`list_press_mentions`, etc.).
+ */
+export function normalizeDatabasePageItems(
+  items: Record<string, unknown>[],
+  contentType: string,
+  contentRoot: string,
+): Record<string, unknown>[] {
+  const lookupKey = getLookupKey(contentType, contentRoot) || "slug";
+  type Candidate = {
+    item: Record<string, unknown>;
+    slug: string;
+    locale: string;
+    priority: number;
+    index: number;
+  };
+  const winnerByKey = new Map<string, Candidate>();
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index]!;
+    const slug = String(item[lookupKey] ?? item.slug ?? "").trim();
+    if (!slug) continue;
+    const locale = itemLocale(item, contentType, contentRoot);
+    const priority = parseItemPriority(item.priority);
+    const row: Candidate = { item, slug, locale, priority, index };
+    const key = `${slug}\0${locale}`;
+    const existing = winnerByKey.get(key);
+    if (
+      !existing ||
+      priority > existing.priority ||
+      (priority === existing.priority && index < existing.index)
+    ) {
+      winnerByKey.set(key, row);
+    }
+  }
+
+  const keepIndexes = new Set<number>();
+  for (const row of winnerByKey.values()) keepIndexes.add(row.index);
+  return items.filter((_, index) => keepIndexes.has(index));
+}
+
 /**
  * The page's fields are what field_mapping declares (plus reserved aliases), same as a
  * static entry. Unmapped source columns stay on singleEntry for `{{ entry.* }}` only.
@@ -153,9 +205,10 @@ export function loadItemsForType(ci: EntrySourceRoot, contentType: string): Type
   if (hit && hit.key === key) {
     return { ...hit.value, stale: lastGood.stale, ageMs: lastGood.ageMs };
   }
+  const mapped = mapDatabaseItemsForEntry(lastGood.items, contentType, ci.contentRoot);
   const value: TypeItems = {
     dbName,
-    items: freezeShared(mapDatabaseItemsForEntry(lastGood.items, contentType, ci.contentRoot)),
+    items: freezeShared(normalizeDatabasePageItems(mapped, contentType, ci.contentRoot)),
     fetchedAt: lastGood.fetchedAt,
     stale: lastGood.stale,
     ageMs: lastGood.ageMs,
@@ -348,7 +401,11 @@ export function listTypeRows(
   const listing = db.getListingItems(contentType);
   if (!listing) return null;
   const overridden = applyListingOverrides(ci, contentType, listing.items);
-  return { ...listing, items: applyEntryFilters(overridden, contentType, ci.contentRoot) };
+  const filtered = applyEntryFilters(overridden, contentType, ci.contentRoot);
+  return {
+    ...listing,
+    items: normalizeDatabasePageItems(filtered, contentType, ci.contentRoot),
+  };
 }
 
 /**
@@ -366,7 +423,8 @@ export async function loadTypeListing(
     if (rows.stale) void db.fetchItems(rows.dbName).catch(() => {});
     return rows.items;
   }
-  return applyListingOverrides(ci, contentType, await db.fetchMappedItems(contentType));
+  const overridden = applyListingOverrides(ci, contentType, await db.fetchMappedItems(contentType));
+  return normalizeDatabasePageItems(overridden, contentType, ci.contentRoot);
 }
 
 /** Language of a source item (locale field with its transform, else the type's default). */

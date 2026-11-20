@@ -6,6 +6,18 @@ window_days: 6
 
 entries:
   - date: "2026-11-20"
+    summary: "News/press page slug from link_url; confirm before moving"
+    agent_impact:
+      - "press_mentions no longer stores slug; news `_slug` is computed from link_url (host+path). Empty URL → no news page; duplicate slug+locale keeps higher priority."
+      - "update_database_item: changing a field that moves a derived page URL returns action_required confirm_page_slug_change (old/new paths). Retry with confirm_page_slug_change:true only after the human agrees — no redirect is created."
+      - "Stress: skip (mutate confirm gate + staff slug-check HTTP). Refresh MCP tools/list after reconnect."
+    tools_changed: true
+    paths:
+      - mcp-server/tools/databases.ts
+      - mcp-server/explain/local_databases.md
+      - server/page-slug-identity.ts
+      - server/entry-layer.ts
+  - date: "2026-11-20"
     summary: "Platform Ops: Error Log view + errors_manage ignore rules"
     agent_impact:
       - "Built-in platform_ops now includes metrics_view and errors_manage. Staff Error Log Ignore/Unignore is UI-only (no new MCP tools); Platform Steward does not get errors_manage by default."

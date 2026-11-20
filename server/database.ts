@@ -567,7 +567,8 @@ function applyContentTypeMapping(
       applyImageAliasToEntry(mapped, imageValue);
     }
 
-    if (!mapped.slug && mapped.title && typeof mapped.title === "string") {
+    // When `_slug` is mapped, empty means "no page" — do not invent a title slug.
+    if (!mapped.slug && mapped.title && typeof mapped.title === "string" && !fullMapping?.[RESERVED_SLUG_FIELD]) {
       mapped.slug = slugify(mapped.title, { maxLength: 200 });
     }
 

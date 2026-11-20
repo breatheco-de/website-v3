@@ -1044,6 +1044,7 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
     "update_database_item",
     "PATCH a local database item by global index. Pass expect.question (from prior list/get) to refuse stale indices. FAQ dedupe applies if question/locale change. " +
       "Evidence databases: changing the link runs the duplicate checks (duplicate_link / rejected_link / redirect_link); title/organization/locale edits may return similar_rows. Edits keep a staff rejection. " +
+      "When a content type derives its page slug from a field you change (e.g. news from press_mentions.link_url), omit confirm_page_slug_change to preview the move; retry with confirm_page_slug_change:true only after the human agrees (old path is not redirected). " +
       "Set reindex:true to reindex after write.",
     {
       database: z.string(),
@@ -1053,12 +1054,26 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
         .string()
         .optional()
         .describe("If set, must match current item.question or update is refused"),
+      confirm_page_slug_change: z
+        .boolean()
+        .optional()
+        .describe("Required true when this edit would move a live page URL derived from the row"),
       reindex: z.boolean().optional(),
       acknowledged_similar: ACKNOWLEDGED_SIMILAR_FIELD,
       ...requiredAgentSessionIdField,
       site: z.string().optional(),
     },
-    async ({ database, index, item, expect_question, reindex, acknowledged_similar, agent_session_id, site }) => {
+    async ({
+      database,
+      index,
+      item,
+      expect_question,
+      confirm_page_slug_change,
+      reindex,
+      acknowledged_similar,
+      agent_session_id,
+      site,
+    }) => {
       const denied = await requireWriteCap(mcpToken, database);
       if (denied) return denied;
 
@@ -1144,20 +1159,70 @@ export function registerDatabaseTools(mcp: McpServer, mcpToken?: string): void {
           }
         }
 
+        const patchBody: Record<string, unknown> = { ...item };
+        if (confirm_page_slug_change === true) {
+          patchBody.confirm_page_slug_change = true;
+        }
         const url = `http://127.0.0.1:${MAIN_SERVER_PORT}/api/databases/${encodeURIComponent(database)}/items/${index}${acknowledgedQuery(acknowledged_similar)}`;
         const res = await fetch(url, {
           method: "PATCH",
           headers: internalHeaders(mcpToken, { agentSessionId: agent_session_id, site: domain ?? undefined }),
-          body: JSON.stringify(item),
+          body: JSON.stringify(patchBody),
         });
         const data = (await res.json()) as Record<string, unknown>;
         if (!res.ok) {
+          if (data.code === "confirm_page_slug_change" || data.confirm_required === true) {
+            const oldPath = String(data.old_path ?? "");
+            const newPath = String(data.new_path ?? "");
+            return actionRequired(
+              {
+                success: false,
+                action_required: "confirm_page_slug_change",
+                code: "confirm_page_slug_change",
+                message:
+                  data.error ||
+                  `This edit would move the live page from ${oldPath} to ${newPath}. Ask the human; retry with confirm_page_slug_change:true only if they agree. The old address is not redirected.`,
+                old_slug: data.old_slug ?? null,
+                new_slug: data.new_slug ?? null,
+                old_path: oldPath || null,
+                new_path: newPath || null,
+                moves: data.moves ?? [],
+                warnings: [
+                  {
+                    code: "page_slug_moves",
+                    message:
+                      "Live page URL is derived from this row. Confirming replaces the address; marketing database cards are unchanged; no redirect is created.",
+                  },
+                ],
+              },
+              [
+                {
+                  tool: "update_database_item",
+                  reason: "Retry with confirm_page_slug_change:true only after the human agrees the page may move",
+                  args_hint: {
+                    database,
+                    index,
+                    item,
+                    confirm_page_slug_change: true,
+                  },
+                  priority: "required",
+                },
+              ],
+            );
+          }
           return failWrite(database, data, res.status, { tool: "update_database_item", args: { database, index, item } });
         }
         if (all.rejected.has(index)) {
           warnings.push({
             code: "row_rejected",
             message: "This row is a staff-rejected story: it stays hidden from pages, listings, search and evidence after your edit.",
+          });
+        }
+        if (confirm_page_slug_change === true) {
+          warnings.push({
+            code: "page_slug_changed",
+            message:
+              "Page URL may have moved with this edit. Old path is not redirected; cards that read the raw database still show this row.",
           });
         }
 

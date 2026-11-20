@@ -9,6 +9,14 @@ import { displayIndexStatus, getAllJobStates, type DbJobState } from "../db-job-
 import { countDatabaseCacheErrors } from "../../scripts/validation/shared/databaseHealthChecks";
 import { getValidationCacheService } from "../services/validationCacheService";
 import { getDatabaseUsage } from "../database-usage";
+import {
+  CONFIRM_PAGE_SLUG_CHANGE,
+  detectPageSlugMoves,
+  hasPageSlugChangeConfirm,
+  previewSlugMappingOnItems,
+  SLUG_CHECK_MAX_ROWS,
+} from "../page-slug-identity";
+import { encodeFunctionMapping } from "@shared/functionEncoding";
 
 import * as fs from "fs";
 import * as path from "path";
@@ -995,6 +1003,52 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
     }
   });
 
+  api.post(app, "/api/databases/:name/slug-check", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireCapability(req, res, "databases_edit_data", req.params.name);
+    if (!auth.authorized) return;
+    try {
+      const dbName = req.params.name;
+      const body = (req.body || {}) as {
+        content_type?: string;
+        slug_mapping?: string;
+        slug_function?: string;
+      };
+      const contentType = String(body.content_type || "").trim();
+      if (!contentType) {
+        res.status(400).json({ error: "content_type is required" });
+        return;
+      }
+      let slugMapping = String(body.slug_mapping || "").trim();
+      if (!slugMapping && body.slug_function) {
+        slugMapping = encodeFunctionMapping(String(body.slug_function));
+      }
+      if (!slugMapping) {
+        res.status(400).json({ error: "slug_mapping or slug_function is required" });
+        return;
+      }
+      const contentRoot = getContentRoot(res);
+      if (!getDB(res).exists(dbName)) {
+        res.status(404).json({ error: `Database "${dbName}" not found` });
+        return;
+      }
+      const result = await getDB(res).fetchItems(dbName, false, {
+        includeRejected: true,
+        skipVectorIndex: true,
+      });
+      const preview = previewSlugMappingOnItems({
+        items: result.items as Record<string, unknown>[],
+        contentType,
+        contentRoot,
+        slugMapping,
+        maxRows: SLUG_CHECK_MAX_ROWS,
+      });
+      res.json(preview);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(msg.includes("not found") ? 404 : 500).json({ error: msg });
+    }
+  });
+
   app.patch("/api/databases/:name/items/:index", async (req, res) => {
     const auth = await requireCapability(req, res, "databases_edit_data", req.params.name);
     if (!auth.authorized) return;
@@ -1010,11 +1064,13 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         res.status(400).json({ error: "Request body must be a JSON object" });
         return;
       }
+      const confirmPageSlugChange = hasPageSlugChangeConfirm(newData);
+      const { confirm_page_slug_change: _confirmFlag, ...patchFields } = newData;
 
       const dbm = getDB(res);
       const config = dbm.get(dbName);
       const editor = (config as { editor?: Record<string, { type?: string; schema?: unknown }> }).editor;
-      const coerced = validateAndCoerceJsonFields(newData, editor);
+      const coerced = validateAndCoerceJsonFields(patchFields, editor);
       if (!coerced.ok) {
         res.status(400).json(jsonFieldFailureHttpBody(coerced.failures));
         return;
@@ -1033,6 +1089,26 @@ Keep normalized keys lowercase with underscores. Aim for 10-25 of the most usefu
         return;
       }
       const prevRow = items[idx]!;
+      const slugMoves = detectPageSlugMoves({
+        database: dbName,
+        current: prevRow,
+        patch: relationCoerced.fields,
+        contentRoot: getContentRoot(res),
+      });
+      if (slugMoves.length > 0 && !confirmPageSlugChange) {
+        const primary = slugMoves[0]!;
+        res.status(400).json({
+          error: `This edit would move the live ${primary.contentType} page from ${primary.oldPath} to ${primary.newPath}. Confirm to continue; the old address is not redirected.`,
+          code: CONFIRM_PAGE_SLUG_CHANGE,
+          confirm_required: true,
+          moves: slugMoves,
+          old_slug: primary.oldSlug,
+          new_slug: primary.newSlug,
+          old_path: primary.oldPath,
+          new_path: primary.newPath,
+        });
+        return;
+      }
       let nextRow = applyRowStamp({
         prev: prevRow,
         next: { ...prevRow, ...relationCoerced.fields },

@@ -15,8 +15,8 @@ Private databases may be **local** (`source.type: local` → YAML under `db/{nam
 | `get_database_item` | same | All sources; **full** row by global index; optional `refresh` (edit/manage only); rejected row → `rejected_row` unless `include_rejected` |
 | `add_database_item` | `databases_edit_data` (write scoped to slug) | Local only; FAQ defaults + dedupe; evidence duplicate checks + `acknowledged_similar` |
 | `add_database_items` | same | Local only; bulk add (max 40), best-effort; per-row evidence duplicate codes |
-| `update_database_item` | same | Local only; prefer `expect_question`; link change runs evidence duplicate checks |
-| `update_database_items` | same | Local only; bulk update (max 40); duplicate refusals are per-row (no abort) |
+| `update_database_item` | same | Local only; prefer `expect_question`; link change runs evidence duplicate checks; if a content type derives the page slug from a patched field (e.g. news from `press_mentions.link_url`), omit `confirm_page_slug_change` → `action_required: confirm_page_slug_change` with old/new paths; retry with `confirm_page_slug_change:true` only after the human agrees (old path is **not** redirected; raw DB cards unchanged) |
+| `update_database_items` | same | Local only; bulk update (max 40); duplicate refusals are per-row (no abort); same page-slug confirm gate per row via the HTTP PATCH |
 | `delete_database_item` | same | Local only; requires `confirm: true`; agents cannot delete rejected evidence rows |
 | `create_or_update_database` | **`databases_manage` only** | Create = config + empty local items YAML; update = deep patch + `confirm:true` |
 | `reindex_database` | **`databases_manage` only** | After item writes; queues an incremental Sidequest sync (definition patches that enable/change `vector_search` auto-queue it) |

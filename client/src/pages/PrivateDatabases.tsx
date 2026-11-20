@@ -59,7 +59,10 @@ import type { DatabaseEvidenceConfig, EvidenceRowTrust } from "@shared/evidence-
 import { EvidenceSourceKpiCard } from "@/components/databases/EvidenceSourceKpiCard";
 import { ArchiveColumnHeader, EvidenceArchiveCell } from "@/components/databases/EvidenceArchiveCell";
 import { EvidenceTrustLabel } from "@/components/databases/EvidenceTrustLabel";
-import { useEvidenceDuplicateGuard } from "@/components/databases/EvidenceDuplicateDialog";
+import {
+  SaveCancelledError,
+  useEvidenceDuplicateGuard,
+} from "@/components/databases/EvidenceDuplicateDialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { KpiLabelHelp } from "@/components/databases/KpiLabelHelp";
 import type { RowArchiveView } from "@shared/evidence-archive";
@@ -4497,6 +4500,12 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
 
   const [rejection, setRejection] = useState<RejectionPreview | null>(null);
   const [rejectSameLink, setRejectSameLink] = useState(true);
+  const [pageSlugConfirm, setPageSlugConfirm] = useState<{
+    oldPath: string;
+    newPath: string;
+    pendingItem: Record<string, unknown>;
+  } | null>(null);
+  const [pageSlugConfirmBusy, setPageSlugConfirmBusy] = useState(false);
   const [rejectionBusy, setRejectionBusy] = useState(false);
   const openRejection = async (storedIndex: number, mode: "reject" | "restore") => {
     setRejectionBusy(true);
@@ -6479,6 +6488,79 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
 
       {duplicateGuard.dialog}
 
+      {pageSlugConfirm && (
+        <Dialog
+          open
+          onOpenChange={(v) => {
+            if (!v && !pageSlugConfirmBusy) setPageSlugConfirm(null);
+          }}
+        >
+          <DialogContent className="max-w-md" data-testid="dialog-confirm-page-slug-change">
+            <DialogHeader>
+              <DialogTitle>This edit moves the live page</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              The article link is used as the page address. Saving will change the live URL from{" "}
+              <code className="font-mono text-xs bg-muted px-1 rounded">{pageSlugConfirm.oldPath || "(old)"}</code>{" "}
+              to{" "}
+              <code className="font-mono text-xs bg-muted px-1 rounded">{pageSlugConfirm.newPath || "(new)"}</code>.
+              The old address is not redirected and will stop working.
+            </p>
+            <DialogFooter className="flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={pageSlugConfirmBusy}
+                onClick={() => setPageSlugConfirm(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={pageSlugConfirmBusy || editingItemIndex == null}
+                data-testid="button-confirm-page-slug-change"
+                onClick={async () => {
+                  if (editingItemIndex == null) return;
+                  setPageSlugConfirmBusy(true);
+                  try {
+                    const res = await duplicateGuard.send((query) =>
+                      apiFetch(`/api/databases/${dbName}/items/${editingItemIndex}${query}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          ...pageSlugConfirm.pendingItem,
+                          confirm_page_slug_change: true,
+                        }),
+                      }),
+                    );
+                    if (!res.ok) {
+                      const err = await res.json().catch(() => ({}));
+                      throw new Error((err as { error?: string }).error || "Failed to save item");
+                    }
+                    setPageSlugConfirm(null);
+                    setEditingItem(null);
+                    setEditingItemIndex(null);
+                    setIsAddingItem(false);
+                    void Promise.all([refetchItems(), refetchRawItems()]);
+                  } catch (err) {
+                    toast({
+                      title: "Save failed",
+                      description: err instanceof Error ? err.message : String(err),
+                      variant: "destructive",
+                    });
+                  } finally {
+                    setPageSlugConfirmBusy(false);
+                  }
+                }}
+              >
+                {pageSlugConfirmBusy && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                Move page and save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {(editingItem !== null || isAddingItem) && (
         <ItemEditModal
           key={isAddingItem ? "new" : String(editingItemIndex)}
@@ -6500,8 +6582,21 @@ function DatabaseDetailView({ dbName }: { dbName: string }) {
                   }),
             );
             if (!res.ok) {
-              const err = await res.json().catch(() => ({}));
-              throw new Error((err as { error?: string }).error || "Failed to save item");
+              const err = (await res.json().catch(() => ({}))) as {
+                error?: string;
+                code?: string;
+                old_path?: string;
+                new_path?: string;
+              };
+              if (err.code === "confirm_page_slug_change" && !isAddingItem) {
+                setPageSlugConfirm({
+                  oldPath: String(err.old_path || ""),
+                  newPath: String(err.new_path || ""),
+                  pendingItem: builtItem,
+                });
+                throw new SaveCancelledError();
+              }
+              throw new Error(err.error || "Failed to save item");
             }
             void Promise.all([refetchItems(), refetchRawItems()]);
           }}

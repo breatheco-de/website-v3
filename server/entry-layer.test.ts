@@ -4,7 +4,7 @@ import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContentIndex } from "./content-index";
 import { resetRegistry } from "./content-types";
-import { listEntryKeys, loadEntry } from "./entry-layer";
+import { listEntryKeys, loadEntry, normalizeDatabasePageItems } from "./entry-layer";
 import { resolveEntryMeta } from "./resolve-entry-meta";
 import { resetVariableManagerCache } from "./variable-manager";
 import { mockDatabase } from "./test-helpers/mock-database";
@@ -166,5 +166,33 @@ describe("entry layer (static and database entries resolve the same way)", () =>
     buildIndex();
     const list = listEntryKeys(ci);
     expect(list.keys.some((k) => k.slug === "bootstrap-uebungen")).toBe(false);
+  });
+
+  it("skips empty-slug rows and keeps higher-priority duplicate slug+locale", () => {
+    buildIndex();
+    const normalized = normalizeDatabasePageItems(
+      [
+        { slug: "", lang: "en", title: "No slug", priority: 9 },
+        { slug: "same", lang: "en", title: "Low", priority: 1 },
+        { slug: "same", lang: "en", title: "High", priority: 5 },
+        { slug: "same", lang: "es", title: "ES", priority: 1 },
+        { slug: "same", lang: "en", title: "Tie later", priority: 5 },
+      ],
+      "exercise",
+      contentRoot,
+    );
+    expect(normalized.map((r) => r.title)).toEqual(["High", "ES"]);
+  });
+
+  it("does not list empty-slug database items as pages", () => {
+    cachedItems = [
+      { slug: "", lang: "en", title: "Missing slug" },
+      { slug: "ok-item", lang: "en", title: "Ok" },
+    ];
+    buildIndex();
+    const list = listEntryKeys(ci);
+    expect(list.keys.filter((k) => k.contentType === "exercise").map((k) => k.slug)).toEqual([
+      "ok-item",
+    ]);
   });
 });
