@@ -6,6 +6,16 @@ window_days: 6
 
 entries:
   - date: "2026-11-20"
+    summary: "Staff form location: Save asks this form vs whole page"
+    agent_impact:
+      - "Forms tab → Location: pick locations, then section Save. When the content type has forms.location.entry_field, Save asks this form only vs whole page (lists affected forms; clear-others defaults on). Page write runs before section Save; section failure does not roll back the page field. Prefer update_fields on the page Locations field when available."
+      - "Empty + this form only follows the page; empty + whole page clears page Locations. explain_site topic lead-forms → Location. No new MCP tools. Stress N/A."
+    tools_changed: false
+    paths:
+      - mcp-server/explain/lead-forms.md
+      - client/src/components/editing/FormLocationBox.tsx
+      - client/src/components/editing/SectionEditorPanel.tsx
+  - date: "2026-11-20"
     summary: "SMS/WhatsApp consent country include/exclude filters (form location)"
     agent_impact:
       - "Optional SMS/WhatsApp checkboxes can use sms_countries / whatsapp_countries + *_countries_mode (include|exclude), matched to the form-calculated location country_code — not page locale. Empty form countries inherit the conversion event; unknown country hides filtered channels; XX→geo."
