@@ -239,6 +239,15 @@ describe("built-in ads roles", () => {
       expect(caps).not.toContain("ab_testing_settings");
     }
   });
+
+  it("Platform Ops can view metrics and manage error log ignore rules", () => {
+    const ops = getBuiltInRoleCodeDefinition("platform_ops")!.capabilities.map((g) => g.name);
+    expect(ops).toEqual(
+      expect.arrayContaining(["metrics_view", "errors_manage", "sites_manage", "worker_manage", "migrations_run"]),
+    );
+    const steward = getBuiltInRoleCodeDefinition("platform_steward")!.capabilities.map((g) => g.name);
+    expect(steward).not.toContain("errors_manage");
+  });
 });
 
 describe("grantsCanMutateMetrics", () => {

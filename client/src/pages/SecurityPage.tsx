@@ -1491,7 +1491,8 @@ function RolesTab() {
                     {roleId === "platform_ops" && (
                       <>
                         <p className="text-xs text-muted-foreground mb-2">
-                          Infrastructure: sites.yml, new sites, Sidequest restart and dashboard.
+                          Infrastructure: sites.yml, new sites, Sidequest restart and dashboard, plus process Error
+                          Log triage (view and ignore noise).
                         </p>
                         <details className="mb-2 group">
                           <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground list-none flex items-center gap-1">
@@ -1500,7 +1501,9 @@ function RolesTab() {
                           </summary>
                           <div className="mt-2 text-xs text-muted-foreground space-y-1.5 pl-4 border-l border-border">
                             <p>
-                              Grants <code className="font-mono">sites_manage</code>,{" "}
+                              Grants <code className="font-mono">metrics_view</code>,{" "}
+                              <code className="font-mono">errors_manage</code>,{" "}
+                              <code className="font-mono">sites_manage</code>,{" "}
                               <code className="font-mono">worker_manage</code>, and{" "}
                               <code className="font-mono">migrations_run</code>. Prod Sidequest restart signals the
                               worker PID; the process supervisor (pm2) relaunches it (docs/vps.md). MCP:{" "}

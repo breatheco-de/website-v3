@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import {
   resetSiteContextMap,
   restoreSiteContextMap,
+  shouldWarnUnknownHostname,
   siteResolutionMiddleware,
   type SiteContext,
 } from "./site-manager";
@@ -53,6 +54,22 @@ function mockRes(): Response & { body?: unknown; statusCode?: number } {
   } as unknown as Response & { body?: unknown; statusCode?: number };
   return res;
 }
+
+describe("shouldWarnUnknownHostname", () => {
+  it("skips loopback hosts even in multi-site", () => {
+    for (const host of ["127.0.0.1", "localhost", "::1", "[::1]"]) {
+      expect(shouldWarnUnknownHostname(host, 2)).toBe(false);
+    }
+  });
+
+  it("warns for unknown public hosts when multi-site", () => {
+    expect(shouldWarnUnknownHostname("unknown.example.com", 2)).toBe(true);
+  });
+
+  it("stays quiet for a single site", () => {
+    expect(shouldWarnUnknownHostname("unknown.example.com", 1)).toBe(false);
+  });
+});
 
 describe("siteResolutionMiddleware: x-mcp-site", () => {
   const primary = fakeSite("4geeks.com", "site_4geeks-com");
@@ -110,6 +127,15 @@ describe("siteResolutionMiddleware: x-mcp-site", () => {
     expect(next).toHaveBeenCalledOnce();
     expect(res.statusCode).toBe(200);
     expect(res.locals.site.config.domain).toBe("4geeks.com");
+  });
+
+  it("falls back to default for loopback without warning path (resolution)", () => {
+    for (const hostname of ["127.0.0.1", "localhost", "::1"]) {
+      const req = mockReq({ hostname });
+      const res = mockRes();
+      siteResolutionMiddleware(req, res, vi.fn());
+      expect(res.locals.site.config.domain).toBe("4geeks.com");
+    }
   });
 
   it("returns 400 for unknown x-mcp-site on trusted loopback", () => {

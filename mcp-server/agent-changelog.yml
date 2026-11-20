@@ -6,6 +6,18 @@ window_days: 6
 
 entries:
   - date: "2026-11-20"
+    summary: "Platform Ops: Error Log view + errors_manage ignore rules"
+    agent_impact:
+      - "Built-in platform_ops now includes metrics_view and errors_manage. Staff Error Log Ignore/Unignore is UI-only (no new MCP tools); Platform Steward does not get errors_manage by default."
+      - "Ignore rules are global JSON (data/error-log-ignore.json; production GCS multisite-global/error-log-ignore.json). Matching rows stop at ingest after hydrate; Ignore also deletes matching SQLite rows. Stress N/A."
+    tools_changed: false
+    paths:
+      - shared/capabilities.ts
+      - server/user-store.ts
+      - shared/error-log-ignore.ts
+      - server/error-log-ignore-store.ts
+      - client/src/pages/ErrorLogPage.tsx
+  - date: "2026-11-20"
     summary: "Staff form location: Save asks this form vs whole page"
     agent_impact:
       - "Forms tab → Location: pick locations, then section Save. When the content type has forms.location.entry_field, Save asks this form only vs whole page (lists affected forms; clear-others defaults on). Page write runs before section Save; section failure does not roll back the page field. Prefer update_fields on the page Locations field when available."

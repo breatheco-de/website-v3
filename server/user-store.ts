@@ -237,8 +237,10 @@ const BUILT_IN_PLATFORM_STEWARD_ROLE: RoleDefinition = {
 const BUILT_IN_PLATFORM_OPS_ROLE: RoleDefinition = {
   label: "Platform Ops",
   description:
-    "Infrastructure: sites.yml, new sites, Sidequest restart/dashboard. Use /mcp/role/platform_ops — not for content edits or user management.",
+    "Infrastructure: sites.yml, new sites, Sidequest restart/dashboard, and process Error Log triage (view plus ignore/unignore noise). Use /mcp/role/platform_ops — not for content edits or user management.",
   capabilities: [
+    { name: "metrics_view" },
+    { name: "errors_manage" },
     { name: "sites_manage" },
     { name: "worker_manage" },
     { name: "migrations_run" },

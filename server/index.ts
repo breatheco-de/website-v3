@@ -20,6 +20,7 @@ import { siteResolutionMiddleware, buildSiteContextMap, getSiteContextMap } from
 import { loadSitesYmlFromBucket } from "./sites-yml-store";
 import { scanProductContent as scanEcommerceContent, startProductWatcher as startEcommerceWatcher } from "./product/product-index";
 import { loadUsersStateFromBucket } from "./user-store";
+import { loadErrorLogIgnoreFromBucket } from "./error-log-ignore-store";
 import {
   loadAllRuntimeIssuesFromBucket,
   shutdownRuntimeIssues,
@@ -802,6 +803,9 @@ app.use((req, res, next) => {
     });
     loadUsersStateFromBucket().catch((err) => {
       logger.error({ err, worker: "UserStore" }, "failed to load users state");
+    });
+    loadErrorLogIgnoreFromBucket().catch((err) => {
+      logger.error({ err, worker: "ErrorLogIgnore" }, "failed to load error log ignore rules");
     });
     loadAllRuntimeIssuesFromBucket(
       [...getSiteContextMap().values()].map((ctx) => ({
