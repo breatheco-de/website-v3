@@ -159,7 +159,12 @@ import {
   joinFormSettingsPath,
   normalizeFormSettingsPath,
 } from "@shared/joinFormSettingsPath";
-import { collectExtraConsentYamlFields, consentCardChannels, parseConsentSettingsResponse } from "@shared/consent-settings";
+import {
+  collectExtraConsentYamlFields,
+  consentCardChannels,
+  eventConsentToCardValues,
+  parseConsentSettingsResponse,
+} from "@shared/consent-settings";
 import { resolveBoundCtaPaths } from "@shared/validateCtaTracking";
 import { showEcommerceEditorTab } from "@shared/wipeOnDuplicate";
 import {
@@ -8999,14 +9004,20 @@ export function SectionEditorPanel({
                   const rawMarketing   = getValueAtFieldPath(parsedSection, formProp("consent.marketing"));
                   const rawSms         = getValueAtFieldPath(parsedSection, formProp("consent.sms"));
                   const rawWhatsapp    = getValueAtFieldPath(parsedSection, formProp("consent.whatsapp"));
-                  const rawSmsUsaOnly  = getValueAtFieldPath(parsedSection, formProp("consent.sms_usa_only"));
+                  const rawSmsCountries = getValueAtFieldPath(parsedSection, formProp("consent.sms_countries"));
+                  const rawSmsMode = getValueAtFieldPath(parsedSection, formProp("consent.sms_countries_mode"));
+                  const rawWaCountries = getValueAtFieldPath(parsedSection, formProp("consent.whatsapp_countries"));
+                  const rawWaMode = getValueAtFieldPath(parsedSection, formProp("consent.whatsapp_countries_mode"));
                   const rawShowTerms   = getValueAtFieldPath(parsedSection, formProp("show_terms"));
 
                   const specificFields: Partial<Record<string, boolean>> = {
                     marketing:  rawMarketing  !== null && rawMarketing  !== undefined,
                     sms:        rawSms        !== null && rawSms        !== undefined,
                     whatsapp:   rawWhatsapp   !== null && rawWhatsapp   !== undefined,
-                    smsUsaOnly: rawSmsUsaOnly !== null && rawSmsUsaOnly !== undefined,
+                    smsCountries: Array.isArray(rawSmsCountries) && rawSmsCountries.length > 0,
+                    smsCountriesMode: rawSmsMode !== null && rawSmsMode !== undefined,
+                    whatsappCountries: Array.isArray(rawWaCountries) && rawWaCountries.length > 0,
+                    whatsappCountriesMode: rawWaMode !== null && rawWaMode !== undefined,
                     showTerms:  rawShowTerms  !== null && rawShowTerms  !== undefined,
                     termsUrl:   false,
                     privacyUrl: false,
@@ -9026,12 +9037,38 @@ export function SectionEditorPanel({
                     extraConsentFields.map((field) => [field, !!convEvent?.consent?.[field]]),
                   );
 
+                  const asStringList = (raw: unknown): string[] =>
+                    Array.isArray(raw)
+                      ? raw.filter((el): el is string => typeof el === "string" && el.trim() !== "").map((el) => el.trim().toUpperCase())
+                      : [];
+                  const cardFromConsent = (consent: Record<string, unknown> | null | undefined) => {
+                    const fromEvent = eventConsentToCardValues(consent ?? undefined);
+                    return {
+                      smsCountries: fromEvent.smsCountries,
+                      smsCountriesMode: fromEvent.smsCountriesMode,
+                      whatsappCountries: fromEvent.whatsappCountries,
+                      whatsappCountriesMode: fromEvent.whatsappCountriesMode,
+                      smsUsaOnly: fromEvent.smsUsaOnly,
+                    };
+                  };
+                  const resolvedConsentObj = {
+                    marketing: getValueAtFieldPath(resolvedParsedSection, formProp("consent.marketing")),
+                    sms: getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms")),
+                    whatsapp: getValueAtFieldPath(resolvedParsedSection, formProp("consent.whatsapp")),
+                    sms_countries: getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms_countries")),
+                    sms_countries_mode: getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms_countries_mode")),
+                    whatsapp_countries: getValueAtFieldPath(resolvedParsedSection, formProp("consent.whatsapp_countries")),
+                    whatsapp_countries_mode: getValueAtFieldPath(resolvedParsedSection, formProp("consent.whatsapp_countries_mode")),
+                    sms_usa_only: getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms_usa_only")),
+                  };
+                  const resolvedCardCountries = cardFromConsent(resolvedConsentObj as Record<string, unknown>);
+
                   const inheritedValues: Partial<ConsentValues> | undefined = convEvent
                     ? {
                         marketing:  !!convEvent.consent?.marketing,
                         sms:        !!convEvent.consent?.sms,
                         whatsapp:   !!convEvent.consent?.whatsapp,
-                        smsUsaOnly: !!convEvent.consent?.sms_usa_only,
+                        ...cardFromConsent(convEvent.consent as Record<string, unknown> | undefined),
                         showTerms:  !!convEvent.consent?.show_terms,
                         termsUrl:   convEvent.consent?.terms_url ?? "",
                         privacyUrl: convEvent.consent?.privacy_url ?? "",
@@ -9046,7 +9083,7 @@ export function SectionEditorPanel({
                         marketing: !!getValueAtFieldPath(resolvedParsedSection, formProp("consent.marketing")),
                         sms: !!getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms")),
                         whatsapp: !!getValueAtFieldPath(resolvedParsedSection, formProp("consent.whatsapp")),
-                        smsUsaOnly: !!getValueAtFieldPath(resolvedParsedSection, formProp("consent.sms_usa_only")),
+                        ...resolvedCardCountries,
                         showTerms: !!getValueAtFieldPath(resolvedParsedSection, formProp("show_terms")),
                         termsUrl: String(getValueAtFieldPath(resolvedParsedSection, formProp("terms_url")) ?? ""),
                         privacyUrl: String(getValueAtFieldPath(resolvedParsedSection, formProp("privacy_url")) ?? ""),
@@ -9062,12 +9099,24 @@ export function SectionEditorPanel({
                           marketing: formProp("consent.marketing"),
                           sms: formProp("consent.sms"),
                           whatsapp: formProp("consent.whatsapp"),
-                          smsUsaOnly: formProp("consent.sms_usa_only"),
+                          smsCountries: formProp("consent.sms_countries"),
+                          smsCountriesMode: formProp("consent.sms_countries_mode"),
+                          whatsappCountries: formProp("consent.whatsapp_countries"),
+                          whatsappCountriesMode: formProp("consent.whatsapp_countries_mode"),
                           showTerms: formProp("show_terms"),
                           termsUrl: formProp("terms_url"),
                           privacyUrl: formProp("privacy_url"),
                         };
                         const path = pathMap[field] ?? formProp(`consent.${field}`);
+                        if (field === "smsCountries" || field === "whatsappCountries") {
+                          const list = asStringList(value);
+                          if (list.length === 0) {
+                            updatePropertyWithValue(path, undefined);
+                          } else {
+                            updatePropertyWithValue(path, list);
+                          }
+                          return;
+                        }
                         if (typeof value === "boolean") {
                           updatePropertyWithValue(path, value);
                         } else {
@@ -9094,7 +9143,16 @@ export function SectionEditorPanel({
                             setProp(formProp("consent.marketing"),    !!eff(formProp("consent.marketing")));
                             setProp(formProp("consent.sms"),          !!eff(formProp("consent.sms")));
                             setProp(formProp("consent.whatsapp"),     !!eff(formProp("consent.whatsapp")));
-                            setProp(formProp("consent.sms_usa_only"), !!eff(formProp("consent.sms_usa_only")));
+                            const smsCountries = asStringList(eff(formProp("consent.sms_countries")));
+                            const waCountries = asStringList(eff(formProp("consent.whatsapp_countries")));
+                            if (smsCountries.length > 0) {
+                              setProp(formProp("consent.sms_countries"), smsCountries);
+                              setProp(formProp("consent.sms_countries_mode"), eff(formProp("consent.sms_countries_mode")) || "include");
+                            }
+                            if (waCountries.length > 0) {
+                              setProp(formProp("consent.whatsapp_countries"), waCountries);
+                              setProp(formProp("consent.whatsapp_countries_mode"), eff(formProp("consent.whatsapp_countries_mode")) || "include");
+                            }
                             setProp(formProp("show_terms"),           !!eff(formProp("show_terms")));
                             for (const field of extraConsentFields) {
                               setProp(formProp(`consent.${field}`), !!eff(formProp(`consent.${field}`)));
@@ -9103,6 +9161,10 @@ export function SectionEditorPanel({
                             setProp(formProp("consent.marketing"),    undefined);
                             setProp(formProp("consent.sms"),          undefined);
                             setProp(formProp("consent.whatsapp"),     undefined);
+                            setProp(formProp("consent.sms_countries"), undefined);
+                            setProp(formProp("consent.sms_countries_mode"), undefined);
+                            setProp(formProp("consent.whatsapp_countries"), undefined);
+                            setProp(formProp("consent.whatsapp_countries_mode"), undefined);
                             setProp(formProp("consent.sms_usa_only"), undefined);
                             setProp(formProp("show_terms"),           undefined);
                             for (const field of extraConsentFields) {

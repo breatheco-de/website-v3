@@ -109,6 +109,10 @@ export const CONSENT_CARD_BUILTIN_YAML = ["marketing", "sms", "whatsapp"] as con
 
 const NON_CHANNEL_CONSENT_KEYS = new Set([
   "sms_usa_only",
+  "sms_countries",
+  "sms_countries_mode",
+  "whatsapp_countries",
+  "whatsapp_countries_mode",
   "marketing_text",
   "sms_text",
   "show_terms",
@@ -116,6 +120,10 @@ const NON_CHANNEL_CONSENT_KEYS = new Set([
   "privacy_url",
   // ConsentCard UI keys — never treat these as YAML channels
   "smsUsaOnly",
+  "smsCountries",
+  "smsCountriesMode",
+  "whatsappCountries",
+  "whatsappCountriesMode",
   "showTerms",
   "termsUrl",
   "privacyUrl",
@@ -131,33 +139,71 @@ const CARD_CHANNEL_ORDER = ["marketing", "sms", "whatsapp", "email", "general"] 
 
 const CONSENT_CARD_UI_META = new Set([
   "smsUsaOnly",
+  "smsCountries",
+  "smsCountriesMode",
+  "whatsappCountries",
+  "whatsappCountriesMode",
   "showTerms",
   "termsUrl",
   "privacyUrl",
 ]);
+
+export type ConsentCountriesMode = "include" | "exclude";
 
 /** First-class channel toggles + UI meta. Extra YAML fields live as top-level keys (`test`, not `extras.test`). */
 export type ConsentCardValues = {
   marketing: boolean;
   sms: boolean;
   whatsapp: boolean;
+  /** @deprecated Prefer smsCountries include [US] */
   smsUsaOnly: boolean;
+  smsCountries: string[];
+  smsCountriesMode: ConsentCountriesMode;
+  whatsappCountries: string[];
+  whatsappCountriesMode: ConsentCountriesMode;
   showTerms: boolean;
   termsUrl: string;
   privacyUrl: string;
-  [yamlField: string]: boolean | string | undefined;
+  [yamlField: string]: boolean | string | string[] | undefined;
 };
+
+function countriesFromConsent(
+  consent: Record<string, unknown> | null | undefined,
+  key: string,
+  legacyUsaOnly = false,
+): string[] {
+  const raw = consent?.[key];
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((el): el is string => typeof el === "string" && el.trim() !== "")
+      .map((el) => el.trim().toUpperCase());
+  }
+  if (legacyUsaOnly && consent?.sms_usa_only === true) return ["US"];
+  return [];
+}
+
+function modeFromConsent(
+  consent: Record<string, unknown> | null | undefined,
+  key: string,
+): ConsentCountriesMode {
+  return consent?.[key] === "exclude" ? "exclude" : "include";
+}
 
 export function eventConsentToCardValues(
   consent: Record<string, unknown> | null | undefined,
 ): ConsentCardValues {
   const extras = extraConsentYamlFieldsFromObject(consent);
+  const smsCountries = countriesFromConsent(consent, "sms_countries", true);
   return {
     marketing: !!consent?.marketing,
     sms: !!consent?.sms,
     whatsapp: !!consent?.whatsapp,
     ...(consent?.email ? { email: true } : {}),
-    smsUsaOnly: !!consent?.sms_usa_only,
+    smsUsaOnly: smsCountries.length === 1 && smsCountries[0] === "US" && modeFromConsent(consent, "sms_countries_mode") === "include",
+    smsCountries,
+    smsCountriesMode: modeFromConsent(consent, "sms_countries_mode"),
+    whatsappCountries: countriesFromConsent(consent, "whatsapp_countries"),
+    whatsappCountriesMode: modeFromConsent(consent, "whatsapp_countries_mode"),
     showTerms: !!consent?.show_terms,
     termsUrl: typeof consent?.terms_url === "string" ? consent.terms_url : "",
     privacyUrl: typeof consent?.privacy_url === "string" ? consent.privacy_url : "",
@@ -168,14 +214,27 @@ export function eventConsentToCardValues(
 export function cardValuesToEventConsent(
   values: ConsentCardValues,
   preserve?: { marketing_text?: string; sms_text?: string },
-): Record<string, boolean | string> {
-  const out: Record<string, boolean | string> = {
+): Record<string, boolean | string | string[]> {
+  const out: Record<string, boolean | string | string[]> = {
     marketing: !!values.marketing,
     sms: !!values.sms,
     whatsapp: !!values.whatsapp,
-    sms_usa_only: !!values.smsUsaOnly,
     show_terms: !!values.showTerms,
   };
+  const smsCountries = Array.isArray(values.smsCountries)
+    ? values.smsCountries.map((c) => String(c).trim().toUpperCase()).filter(Boolean)
+    : [];
+  const whatsappCountries = Array.isArray(values.whatsappCountries)
+    ? values.whatsappCountries.map((c) => String(c).trim().toUpperCase()).filter(Boolean)
+    : [];
+  if (smsCountries.length > 0) {
+    out.sms_countries = smsCountries;
+    out.sms_countries_mode = values.smsCountriesMode === "exclude" ? "exclude" : "include";
+  }
+  if (whatsappCountries.length > 0) {
+    out.whatsapp_countries = whatsappCountries;
+    out.whatsapp_countries_mode = values.whatsappCountriesMode === "exclude" ? "exclude" : "include";
+  }
   const termsUrl = typeof values.termsUrl === "string" ? values.termsUrl.trim() : "";
   const privacyUrl = typeof values.privacyUrl === "string" ? values.privacyUrl.trim() : "";
   if (termsUrl) out.terms_url = termsUrl;

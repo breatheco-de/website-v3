@@ -12,12 +12,16 @@ export interface ConsentDefaults {
   sms?: boolean;
   whatsapp?: boolean;
   sms_usa_only?: boolean;
+  sms_countries?: string[];
+  sms_countries_mode?: "include" | "exclude";
+  whatsapp_countries?: string[];
+  whatsapp_countries_mode?: "include" | "exclude";
   marketing_text?: string;
   sms_text?: string;
   show_terms?: boolean;
   terms_url?: string;
   privacy_url?: string;
-  [key: string]: boolean | string | undefined;
+  [key: string]: boolean | string | string[] | undefined;
 }
 
 export interface ConversionEventDefaults {
@@ -129,10 +133,19 @@ export function resolveFormDefaults(
   if (conversionEvent.consent) {
     const consentDefaults = conversionEvent.consent;
     const topLevelConsentKeys = new Set(["show_terms", "terms_url", "privacy_url"]);
+    /** Empty country lists on the form inherit the event (do not wipe limits). */
+    const emptyInheritsEvent = new Set([
+      "sms_countries",
+      "whatsapp_countries",
+    ]);
     for (const [field, value] of Object.entries(consentDefaults)) {
       if (value === undefined || topLevelConsentKeys.has(field)) continue;
       const existing = get(result, fp(`consent.${field}`));
-      if (existing === undefined || existing === null) {
+      const treatAsUnset =
+        existing === undefined ||
+        existing === null ||
+        (emptyInheritsEvent.has(field) && Array.isArray(existing) && existing.length === 0);
+      if (treatAsUnset) {
         result = set(result, fp(`consent.${field}`), value);
       }
     }

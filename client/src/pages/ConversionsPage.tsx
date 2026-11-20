@@ -1321,8 +1321,38 @@ function ConversionsPageInner() {
                                       <p className="text-xs font-medium">Default consent</p>
                                       <div className="space-y-0.5 text-[11px]">
                                         {entry?.consent?.marketing && <div className="text-muted-foreground">Marketing consent enabled</div>}
-                                        {entry?.consent?.sms && <div className="text-muted-foreground">SMS consent enabled{entry.consent.sms_usa_only ? " (US only)" : ""}</div>}
-                                        {entry?.consent?.whatsapp && <div className="text-muted-foreground">WhatsApp consent enabled</div>}
+                                        {entry?.consent?.sms && (
+                                          <div className="text-muted-foreground">
+                                            SMS consent enabled
+                                            {(() => {
+                                              const countries = Array.isArray(entry.consent.sms_countries)
+                                                ? entry.consent.sms_countries
+                                                : entry.consent.sms_usa_only
+                                                  ? ["US"]
+                                                  : [];
+                                              if (!countries.length) return "";
+                                              const mode = entry.consent.sms_countries_mode === "exclude" ? "exclude" : "include";
+                                              return mode === "exclude"
+                                                ? ` (all except ${countries.join(", ")})`
+                                                : ` (only ${countries.join(", ")})`;
+                                            })()}
+                                          </div>
+                                        )}
+                                        {entry?.consent?.whatsapp && (
+                                          <div className="text-muted-foreground">
+                                            WhatsApp consent enabled
+                                            {(() => {
+                                              const countries = Array.isArray(entry.consent.whatsapp_countries)
+                                                ? entry.consent.whatsapp_countries
+                                                : [];
+                                              if (!countries.length) return "";
+                                              const mode = entry.consent.whatsapp_countries_mode === "exclude" ? "exclude" : "include";
+                                              return mode === "exclude"
+                                                ? ` (all except ${countries.join(", ")})`
+                                                : ` (only ${countries.join(", ")})`;
+                                            })()}
+                                          </div>
+                                        )}
                                         {extraConsentYamlFieldsFromObject(entry?.consent).map((field) =>
                                           entry?.consent?.[field] ? (
                                             <div key={field} className="text-muted-foreground">

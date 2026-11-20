@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-20"
+    summary: "SMS/WhatsApp consent country include/exclude filters (form location)"
+    agent_impact:
+      - "Optional SMS/WhatsApp checkboxes can use sms_countries / whatsapp_countries + *_countries_mode (include|exclude), matched to the form-calculated location country_code — not page locale. Empty form countries inherit the conversion event; unknown country hides filtered channels; XX→geo."
+      - "request_more_info defaults: SMS include [US], WhatsApp exclude [US] (world except US). Legacy sms_usa_only: true → include [US]. CRM payload unchanged (display-only filters)."
+      - "explain_site topic lead-forms → Consent checkboxes. No new MCP tools. Stress N/A."
+    tools_changed: false
+    paths:
+      - mcp-server/explain/lead-forms.md
+      - shared/consentCountryFilter.ts
+      - shared/consent-settings.ts
+      - client/src/components/lead_form/variants/LeadFormDefault.tsx
   - date: "2026-11-19"
     summary: "session.location from campus DB + shared-layout detach exceptions"
     agent_impact:

@@ -120,7 +120,17 @@ export function buildWebhookSamplePayload(
     if (consentObj && typeof consentObj === "object") {
       for (const [key, value] of Object.entries(consentObj as Record<string, unknown>)) {
         if (typeof value !== "boolean") continue;
-        if (key === "marketing" || key === "sms" || key === "whatsapp" || key === "email" || key === "sms_usa_only") {
+        if (
+          key === "marketing" ||
+          key === "sms" ||
+          key === "whatsapp" ||
+          key === "email" ||
+          key === "sms_usa_only" ||
+          key === "sms_countries" ||
+          key === "sms_countries_mode" ||
+          key === "whatsapp_countries" ||
+          key === "whatsapp_countries_mode"
+        ) {
           continue;
         }
         formSettingsOverrides[`consent_${key}`] = value;

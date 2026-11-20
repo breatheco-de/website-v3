@@ -128,12 +128,16 @@ export interface ConsentDefaults {
   sms?: boolean;
   whatsapp?: boolean;
   sms_usa_only?: boolean;
+  sms_countries?: string[];
+  sms_countries_mode?: "include" | "exclude";
+  whatsapp_countries?: string[];
+  whatsapp_countries_mode?: "include" | "exclude";
   marketing_text?: string;
   sms_text?: string;
   show_terms?: boolean;
   terms_url?: string;
   privacy_url?: string;
-  [key: string]: boolean | string | undefined;
+  [key: string]: boolean | string | string[] | undefined;
 }
 
 export interface SuccessDefaults {
@@ -1330,12 +1334,22 @@ function readSettingsFile(settingsPath: string, quiet = false): { ok: boolean; s
     };
     const parseConsent = (raw: Record<string, unknown>): ConsentDefaults => {
       const result: ConsentDefaults = {};
-      const textKeys = new Set(["marketing_text", "sms_text", "terms_url", "privacy_url"]);
+      const textKeys = new Set([
+        "marketing_text",
+        "sms_text",
+        "terms_url",
+        "privacy_url",
+        "sms_countries_mode",
+        "whatsapp_countries_mode",
+      ]);
+      const arrayKeys = new Set(["sms_countries", "whatsapp_countries"]);
       for (const [key, value] of Object.entries(raw)) {
         if (typeof value === "boolean") {
           result[key] = value;
         } else if (typeof value === "string" && value && textKeys.has(key)) {
           result[key] = value;
+        } else if (arrayKeys.has(key) && Array.isArray(value)) {
+          result[key] = value.filter((el): el is string => typeof el === "string" && el.trim() !== "");
         }
       }
       return result;

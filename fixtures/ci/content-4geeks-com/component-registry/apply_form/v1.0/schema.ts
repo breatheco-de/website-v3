@@ -34,6 +34,10 @@ const consentSchema = z.object({
   marketing_text: z.string().optional(),
   sms_text: z.string().optional(),
   sms_usa_only: z.boolean().optional(),
+  sms_countries: z.array(z.string()).optional(),
+  sms_countries_mode: z.enum(["include", "exclude"]).optional(),
+  whatsapp_countries: z.array(z.string()).optional(),
+  whatsapp_countries_mode: z.enum(["include", "exclude"]).optional(),
 }).optional();
 
 const turnstileSchema = z.object({

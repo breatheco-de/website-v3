@@ -13,7 +13,6 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import {
   collectExtraConsentYamlFields,
@@ -25,13 +24,18 @@ import {
   resolveConsentRequirement,
   type ConsentCardValues,
   type ConsentChannelDef,
+  type ConsentCountriesMode,
 } from "@shared/consent-settings";
+import { consentChannelsOverlap } from "@shared/consentCountryFilter";
+import { useLocationCatalog } from "@/hooks/useLocationCatalog";
+import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
+import { ToggleButtonBar, ToggleButtonBarTrigger } from "@/components/ui/toggle-button-bar";
 
 export type ConsentValues = ConsentCardValues;
 
 interface ConsentCardProps {
   values: ConsentValues;
-  onChange: (field: string, value: boolean | string) => void;
+  onChange: (field: string, value: boolean | string | string[]) => void;
   inheritedValues?: Partial<ConsentValues>;
   specificFields?: Partial<Record<string, boolean>>;
   isOverridden?: boolean;
@@ -39,6 +43,12 @@ interface ConsentCardProps {
   /** Conversion event name when consents inherit from the event. */
   inheritedFromLabel?: string;
   locale?: string;
+}
+
+function countryCodeToFlag(code: string): string {
+  if (!code || code.length !== 2) return "";
+  const upper = code.toUpperCase();
+  return String.fromCodePoint(...[...upper].map((c) => 127397 + c.charCodeAt(0)));
 }
 
 function ConsentVariableInfo({ variable }: { variable: string }) {
@@ -107,6 +117,60 @@ function consentPlainCopy(
   const html = resolveConsentCopy(settingsKey, messages?.[settingsKey], locale);
   if (!html.trim()) return "";
   return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function ConsentCountryFilter({
+  channel,
+  countries,
+  mode,
+  countryOptions,
+  onCountriesChange,
+  onModeChange,
+}: {
+  channel: "sms" | "whatsapp";
+  countries: string[];
+  mode: ConsentCountriesMode;
+  countryOptions: Array<{
+    value: string;
+    label: string;
+    prefix?: ReactNode;
+    searchTerms?: string[];
+  }>;
+  onCountriesChange: (codes: string[]) => void;
+  onModeChange: (mode: ConsentCountriesMode) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-md border bg-background/50 p-2" data-testid={`consent-country-filter-${channel}`}>
+      <ToggleButtonBar
+        value={mode}
+        onValueChange={(v) => {
+          if (v === "include" || v === "exclude") onModeChange(v);
+        }}
+        listTestId={`consent-countries-mode-${channel}`}
+      >
+        <ToggleButtonBarTrigger value="include" data-testid={`consent-mode-include-${channel}`}>
+          Only these
+        </ToggleButtonBarTrigger>
+        <ToggleButtonBarTrigger value="exclude" data-testid={`consent-mode-exclude-${channel}`}>
+          All except
+        </ToggleButtonBarTrigger>
+      </ToggleButtonBar>
+      <SearchableMultiSelect
+        options={countryOptions}
+        value={countries}
+        onChange={onCountriesChange}
+        label={mode === "exclude" ? "Except these countries" : "Only these countries"}
+        searchPlaceholder="Search countries…"
+        testIdPrefix={`consent-${channel}-countries`}
+        emptyMessage="No countries found"
+      />
+      {countries.length === 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          Empty list inherits the conversion event (or shows everywhere if the event has no list).
+        </p>
+      )}
+    </div>
+  );
 }
 
 function ConsentChannelEditor({
@@ -196,6 +260,33 @@ export function ConsentCard({
   locale = "en",
 }: ConsentCardProps) {
   const [editing, setEditing] = useState(false);
+  const { data: locationCatalog = [] } = useLocationCatalog();
+  const countryOptions = useMemo(() => {
+    const byCode = new Map<string, string>();
+    for (const loc of locationCatalog) {
+      const code = (loc.country_code || "").toUpperCase();
+      if (!code || code === "XX") continue;
+      if (!byCode.has(code)) byCode.set(code, loc.country || code);
+    }
+    return Array.from(byCode.entries())
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([code, name]) => ({
+        value: code,
+        label: `${name} (${code})`,
+        prefix: <span className="text-base leading-none">{countryCodeToFlag(code)}</span>,
+        searchTerms: [code, name],
+      }));
+  }, [locationCatalog]);
+  const catalogCodes = useMemo(() => countryOptions.map((o) => o.value), [countryOptions]);
+  const overlapWarn = consentChannelsOverlap({
+    smsOn: !!values.sms,
+    smsCountries: values.smsCountries ?? [],
+    smsMode: values.smsCountriesMode,
+    whatsappOn: !!values.whatsapp,
+    whatsappCountries: values.whatsappCountries ?? [],
+    whatsappMode: values.whatsappCountriesMode,
+    catalogCountries: catalogCodes,
+  });
   const { data: consentSettingsRaw } = useQuery({
     queryKey: ["/api/settings/consent"],
   });
@@ -461,6 +552,24 @@ export function ConsentCard({
             </div>
           ) : (
             <>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                SMS and WhatsApp can be limited by the form&apos;s location country. Choose{" "}
+                <span className="font-medium text-foreground">Only these</span> or{" "}
+                <span className="font-medium text-foreground">All except</span> these countries.
+              </p>
+              {overlapWarn && (
+                <div
+                  className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2"
+                  data-testid="consent-overlap-warn"
+                >
+                  <IconAlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                  <p className="text-[11px] text-amber-800 dark:text-amber-200 leading-snug">
+                    SMS and WhatsApp could both show for the same country. Visitors may see three
+                    consent checkboxes (with General). Adjust the country lists if you want at most one
+                    of these channels per market.
+                  </p>
+                </div>
+              )}
               <div className="space-y-3">
                 {channelDefs.map(({ yamlField, label, settingsKey }) => (
                   <ConsentChannelEditor
@@ -475,14 +584,23 @@ export function ConsentCard({
                     showInfo
                     trailing={
                       yamlField === "sms" && values.sms ? (
-                        <div className="flex items-center justify-between gap-2">
-                          <Label className="text-xs text-muted-foreground">US-only</Label>
-                          <Checkbox
-                            checked={values.smsUsaOnly}
-                            onCheckedChange={(v) => onChange("smsUsaOnly", !!v)}
-                            data-testid="checkbox-consent-sms-usa-only"
-                          />
-                        </div>
+                        <ConsentCountryFilter
+                          channel="sms"
+                          countries={values.smsCountries ?? []}
+                          mode={values.smsCountriesMode === "exclude" ? "exclude" : "include"}
+                          countryOptions={countryOptions}
+                          onCountriesChange={(codes) => onChange("smsCountries", codes)}
+                          onModeChange={(m) => onChange("smsCountriesMode", m)}
+                        />
+                      ) : yamlField === "whatsapp" && values.whatsapp ? (
+                        <ConsentCountryFilter
+                          channel="whatsapp"
+                          countries={values.whatsappCountries ?? []}
+                          mode={values.whatsappCountriesMode === "exclude" ? "exclude" : "include"}
+                          countryOptions={countryOptions}
+                          onCountriesChange={(codes) => onChange("whatsappCountries", codes)}
+                          onModeChange={(m) => onChange("whatsappCountriesMode", m)}
+                        />
                       ) : null
                     }
                   />
