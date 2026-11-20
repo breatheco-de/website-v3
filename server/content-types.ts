@@ -1492,14 +1492,19 @@ export function updateContentTypeConfig(type: string, update: ContentTypeConfigU
   log.info(`[ContentTypes] Updated config for "${singular}"`);
 }
 
-export function addContentType(name: string, config: ContentTypeEntry, contentRoot?: string): void {
+export async function addContentType(
+  name: string,
+  config: ContentTypeEntry,
+  contentRoot?: string,
+): Promise<void> {
   const reg = loadRegistry(contentRoot);
   if (reg.types[name]) {
     throw new Error(`Content type "${name}" already exists`);
   }
 
-  const { DatabaseManager } = require("./database") as typeof import("./database");
-  const { assertSourceNameAvailable } = require("./query-options") as typeof import("./query-options");
+  // Dynamic import avoids a static cycle with database.ts (which imports this module).
+  const { DatabaseManager } = await import("./database");
+  const { assertSourceNameAvailable } = await import("./source-namespace");
   assertSourceNameAvailable(name, "contentType", contentRoot, new DatabaseManager(contentRoot));
 
   validateUrlPatterns(config.url_pattern);

@@ -3,6 +3,7 @@ import { getDefaultContentFolder, getSiteConfigs } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { getAllTypes, getContentTypeConfig, getLocaleKey, getFieldMapping, getFullFieldMapping, getRowsFilterFields, RESERVED_IMAGE_FIELD, RESERVED_SLUG_FIELD, RESERVED_LOCALE_FIELD, applyImageAliasToEntry, applySlugAliasToEntry, applyLocaleAliasToEntry } from "./content-types";
+import { assertSourceNameAvailable } from "./source-namespace";
 import { applyRowsFilterFields } from "./database-single-loader";
 import { diffRefreshedDatabaseRows, type RefreshedDatabaseRow } from "./database-refresh-diff";
 import { getValueByPath, resolveFieldValue, isTransformer, compileTransformer, runTransformer } from "./transform";
@@ -852,7 +853,6 @@ export class DatabaseManager {
     if (this.configs.has(name)) {
       throw new Error(`Database "${name}" already exists`);
     }
-    const { assertSourceNameAvailable } = require("./query-options") as typeof import("./query-options");
     assertSourceNameAvailable(name, "database", this.contentRoot, this);
     this.writeToDisk(name, config);
     markFileAsModified(`db/${name}/config.yml`, author, undefined, this.contentRoot);

@@ -1543,7 +1543,7 @@ export function registerContentRoutes(app: Express): void {
       }
       const dir = directory || name;
 
-      addContentType(name, {
+      await addContentType(name, {
         directory: dir,
         url_pattern: normalizedPattern,
       }, getContentRoot(res));
