@@ -4,6 +4,8 @@ import { ChevronRight, ChevronUp } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import RigobotPeek from "@/components/custom-icons/RigobotPeek";
+import { rigobotVisibilityClass, type StickyShowRigobot } from "@/components/sticky_cta/rigobotVisibility";
+import { useHiddenAtPageTop } from "@/components/sticky_cta/useHiddenAtPageTop";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +15,9 @@ interface StickyCtaScrollToFormData {
   variant?: "scrollToForm";
   heading: string;
   button_label?: string;
-  show_rigobot?: boolean;
+  /** Default false: hide until scrolled a few px. True: allow at page top. */
+  show_at_top?: boolean | string;
+  show_rigobot?: StickyShowRigobot | boolean;
   target_section_id?: string;
 }
 
@@ -83,9 +87,12 @@ function useTargetForm(targetSectionId?: string) {
 export default function StickyCTAScrollToForm({ data }: StickyCTAScrollToFormProps) {
   const editMode = useEditModeOptional();
   const isEditMode = editMode?.isEditMode ?? false;
-  const { form, hidden, ready } = useTargetForm(isEditMode ? undefined : data.target_section_id);
+  const { form, hidden: hiddenByForm, ready } = useTargetForm(isEditMode ? undefined : data.target_section_id);
+  const hiddenAtTop = useHiddenAtPageTop(data.show_at_top);
+  const hidden = hiddenByForm || hiddenAtTop;
   const [animate, setAnimate] = useState(false);
   const buttonLabel = data.button_label || "Apply Now";
+  const rigobotClass = rigobotVisibilityClass(data.show_rigobot);
 
   useEffect(() => {
     if (!ready) return;
@@ -133,7 +140,7 @@ export default function StickyCTAScrollToForm({ data }: StickyCTAScrollToFormPro
       aria-hidden={hidden || undefined}
       data-testid="sticky-cta-bar"
     >
-      {data.show_rigobot && <RigobotPeek />}
+      {rigobotClass !== null && <RigobotPeek className={rigobotClass || undefined} />}
       <p className="m-0 flex items-center justify-center gap-2 text-sm text-muted-foreground" data-testid="text-sticky-cta-heading">
         <span className="relative w-2 h-2 flex-shrink-0" aria-hidden="true">
           <span

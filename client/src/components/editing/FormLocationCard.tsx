@@ -9,6 +9,8 @@ import { useToast } from "@/hooks/use-toast";
 
 interface FormLocationCardProps {
   contentType: string;
+  /** Display name for this content type (e.g. Landings). */
+  contentTypeLabel?: string;
   /** Current `forms.location` (null when the type has not opted in). */
   value: { entry_field?: string; autodetect?: boolean } | null | undefined;
   /** Content type editor hints (to list link fields to `location`). */
@@ -18,12 +20,21 @@ interface FormLocationCardProps {
 
 const NONE = "__none__";
 
-export function FormLocationCard({ contentType, value, editor, loading }: FormLocationCardProps) {
+export function FormLocationCard({
+  contentType,
+  contentTypeLabel,
+  value,
+  editor,
+  loading,
+}: FormLocationCardProps) {
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const entryField = value?.entry_field ?? null;
   const autodetect = value?.autodetect !== false;
+  const typeLabel =
+    (contentTypeLabel || contentType.charAt(0).toUpperCase() + contentType.slice(1)).trim() ||
+    "these";
   const locationFields = Object.entries(editor ?? {})
     .filter(([, hint]) => hint?.type === "relation" && hint?.source === "location")
     .map(([key, hint]) => ({ key, label: hint.label || key }));
@@ -43,8 +54,8 @@ export function FormLocationCard({ contentType, value, editor, loading }: FormLo
       toast({
         title: "Form location saved",
         description: next.autodetect
-          ? "Forms fall back to detecting the visitor's location when nothing sets one."
-          : "Forms on these pages need a location from the form or the page before saving or publishing.",
+          ? "Forms fall back to detecting the visitor's campus when nothing sets one."
+          : `Forms on ${typeLabel} pages need a campus from the form or the page field before saving or publishing.`,
       });
     } catch (err) {
       toast({
@@ -60,15 +71,18 @@ export function FormLocationCard({ contentType, value, editor, loading }: FormLo
   return (
     <Card data-testid="card-kpi-form-location">
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">Form location</CardTitle>
+        <CardTitle className="text-sm font-medium text-muted-foreground">
+          How submitted forms get the &quot;location&quot; key
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground leading-relaxed">
-          Choose where forms on these pages get their location when the form doesn&apos;t set one. If detection is
-          off, pages can&apos;t be saved or published until a form or the page sets a location. Live pages keep working.
+          Choose which field from the {typeLabel} content type will be used to supply the{" "}
+          <code className="font-mono text-[11px]">form.payload.location</code>. If detection is off, a campus
+          must be set on the form or that field before saving or publishing. Live pages keep working.
         </p>
         <div className="space-y-1">
-          <Label className="text-xs">Page field</Label>
+          <Label className="text-xs">Locations field on the page</Label>
           <Select
             value={entryField ?? NONE}
             disabled={saving || loading}
@@ -78,7 +92,7 @@ export function FormLocationCard({ contentType, value, editor, loading }: FormLo
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NONE}>None (forms only)</SelectItem>
+              <SelectItem value={NONE}>None — forms set it themselves</SelectItem>
               {locationFields.map((f) => (
                 <SelectItem key={f.key} value={f.key}>
                   {f.label}
@@ -88,7 +102,7 @@ export function FormLocationCard({ contentType, value, editor, loading }: FormLo
           </Select>
           {locationFields.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">
-              No page field links to locations yet. Add one (type: link to Locations) in Fields to use it here.
+              No Locations field on {typeLabel} yet. Add one (type: link to Locations) in Fields to use it here.
             </p>
           ) : null}
         </div>
@@ -121,8 +135,9 @@ export function FormLocationCard({ contentType, value, editor, loading }: FormLo
               <code className="font-mono text-[11px]">autodetect</code>.
             </p>
             <p>
-              Order: the form&apos;s own <code className="font-mono text-[11px]">fields.location</code>, then the page
-              field (in <code className="font-mono text-[11px]">_common.yml</code>), then detection when allowed.
+              Order: the form&apos;s own <code className="font-mono text-[11px]">fields.location</code>, then the
+              Locations field on the page (in <code className="font-mono text-[11px]">_common.yml</code>), then
+              detection when allowed.
             </p>
             <p>
               Signup accounts can follow the chosen location with{" "}

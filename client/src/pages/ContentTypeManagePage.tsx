@@ -31,6 +31,7 @@ import { PrivateHistoryBackButton } from "@/components/private/PrivateHistoryBac
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
+import { humanizeDatabaseLabel } from "@/lib/staff404";
 import {
   Select,
   SelectContent,
@@ -3669,6 +3670,85 @@ function SpecialFieldInfoDialog({
   );
 }
 
+/** Warns when `_slug` points at a DB column that is empty on some rows (public URLs will 404). */
+function MissingSlugSourceHelp({
+  databaseSlug,
+  sourceField,
+  missingCount,
+  totalCount,
+}: {
+  databaseSlug: string;
+  sourceField: string;
+  missingCount: number;
+  totalCount: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const dbLabel = humanizeDatabaseLabel(databaseSlug) || databaseSlug;
+
+  return (
+    <p
+      className="ml-[7.5rem] text-[11px] leading-snug text-amber-700 dark:text-amber-400"
+      data-testid="note-missing-slug-source"
+    >
+      <AlertTriangle className="inline h-3 w-3 mr-1 align-[-0.125em]" aria-hidden />
+      Some of the{" "}
+      <code className="font-mono text-[10px] bg-muted px-1 rounded text-foreground/80">{databaseSlug}</code>{" "}
+      database entries don&apos;t have a{" "}
+      <code className="font-mono text-[10px] bg-muted px-1 rounded text-foreground/80">{sourceField}</code>{" "}
+      value — this is a problem
+      {totalCount > 0 ? ` (${missingCount} of ${totalCount})` : ""}.{" "}
+      <Popover modal={false} open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline underline underline-offset-2 hover:text-amber-800 dark:hover:text-amber-300"
+            data-testid="button-learn-why-missing-slug"
+          >
+            Learn why
+          </button>
+        </PopoverTrigger>
+        {/* Above Field Mapping dialog (z-[10000]); portal to body; non-modal so clicks work. */}
+        <PopoverContent
+          side="top"
+          align="start"
+          sideOffset={8}
+          collisionPadding={16}
+          className="z-[10003] w-80 p-3 space-y-2 text-xs text-muted-foreground pointer-events-auto shadow-lg"
+          data-testid="popover-learn-why-missing-slug"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
+          <p className="font-medium text-foreground text-sm">Why empty {sourceField} breaks public pages</p>
+          <p>
+            <code className="font-mono text-[10px] bg-muted px-1 rounded">_slug → {sourceField}</code> means each{" "}
+            {dbLabel} row must already have a non-empty{" "}
+            <code className="font-mono text-[10px] bg-muted px-1 rounded">{sourceField}</code>. The mapping does not
+            invent one.
+          </p>
+          <p>
+            Rows without that value never get a live URL — visitors see “not found” even when the story exists in
+            the database. The manage list may still show a title-based address for display only.
+          </p>
+          <p>
+            Fix: fill <code className="font-mono text-[10px] bg-muted px-1 rounded">{sourceField}</code> on each row,
+            or point <code className="font-mono text-[10px] bg-muted px-1 rounded">_slug</code> at a field that is
+            always set (for example <code className="font-mono text-[10px] bg-muted px-1 rounded">id</code>), then
+            rebuild Content URLs.
+          </p>
+          <button
+            type="button"
+            className="text-[11px] underline underline-offset-2 text-foreground hover:text-primary"
+            onClick={() => setOpen(false)}
+            data-testid="button-close-learn-why-missing-slug"
+          >
+            Close
+          </button>
+        </PopoverContent>
+      </Popover>
+    </p>
+  );
+}
+
 function FieldMappingDialog({
   open,
   onOpenChange,
@@ -3790,6 +3870,30 @@ function FieldMappingDialog({
     enabled: open && !!dbSlugForHints,
     staleTime: 60_000,
   });
+
+  /** Sample rows to detect empty `_slug` source values (public URL index skips those). */
+  const { data: slugCoverageData } = useQuery<{ items: Record<string, unknown>[] }>({
+    queryKey: ["/api/databases", dbSlugForHints, "items", "slug-coverage"],
+    queryFn: () =>
+      fetch(`/api/databases/${dbSlugForHints}/items?page=1&limit=1000`).then((r) => r.json()),
+    enabled: open && !!dbSlugForHints,
+    staleTime: 60_000,
+  });
+
+  const slugSourceCoverage = useMemo(() => {
+    if (!isDbBacked || !dbSlugForHints || transformerModes._slug) return null;
+    const source = String(mappings._slug ?? "").trim();
+    if (!source) return null;
+    const items = slugCoverageData?.items;
+    if (!items) return null;
+    let missing = 0;
+    for (const item of items) {
+      const raw = source.includes(".") ? getValueByDotPath(item, source) : item[source];
+      if (raw == null || String(raw).trim() === "") missing += 1;
+    }
+    if (missing === 0) return null;
+    return { source, missing, total: items.length, databaseSlug: dbSlugForHints };
+  }, [isDbBacked, dbSlugForHints, transformerModes._slug, mappings._slug, slugCoverageData?.items]);
 
   const mergedSourceOptions = useMemo(() => {
     const set = new Set<string>();
@@ -4865,6 +4969,14 @@ function FieldMappingDialog({
                     <p className="text-[11px] text-muted-foreground ml-[7.5rem]">
                       Locale usually comes from the file name / URL. Map a source only if the entry stores locale explicitly.
                     </p>
+                  )}
+                  {key === "_slug" && slugSourceCoverage && (
+                    <MissingSlugSourceHelp
+                      databaseSlug={slugSourceCoverage.databaseSlug}
+                      sourceField={slugSourceCoverage.source}
+                      missingCount={slugSourceCoverage.missing}
+                      totalCount={slugSourceCoverage.total}
+                    />
                   )}
                   {staticImageGuidance && !transformerModes[key] && !(mappings[key] || "").trim() && !config?.preview?.component && (
                     <p className="text-[11px] text-muted-foreground ml-[7.5rem]" data-testid={`note-mapping-${key}`}>
@@ -8542,6 +8654,7 @@ export default function ContentTypeManagePage() {
           />
           <FormLocationCard
             contentType={contentType}
+            contentTypeLabel={typeConfig?.label || label}
             value={typeConfig?.forms?.location ?? null}
             editor={typeConfig?.editor as Record<string, { type?: string; source?: string; label?: string }> | undefined}
             loading={typeConfig === undefined}

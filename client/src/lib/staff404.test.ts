@@ -5,6 +5,7 @@ import {
   buildStaff404Model,
   defaultStaff404Facts,
   hasRebuiltQueryParam,
+  humanizeDatabaseLabel,
   sortVariantsForModal,
   staff404DashboardHref,
   staff404PreviewHref,
@@ -52,6 +53,12 @@ describe("staff404PreviewHref", () => {
   });
 });
 
+describe("humanizeDatabaseLabel", () => {
+  it("turns press_mentions into Press Mentions", () => {
+    expect(humanizeDatabaseLabel("press_mentions")).toBe("Press Mentions");
+  });
+});
+
 describe("buildStaff404Model", () => {
   it("shared + missing slug → current-type miss; back, dashboard, edit templates, rebuild", () => {
     const model = buildStaff404Model(
@@ -62,8 +69,28 @@ describe("buildStaff404Model", () => {
     );
     expect(model.title).toBe("Blog not found");
     expect(model.happened).toEqual([
-      "The Blog entry `foo` was not found. Blogs share a common template you can edit if you like.",
+      "The Blog entry `foo` was not found. Blog entries share a common template you can edit if you like.",
     ]);
+    expect(model.actions).toEqual(["goBack", "dashboard", "editTemplates", "rebuild"]);
+  });
+
+  it("db-backed shared miss → slug/address explanation + advanced", () => {
+    const model = buildStaff404Model(
+      defaultStaff404Facts({
+        typeLabel: "News",
+        contentType: "news",
+        slug: "4geeks-harvard-oxford-and-columbia-chosen-to-deliver-ai-education-by-the-government-of-the-bahamas",
+        listingSharedTemplate: true,
+        hasDatabase: true,
+        databaseLabel: "Press Mentions",
+        hasTemplateVariants: true,
+      }),
+    );
+    expect(model.happened[0]).toContain("This URL matches News");
+    expect(model.happened[0]).toContain("Press Mentions");
+    expect(model.happened[0]).toContain("Rows without a slug");
+    expect(model.happened[1]).toContain("Open Press Mentions");
+    expect(model.advanced?.[0]).toContain("Title→slug fallback");
     expect(model.actions).toEqual(["goBack", "dashboard", "editTemplates", "rebuild"]);
   });
 
@@ -233,6 +260,23 @@ describe("buildStaff404Model", () => {
     expect(model.actions).toContain("dashboard");
     expect(model.actions).not.toContain("editTemplates");
     expect(model.happened[0]).toContain("The Interactive Exercise entry `pruebas` was not found");
+  });
+
+  it("databaseSingle + hasDatabase → slug miss copy (not bare entry-not-found)", () => {
+    const model = buildStaff404Model(
+      defaultStaff404Facts({
+        surface: "databaseSingle",
+        typeLabel: "News",
+        contentType: "news",
+        slug: "bahamas",
+        hasDatabase: true,
+        databaseLabel: "Press Mentions",
+        listingSharedTemplate: true,
+      }),
+    );
+    expect(model.happened[0]).toContain("nothing in Press Mentions uses that address");
+    expect(model.happened.join(" ")).not.toContain("Newss");
+    expect(model.actions).toContain("dashboard");
   });
 
   it("puts Live last for shared-template modal sort", () => {

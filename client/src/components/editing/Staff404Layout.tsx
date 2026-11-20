@@ -41,6 +41,8 @@ export default function Staff404Layout({
   contentType,
   isValidType = true,
   listingSharedTemplate = false,
+  hasDatabase = false,
+  databaseLabel,
   isDraftOnly = false,
   hasEntryVariants = false,
   variantsLoading = false,
@@ -65,6 +67,8 @@ export default function Staff404Layout({
   contentType?: string;
   isValidType?: boolean;
   listingSharedTemplate?: boolean;
+  hasDatabase?: boolean;
+  databaseLabel?: string;
   isDraftOnly?: boolean;
   hasEntryVariants?: boolean;
   variantsLoading?: boolean;
@@ -87,6 +91,7 @@ export default function Staff404Layout({
   const { busy, rebuild, confirmOpen, setConfirmOpen, requestRebuild } = useRebuildContentUrls();
   const [hopsExpanded, setHopsExpanded] = useState(false);
   const [yamlAdvancedOpen, setYamlAdvancedOpen] = useState(false);
+  const [missAdvancedOpen, setMissAdvancedOpen] = useState(false);
   const [historyLength, setHistoryLength] = useState(1);
   const searchString = useSearch();
   const rebuilt = hasRebuiltQueryParam(searchString);
@@ -103,6 +108,8 @@ export default function Staff404Layout({
       contentType,
       isValidType,
       listingSharedTemplate,
+      hasDatabase,
+      databaseLabel,
       isDraftOnly,
       hasEntryVariants,
       variantsLoading,
@@ -126,6 +133,8 @@ export default function Staff404Layout({
       contentType,
       isValidType,
       listingSharedTemplate,
+      hasDatabase,
+      databaseLabel,
       isDraftOnly,
       hasEntryVariants,
       variantsLoading,
@@ -183,6 +192,31 @@ export default function Staff404Layout({
             ),
           )}
         </div>
+        {!!model.advanced?.length && (
+          <div className="mt-3">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setMissAdvancedOpen((v) => !v)}
+              data-testid="button-toggle-db-miss-advanced"
+            >
+              {missAdvancedOpen ? "Hide advanced details" : "Read more (advanced)"}
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${missAdvancedOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+            {missAdvancedOpen && (
+              <div
+                className="mt-2 rounded-md border border-border bg-muted/40 p-3 space-y-2 text-xs text-muted-foreground"
+                data-testid="staff-404-db-miss-advanced"
+              >
+                {model.advanced.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {yamlLoadFailed && (yamlLoadDetails || yamlLoadFile) && (
           <div className="mt-3">
             <button

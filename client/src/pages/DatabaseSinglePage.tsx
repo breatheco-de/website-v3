@@ -28,6 +28,7 @@ import LocaleUnavailable, {
   type LocaleUnavailableInfo,
 } from "@/components/LocaleUnavailable";
 import Staff404Recovery, { Staff404SwitchToEditHint } from "@/components/editing/Staff404Recovery";
+import { humanizeDatabaseLabel } from "@/lib/staff404";
 import { useEditModeOptional } from "@/contexts/EditModeContext";
 import { useEagerSectionsReady } from "@/hooks/useEagerSectionsReady";
 import { usePageTrackingContext } from "@/hooks/usePageTrackingContext";
@@ -210,6 +211,9 @@ export default function DatabaseSinglePage({ contentType }: DatabaseSinglePagePr
               typeLabel={typeLabel}
               slug={slug}
               contentType={contentType}
+              listingSharedTemplate={isSharedLayout}
+              hasDatabase={!!contentTypeInfo?.has_database}
+              databaseLabel={humanizeDatabaseLabel(contentTypeInfo?.database_slug)}
             />
           </div>
         </div>
