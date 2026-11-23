@@ -94,7 +94,6 @@ export default function HeroCourse({ data }: HeroCourseProps) {
   const handleCtaClick = onCtaClick(
     data.signup_card?.cta_button as { url?: string; tracking?: string } | undefined,
   );
-  // test
   return (
     <section className="bg-background" data-testid="section-hero">
       <div className="max-w-6xl mx-auto px-4">
