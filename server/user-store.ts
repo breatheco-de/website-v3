@@ -133,6 +133,11 @@ export interface UserRecord {
   deletedAt?: string;
   /** Username of the admin who deleted this user. */
   deletedBy?: string;
+  /**
+   * Local connection-token bootstrap identity (dev only).
+   * Never uploaded to GCS; stripped on load from GCS.
+   */
+  connectionTokenOwner?: boolean;
 }
 
 /** Normalized MCP access flags (defaults: read on, write off; write implies read). */
@@ -742,6 +747,46 @@ export function _setUsersStateForTests(next: {
 
 // ─── Persistence ───────────────────────────────────────────────────────────────
 
+/** Users + pending clone without connection-token bootstrap identities (never sync to GCS). */
+export function usersStateForGcs(source: UsersState = state): UsersState {
+  const users: Record<string, UserRecord> = {};
+  for (const [key, user] of Object.entries(source.users)) {
+    if (user.connectionTokenOwner) continue;
+    users[key] = { ...user };
+    delete users[key].connectionTokenOwner;
+  }
+  return {
+    roles: { ...source.roles },
+    users,
+    pendingUsers: source.pendingUsers ? { ...source.pendingUsers } : undefined,
+    staffIdAliases: source.staffIdAliases ? { ...source.staffIdAliases } : undefined,
+    builtInDescriptionOverrides: source.builtInDescriptionOverrides
+      ? { ...source.builtInDescriptionOverrides }
+      : undefined,
+    appliedMigrations: source.appliedMigrations ? [...source.appliedMigrations] : undefined,
+  };
+}
+
+function stripConnectionTokenOwnersFromState(next: UsersState): UsersState {
+  const users: Record<string, UserRecord> = {};
+  let stripped = 0;
+  for (const [key, user] of Object.entries(next.users)) {
+    if (user.connectionTokenOwner) {
+      stripped += 1;
+      continue;
+    }
+    const copy = { ...user };
+    delete copy.connectionTokenOwner;
+    users[key] = copy;
+  }
+  if (stripped > 0) {
+    log.warn(
+      `[UserStore] Dropped ${stripped} connectionTokenOwner user(s) from GCS/remote state (local-only)`,
+    );
+  }
+  return { ...next, users };
+}
+
 function saveLocal(): void {
   if (persistenceDisabledForTests) return;
   try {
@@ -758,7 +803,7 @@ function saveLocal(): void {
 async function saveToBucket(): Promise<void> {
   if (persistenceDisabledForTests || !IS_PRODUCTION || !gcs.available) return;
   try {
-    const content = JSON.stringify(state, null, 2);
+    const content = JSON.stringify(usersStateForGcs(), null, 2);
     gcs.debouncedUpload(GCS_KEY, Buffer.from(content, "utf-8"), "application/json");
   } catch (err) {
     log.error({ err: err }, "[UserStore] Error saving to GCS:");
@@ -811,7 +856,8 @@ export async function loadUsersStateFromBucket(): Promise<void> {
       log.info("[UserStore] No users state in GCS — using local file");
       state = loadLocal();
     } else {
-      state = JSON.parse(result.data.toString("utf-8")) as UsersState;
+      const parsed = JSON.parse(result.data.toString("utf-8")) as UsersState;
+      state = stripConnectionTokenOwnersFromState(parsed);
       log.info("[UserStore] Loaded users state from GCS");
       saveLocal();
     }
@@ -869,7 +915,11 @@ export async function reuploadUsersStateToBucket(): Promise<ReuploadUsersStateRe
   }
 
   saveLocal();
-  await gcs.upload(gcsKey, Buffer.from(JSON.stringify(state, null, 2), "utf-8"), "application/json");
+  await gcs.upload(
+    gcsKey,
+    Buffer.from(JSON.stringify(usersStateForGcs(), null, 2), "utf-8"),
+    "application/json",
+  );
   log.info("[UserStore] Re-uploaded users state to GCS via admin action");
   return { success: true, uploaded: true, gcsKey };
 }
@@ -1682,6 +1732,7 @@ export function createAdmittedUser(input: {
   githubLogin?: string;
   identity: StaffProviderIdentity;
   roles: string[];
+  connectionTokenOwner?: boolean;
 }): UserRecord {
   ensureLoaded();
   const record: UserRecord = {
@@ -1694,10 +1745,21 @@ export function createAdmittedUser(input: {
     lastLoginAt: new Date().toISOString(),
     roles: [...input.roles],
     identities: [input.identity],
+    connectionTokenOwner: input.connectionTokenOwner || undefined,
   };
   state.users[input.username] = record;
   save();
   return record;
+}
+
+/** Mark or clear local connection-token bootstrap flag (dev-only identity). */
+export function markConnectionTokenOwner(username: string, value: boolean): void {
+  ensureLoaded();
+  const user = state.users[username];
+  if (!user || user.deletedAt) return;
+  if (value) user.connectionTokenOwner = true;
+  else delete user.connectionTokenOwner;
+  save();
 }
 
 export function hasAnyRole(username: string, email?: string): boolean {

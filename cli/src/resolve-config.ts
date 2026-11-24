@@ -76,6 +76,7 @@ export async function resolveConfig(flags: CliFlags): Promise<ResolvedConfig> {
     noMcpTunnel: flags.noMcpTunnel,
     command: flags.command,
     yes: flags.yes,
+    user: flags.user,
   };
 
   if (detect.kind === "needs_sites_yml" && !isProduction && !flags.command) {

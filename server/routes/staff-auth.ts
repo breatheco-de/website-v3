@@ -129,7 +129,7 @@ export function registerStaffAuthRoutes(app: Express): void {
           "GitHub Connect on the sync chip is for content commits, not for signing in.",
           github.connectionTokenStaffAllowed
             ? "Paste a Weblify connection token (wfy_…) from the CLI, or a staff session token from another signed-in browser — not a GitHub or Breathecode token."
-            : "Paste a staff session token from another signed-in browser — not a GitHub, Breathecode, or Weblify connection token (connection tokens are disabled while GitHub login is active unless WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF is set).",
+            : "Paste a staff session token from another signed-in browser — not a GitHub, Breathecode, or Caxton connection token (connection tokens are local-dev only and disabled when GitHub login is active or in production).",
         ],
       },
     });
@@ -218,7 +218,7 @@ export function registerStaffAuthRoutes(app: Express): void {
       const error = github.connectionTokenStaffAllowed
         ? "That is not a valid staff session or Weblify connection token. Use the token from your Weblify terminal, or log in with GitHub when it is available."
         : github.available
-          ? "That is not a valid staff session. Log in with GitHub first, then paste the session token. Weblify connection tokens are off while GitHub login is active (set WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF to allow them)."
+          ? "That is not a valid staff session. Log in with GitHub first, then paste the session token. Caxton connection tokens are local-dev only (off when GitHub login is active or in production)."
           : "That is not a valid staff session. Log in with GitHub first, then paste the session token.";
       res.json({
         valid: false,

@@ -16,6 +16,8 @@ export interface CliFlags {
   command: "token" | null;
   name?: string;
   slug?: string;
+  /** Connection-token local bootstrap username (`caxton-cms token --user`). */
+  user?: string;
   agent?: "local" | "cloud";
   yes: boolean;
   help: boolean;
@@ -39,4 +41,6 @@ export interface ResolvedConfig {
   command: "token" | null;
   /** From `--yes` / `-y` — non-interactive defaults when creating sites.yml. */
   yes: boolean;
+  /** From `--user` — connection-token bootstrap username. */
+  user?: string;
 }

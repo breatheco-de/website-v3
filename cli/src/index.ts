@@ -56,6 +56,13 @@ async function main(): Promise<void> {
       error("Production requires SITE_URL in the environment or project .env");
       process.exit(1);
     }
+    const allow = process.env.WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF?.trim().toLowerCase();
+    if (allow === "1" || allow === "true" || allow === "yes") {
+      error(
+        "WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF must not be set in production. Connection-token staff login is a shared-secret vulnerability. Remove it and use GitHub staff login. See docs/local-connection-token.md",
+      );
+      process.exit(1);
+    }
   }
 
   if (config.command === "token") {
@@ -63,7 +70,17 @@ async function main(): Promise<void> {
       error("token requires an existing Caxton project (sites.yml).");
       process.exit(1);
     }
-    runTokenCommand(config.projectRoot);
+    try {
+      await runTokenCommand(config.projectRoot, {
+        isProduction: config.isProduction,
+        userFlag: config.user,
+        yes: config.yes,
+      });
+    } catch (e) {
+      if (e instanceof PromptCancelled) process.exit(0);
+      error((e as Error).message);
+      process.exit(1);
+    }
     process.exit(0);
   }
 
@@ -85,11 +102,27 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const needsLocalToken =
-    !config.isProduction && config.wantAgent && config.agentChoice === "local";
-  if (needsLocalToken) {
-    const { mintConnectionToken } = await import("./lib/connection-token.js");
-    mintConnectionToken(config.projectRoot);
+  const needsConnectionOwner =
+    !config.isProduction && config.wantAgent && (config.agentChoice === "local" || config.agentChoice === "cloud");
+  if (needsConnectionOwner) {
+    try {
+      const { resolveAndPersistConnectionOwner } = await import(
+        "./lib/resolve-connection-owner.js"
+      );
+      await resolveAndPersistConnectionOwner({
+        projectRoot: config.projectRoot,
+        userFlag: config.user,
+        yes: config.yes,
+      });
+      if (config.agentChoice === "local") {
+        const { mintConnectionToken } = await import("./lib/connection-token.js");
+        mintConnectionToken(config.projectRoot);
+      }
+    } catch (e) {
+      if (e instanceof PromptCancelled) process.exit(0);
+      error((e as Error).message);
+      process.exit(1);
+    }
   }
 
   const isCloudAgent =

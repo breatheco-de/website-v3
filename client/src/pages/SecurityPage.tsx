@@ -332,6 +332,8 @@ interface UserRecord {
   mcpWriteEnabled?: boolean;
   deletedAt?: string;
   deletedBy?: string;
+  /** Local connection-token bootstrap (dev only; not synced to production). */
+  connectionTokenOwner?: boolean;
   /** Present when another active record matches this person (delete removes only this copy). */
   duplicate?: {
     survivor: { username: string; displayName: string };
@@ -2237,6 +2239,31 @@ function UsersTab() {
                       <Badge variant="secondary" className="text-xs" data-testid={`badge-mcp-propose-only-${user.username}`}>
                         MCP propose only
                       </Badge>
+                    )}
+                    {user.connectionTokenOwner && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] gap-1 font-medium text-sky-700 dark:text-sky-400 border-sky-500/40"
+                            data-testid={`badge-local-bootstrap-${user.username}`}
+                          >
+                            <IconAlertCircle className="h-3 w-3" aria-hidden />
+                            Local bootstrap
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-xs space-y-1.5">
+                          <p>
+                            This identity is for local connection-token sign-in only (`npx caxton-cms token`).
+                            It is not synced to production. Grant Database Manager / Edit database data here when
+                            you use that token — not on your Gmail staff card.
+                          </p>
+                          <p className="text-muted-foreground">
+                            Advanced: `.local/connection-owner`, flag `connectionTokenOwner`, stripped from GCS.
+                            See docs/local-connection-token.md
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
                     )}
                     {user.duplicate && (
                       <Tooltip>

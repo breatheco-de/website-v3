@@ -1,5 +1,5 @@
 /**
- * MCP JSON-RPC client for stress: OAuth (weblify-local) + tools/call timing.
+ * MCP JSON-RPC client for stress: OAuth (connection-token bootstrap owner) + tools/call timing.
  */
 
 export type ToolCallResult = {
@@ -64,7 +64,7 @@ export class McpStressClient {
   }
 
   /**
-   * Obtain an OAuth access token bound to weblify-local so checkCap resolves a username.
+   * Obtain an OAuth access token bound to the connection-token bootstrap owner so checkCap resolves a username.
    * Raw connection token opens the gate but does not set getTokenUsername.
    */
   async bootstrapOAuth(): Promise<void> {

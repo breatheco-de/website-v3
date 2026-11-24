@@ -5,6 +5,19 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-24"
+    summary: "Connection-token bootstrap uses chosen local owner (not weblify-local)"
+    agent_impact:
+      - "Local connection-token OAuth/staff paste signs in as the username from `.local/connection-owner` (set via `npx caxton-cms token --user <name>`). Hardcoded weblify-local is gone."
+      - "Production never accepts connection-token staff auth; WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF is ignored and fails boot if set. Role-connector / MCP-write guides skip the bootstrap owner the same way as before."
+      - "Stress N/A (auth identity only). See docs/local-connection-token.md. Reconnect MCP after pull if connectors cache the old username."
+    tools_changed: false
+    paths:
+      - docs/local-connection-token.md
+      - shared/connection-token-owner.ts
+      - server/weblify-connection-token.ts
+      - mcp-server/index.ts
+      - mcp-server/lib/role-connector-guide.ts
   - date: "2026-11-20"
     summary: "News/press page slug from link_url; confirm before moving"
     agent_impact:

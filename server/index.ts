@@ -55,11 +55,19 @@ import { BOOT_ID, BOOT_TIME, getLastSoftReload, registerShutdownHandler } from "
 import { beginRequest, endRequest, flushTick, noteApi, resolveApiRoute, startTick } from "./process-stats";
 import logger from "./logger";
 import { applyServerTiming, markTiming, startServerTiming } from "./server-timing";
+import { assertConnectionTokenStaffNotEnabledInProduction } from "./weblify-connection-token";
 
 // Only this process may enqueue ContentIndex index_refresh (see enqueueIndexRefresh).
 process.env.WEBLIFY_PROCESS = "web";
 // Note: gcs.initFromEnv() is called by media.initFromEnv() in routes.ts,
 // which happens before sync-state needs it.
+
+try {
+  assertConnectionTokenStaffNotEnabledInProduction();
+} catch (err) {
+  logger.fatal({ err }, "[FATAL] connection-token staff misconfiguration");
+  process.exit(1);
+}
 
 // ─── Process-level crash guards ─────────────────────────────────────────────
 // Registered before any async work so no early failure goes unlogged.

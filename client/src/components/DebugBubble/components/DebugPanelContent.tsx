@@ -367,8 +367,8 @@ function StaffSignInPanel(props: {
   const suspicious = connectors?.siteUrlLookSuspicious === true;
 
   const tokenHint = connectionTokenAllowed
-    ? "Paste a Caxton connection token or a staff session token from another signed-in browser (not a GitHub or Breathecode token)."
-    : "Paste a staff session token from another signed-in browser (not a GitHub, Breathecode, or Caxton connection token).";
+    ? "Paste a Caxton connection token (local bootstrap user from `npx caxton-cms token`) or a staff session token from another signed-in browser (not a GitHub or Breathecode token)."
+    : "Paste a staff session token from another signed-in browser (not a GitHub, Breathecode, or Caxton connection token — local-dev only).";
 
   const tokenPlaceholder = connectionTokenAllowed
     ? "Connection token or staff session..."

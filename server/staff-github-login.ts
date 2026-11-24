@@ -1,3 +1,4 @@
+import { isProductionMode } from "@shared/paths";
 import { isGitHubAppConfigured, getOAuthCallbackUrl } from "./github-user-tokens";
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
@@ -55,7 +56,13 @@ export function isStaffGitHubLoginAvailable(): boolean {
   return true;
 }
 
+/**
+ * Connection-token staff login is local/dev only.
+ * Production always denies (ignore WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF).
+ * When GitHub staff login is available, also deny unless the allow-env is set (non-production).
+ */
 export function isConnectionTokenStaffAllowed(): boolean {
+  if (isProductionMode()) return false;
   return !isStaffGitHubLoginAvailable() || isConnectionTokenStaffAllowEnvSet();
 }
 
