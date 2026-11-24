@@ -2,7 +2,10 @@
 /**
  * Read-only report: site facts typed as literals in page copy instead of `{{variable}}` tokens.
  * Exact matching only — currency values, phone numbers, and percentages (`84` in variables.yml
- * matches `84%` in copy). Never writes YAML.
+ * matches `84%` in copy). Structured price money `{ amount, currency, display? }` is expanded to
+ * display + common spellings (`$999`, `999 USD`, `140€` / `€140`). Status compares currency by
+ * amount+currency so alternate spellings of the same price are not wrong_for_audience.
+ * Never writes YAML.
  *
  *   npx tsx scripts/admin/report-hardcoded-fact-literals.ts site_4geeks-com
  *   npx tsx scripts/admin/report-hardcoded-fact-literals.ts site_4geeks-com --json
@@ -24,6 +27,7 @@ import {
   findLiterals,
   isNonCopyFieldPath,
   literalKinds,
+  sameFactLiteral,
   type LiteralHitStatus,
   type LiteralKind,
 } from "../../server/fact-literals";
@@ -32,6 +36,9 @@ export {
   buildLiteralIndex,
   findLiterals,
   literalKinds,
+  moneyAliases,
+  sameFactLiteral,
+  valueSearchStrings,
   type LiteralHitStatus,
   type LiteralKind,
 } from "../../server/fact-literals";
@@ -161,9 +168,7 @@ export async function reportHardcodedFactLiterals(
               name: n,
               ...audienceValuesFor(n, resolve, audience, effectiveLocale, locationRegions),
             }));
-            const exact = perName.find((p) =>
-              literalKinds(p.literal_ok ?? "", defs[p.name]?.unit, p.name).some((k) => k.literal === hit.literal),
-            );
+            const exact = perName.find((p) => p.literal_ok != null && sameFactLiteral(p.literal_ok, hit.literal));
             const anyFixed = perName.find((p) => p.literal_ok !== null);
             const status: LiteralHitStatus = exact
               ? "token_recommended"

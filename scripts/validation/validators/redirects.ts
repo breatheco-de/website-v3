@@ -42,6 +42,28 @@ function redirectSuggestion(action: string): string {
   return `${base}.${REDIRECTS_SITE_WIDE_REFRESH}`;
 }
 
+/**
+ * REDIRECT_OVERWRITES_CONTENT: a redirect `from` is still a live page.
+ *
+ * Reported as a warning, not an error: the redirect is usually the newer
+ * decision (consolidation / pruning) and the old page was never retired, so
+ * the suggestion points at deleting the page instead of removing the redirect.
+ * Keep `from` as the FIRST quoted path in the message: validationCacheMerge
+ * and RedirectConflictResolver parse it from there.
+ */
+function overwritesContentIssue(args: { from: string; to: string; file: string }): ValidationIssue {
+  const { from, to, file } = args;
+  return {
+    type: "warning",
+    code: "REDIRECT_OVERWRITES_CONTENT",
+    message: `Redirect "${from}" (to "${to}") hides a page that is still live at that URL`,
+    file,
+    suggestion: redirectSuggestion(
+      "Delete the old page so the redirect takes over (its URL keeps redirecting to the new page). Remove the redirect instead only if the old page should stay",
+    ),
+  };
+}
+
 function isRegexPattern(p: string): boolean {
   return /\(.*\)|\[.*\]|\.\*|\.\+|\\d|\\w|\\s|\{\d+[,}]/.test(p);
 }
@@ -158,13 +180,13 @@ export const redirectValidator: Validator = {
         }
 
         if (isLiveContentUrl(normalizedRedirect, ci)) {
-          errors.push({
-            type: "error",
-            code: "REDIRECT_OVERWRITES_CONTENT",
-            message: `Redirect "${normalizedRedirect}" conflicts with an existing content URL`,
-            file: file.filePath,
-            suggestion: redirectSuggestion("Choose a different redirect source URL"),
-          });
+          warnings.push(
+            overwritesContentIssue({
+              from: normalizedRedirect,
+              to: targetUrl,
+              file: file.filePath,
+            }),
+          );
           continue;
         }
 
@@ -203,13 +225,13 @@ export const redirectValidator: Validator = {
       }
 
       if (isLiveContentUrl(normalizedFrom, ci)) {
-        errors.push({
-          type: "error",
-          code: "REDIRECT_OVERWRITES_CONTENT",
-          message: `Custom redirect "${normalizedFrom}" conflicts with an existing content URL`,
-          file: customFile,
-          suggestion: redirectSuggestion("Choose a different redirect source URL"),
-        });
+        warnings.push(
+          overwritesContentIssue({
+            from: normalizedFrom,
+            to: typeof entry.to === "string" ? entry.to : JSON.stringify(entry.to),
+            file: customFile,
+          }),
+        );
         continue;
       }
 

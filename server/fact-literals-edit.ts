@@ -10,9 +10,9 @@ import {
   funnelStageFromData,
   isNonCopyFieldPath,
   isSellingFunnelStage,
-  literalKinds,
   pageProductSlugsFromFunnel,
   rankVariablesByProduct,
+  sameFactLiteral,
   warningMessageForHit,
   type FactLiteralWarning,
   type LiteralHitStatus,
@@ -103,9 +103,7 @@ export function evaluateFactLiteralWarnings(
         name: n,
         ...audienceValuesFor(n, resolve, audience, locale, locationRegionsFromEntry(opts.entryData)),
       }));
-      const exact = perName.find((p) =>
-        literalKinds(p.literal_ok ?? "", defs[p.name]?.unit, p.name).some((k) => k.literal === hit.literal),
-      );
+      const exact = perName.find((p) => p.literal_ok != null && sameFactLiteral(p.literal_ok, hit.literal));
       const anyFixed = perName.find((p) => p.literal_ok !== null);
       const status: LiteralHitStatus = exact
         ? "token_recommended"

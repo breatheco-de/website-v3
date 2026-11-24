@@ -6,6 +6,8 @@ import {
   literalKinds,
   pageProductSlugsFromFunnel,
   rankVariablesByProduct,
+  sameFactLiteral,
+  valueSearchStrings,
 } from "./fact-literals";
 
 describe("literalKinds", () => {
@@ -41,9 +43,31 @@ describe("findLiterals", () => {
   });
 
   it("indexes every conditional value and skips copy / deprecated", () => {
-    expect([...index.keys()].sort()).toEqual(
-      ["$10,999", "$900", "+1 (786) 416-6640", "84%", "€900"].sort(),
-    );
+    expect(index.has("$900")).toBe(true);
+    expect(index.has("€900")).toBe(true);
+    expect(index.has("84%")).toBe(true);
+    expect(index.has("+1 (786) 416-6640")).toBe(true);
+    expect(index.has("$10,999")).toBe(true);
+    expect(index.has("900 USD")).toBe(true);
+    expect(index.has("10999 USD") || index.has("10,999 USD")).toBe(true);
+    expect(index.has("Welcome")).toBe(false);
+    expect(index.has("$1")).toBe(false);
+  });
+
+  it("indexes structured money display values and aliases", () => {
+    const moneyIndex = buildLiteralIndex({
+      "global.ai_fluency_price": {
+        category: "price",
+        default: { amount: 1999, currency: "USD", display: "$1,999" },
+        conditions: [
+          { query: { region: "latam" }, value: { amount: 999, currency: "USD", display: "$999" } },
+        ],
+      },
+    });
+    expect(moneyIndex.has("$1,999")).toBe(true);
+    expect(moneyIndex.has("$999")).toBe(true);
+    expect(moneyIndex.has("1999 USD")).toBe(true);
+    expect(moneyIndex.get("$999")?.names.has("global.ai_fluency_price")).toBe(true);
   });
 
   it("matches whole literals only and ignores tokens", () => {
@@ -56,6 +80,35 @@ describe("findLiterals", () => {
     expect(findLiterals("Call +1 (786) 416-6640", index).map((h) => h.literal)).toEqual([
       "+1 (786) 416-6640",
     ]);
+  });
+});
+
+describe("valueSearchStrings / money objects", () => {
+  it("expands structured money to display plus common spellings", () => {
+    const strings = valueSearchStrings({ amount: 999, currency: "USD", display: "$999" });
+    expect(strings).toContain("$999");
+    expect(strings).toContain("999 USD");
+    expect(strings).toContain("US$999");
+  });
+
+  it("expands EUR aliases so €140 and 140€ both search", () => {
+    const strings = valueSearchStrings({ amount: 140, currency: "EUR", display: "€140" });
+    expect(strings).toContain("€140");
+    expect(strings).toContain("140€");
+    expect(strings).toContain("140 €");
+  });
+});
+
+describe("sameFactLiteral", () => {
+  it("treats alternate currency spellings as the same price", () => {
+    expect(sameFactLiteral("€140", "140€")).toBe(true);
+    expect(sameFactLiteral("$999", "999 USD")).toBe(true);
+    expect(sameFactLiteral("$999", "$1,999")).toBe(false);
+  });
+
+  it("treats bare percent and percent-sign forms as the same", () => {
+    expect(sameFactLiteral("55", "55%")).toBe(true);
+    expect(sameFactLiteral("55%", "55%")).toBe(true);
   });
 });
 
