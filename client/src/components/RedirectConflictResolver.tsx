@@ -245,7 +245,7 @@ function getConflictDescription(info: RedirectConflictInfo): string {
     case "SELF_REDIRECT":
       return "This redirect points back to itself, creating a loop. It should be removed.";
     case "REDIRECT_OVERWRITES_CONTENT":
-      return "This redirect is hiding an existing page. Remove it so visitors can see the page.";
+      return "This redirect points away from a page that is still live. Usually the redirect is the newer decision and the old page should be retired; remove the redirect only if the page should stay.";
     default:
       return "There's an issue with this redirect.";
   }

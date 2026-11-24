@@ -37,6 +37,10 @@ function context(files: ContentFile[]): ValidationContext {
   };
 }
 
+function overwritesIssues(result: Awaited<ReturnType<typeof redirectValidator.run>>) {
+  return [...result.errors, ...result.warnings].filter((e) => e.code === "REDIRECT_OVERWRITES_CONTENT");
+}
+
 describe("redirectValidator REDIRECT_OVERWRITES_CONTENT", () => {
   it("does not flag a folder-derived short path that isKnownUrl rejects", async () => {
     isKnownUrl.mockImplementation(() => false);
@@ -48,7 +52,7 @@ describe("redirectValidator REDIRECT_OVERWRITES_CONTENT", () => {
     });
 
     const result = await redirectValidator.run(context([file]));
-    expect(result.errors.filter((e) => e.code === "REDIRECT_OVERWRITES_CONTENT")).toEqual([]);
+    expect(overwritesIssues(result)).toEqual([]);
   });
 
   it("flags a redirect from a path that isKnownUrl treats as live content", async () => {
@@ -64,9 +68,14 @@ describe("redirectValidator REDIRECT_OVERWRITES_CONTENT", () => {
     });
 
     const result = await redirectValidator.run(context([file]));
-    const overwrites = result.errors.filter((e) => e.code === "REDIRECT_OVERWRITES_CONTENT");
+    // Reported as a warning so agents do not "fix" it by deleting approved redirects.
+    expect(result.errors.filter((e) => e.code === "REDIRECT_OVERWRITES_CONTENT")).toEqual([]);
+    const overwrites = result.warnings.filter((e) => e.code === "REDIRECT_OVERWRITES_CONTENT");
     expect(overwrites).toHaveLength(1);
-    expect(overwrites[0]?.message).toContain("/en/career-programs/cybersecurity");
+    expect(overwrites[0]?.type).toBe("warning");
+    // validationCacheMerge / RedirectConflictResolver read the first quoted path as `from`.
+    expect(overwrites[0]?.message.match(/"(\/[^"]+)"/)?.[1]).toBe("/en/career-programs/cybersecurity");
+    expect(overwrites[0]?.suggestion).toContain("Delete the old page");
   });
 
   it("does not treat locale-home aliases as live content", async () => {
@@ -79,6 +88,6 @@ describe("redirectValidator REDIRECT_OVERWRITES_CONTENT", () => {
     });
 
     const result = await redirectValidator.run(context([file]));
-    expect(result.errors.filter((e) => e.code === "REDIRECT_OVERWRITES_CONTENT")).toEqual([]);
+    expect(overwritesIssues(result)).toEqual([]);
   });
 });

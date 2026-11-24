@@ -77,7 +77,7 @@ export const ASK_AGENT_PROMPT_FIXTURES: Record<AskAgentPromptId, Record<string, 
     redirect_url: "/en/career-programs/cybersecurity",
     source_file: "site_4geeks-com/programs/other/en.yml",
     code: "REDIRECT_OVERWRITES_CONTENT",
-    description: "This redirect is hiding an existing page. Remove it so visitors can see the page.",
+    description: "This redirect points away from a page that is still live. Usually the redirect is the newer decision and the old page should be retired; remove the redirect only if the page should stay.",
     mcp_url: "http://localhost:5000/mcp",
   },
   "resolved-issue-context": {
