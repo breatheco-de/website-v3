@@ -834,9 +834,11 @@ export class DatabaseManager {
       fs.mkdirSync(dir, { recursive: true });
     }
     if (!fs.existsSync(filePath)) {
+      const ext = path.extname(filename).toLowerCase();
+      // Empty auto-create is only safe for JSON/YAML — never write YAML into a .csv.
+      if (ext === ".csv") return null;
       const resultsPath = config.source.local.results_path;
       const payload: unknown = resultsPath ? { [resultsPath]: [] } : [];
-      const ext = path.extname(filename).toLowerCase();
       const body =
         ext === ".json"
           ? JSON.stringify(payload, null, 2) + "\n"

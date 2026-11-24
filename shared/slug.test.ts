@@ -44,6 +44,20 @@ describe("slugifyInput", () => {
     expect(slugifyInput("foo ")).toBe("foo-");
     expect(slugifyInput("-Foo--Bar")).toBe("foo-bar");
   });
+
+  it("keeps one trailing underscore when separator is _", () => {
+    expect(slugifyInput("author ", { separator: "_" })).toBe("author_");
+    expect(slugifyInput("Author Name", { separator: "_" })).toBe("author_name");
+    expect(slugifyInput("first-name", { separator: "_" })).toBe("first_name");
+  });
+});
+
+describe("slugify with separator _", () => {
+  it("joins words with underscores and trims edges", () => {
+    expect(slugify("Author Name", { separator: "_" })).toBe("author_name");
+    expect(slugify("  first-name  ", { separator: "_" })).toBe("first_name");
+    expect(slugify("___", { separator: "_" })).toBe("");
+  });
 });
 
 describe("slugKey / isSlug", () => {

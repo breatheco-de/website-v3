@@ -1507,7 +1507,7 @@ export function registerContentRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/content-types", (req, res) => {
+  app.post("/api/content-types", async (req, res) => {
     try {
       const { name, directory, url_pattern } = req.body;
       if (!name || typeof name !== "string") {
