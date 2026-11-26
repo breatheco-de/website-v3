@@ -282,6 +282,14 @@ const REGISTRY = [
       "Read diagnostics, runtime issues, component insights, error log, conversions, and tracking. Does not allow running jobs or changing settings.",
   },
   {
+    name: "errors_manage",
+    label: "Manage error log",
+    scoped: false,
+    scopeKind: "none" as const,
+    description:
+      "Ignore or unignore process Error Log noise and clear matching rows. Does not edit content or SEO.",
+  },
+  {
     name: "sites_manage",
     label: "Manage sites registry",
     scoped: false,

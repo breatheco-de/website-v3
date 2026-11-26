@@ -87,7 +87,7 @@ Logs are quiet by default. For full engine output: `DEBUG=true npm run dev` or `
 
 **Production:** pin the engine and start with `npx caxton-cms@<version> --production` (requires `SITE_URL`). See **[Migrating from npm run build](docs/migrate-to-npx-caxton.md)**.
 
-**Agentic (dev):** the CLI can mint a localhost MCP connection token (Cursor / Claude Code) or open a Cloudflare tunnel for cloud connectors. Use `--agentic-installation` / `--agent local|cloud`.
+**Agentic (dev):** the CLI can mint a localhost MCP connection token (Cursor / Claude Code) or open a Cloudflare tunnel for cloud connectors. Use `--agentic-installation` / `--agent local|cloud`. Connection tokens are local-only — see [docs/local-connection-token.md](docs/local-connection-token.md).
 
 Full setup, every environment variable, and production notes: **[INSTALL.md](INSTALL.md)**
 

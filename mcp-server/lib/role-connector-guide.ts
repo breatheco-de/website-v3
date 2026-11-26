@@ -7,6 +7,7 @@ import {
   ROLE_CONNECTOR_UI_HINT,
   isMcpMutatingTool,
 } from "../../shared/agent-identity.js";
+import { isConnectionTokenBootstrapUsername } from "@shared/connection-token-owner";
 import { fetchMcpAccess, fetchRoleInfo } from "./auth.js";
 import { getTokenUsername } from "./oauth.js";
 import { actionRequired, type McpTextResult } from "./respond.js";
@@ -213,7 +214,7 @@ export async function buildRoleConnectorGuide(
   opts?: { tool?: string; publicBase?: string },
 ): Promise<RoleConnectorGuide> {
   const entries =
-    username && username !== "weblify-local"
+    username && !isConnectionTokenBootstrapUsername(username)
       ? await buildRoleConnectorEntries(username, opts?.publicBase)
       : [];
   return roleConnectorGuideFromEntries(entries, { tool: opts?.tool });
@@ -237,7 +238,7 @@ export async function buildConnectorTeachFields(opts: {
   });
   const username = opts.mcpToken ? getTokenUsername(opts.mcpToken) : null;
   let mcpWriteEnabled = true;
-  if (username && username !== "weblify-local") {
+  if (username && !isConnectionTokenBootstrapUsername(username)) {
     const access = await fetchMcpAccess(username);
     mcpWriteEnabled = access.mcpWriteEnabled;
   }
@@ -303,7 +304,7 @@ export async function denyMcpWriteDisabledMutate(
   if (PROPOSE_ONLY_MUTATING_TOOLS.has(toolName)) return null;
   if (!mcpToken) return null;
   const username = getTokenUsername(mcpToken);
-  if (!username || username === "weblify-local") return null;
+  if (!username || isConnectionTokenBootstrapUsername(username)) return null;
   const access = await fetchMcpAccess(username);
   if (access.mcpWriteEnabled) return null;
   const guide = mcpWriteDisabledGuide();

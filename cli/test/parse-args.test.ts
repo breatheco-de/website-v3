@@ -38,6 +38,12 @@ describe("parseArgs", () => {
     expect(f.agent).toBe("cloud");
   });
 
+  it("parses token --user", () => {
+    const f = parseArgs(["token", "--user", "dev-alice"]);
+    expect(f.command).toBe("token");
+    expect(f.user).toBe("dev-alice");
+  });
+
   it("parses --debug and sets WEBLIFY_DEBUG", () => {
     const f = parseArgs(["--debug"]);
     expect(f.debug).toBe(true);

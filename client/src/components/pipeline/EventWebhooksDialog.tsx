@@ -154,6 +154,20 @@ function hostOf(url: string): string {
   }
 }
 
+/** Match hook id, hostname, or any substring of the full URL (path/query included). */
+function hookMatchesSearch(hook: EventWebhookHook, q: string): boolean {
+  if (!q) return true;
+  if (hook.id.toLowerCase().includes(q)) return true;
+  const url = (hook.url ?? "").trim();
+  if (!url) return false;
+  if (url.toLowerCase().includes(q)) return true;
+  try {
+    return new URL(url).host.toLowerCase().includes(q);
+  } catch {
+    return false;
+  }
+}
+
 const DEFAULT_DEBOUNCE_MS = 30_000;
 const DEFAULT_MAX_WAIT_MS = 60_000;
 const DEFAULT_MAX_EVENTS = 50;
@@ -497,16 +511,14 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
   const pending = summaryQuery.data?.pending ?? {};
   const siteKey = summaryQuery.data?.site ?? "";
   const eventTypes = useMemo(() => [...allowlist], [allowlist]);
+  const searchQuery = typeSearch.trim().toLowerCase();
   const visibleEventTypes = useMemo(() => {
-    const q = typeSearch.trim().toLowerCase();
-    if (!q) return eventTypes;
+    if (!searchQuery) return eventTypes;
     return eventTypes.filter((eventType) => {
-      if (eventType.toLowerCase().includes(q)) return true;
-      return (config.subscriptions[eventType] ?? []).some(
-        (h) => h.id.toLowerCase().includes(q) || (h.url ? hostOf(h.url).toLowerCase().includes(q) : false),
-      );
+      if (eventType.toLowerCase().includes(searchQuery)) return true;
+      return (config.subscriptions[eventType] ?? []).some((h) => hookMatchesSearch(h, searchQuery));
     });
-  }, [eventTypes, typeSearch, config]);
+  }, [eventTypes, searchQuery, config]);
   const filtersDialogOpen = editing?.mode === "filters";
 
   const proposersQuery = useQuery({
@@ -961,9 +973,9 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                         type="search"
                         value={typeSearch}
                         onChange={(e) => setTypeSearch(e.target.value)}
-                        placeholder="Search events or hooks…"
-                        aria-label="Search events or hooks"
-                        className="h-8 w-56 pl-8 text-xs"
+                        placeholder="Search events, hooks, or URLs…"
+                        aria-label="Search events, hooks, or URLs"
+                        className="h-8 w-64 pl-8 text-xs"
                         data-testid="input-search-event-webhooks"
                       />
                     </div>
@@ -995,13 +1007,22 @@ export function EventWebhooksPanel({ tab }: { tab: "hooks" | "logs" }) {
                     </p>
                   ) : null}
                   {visibleEventTypes.map((eventType) => {
-                    const hooks = config.subscriptions[eventType] ?? [];
-                    const expanded = expandedTypes.has(eventType);
+                    const allHooks = config.subscriptions[eventType] ?? [];
+                    const typeNameMatches =
+                      !searchQuery || eventType.toLowerCase().includes(searchQuery);
+                    const hooks = typeNameMatches
+                      ? allHooks
+                      : allHooks.filter((h) => hookMatchesSearch(h, searchQuery));
+                    // Auto-expand when searching so URL/id matches are visible without an extra click.
+                    const expanded = Boolean(searchQuery) || expandedTypes.has(eventType);
                     return (
                       <Collapsible
                         key={eventType}
                         open={expanded}
-                        onOpenChange={(open) => setTypeExpanded(eventType, open)}
+                        onOpenChange={(open) => {
+                          if (searchQuery) return;
+                          setTypeExpanded(eventType, open);
+                        }}
                         className="rounded-md border border-border p-3"
                         data-testid={`event-type-${eventType}`}
                       >

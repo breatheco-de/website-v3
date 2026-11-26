@@ -54,7 +54,7 @@ You pick an agent first; then Caxton prints **only** that agent’s instructions
 
 After the agent successfully connects (first MCP `initialize`), Caxton prints a tip to start chatting (e.g. “Help me configure my site”).
 
-Mint or rotate the connection token anytime with `npx caxton-cms token` (from the project folder, with Caxton stopped). The same token unlocks staff sign-in in the Debug bubble and MCP auth.
+Mint or rotate the connection token anytime with `npx caxton-cms token` (or `token --user <name>`; from the project folder, with Caxton stopped). You choose a **local bootstrap username** (stored in `.local/connection-owner`). The same token unlocks staff sign-in in the Debug bubble and MCP auth as that user. **Never use in production** — see [docs/local-connection-token.md](../docs/local-connection-token.md).
 
 New projects default to `PORT=5050` (macOS AirPlay often owns `:5000`). Always open `http://127.0.0.1:<port>` — not `localhost` — when testing on a Mac.
 

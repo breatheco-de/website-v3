@@ -118,7 +118,8 @@ When you run `npx caxton-cms` (or a globally linked `caxton-cms`), the **engine*
 |---|---|---|---|---|---|
 | `WEBLIFY_PROJECT_ROOT` | No | `process.cwd()` | Absolute path to the site project (`sites.yml`, `site_*`, `.env`, `data/`, `.cache/`, `.local/`). Set in the **shell** when the site is not your current directory, e.g. `WEBLIFY_PROJECT_ROOT=/path/to/my-site npx caxton-cms`. The CLI loads `.env` from this directory, so putting the var only inside that `.env` cannot retarget create/resume from elsewhere. | `npx caxton-cms` / linked CLI against a non-cwd site | Site folder with `sites.yml` (or empty folder to create) |
 | `WEBLIFY_PACKAGE_ROOT` | No | Directory of the installed Caxton package | Absolute path to the engine (server, client, shared, `dist/`). Rare override for unusual installs. | Force engine path when package resolution is wrong | Built/installable Caxton tree |
-| `WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF` | No | unset (off) | When GitHub App + public `SITE_URL` are configured, connection tokens no longer unlock the Debug bubble as staff. Set to `1` to allow that path again (recovery / bootstrap). | Staff login via Caxton connection token | Connection token from CLI |
+| `WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF` | No | unset (off) | **Dev only.** When GitHub staff login is available, set to `1` to allow connection-token staff paste again on a non-production machine. **Ignored in production**; if set while `NODE_ENV`/`WEBLIFY_MODE`/`--production` is production, the process **refuses to start**. See [docs/local-connection-token.md](docs/local-connection-token.md). | Local connection-token staff login | `npx caxton-cms token --user <name>` |
+| `WEBLIFY_CONNECTION_OWNER` | No | `.local/connection-owner` | Local bootstrap username for the connection token (same as the file written by `caxton-cms token`). | Connection-token staff/MCP identity | [docs/local-connection-token.md](docs/local-connection-token.md) |
 
 ### API Integrations
 

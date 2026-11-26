@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { AlertTriangle, Check, Loader2, Plus, Search, X } from "lucide-react";
 import {
   Dialog,
@@ -65,6 +65,14 @@ export function SingleVariablePickerModal({
   const [addingSaving, setAddingSaving] = useState(false);
   const [sourceDropdownOpen, setSourceDropdownOpen] = useState(false);
   const [newFieldUnique, setNewFieldUnique] = useState(false);
+  const [createFallback, setCreateFallback] = useState(inlineDefault);
+  const [askForFallback, setAskForFallback] = useState(!inlineDefault.trim());
+
+  useEffect(() => {
+    if (!open) return;
+    setCreateFallback(inlineDefault);
+    setAskForFallback(!inlineDefault.trim());
+  }, [open, inlineDefault]);
 
   const { data: typeConfig, refetch: refetchConfig } = useQuery<{
     name: string;
@@ -155,9 +163,13 @@ export function SingleVariablePickerModal({
     ? fields.find((f) => f.key === selectedField) ?? null
     : null;
 
+  const createFallbackReady = createFallback.trim().length > 0;
+
   const handleUseField = () => {
     if (!selectedField) return;
-    const templateSyntax = formatEntryTemplateExpr(selectedField, inlineDefault);
+    const fallback = createFallback.trim();
+    if (!fallback) return;
+    const templateSyntax = formatEntryTemplateExpr(selectedField, fallback);
     onCreated(formatEntryVarName(selectedField), templateSyntax);
     setSelectedField(null);
     setSearch("");
@@ -173,6 +185,8 @@ export function SingleVariablePickerModal({
       setNewFieldName("");
       setNewFieldSource("");
       setNewFieldUnique(false);
+      setCreateFallback(inlineDefault);
+      setAskForFallback(!inlineDefault.trim());
     }
     onOpenChange(o);
   };
@@ -485,13 +499,35 @@ export function SingleVariablePickerModal({
             </div>
           )}
 
+          {askForFallback && (
+            <div className="space-y-1">
+              <label
+                htmlFor="single-fallback-input"
+                className="text-sm font-medium text-foreground"
+              >
+                Fallback value
+              </label>
+              <Input
+                id="single-fallback-input"
+                value={createFallback}
+                onChange={(e) => setCreateFallback(e.target.value)}
+                placeholder="Text shown when the field has no value"
+                data-testid="input-single-fallback"
+              />
+              <p className="text-xs text-muted-foreground">
+                Used as the{" "}
+                <span className="font-mono">| fallback</span> in the template.
+              </p>
+            </div>
+          )}
+
           {selectedField && (
             <div className="space-y-1">
               <label className="text-sm font-medium text-foreground">
                 Preview
               </label>
               <div className="px-3 py-2 rounded-md bg-muted font-mono text-sm" data-testid="text-single-preview">
-                {"{{ "}entry.{selectedField}{" | "}{inlineDefault}{" }}"}
+                {"{{ "}entry.{selectedField}{" | "}{createFallback}{" }}"}
               </div>
               {selectedOption?.isObject && (
                 <p className="text-[11px] text-muted-foreground" data-testid="text-object-field-hint">
@@ -511,7 +547,7 @@ export function SingleVariablePickerModal({
             </Button>
             <Button
               onClick={handleUseField}
-              disabled={!selectedField}
+              disabled={!selectedField || !createFallbackReady}
               data-testid="button-single-use-field"
             >
               Use Field

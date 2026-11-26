@@ -65,6 +65,7 @@ const ENTRY_SOURCE_ALLOWLIST: Record<string, Allowed> = {
   "server/content-proposals/evidence-sources.ts": { count: 1, reason: "proposal review reads evidence database rows as proof (not entry resolution)" },
   "server/entry-ref.ts": { count: 2, reason: "slug resolver: database pages resolve through their language group (findEntryPresence)" },
   "server/workshops-ago-migration.ts": { count: 1, reason: "migration 013 only runs where the workshop type is linked to the workshops database (config check)" },
+  "server/page-slug-identity.ts": { count: 1, reason: "slug-move detect: finds content types linked to a database that declare _slug (config check, not entry resolution)" },
 };
 
 describe("entry source guard", () => {

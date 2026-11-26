@@ -341,6 +341,10 @@ export function VariableDetailModal({
   const [inspectVarName, setInspectVarName] = useState("");
   const [varComboboxOpen, setVarComboboxOpen] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  /** Pipe/default fallback for create mode; seeded from selection when present. */
+  const [createFallback, setCreateFallback] = useState(inlineDefault);
+  /** True when open without a selection-derived default — staff must type one. */
+  const [askForFallback, setAskForFallback] = useState(!inlineDefault.trim());
 
   const [addingCondition, setAddingCondition] = useState(false);
   const [editingConditionIndex, setEditingConditionIndex] = useState<number | null>(null);
@@ -360,6 +364,8 @@ export function VariableDetailModal({
       setExistingVarName("");
       setInspectVarName("");
       setNameAvailable(null);
+      setCreateFallback(inlineDefault);
+      setAskForFallback(!inlineDefault.trim());
       if (nameCheckTimerRef.current) clearTimeout(nameCheckTimerRef.current);
     } else if (mode === "inspect" && open) {
       setInspectVarName("");
@@ -369,7 +375,7 @@ export function VariableDetailModal({
     setEditingDefault(false);
     setRenameTo("");
     setRenameAvailable(null);
-  }, [mode, open]);
+  }, [mode, open, inlineDefault]);
 
   const effectiveVarName =
     currentMode === "create"
@@ -568,6 +574,15 @@ export function VariableDetailModal({
       });
       return;
     }
+    const fallback = createFallback.trim();
+    if (!fallback) {
+      toast({
+        title: "Fallback required",
+        description: "Enter the default text used when this variable has no match.",
+        variant: "destructive",
+      });
+      return;
+    }
     const fullName = baseName.startsWith("global.") ? baseName : `global.${baseName}`;
     if (definitions?.[fullName]) {
       toast({
@@ -590,11 +605,11 @@ export function VariableDetailModal({
     try {
       await variableWrite("PUT", `/api/variables/${fullName}`, {
         action: "set_default",
-        value: inlineDefault,
+        value: fallback,
         metadata: metadataDraftToBody(createMeta),
       });
       await invalidateAndRefetch();
-      const templateSyntax = `{{ ${fullName} | ${inlineDefault} }}`;
+      const templateSyntax = `{{ ${fullName} | ${fallback} }}`;
       toast({
         title: "Variable created",
         description: `"${fullName}" is ready to use.`,
@@ -622,7 +637,16 @@ export function VariableDetailModal({
       });
       return;
     }
-    const templateSyntax = `{{ ${existingVarName} | ${inlineDefault} }}`;
+    const fallback = createFallback.trim();
+    if (!fallback) {
+      toast({
+        title: "Fallback required",
+        description: "Enter the default text used when this variable has no match.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const templateSyntax = `{{ ${existingVarName} | ${fallback} }}`;
     toast({
       title: "Variable linked",
       description: `Text will use "{{ ${existingVarName} }}".`,
@@ -652,16 +676,18 @@ export function VariableDetailModal({
 
   const resolvedCreateValue = (() => {
     if (createSubMode === "existing") {
-      if (!existingVarName || !definitions?.[existingVarName]) return inlineDefault;
+      if (!existingVarName || !definitions?.[existingVarName]) return createFallback;
       const res = resolveVariable(existingVarName, definitions, varContext);
-      return res?.value || inlineDefault || existingVarName;
+      return res?.value || createFallback || existingVarName;
     }
     const baseName = createName.trim().replace(/\s+/g, "_").toLowerCase();
     const fullName = baseName.startsWith("global.") ? baseName : `global.${baseName}`;
-    if (!fullName || !definitions?.[fullName]) return inlineDefault;
+    if (!fullName || !definitions?.[fullName]) return createFallback;
     const res = resolveVariable(fullName, definitions, varContext);
-    return res?.value || inlineDefault || fullName;
+    return res?.value || createFallback || fullName;
   })();
+
+  const createFallbackReady = createFallback.trim().length > 0;
 
   const { data: usageData, isLoading: usageLoading } = useQuery<{ variable: string; files: string[] }>({
     queryKey: ["/api/variables", effectiveVarName, "usage"],
@@ -752,7 +778,9 @@ export function VariableDetailModal({
             <DialogHeader>
               <DialogTitle>Convert to Variable</DialogTitle>
               <DialogDescription>
-                Replace the selected text with a variable template.
+                {askForFallback
+                  ? "Choose or create a variable and set its fallback value."
+                  : "Replace the selected text with a variable template."}
               </DialogDescription>
             </DialogHeader>
 
@@ -919,26 +947,62 @@ export function VariableDetailModal({
                 </div>
               )}
 
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">
-                  Based on your current session in{" "}
-                  <span className="font-medium text-foreground">
-                    {varContext.locale || "en"}
-                  </span>
-                  ,{" "}
-                  <span className="font-medium text-foreground">
-                    {varContext.region || "unknown"}
-                  </span>{" "}
-                  and location{" "}
-                  <span className="font-medium text-foreground">
-                    {varContext.location || "unknown"}
-                  </span>
-                  , the value of this variable will be:
-                </p>
-                <div className="px-3 py-2 rounded-md bg-muted text-sm font-medium">
-                  "{resolvedCreateValue}"
+              {askForFallback ? (
+                <div className="space-y-1">
+                  <label
+                    htmlFor="var-fallback-input"
+                    className="text-sm font-medium text-foreground"
+                  >
+                    Fallback value
+                  </label>
+                  <Input
+                    id="var-fallback-input"
+                    value={createFallback}
+                    onChange={(e) => setCreateFallback(e.target.value)}
+                    placeholder="Text shown when the variable has no match"
+                    data-testid="input-create-fallback"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Used as the variable default and as the{" "}
+                    <span className="font-mono">| fallback</span> in the
+                    template.
+                  </p>
+                  {createSubMode === "existing" &&
+                    existingVarName &&
+                    definitions?.[existingVarName] && (
+                      <p className="text-xs text-muted-foreground pt-1">
+                        For your current session (
+                        {varContext.locale || "en"},{" "}
+                        {varContext.region || "unknown"},{" "}
+                        {varContext.location || "unknown"}), this resolves to:{" "}
+                        <span className="font-medium text-foreground">
+                          "{resolvedCreateValue}"
+                        </span>
+                      </p>
+                    )}
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">
+                    Based on your current session in{" "}
+                    <span className="font-medium text-foreground">
+                      {varContext.locale || "en"}
+                    </span>
+                    ,{" "}
+                    <span className="font-medium text-foreground">
+                      {varContext.region || "unknown"}
+                    </span>{" "}
+                    and location{" "}
+                    <span className="font-medium text-foreground">
+                      {varContext.location || "unknown"}
+                    </span>
+                    , the value of this variable will be:
+                  </p>
+                  <div className="px-3 py-2 rounded-md bg-muted text-sm font-medium">
+                    "{resolvedCreateValue}"
+                  </div>
+                </div>
+              )}
 
               {((createSubMode === "new" && createName.trim()) ||
                 (createSubMode === "existing" && existingVarName)) && (
@@ -952,7 +1016,7 @@ export function VariableDetailModal({
                       ? (() => { const n = createName.trim().replace(/\s+/g, "_").toLowerCase(); return n.startsWith("global.") ? n : `global.${n}`; })()
                       : existingVarName}
                     {" | "}
-                    {inlineDefault}
+                    {createFallback}
                     {" }}"}
                   </div>
                 </div>
@@ -973,7 +1037,8 @@ export function VariableDetailModal({
                       createSaving ||
                       !createName.trim() ||
                       nameAvailable === false ||
-                      !metadataDraftReady(createMeta)
+                      !metadataDraftReady(createMeta) ||
+                      !createFallbackReady
                     }
                     data-testid="button-confirm-create"
                   >
@@ -982,7 +1047,7 @@ export function VariableDetailModal({
                 ) : (
                   <Button
                     onClick={handleUseExisting}
-                    disabled={!existingVarName}
+                    disabled={!existingVarName || !createFallbackReady}
                     data-testid="button-confirm-use-existing"
                   >
                     Use Variable

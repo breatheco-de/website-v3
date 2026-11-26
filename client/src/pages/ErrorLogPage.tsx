@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import {
   IconAlertTriangle,
@@ -15,6 +15,7 @@ import {
   IconArrowsSort,
   IconCloudDownload,
   IconLoader2,
+  IconEyeOff,
 } from "@tabler/icons-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,9 +30,17 @@ import {
 } from "@/components/ui/table";
 import { MetricsAccessGate } from "@/components/MetricsAccessGate";
 import { ServerSectionHeader } from "@/components/process-stats/ServerSectionHeader";
+import { ErrorLogIgnoreConfirmDialog } from "@/components/diagnostics/ErrorLogIgnoreConfirmDialog";
+import { ErrorLogIgnoreRulesDialog } from "@/components/diagnostics/ErrorLogIgnoreRulesDialog";
+import { useDebugAuth } from "@/hooks/useDebugAuth";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch, apiRequestWithAuth } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import type {
+  ErrorLogIgnoreCandidate,
+  ErrorLogIgnoreRule,
+  ErrorLogIgnoreRuleInput,
+} from "@shared/error-log-ignore";
 import {
   nextErrorLogSort,
   parseErrorLogSort,
@@ -89,6 +98,7 @@ interface ErrorLogResponse {
   uniqueIssues: UniqueIssue[];
   topIssue: string | null;
   recent: ErrorLogEntry[];
+  ignored?: ErrorLogIgnoreRule[];
 }
 
 function formatTs(ts: number) {
@@ -314,7 +324,19 @@ function SortableHead({
   );
 }
 
-export function ErrorLogIssueTable({ issues, bare = false }: { issues: UniqueIssue[]; bare?: boolean }) {
+export function ErrorLogIssueTable({
+  issues,
+  bare = false,
+  canIgnore = false,
+  ignorePending = false,
+  onIgnore,
+}: {
+  issues: UniqueIssue[];
+  bare?: boolean;
+  canIgnore?: boolean;
+  ignorePending?: boolean;
+  onIgnore?: (issue: UniqueIssue) => void;
+}) {
   const [openIssue, setOpenIssue] = useState<string | null>(null);
   const [pathname, setLocation] = useLocation();
   const searchString = useSearch();
@@ -329,6 +351,7 @@ export function ErrorLogIssueTable({ issues, bare = false }: { issues: UniqueIss
   );
   const sortedIssues = useMemo(() => sortErrorLogIssues(issues, sort), [issues, sort]);
   if (issues.length === 0) return null;
+  const colSpan = canIgnore ? 7 : 6;
   const table = (
         <Table>
           <TableHeader>
@@ -339,6 +362,7 @@ export function ErrorLogIssueTable({ issues, bare = false }: { issues: UniqueIss
               <TableHead>Message</TableHead>
               <SortableHead col="count" label="Count" sort={sort} onSort={handleSort} className="text-right w-24" align="right" />
               <SortableHead col="lastSeen" label="Last seen" sort={sort} onSort={handleSort} className="w-40" />
+              {canIgnore ? <TableHead className="w-24 text-right">Actions</TableHead> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -374,10 +398,26 @@ export function ErrorLogIssueTable({ issues, bare = false }: { issues: UniqueIss
                     <TableCell className="font-mono text-xs text-muted-foreground whitespace-nowrap">
                       {formatTs(row.lastTs)}
                     </TableCell>
+                    {canIgnore ? (
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7"
+                          disabled={ignorePending || !onIgnore}
+                          onClick={() => onIgnore?.(row)}
+                          data-testid={`button-ignore-issue-${idx}`}
+                        >
+                          <IconEyeOff className="h-3.5 w-3.5 mr-1" />
+                          Ignore
+                        </Button>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                   {open && (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={6} className="bg-muted/40 p-4">
+                      <TableCell colSpan={colSpan} className="bg-muted/40 p-4">
                         <ErrorLogDetail id={row.lastId} count={row.count} sampleTs={row.sampleTs} />
                       </TableCell>
                     </TableRow>
@@ -428,9 +468,14 @@ function productionErrorLogFilename(productionOrigin: string | undefined): strin
 
 function ErrorLogPageInner() {
   const { toast } = useToast();
+  const { hasCapability } = useDebugAuth();
+  const queryClient = useQueryClient();
+  const canIgnore = hasCapability("errors_manage");
   const [levelFilter, setLevelFilter] = useState<LevelFilter>("all");
   const [openEventId, setOpenEventId] = useState<number | null>(null);
   const [downloadingProduction, setDownloadingProduction] = useState(false);
+  const [ignoreRulesOpen, setIgnoreRulesOpen] = useState(false);
+  const [ignoreCandidate, setIgnoreCandidate] = useState<ErrorLogIgnoreCandidate | null>(null);
 
   const downloadProduction = async () => {
     if (!import.meta.env.DEV) return;
@@ -474,6 +519,83 @@ function ErrorLogPageInner() {
     refetchInterval: 30000,
   });
 
+  const ignored = data?.ignored ?? [];
+
+  const ignoreMutation = useMutation({
+    mutationFn: async (rule: ErrorLogIgnoreRuleInput) => {
+      const res = await apiFetch("/api/admin/error-log/ignore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rule }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to ignore");
+      return body as { ignored: ErrorLogIgnoreRule[]; added: number; removed: number };
+    },
+    onSuccess: (body) => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/error-log"] });
+      setIgnoreCandidate(null);
+      toast({
+        title: "Ignore rule saved",
+        description:
+          body.removed > 0
+            ? `${body.removed} matching row${body.removed === 1 ? "" : "s"} removed from the log.`
+            : "Future matches will not be stored. No matching rows were in the log.",
+      });
+    },
+    onError: (err) => {
+      toast({
+        title: "Ignore failed",
+        description: err instanceof Error ? err.message : "Failed to ignore",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const unignoreMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiFetch("/api/admin/error-log/unignore", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Failed to unignore");
+      return body as { ignored: ErrorLogIgnoreRule[] };
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/admin/error-log"] });
+      toast({ title: "Ignore rule removed" });
+    },
+    onError: (err) => {
+      toast({
+        title: "Unignore failed",
+        description: err instanceof Error ? err.message : "Failed to unignore",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const startIgnore = async (issue: UniqueIssue) => {
+    let context: Record<string, unknown> | null = null;
+    try {
+      const res = await apiFetch(`/api/admin/error-log/${issue.lastId}`);
+      if (res.ok) {
+        const detail = (await res.json()) as ErrorLogEntryDetail;
+        context = detail.context;
+      }
+    } catch {
+      /* use issue fields only */
+    }
+    setIgnoreCandidate({
+      level: issue.level,
+      module: issue.module,
+      message: issue.message,
+      errName: issue.err_name,
+      context,
+    });
+  };
+
   const topIssueModule = data?.uniqueIssues?.[0]?.module ?? "—";
 
   return (
@@ -485,6 +607,17 @@ function ErrorLogPageInner() {
       />
       <div className="flex flex-wrap items-center justify-end gap-3">
         <div className="flex flex-wrap gap-2">
+          {canIgnore ? (
+            <Button
+              variant="outline"
+              size="default"
+              onClick={() => setIgnoreRulesOpen(true)}
+              data-testid="button-error-log-ignore-rules"
+            >
+              <IconEyeOff className="w-4 h-4 mr-2" />
+              Ignore rules{ignored.length ? ` (${ignored.length})` : ""}
+            </Button>
+          ) : null}
           {import.meta.env.DEV ? (
             <Button
               variant="outline"
@@ -526,16 +659,24 @@ function ErrorLogPageInner() {
             Repeated warnings are rate-limited when stored so totals stay usable.
             The DebugBubble badge counts <strong className="text-foreground font-medium">errors only</strong>.
           </p>
+          <p>
+            <strong className="text-foreground font-medium">Ignore</strong> is a hand-reviewed decision: it stops
+            future matching rows from being stored and removes matching rows already listed. Only staff with
+            Manage error log can ignore.
+          </p>
           <details className="text-xs">
             <summary className="cursor-pointer text-foreground/80 hover:text-foreground">
               Read more (advanced)
             </summary>
             <ul className="mt-2 list-disc pl-4 space-y-1 font-mono">
-              <li>server/db.ts — SQLite warn sink rate-limit</li>
+              <li>errors_manage — capability for Ignore / Unignore</li>
+              <li>data/error-log-ignore.json — local ignore rules</li>
+              <li>multisite-global/error-log-ignore.json — production GCS (prod only uploads)</li>
+              <li>server/db.ts — SQLite warn sink rate-limit + ignore filter</li>
               <li>server/logger.ts — DbLogStream (warn+)</li>
-              <li>server/utils/error-log-fingerprint.ts — message normalize</li>
+              <li>shared/error-log-fingerprint.ts — message normalize</li>
               <li>server/utils/error-log-context.ts — what is saved in Context, sensitive keys redacted, 4 KB cap</li>
-              <li>server/routes/admin.ts — GET /api/admin/error-log, GET /api/admin/error-log/:id</li>
+              <li>server/routes/admin.ts — GET /api/admin/error-log, ignore / unignore / preview-ignore</li>
               <li>server/routes/admin.ts — GET /api/admin/error-log/export (full 48h dump incl. stack + context)</li>
               <li>
                 server/error-log/pull-production.ts — POST /api/admin/error-log/pull-production (dev only:
@@ -600,7 +741,31 @@ function ErrorLogPageInner() {
         </Card>
       </div>
 
-      <ErrorLogIssueTable issues={data?.uniqueIssues ?? []} />
+      <ErrorLogIssueTable
+        issues={data?.uniqueIssues ?? []}
+        canIgnore={canIgnore}
+        ignorePending={ignoreMutation.isPending}
+        onIgnore={(issue) => void startIgnore(issue)}
+      />
+
+      <ErrorLogIgnoreConfirmDialog
+        open={!!ignoreCandidate}
+        onOpenChange={(open) => {
+          if (!open) setIgnoreCandidate(null);
+        }}
+        candidate={ignoreCandidate}
+        pending={ignoreMutation.isPending}
+        onConfirm={(rule) => ignoreMutation.mutate(rule)}
+      />
+
+      <ErrorLogIgnoreRulesDialog
+        open={ignoreRulesOpen}
+        onOpenChange={setIgnoreRulesOpen}
+        ignored={ignored}
+        canRemove={canIgnore}
+        unignorePending={unignoreMutation.isPending}
+        onRemove={(id) => unignoreMutation.mutate(id)}
+      />
 
       <Card data-testid="card-recent-events">
         <CardHeader className="pb-3">

@@ -50,9 +50,8 @@ const SLUG_PATH_JOIN_ALLOWLIST: Record<string, number> = {
 
 /** Identifier kinds that are not page slugs keep their own helpers. */
 const OTHER_IDENTIFIER_SLUGIFIERS = new Set([
-  "client/src/pages/SecurityPage.tsx", // role IDs (underscore)
+  "client/src/pages/SecurityPage.tsx", // role IDs (underscore + leading letter)
   "shared/consent-settings.ts", // consent keys
-  "client/src/pages/PrivateDatabases.tsx", // database names (underscore)
   "server/gsc-organic-markets.ts", // market IDs
   "client/src/components/article/variants/ArticleDefault.tsx", // heading anchors
   "client/src/components/theme/ThemeBackgroundUsage.tsx", // theme color IDs

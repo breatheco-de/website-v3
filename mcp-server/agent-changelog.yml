@@ -17,6 +17,43 @@ entries:
       - server/schema-components/schema_org.ts
       - server/schema-components/index.ts
       - shared/component-registry/schema_org/v1.0/schema.yml
+  - date: "2026-11-24"
+    summary: "Connection-token bootstrap uses chosen local owner (not weblify-local)"
+    agent_impact:
+      - "Local connection-token OAuth/staff paste signs in as the username from `.local/connection-owner` (set via `npx caxton-cms token --user <name>`). Hardcoded weblify-local is gone."
+      - "Production never accepts connection-token staff auth; WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF is ignored and fails boot if set. Role-connector / MCP-write guides skip the bootstrap owner the same way as before."
+      - "Stress N/A (auth identity only). See docs/local-connection-token.md. Reconnect MCP after pull if connectors cache the old username."
+    tools_changed: false
+    paths:
+      - docs/local-connection-token.md
+      - shared/connection-token-owner.ts
+      - server/weblify-connection-token.ts
+      - mcp-server/index.ts
+      - mcp-server/lib/role-connector-guide.ts
+  - date: "2026-11-20"
+    summary: "News/press page slug from link_url; confirm before moving"
+    agent_impact:
+      - "press_mentions no longer stores slug; news `_slug` is computed from link_url (host+path). Empty URL → no news page; duplicate slug+locale keeps higher priority."
+      - "update_database_item: changing a field that moves a derived page URL returns action_required confirm_page_slug_change (old/new paths). Retry with confirm_page_slug_change:true only after the human agrees — no redirect is created."
+      - "Stress: skip (mutate confirm gate + staff slug-check HTTP). Refresh MCP tools/list after reconnect."
+    tools_changed: true
+    paths:
+      - mcp-server/tools/databases.ts
+      - mcp-server/explain/local_databases.md
+      - server/page-slug-identity.ts
+      - server/entry-layer.ts
+  - date: "2026-11-20"
+    summary: "Platform Ops: Error Log view + errors_manage ignore rules"
+    agent_impact:
+      - "Built-in platform_ops now includes metrics_view and errors_manage. Staff Error Log Ignore/Unignore is UI-only (no new MCP tools); Platform Steward does not get errors_manage by default."
+      - "Ignore rules are global JSON (data/error-log-ignore.json; production GCS multisite-global/error-log-ignore.json). Matching rows stop at ingest after hydrate; Ignore also deletes matching SQLite rows. Stress N/A."
+    tools_changed: false
+    paths:
+      - shared/capabilities.ts
+      - server/user-store.ts
+      - shared/error-log-ignore.ts
+      - server/error-log-ignore-store.ts
+      - client/src/pages/ErrorLogPage.tsx
   - date: "2026-11-20"
     summary: "Staff form location: Save asks this form vs whole page"
     agent_impact:

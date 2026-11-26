@@ -550,7 +550,7 @@ async function main(): Promise<void> {
 
     const mcpBase = `http://127.0.0.1:${flags.mcpPort}`;
     const client = new McpStressClient(mcpBase, token);
-    console.log("[stress] OAuth bootstrap (weblify-local)…");
+    console.log("[stress] OAuth bootstrap (connection-token owner)…");
     await client.bootstrapOAuth();
     await client.initialize();
 
@@ -643,7 +643,7 @@ async function main(): Promise<void> {
         pulled: contentMeta.pulled,
         commit: contentMeta.commit,
       },
-      auth: "weblify-local (OAuth via connection token)",
+      auth: "connection-token owner (OAuth via connection token)",
       concurrency: flags.concurrency,
       heavy: flags.heavy,
       fail_on_budget: flags.failOnBudget,

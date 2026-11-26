@@ -1507,7 +1507,7 @@ export function registerContentRoutes(app: Express): void {
     }
   });
 
-  app.post("/api/content-types", (req, res) => {
+  app.post("/api/content-types", async (req, res) => {
     try {
       const { name, directory, url_pattern } = req.body;
       if (!name || typeof name !== "string") {
@@ -1543,7 +1543,7 @@ export function registerContentRoutes(app: Express): void {
       }
       const dir = directory || name;
 
-      addContentType(name, {
+      await addContentType(name, {
         directory: dir,
         url_pattern: normalizedPattern,
       }, getContentRoot(res));

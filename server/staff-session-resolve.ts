@@ -6,7 +6,8 @@ import {
 import { isConnectionTokenStaffAllowed } from "./staff-github-login";
 import {
   connectionTokenMatches,
-  ensureWeblifyLocalOwner,
+  ensureConnectionTokenOwner,
+  readConnectionTokenOwnerUsername,
 } from "./weblify-connection-token";
 
 const CONNECTION_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -39,15 +40,20 @@ export async function resolveOwnedStaffSession(
 
   if (!connectionTokenMatches(token)) return null;
   if (!isConnectionTokenStaffAllowed()) return null;
+  if (!readConnectionTokenOwnerUsername()) return null;
 
-  const owner = ensureWeblifyLocalOwner();
-  return {
-    token: token.trim(),
-    username: owner.username,
-    staffId: owner.staffId,
-    roles: owner.roles,
-    expiresAt: Date.now() + CONNECTION_TOKEN_TTL_MS,
-  };
+  try {
+    const owner = ensureConnectionTokenOwner();
+    return {
+      token: token.trim(),
+      username: owner.username,
+      staffId: owner.staffId,
+      roles: owner.roles,
+      expiresAt: Date.now() + CONNECTION_TOKEN_TTL_MS,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function staffSessionJson(resolved: ResolvedStaffSession) {

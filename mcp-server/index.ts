@@ -507,9 +507,12 @@ async function authMiddleware(
   if (bearerToken && validateToken(bearerToken)) {
     const username = getTokenUsername(bearerToken);
     // Weblify empty-install bootstrap identity (connection-token OAuth) is not a CMS user.
+    const { isConnectionTokenBootstrapUsername } = await import(
+      "@shared/connection-token-owner"
+    );
     if (
       username &&
-      username !== "weblify-local" &&
+      !isConnectionTokenBootstrapUsername(username) &&
       !(await ensureMcpRead(username))
     ) {
       return;
@@ -867,7 +870,18 @@ app.post("/oauth/authorize", async (req, res) => {
       );
       return;
     }
-    updateClientStaffUser(pending.clientId, "Weblify", "Admin", "weblify-local");
+    const { readConnectionOwnerFromDisk } = await import(
+      "@shared/connection-token-owner"
+    );
+    const owner = readConnectionOwnerFromDisk();
+    if (!owner) {
+      await reRender(
+        "Connection-token owner missing. Run `npx caxton-cms token --user <name>` first (docs/local-connection-token.md).",
+        "token",
+      );
+      return;
+    }
+    updateClientStaffUser(pending.clientId, "Local", "Bootstrap", owner);
     let redirectUrl: URL;
     try {
       redirectUrl = new URL(pending.redirectUri);

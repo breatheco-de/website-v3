@@ -35,6 +35,15 @@ export function platformUserStoreGcsKey(): string {
   return "multisite-global/users-state.json";
 }
 
+/** Global staff ignore rules for the process Error Log (not per-site). */
+export function platformErrorLogIgnoreGcsKey(): string {
+  return "multisite-global/error-log-ignore.json";
+}
+
+export function platformErrorLogIgnoreLocalPath(): string {
+  return "data/error-log-ignore.json";
+}
+
 /** Legacy prefix before platform files were consolidated under multisite-global/. */
 export function legacyPlatformUserStoreGcsKey(): string {
   return "multisite-user-store/users-state.json";

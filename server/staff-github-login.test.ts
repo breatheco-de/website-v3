@@ -66,6 +66,11 @@ describe("staff-github-login", () => {
 
   it("connection token staff allowed when GitHub inactive or flag set", () => {
     clearEnv();
+    const prevNode = process.env.NODE_ENV;
+    const prevMode = process.env.WEBLIFY_MODE;
+    delete process.env.WEBLIFY_MODE;
+    process.env.NODE_ENV = "test";
+
     expect(isConnectionTokenStaffAllowed()).toBe(true);
 
     setAppEnv();
@@ -75,6 +80,14 @@ describe("staff-github-login", () => {
     process.env.WEBLIFY_ALLOW_CONNECTION_TOKEN_STAFF = "1";
     expect(isConnectionTokenStaffAllowEnvSet()).toBe(true);
     expect(isConnectionTokenStaffAllowed()).toBe(true);
+
+    process.env.NODE_ENV = "production";
+    expect(isConnectionTokenStaffAllowed()).toBe(false);
+
+    if (prevNode === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = prevNode;
+    if (prevMode === undefined) delete process.env.WEBLIFY_MODE;
+    else process.env.WEBLIFY_MODE = prevMode;
   });
 
   it("getStaffGitHubLoginStatus omits loopback callback and flags tunnels", () => {

@@ -1,13 +1,17 @@
-import { getAllTypes, getContentTypeConfig } from "./content-types";
+import { getContentTypeConfig } from "./content-types";
 import { databaseManager, type DatabaseManager } from "./database";
 import {
   queryEntries,
   type QueryFilter,
   type QueryEntriesOptions,
 } from "./query-entries";
-import { child } from "./logger";
-
-const log = child({ module: "query-options" });
+import {
+  assertSourceNameAvailable as assertSourceNameAvailableCore,
+  findSourceNameCollisions as findSourceNameCollisionsCore,
+  logSourceNameCollisions as logSourceNameCollisionsCore,
+  resolveSourceName as resolveSourceNameCore,
+  type ResolvedSource,
+} from "./source-namespace";
 
 const RESERVED_QUERY_KEYS = new Set([
   "source",
@@ -20,11 +24,7 @@ const RESERVED_QUERY_KEYS = new Set([
   "locale",
 ]);
 
-export type ResolvedSource =
-  | { kind: "contentType"; name: string }
-  | { kind: "database"; name: string }
-  | { kind: "collision"; name: string }
-  | { kind: "not_found"; name: string };
+export type { ResolvedSource };
 
 export interface QueryOption {
   value: string;
@@ -38,22 +38,14 @@ export function findSourceNameCollisions(
   contentRoot?: string,
   db: DatabaseManager = databaseManager,
 ): string[] {
-  const dbNames = new Set(db.list().map((d) => d.name));
-  return getAllTypes(contentRoot).filter((t) => dbNames.has(t));
+  return findSourceNameCollisionsCore(contentRoot, db);
 }
 
 export function logSourceNameCollisions(
   contentRoot?: string,
   db: DatabaseManager = databaseManager,
 ): string[] {
-  const collisions = findSourceNameCollisions(contentRoot, db);
-  if (collisions.length > 0) {
-    log.error(
-      { collisions },
-      "[QueryOptions] Content type keys collide with database slugs — rename one side so `source` is unambiguous",
-    );
-  }
-  return collisions;
+  return logSourceNameCollisionsCore(contentRoot, db);
 }
 
 export function resolveSourceName(
@@ -61,15 +53,7 @@ export function resolveSourceName(
   contentRoot?: string,
   db: DatabaseManager = databaseManager,
 ): ResolvedSource {
-  if (!name) return { kind: "not_found", name };
-
-  const hasType = !!getContentTypeConfig(name, contentRoot);
-  const hasDb = db.exists(name);
-
-  if (hasType && hasDb) return { kind: "collision", name };
-  if (hasType) return { kind: "contentType", name };
-  if (hasDb) return { kind: "database", name };
-  return { kind: "not_found", name };
+  return resolveSourceNameCore(name, contentRoot, db);
 }
 
 /**
@@ -83,17 +67,7 @@ export function assertSourceNameAvailable(
   contentRoot?: string,
   db: DatabaseManager = databaseManager,
 ): void {
-  if (!name) throw new Error("Source name is required");
-  if (as === "contentType" && db.exists(name)) {
-    throw new Error(
-      `Cannot create content type "${name}": a database with the same slug already exists. Content-type keys and database slugs must be unique across both namespaces.`,
-    );
-  }
-  if (as === "database" && getContentTypeConfig(name, contentRoot)) {
-    throw new Error(
-      `Cannot create database "${name}": a content type with the same key already exists. Content-type keys and database slugs must be unique across both namespaces.`,
-    );
-  }
+  assertSourceNameAvailableCore(name, as, contentRoot, db);
 }
 
 export function parseFilterQueryParams(

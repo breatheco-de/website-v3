@@ -4,8 +4,106 @@ import * as fs from "fs";
 import * as path from "path";
 import { child, registerLogSink } from "./logger";
 import { errorLogFingerprint } from "./utils/error-log-fingerprint";
+import { shouldIgnoreErrorLogCandidate } from "./error-log-ignore-store";
+import {
+  errorLogMatchesAnyIgnoreRule,
+  type ErrorLogIgnoreRule,
+  type ErrorLogIgnoreRuleInput,
+} from "@shared/error-log-ignore";
 import { getProjectRoot } from "@shared/paths";
 const log = child({ module: "db" });
+
+export function parseErrorLogContext(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+type ErrorLogMatchRow = {
+  id: number;
+  level: string;
+  module: string;
+  message: string;
+  err_name: string | null;
+  context: string | null;
+};
+
+function listErrorLogRowsSince(cutoff: number): ErrorLogMatchRow[] {
+  return sqlite
+    .prepare(
+      `SELECT id, level, module, message, err_name, context
+       FROM error_log WHERE ts >= ?`,
+    )
+    .all(cutoff) as ErrorLogMatchRow[];
+}
+
+/** Count rows in the last `windowMs` that match any of the given rules. */
+export function countErrorLogMatchingRules(
+  rules: Array<ErrorLogIgnoreRule | ErrorLogIgnoreRuleInput>,
+  windowMs = 48 * 60 * 60 * 1000,
+): number {
+  if (!rules.length) return 0;
+  const cutoff = Date.now() - windowMs;
+  let count = 0;
+  for (const row of listErrorLogRowsSince(cutoff)) {
+    const level: "error" | "warn" = row.level === "error" ? "error" : "warn";
+    if (
+      errorLogMatchesAnyIgnoreRule(
+        {
+          level,
+          module: row.module,
+          message: row.message,
+          errName: row.err_name,
+          context: parseErrorLogContext(row.context),
+        },
+        rules,
+      )
+    ) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/** Delete matching rows in this process's error_log (last `windowMs`). Returns removed count. */
+export function purgeErrorLogMatchingRules(
+  rules: Array<ErrorLogIgnoreRule | ErrorLogIgnoreRuleInput>,
+  windowMs = 48 * 60 * 60 * 1000,
+): number {
+  if (!rules.length) return 0;
+  const cutoff = Date.now() - windowMs;
+  const ids: number[] = [];
+  for (const row of listErrorLogRowsSince(cutoff)) {
+    const level: "error" | "warn" = row.level === "error" ? "error" : "warn";
+    if (
+      errorLogMatchesAnyIgnoreRule(
+        {
+          level,
+          module: row.module,
+          message: row.message,
+          errName: row.err_name,
+          context: parseErrorLogContext(row.context),
+        },
+        rules,
+      )
+    ) {
+      ids.push(row.id);
+    }
+  }
+  if (!ids.length) return 0;
+  const del = sqlite.prepare("DELETE FROM error_log WHERE id = ?");
+  const tx = sqlite.transaction((rowIds: number[]) => {
+    for (const id of rowIds) del.run(id);
+  });
+  tx(ids);
+  return ids.length;
+}
 
 /** Max frequency for storing the same warning fingerprint in SQLite. */
 const WARN_SINK_RATE_LIMIT_MS = 60_000;
@@ -161,6 +259,18 @@ if (!process.env.VITEST) {
   registerLogSink((ts, level, module, message, errName, errStack, context) => {
     try {
       if (level === "warn" && !shouldInsertWarn(module, message, ts)) {
+        return;
+      }
+      // Fail-open until ignore store is hydrated (boot); then skip matching rows.
+      if (
+        shouldIgnoreErrorLogCandidate({
+          level,
+          module,
+          message,
+          errName,
+          context: parseErrorLogContext(context),
+        })
+      ) {
         return;
       }
       _insertErrorLog.run(ts, level, module, message, errName, errStack, context);

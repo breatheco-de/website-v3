@@ -130,17 +130,23 @@ export function printLocalAgentConnectedTip(): void {
 }
 
 /** Standalone `caxton-cms token` — dual-use staff + MCP. */
-export function printTokenInstructions(opts: { token: string }): void {
+export function printTokenInstructions(opts: { token: string; owner: string }): void {
   const col = c();
   console.log("");
   console.log(`${col.green("✔")} New connection token:`);
   console.log(`       ${col.magenta(opts.token)}`);
+  console.log("");
+  console.log(
+    `${col.bold("You will sign in as")} ${col.cyan(opts.owner)} ${col.dim("(local bootstrap only — never use in production)")}`,
+  );
   console.log("");
   console.log(col.bold("What this token is for:"));
   console.log("  • Staff sign-in — paste it into the Debug bubble token field on the site.");
   console.log("  • MCP — use it as the auth token for Cursor / Claude Code / Claude.ai");
   console.log("    (Authorization: Bearer …, X-Api-Key, or the connector wizard).");
   console.log("");
+  console.log(col.dim("Anyone with this token is that local user. Grant roles on that Security card, not your Gmail user."));
+  console.log(col.dim("See docs/local-connection-token.md"));
   console.log(col.dim("This replaces the previous token. Stop Caxton before minting if it is running."));
   console.log("");
 }

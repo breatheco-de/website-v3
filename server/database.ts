@@ -3,6 +3,7 @@ import { getDefaultContentFolder, getSiteConfigs } from "./site-config";
 import path from "path";
 import yaml from "js-yaml";
 import { getAllTypes, getContentTypeConfig, getLocaleKey, getFieldMapping, getFullFieldMapping, getRowsFilterFields, RESERVED_IMAGE_FIELD, RESERVED_SLUG_FIELD, RESERVED_LOCALE_FIELD, applyImageAliasToEntry, applySlugAliasToEntry, applyLocaleAliasToEntry } from "./content-types";
+import { assertSourceNameAvailable } from "./source-namespace";
 import { applyRowsFilterFields } from "./database-single-loader";
 import { diffRefreshedDatabaseRows, type RefreshedDatabaseRow } from "./database-refresh-diff";
 import { getValueByPath, resolveFieldValue, isTransformer, compileTransformer, runTransformer } from "./transform";
@@ -567,7 +568,8 @@ function applyContentTypeMapping(
       applyImageAliasToEntry(mapped, imageValue);
     }
 
-    if (!mapped.slug && mapped.title && typeof mapped.title === "string") {
+    // When `_slug` is mapped, empty means "no page" — do not invent a title slug.
+    if (!mapped.slug && mapped.title && typeof mapped.title === "string" && !fullMapping?.[RESERVED_SLUG_FIELD]) {
       mapped.slug = slugify(mapped.title, { maxLength: 200 });
     }
 
@@ -832,9 +834,11 @@ export class DatabaseManager {
       fs.mkdirSync(dir, { recursive: true });
     }
     if (!fs.existsSync(filePath)) {
+      const ext = path.extname(filename).toLowerCase();
+      // Empty auto-create is only safe for JSON/YAML — never write YAML into a .csv.
+      if (ext === ".csv") return null;
       const resultsPath = config.source.local.results_path;
       const payload: unknown = resultsPath ? { [resultsPath]: [] } : [];
-      const ext = path.extname(filename).toLowerCase();
       const body =
         ext === ".json"
           ? JSON.stringify(payload, null, 2) + "\n"
@@ -851,7 +855,6 @@ export class DatabaseManager {
     if (this.configs.has(name)) {
       throw new Error(`Database "${name}" already exists`);
     }
-    const { assertSourceNameAvailable } = require("./query-options") as typeof import("./query-options");
     assertSourceNameAvailable(name, "database", this.contentRoot, this);
     this.writeToDisk(name, config);
     markFileAsModified(`db/${name}/config.yml`, author, undefined, this.contentRoot);

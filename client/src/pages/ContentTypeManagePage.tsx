@@ -109,7 +109,10 @@ import { LinkedDatabaseExplainDialog } from "@/components/editing/LinkedDatabase
 import { AdsFirstCard } from "@/components/editing/AdsFirstCard";
 import { FormLocationCard } from "@/components/editing/FormLocationCard";
 import { ItemEditModal } from "@/components/databases/ItemEditModal";
-import { useEvidenceDuplicateGuard } from "@/components/databases/EvidenceDuplicateDialog";
+import {
+  SaveCancelledError,
+  useEvidenceDuplicateGuard,
+} from "@/components/databases/EvidenceDuplicateDialog";
 import { EditorTypeDialog, type EditorHint } from "@/components/editing/EditorTypeDialog";
 import {
   DeprecateFieldForm,
@@ -1718,6 +1721,57 @@ function DataSourceDialog({
   const [localeIsTransformer, setLocaleIsTransformer] = useState(false);
   const [slugIsTransformer, setSlugIsTransformer] = useState(false);
   const [hreflangsIsTransformer, setHreflangsIsTransformer] = useState(false);
+  const [debouncedSlugField, setDebouncedSlugField] = useState(slugField);
+  const [slugCheckAdvancedOpen, setSlugCheckAdvancedOpen] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSlugField(slugField), 300);
+    return () => clearTimeout(t);
+  }, [slugField]);
+
+  type SlugCheckPreview = {
+    checked: number;
+    skipped: number;
+    duplicate_groups: number;
+    samples: Array<{ slug: string; locale: string; labels: string[]; indexes: number[] }>;
+    truncated: boolean;
+  };
+
+  const {
+    data: slugCheckPreview,
+    isFetching: slugCheckFetching,
+    isError: slugCheckError,
+  } = useQuery<SlugCheckPreview>({
+    queryKey: [
+      "/api/databases",
+      selectedDb,
+      "slug-check",
+      contentType,
+      slugIsTransformer,
+      debouncedSlugField,
+    ],
+    queryFn: async () => {
+      const body = slugIsTransformer
+        ? { content_type: contentType, slug_function: debouncedSlugField }
+        : { content_type: contentType, slug_mapping: debouncedSlugField };
+      const res = await apiFetch(`/api/databases/${encodeURIComponent(selectedDb)}/slug-check`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error || "Slug check failed");
+      }
+      return res.json();
+    },
+    enabled:
+      open &&
+      step === "identity" &&
+      !!selectedDb &&
+      !!debouncedSlugField.trim(),
+    staleTime: 30_000,
+  });
 
   const markComplete = (s: WizardStep) => {
     setCompletedSteps((prev) => {
@@ -2218,8 +2272,26 @@ function DataSourceDialog({
             {step === "identity" && (
               <div className="space-y-4" data-testid="step-identity">
                 <p className="text-sm text-muted-foreground">
-                  Every database-backed content type needs an identity. The slug field uniquely identifies each item for URL routing. The locale field identifies the item's language for multi-language support.
+                  Pick how each database row gets its page address. We check the full bank with this
+                  rule: rows with no slug are skipped for pages; duplicate slug+language pairs keep
+                  the higher priority. Changing a field that feeds the slug can move the live page
+                  (you will confirm when saving).
                 </p>
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline"
+                  onClick={() => setSlugCheckAdvancedOpen((v) => !v)}
+                  data-testid="button-slug-identity-advanced"
+                >
+                  {slugCheckAdvancedOpen ? "Hide advanced" : "Read more (advanced)"}
+                </button>
+                {slugCheckAdvancedOpen && (
+                  <p className="text-xs text-muted-foreground rounded-md bg-muted/60 px-3 py-2">
+                    Computed slugs often use host+path of a URL field (no protocol or query). Marketing
+                    lists that read the raw database still show every row. Old hand-written press paths
+                    are not redirected when identity changes.
+                  </p>
+                )}
 
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -2272,9 +2344,76 @@ function DataSourceDialog({
                       </SelectContent>
                     </Select>
                   )}
-                  <p className="text-xs text-muted-foreground">
-                    Which field uniquely identifies each item (e.g., "slug", "id")
-                  </p>
+                  {slugField.trim() && selectedDb && (
+                    <div
+                      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
+                      data-testid="text-slug-check-summary"
+                    >
+                      {slugCheckFetching && (
+                        <span className="inline-flex items-center gap-1">
+                          <Loader2 className="h-3 w-3 animate-spin" /> Checking bank…
+                        </span>
+                      )}
+                      {!slugCheckFetching && slugCheckError && (
+                        <span className="text-destructive">Could not check this slug rule.</span>
+                      )}
+                      {!slugCheckFetching && slugCheckPreview && (
+                        <>
+                          <span>
+                            Checked {slugCheckPreview.checked}
+                            {slugCheckPreview.truncated ? "+" : ""} · {slugCheckPreview.skipped} skipped
+                          </span>
+                          {slugCheckPreview.duplicate_groups > 0 ? (
+                            <Popover modal={false}>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="text-destructive underline-offset-2 hover:underline font-medium"
+                                  data-testid="button-slug-duplicates"
+                                >
+                                  {slugCheckPreview.duplicate_groups} duplicate
+                                  {slugCheckPreview.duplicate_groups === 1 ? "" : "s"} found
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent
+                                className="w-80 p-3 space-y-2 z-[10003]"
+                                align="start"
+                                data-testid="popover-slug-duplicates"
+                              >
+                                <p className="text-xs font-medium text-foreground">
+                                  Duplicate slug + language (pages keep higher priority)
+                                </p>
+                                <ul className="space-y-2 max-h-56 overflow-y-auto">
+                                  {slugCheckPreview.samples.map((s) => (
+                                    <li
+                                      key={`${s.slug}\0${s.locale}`}
+                                      className="text-xs text-muted-foreground border-b border-border/60 pb-1.5 last:border-0"
+                                    >
+                                      <code className="font-mono text-[10px] text-foreground break-all">
+                                        {s.slug}
+                                      </code>
+                                      <span className="ml-1">({s.locale})</span>
+                                      <div className="mt-0.5 truncate">
+                                        {s.labels.join(" · ")}
+                                      </div>
+                                    </li>
+                                  ))}
+                                </ul>
+                                {slugCheckPreview.duplicate_groups > slugCheckPreview.samples.length && (
+                                  <p className="text-[10px] text-muted-foreground">some more…</p>
+                                )}
+                              </PopoverContent>
+                            </Popover>
+                          ) : (
+                            <span>0 duplicates found</span>
+                          )}
+                          {slugCheckPreview.truncated && (
+                            <span className="text-[10px]">(first 2000 rows)</span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2 pt-2 border-t">
@@ -6610,6 +6749,13 @@ export default function ContentTypeManagePage() {
     index: number;
   } | null>(null);
   const [openingDbEdit, setOpeningDbEdit] = useState(false);
+  const [pageSlugConfirm, setPageSlugConfirm] = useState<{
+    oldPath: string;
+    newPath: string;
+    pendingItem: Record<string, unknown>;
+    index: number;
+  } | null>(null);
+  const [pageSlugConfirmBusy, setPageSlugConfirmBusy] = useState(false);
   const dbDuplicateGuard = useEvidenceDuplicateGuard();
 
   const { data: localeSettings } = useQuery<LocaleSettings>({
@@ -11681,6 +11827,87 @@ export default function ContentTypeManagePage() {
         hasDatabase={hasDb}
       />
       {dbDuplicateGuard.dialog}
+      {pageSlugConfirm && dbSlug && (
+        <Dialog
+          open
+          onOpenChange={(v) => {
+            if (!v && !pageSlugConfirmBusy) setPageSlugConfirm(null);
+          }}
+        >
+          <DialogContent className="max-w-md" data-testid="dialog-confirm-page-slug-change-manage">
+            <DialogHeader>
+              <DialogTitle>This edit moves the live page</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-muted-foreground">
+              Saving will change the live URL from{" "}
+              <code className="font-mono text-xs bg-muted px-1 rounded">
+                {pageSlugConfirm.oldPath || "(old)"}
+              </code>{" "}
+              to{" "}
+              <code className="font-mono text-xs bg-muted px-1 rounded">
+                {pageSlugConfirm.newPath || "(new)"}
+              </code>
+              . The old address is not redirected and will stop working.
+            </p>
+            <DialogFooter className="flex items-center justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={pageSlugConfirmBusy}
+                onClick={() => setPageSlugConfirm(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={pageSlugConfirmBusy}
+                data-testid="button-confirm-page-slug-change-manage"
+                onClick={async () => {
+                  setPageSlugConfirmBusy(true);
+                  try {
+                    const res = await dbDuplicateGuard.send((query) =>
+                      fetch(`/api/databases/${dbSlug}/items/${pageSlugConfirm.index}${query}`, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          ...pageSlugConfirm.pendingItem,
+                          confirm_page_slug_change: true,
+                        }),
+                      }),
+                    );
+                    if (!res.ok) {
+                      const err = await res.json().catch(() => ({}));
+                      throw new Error((err as { error?: string }).error || "Failed to save item");
+                    }
+                    setPageSlugConfirm(null);
+                    setEditingDbEntry(null);
+                    await Promise.all([
+                      queryClient.invalidateQueries({
+                        queryKey: ["/api/content-types", contentType, "items"],
+                      }),
+                      queryClient.invalidateQueries({ queryKey: ["/api/databases", dbSlug] }),
+                      queryClient.invalidateQueries({
+                        queryKey: [`/api/databases/${dbSlug}/items`],
+                      }),
+                    ]);
+                  } catch (err) {
+                    toast({
+                      title: "Save failed",
+                      description: err instanceof Error ? err.message : String(err),
+                      variant: "destructive",
+                    });
+                  } finally {
+                    setPageSlugConfirmBusy(false);
+                  }
+                }}
+              >
+                {pageSlugConfirmBusy && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                Move page and save
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
       {editingDbEntry && dbSlug && (
         <ItemEditModal
           dbName={dbSlug}
@@ -11715,8 +11942,22 @@ export default function ContentTypeManagePage() {
               }),
             );
             if (!res.ok) {
-              const err = await res.json().catch(() => ({}));
-              throw new Error((err as { error?: string }).error || "Failed to save item");
+              const err = (await res.json().catch(() => ({}))) as {
+                error?: string;
+                code?: string;
+                old_path?: string;
+                new_path?: string;
+              };
+              if (err.code === "confirm_page_slug_change") {
+                setPageSlugConfirm({
+                  oldPath: String(err.old_path || ""),
+                  newPath: String(err.new_path || ""),
+                  pendingItem: builtItem,
+                  index: editingDbEntry.index,
+                });
+                throw new SaveCancelledError();
+              }
+              throw new Error(err.error || "Failed to save item");
             }
             await Promise.all([
               queryClient.invalidateQueries({ queryKey: ["/api/content-types", contentType, "items"] }),

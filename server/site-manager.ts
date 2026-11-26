@@ -17,6 +17,7 @@ import { createSiteDb } from "./db";
 import { getVariableManager, resetVariableManagerCache, type VariableManager } from "./variable-manager";
 import { EntryPreviewManager } from "./entry-preview-manager";
 import { isMcpLoopbackRequest } from "./mcp-loopback-auth";
+import { isLoopbackHost } from "./staff-github-login";
 import { child } from "./logger";
 
 const log = child({ module: "site-manager" });
@@ -227,6 +228,14 @@ function getAliasMap(): Map<string, string> {
   return map;
 }
 
+/**
+ * Unknown Host warn gate. Loopback (MCP / Sidequest / deploy curls to 127.0.0.1)
+ * intentionally falls back to the default site — those hosts are never in sites.yml.
+ */
+export function shouldWarnUnknownHostname(hostname: string, siteCount: number): boolean {
+  return siteCount > 1 && !isLoopbackHost(hostname);
+}
+
 export function siteResolutionMiddleware(req: Request, res: Response, next: NextFunction): void {
   const sites = getSiteContextMap();
   let domain = req.hostname;
@@ -310,7 +319,7 @@ export function siteResolutionMiddleware(req: Request, res: Response, next: Next
 
   let ctx = sites.get(domain);
   if (!ctx) {
-    if (sites.size > 1) {
+    if (shouldWarnUnknownHostname(domain ?? "", sites.size)) {
       log.warn(`[SiteManager] Unknown hostname "${domain}" — falling back to default site`);
     }
     ctx = getDefaultSite();

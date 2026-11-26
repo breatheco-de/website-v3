@@ -270,8 +270,18 @@ import {
   resolveEventActor,
 } from "./_helpers";
 import { child } from "../logger";
-import { sqlite } from "../db";
+import { countErrorLogMatchingRules, purgeErrorLogMatchingRules, sqlite } from "../db";
 import { errorLogFingerprint } from "../utils/error-log-fingerprint";
+import {
+  addErrorLogIgnoreRules,
+  listErrorLogIgnoreRules,
+  removeErrorLogIgnoreRules,
+} from "../error-log-ignore-store";
+import {
+  errorLogIgnoreRuleInputSchema,
+  validateErrorLogIgnoreRuleInput,
+  type ErrorLogIgnoreRuleInput,
+} from "@shared/error-log-ignore";
 import { resolveDestinationLocale, writeRedirectOnDestinationPage } from "../redirect-destination";
 import {
   addDraftRedirect,
@@ -4707,6 +4717,7 @@ export function registerAdminRoutes(app: Express): void {
         uniqueIssues,
         topIssue: topIssueRow?.err_name ?? null,
         recent,
+        ignored: listErrorLogIgnoreRules(),
       });
     } catch (err) {
       log.error({ err }, "Failed to query error_log:");
@@ -4714,7 +4725,87 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
-  // Must be registered before /api/admin/error-log/:id or "export" is parsed as an id.
+  // Must be registered before /api/admin/error-log/:id or "export"/"ignore" are parsed as ids.
+  api.post(app, "/api/admin/error-log/preview-ignore", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireCapability(req, res, "errors_manage");
+    if (!auth.authorized) return;
+
+    try {
+      const rawRules = Array.isArray(req.body?.rules) ? req.body.rules : [req.body?.rule ?? req.body];
+      const rules: ErrorLogIgnoreRuleInput[] = [];
+      for (const raw of rawRules) {
+        const parsed = errorLogIgnoreRuleInputSchema.safeParse(raw);
+        if (!parsed.success) {
+          return res.status(400).json({ error: "Invalid ignore rule", details: parsed.error.flatten() });
+        }
+        const validated = validateErrorLogIgnoreRuleInput(parsed.data);
+        if (!validated) {
+          return res.status(400).json({ error: "Invalid ignore rule" });
+        }
+        rules.push(parsed.data);
+      }
+      const matchCount = countErrorLogMatchingRules(rules);
+      res.json({ matchCount });
+    } catch (err) {
+      log.error({ err }, "Failed to preview error-log ignore");
+      res.status(500).json({ error: "Failed to preview ignore rule" });
+    }
+  });
+
+  api.post(app, "/api/admin/error-log/ignore", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireCapability(req, res, "errors_manage");
+    if (!auth.authorized) return;
+
+    try {
+      const rawRules = Array.isArray(req.body?.rules) ? req.body.rules : [req.body?.rule ?? req.body];
+      const inputs: ErrorLogIgnoreRuleInput[] = [];
+      for (const raw of rawRules) {
+        const parsed = errorLogIgnoreRuleInputSchema.safeParse(raw);
+        if (!parsed.success) {
+          return res.status(400).json({ error: "Invalid ignore rule", details: parsed.error.flatten() });
+        }
+        if (!validateErrorLogIgnoreRuleInput(parsed.data)) {
+          return res.status(400).json({ error: "Invalid ignore rule" });
+        }
+        inputs.push(parsed.data);
+      }
+      if (!inputs.length) {
+        return res.status(400).json({ error: "At least one ignore rule is required" });
+      }
+      const validated = inputs
+        .map((input) => validateErrorLogIgnoreRuleInput(input))
+        .filter((r): r is NonNullable<typeof r> => r != null);
+      const { ignored, added } = addErrorLogIgnoreRules(inputs);
+      const removed = purgeErrorLogMatchingRules(validated);
+      res.json({ ignored, added: added.length, removed });
+    } catch (err) {
+      log.error({ err }, "Failed to add error-log ignore rule");
+      const message = err instanceof Error ? err.message : "Failed to ignore";
+      res.status(400).json({ error: message });
+    }
+  });
+
+  api.post(app, "/api/admin/error-log/unignore", { rate: "staffWrite" }, async (req, res) => {
+    const auth = await requireCapability(req, res, "errors_manage");
+    if (!auth.authorized) return;
+
+    try {
+      const ids = Array.isArray(req.body?.ids)
+        ? req.body.ids.filter((id: unknown): id is string => typeof id === "string" && id.trim().length > 0)
+        : typeof req.body?.id === "string"
+          ? [req.body.id]
+          : [];
+      if (!ids.length) {
+        return res.status(400).json({ error: "Ignore rule id is required" });
+      }
+      const { ignored } = removeErrorLogIgnoreRules(ids);
+      res.json({ ignored });
+    } catch (err) {
+      log.error({ err }, "Failed to remove error-log ignore rule");
+      res.status(500).json({ error: "Failed to unignore" });
+    }
+  });
+
   api.get(app, "/api/admin/error-log/export", { rate: "staffWrite" }, async (req, res) => {
     const auth = await requireCapability(req, res, "metrics_view");
     if (!auth.authorized) return;

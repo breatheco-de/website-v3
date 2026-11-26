@@ -26,6 +26,8 @@ export function parseArgs(argv: string[]): CliFlags {
     else if (a.startsWith("--name=")) flags.name = a.slice("--name=".length);
     else if (a === "--slug" && argv[i + 1]) flags.slug = argv[++i];
     else if (a.startsWith("--slug=")) flags.slug = a.slice("--slug=".length);
+    else if (a === "--user" && argv[i + 1]) flags.user = argv[++i];
+    else if (a.startsWith("--user=")) flags.user = a.slice("--user=".length);
     else if (a === "--agent" && argv[i + 1]) {
       const v = argv[++i].toLowerCase();
       if (v === "local" || v === "cloud") flags.agent = v;
@@ -50,12 +52,14 @@ caxton-cms — agentic CMS runtime
 
 Usage:
   npx caxton-cms [options]
-  npx caxton-cms token
+  npx caxton-cms token [--user <name>]
 
 Quiet by default. Use --debug or DEBUG=true for full engine logs.
 
 Commands:
-  token                     Mint a new connection token and print how to use it (staff + MCP)
+  token                     Mint a local-only connection token (staff + MCP). Asks for a
+                            bootstrap username (or pass --user). Never use in production.
+                            See docs/local-connection-token.md
 
 Options (all optional):
   --production              Production mode (no agentic / no tunnel; require SITE_URL)
@@ -66,6 +70,7 @@ Options (all optional):
   --name <name>             Display name when creating a site (empty folder)
   --slug <slug>             Content folder slug (site_<slug>) when creating,
                             or which site_* to register when writing sites.yml
+  --user <name>             Local bootstrap username for connection token (non-interactive)
   --yes, -y                 Accept safe defaults when non-interactive allows
   --help, -h                Show this help
 
