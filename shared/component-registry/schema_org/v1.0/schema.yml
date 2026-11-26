@@ -16,8 +16,9 @@ behaviors:
   schema_org:
     handler: schema_org
     notes: >-
-      Emits one JSON-LD document from schema_type + properties. Resolves @organization refs with dual-emit (nested +
-      standalone Organization).
+      Emits one JSON-LD document from schema_type + properties. Resolves @organization and @website refs with dual-emit
+      (nested ref + one standalone Organization / WebSite from schema-org.yml). A section whose properties "@id" is the
+      site Organization or WebSite @id starts from that schema-org.yml entity; its properties replace top-level keys.
 layout:
   flow: out
 props:
@@ -32,11 +33,13 @@ props:
     type: string
     required: true
     description: >-
-      YAML object of schema.org properties (snake_case keys). Use provider/parent_organization: "@organization" to
-      reference the site Organization template. Nested locales: { es: { name: ... } } apply per locale. For page types
-      (WebPage, AboutPage, ContactPage, CollectionPage, ProfilePage, ItemPage) and Person, omit url / @id: they are
-      filled from the page address. Never build them from a URL pattern; a typed url for another page on this site
-      blocks publish/promote.
+      YAML object of schema.org properties (snake_case keys). Use provider/parent_organization/publisher:
+      "@organization" to reference the site Organization, and isPartOf: "@website" (camelCase) to reference the site
+      WebSite, both from schema-org.yml. To extend the site Organization on one page, set "@id" to <organization
+      url>/#organization (WebSite: <website url>/#website) and only the fields to change; lists replace, they do not
+      merge. Nested locales: { es: { name: ... } } apply per locale. For page types (WebPage, AboutPage, ContactPage,
+      CollectionPage, ProfilePage, ItemPage) and Person, omit url / @id: they are filled from the page address. Never
+      build them from a URL pattern; a typed url for another page on this site blocks publish/promote.
   section_id:
     type: string
     required: false

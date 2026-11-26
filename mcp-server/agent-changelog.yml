@@ -5,6 +5,18 @@
 window_days: 6
 
 entries:
+  - date: "2026-11-26"
+    summary: "schema_org: @website refs and site-based Organization / WebSite sections"
+    agent_impact:
+      - "\"@website\" in any schema_org property (use isPartOf on WebPage) becomes a nested WebSite ref (@id <website url>/#website, @type, name, url) and adds one standalone WebSite from schema-org.yml, like \"@organization\"."
+      - "A schema_org section whose properties \"@id\" equals the site Organization or WebSite @id starts from that schema-org.yml entity; its own properties replace top-level keys (lists replace, not merge). @type comes from properties.type, else the site file. No standalone duplicate is added."
+      - "Keys outside the snake_case map pass through as written: write isPartOf, not is_part_of. No new MCP tools. Stress N/A."
+    tools_changed: false
+    paths:
+      - server/schema-org.ts
+      - server/schema-components/schema_org.ts
+      - server/schema-components/index.ts
+      - shared/component-registry/schema_org/v1.0/schema.yml
   - date: "2026-11-20"
     summary: "Staff form location: Save asks this form vs whole page"
     agent_impact:

@@ -1,5 +1,5 @@
 import { buildFaqPageSchema, dedupeFaqItems } from "../ssr-schema";
-import { getOrganizationDocument } from "../schema-org";
+import { getOrganizationDocument, getWebsiteDocument } from "../schema-org";
 import { contributeArticle } from "./article";
 import { contributeBreadcrumb } from "./breadcrumb";
 import { contributeFaq } from "./faq";
@@ -157,6 +157,7 @@ export interface CollectSectionSchemasResult {
  * - `faq-items` accumulate → one FAQPage.
  * - `article-bodies` accumulate → one Article/BlogPosting.
  * - `standalone-organization` dual-emits site Organization once by @id.
+ * - `standalone-website` dual-emits site WebSite once by @id.
  */
 export function collectSectionSchemasDetailed(
   sections: Array<Record<string, unknown>>,
@@ -169,6 +170,8 @@ export function collectSectionSchemasDetailed(
   const articleBodies: string[] = [];
   let needOrg = false;
   let orgId: string | undefined;
+  let needWebsite = false;
+  let websiteId: string | undefined;
 
   for (const section of sections) {
     if (!section || typeof section !== "object") continue;
@@ -190,6 +193,9 @@ export function collectSectionSchemasDetailed(
       } else if (contribution.kind === "standalone-organization") {
         needOrg = true;
         orgId = contribution.organizationId;
+      } else if (contribution.kind === "standalone-website") {
+        needWebsite = true;
+        websiteId = contribution.websiteId;
       } else {
         const key = contribution.dedupeKey ?? JSON.stringify(contribution.schema);
         if (seenDocumentKeys.has(key)) continue;
@@ -224,6 +230,18 @@ export function collectSectionSchemasDetailed(
       if (!already) {
         documents.push(orgDoc);
         preview.push({ schema: orgDoc, source: "organization" });
+      }
+    }
+  }
+
+  if (needWebsite) {
+    const siteDoc = getWebsiteDocument(context.locale, context.contentRoot);
+    if (siteDoc) {
+      const id = (siteDoc["@id"] as string) || websiteId || "";
+      const already = documents.some((d) => d["@id"] === id && d["@type"]);
+      if (!already) {
+        documents.push(siteDoc);
+        preview.push({ schema: siteDoc, source: "website" });
       }
     }
   }

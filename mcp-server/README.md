@@ -169,7 +169,7 @@ Gets the merged content of an entry (sections, title, and all other top-level YA
 
 ### `get_entry_seo`
 
-Gets the SEO/meta block plus a rich `schema_org` preview (resolved JSON-LD documents + sources from the same SSR section pipeline, including `@organization` dual-emit), companion/CT requirement gaps, and cached SEO `validation_issues`. Use this to inspect what Google gets. Edit Course/LocalBusiness YAML via `get_entry_content` / section tools — do not expect a derived JSON-LD dump on `get_entry_content`.
+Gets the SEO/meta block plus a rich `schema_org` preview (resolved JSON-LD documents + sources from the same SSR section pipeline, including `@organization` / `@website` dual-emit), companion/CT requirement gaps, and cached SEO `validation_issues`. Use this to inspect what Google gets. Edit Course/LocalBusiness YAML via `get_entry_content` / section tools — do not expect a derived JSON-LD dump on `get_entry_content`.
 
 **Parameters:**
 

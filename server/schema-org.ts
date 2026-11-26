@@ -489,6 +489,45 @@ export function getOrganizationNestedRef(
   return ref;
 }
 
+/** Stable @id for the site WebSite (dual-emit / nested refs). */
+export function getWebsiteId(contentRoot?: string): string {
+  const config = loadResolvedSchemaConfig(contentRoot);
+  const raw =
+    (typeof config.website?.url === "string" && config.website.url) ||
+    (typeof config.organization?.url === "string" && config.organization.url) ||
+    "";
+  const url = raw.replace(/\/$/, "");
+  return url ? `${url}/#website` : "https://schema.org/#website";
+}
+
+/** Site WebSite as JSON-LD (with @context and stable @id). Omits default_social_image (meta-tag setting). */
+export function getWebsiteDocument(locale: string = "en", contentRoot?: string): Record<string, unknown> | null {
+  const config = loadResolvedSchemaConfig(contentRoot, locale);
+  if (!config.website) return null;
+  const { default_social_image: _d, ...website } = config.website as BaseSchema;
+  return {
+    "@context": "https://schema.org",
+    "@id": getWebsiteId(contentRoot),
+    ...transformToJsonLd(website as BaseSchema, locale),
+  };
+}
+
+/** Lightweight WebSite ref for nested isPartOf-style fields. */
+export function getWebsiteNestedRef(
+  locale: string = "en",
+  contentRoot?: string,
+): Record<string, unknown> | null {
+  const doc = getWebsiteDocument(locale, contentRoot);
+  if (!doc) return null;
+  const ref: Record<string, unknown> = {
+    "@id": doc["@id"],
+    "@type": (typeof doc["@type"] === "string" && doc["@type"]) || "WebSite",
+  };
+  if (typeof doc.name === "string" && doc.name.trim()) ref.name = doc.name;
+  if (typeof doc.url === "string" && doc.url.trim()) ref.url = doc.url;
+  return ref;
+}
+
 /** Site Website template properties (no @context) for prefilling page schema_org sections. */
 export function getWebsiteTemplateProperties(locale: string = "en", contentRoot?: string): Record<string, unknown> | null {
   const config = loadSchemaConfig(contentRoot);
@@ -504,23 +543,13 @@ export function getOrganizationTemplateProperties(locale: string = "en", content
   return { ...config.organization };
 }
 
-/**
- * Expand `@organization` string refs inside a document to nested Organization
- * objects sharing the stable @id. Returns whether any ref was expanded.
- */
-export function expandOrganizationRefs(
-  doc: Record<string, unknown>,
-  locale: string,
-  contentRoot?: string,
-): boolean {
-  const nested = getOrganizationNestedRef(locale, contentRoot);
-  if (!nested) return false;
-
+/** Replace every `token` string inside `doc` (in place) with `nested`. Returns whether any was replaced. */
+function expandStringRefs(doc: Record<string, unknown>, token: string, nested: Record<string, unknown>): boolean {
   let expanded = false;
   const walk = (node: unknown): unknown => {
-    if (node === "@organization") {
+    if (node === token) {
       expanded = true;
-      return nested;
+      return { ...nested };
     }
     if (Array.isArray(node)) return node.map(walk);
     if (node && typeof node === "object") {
@@ -537,6 +566,34 @@ export function expandOrganizationRefs(
   Object.keys(doc).forEach((k) => delete doc[k]);
   Object.assign(doc, walked);
   return expanded;
+}
+
+/**
+ * Expand `@organization` string refs inside a document to nested Organization
+ * objects sharing the stable @id. Returns whether any ref was expanded.
+ */
+export function expandOrganizationRefs(
+  doc: Record<string, unknown>,
+  locale: string,
+  contentRoot?: string,
+): boolean {
+  const nested = getOrganizationNestedRef(locale, contentRoot);
+  if (!nested) return false;
+  return expandStringRefs(doc, "@organization", nested);
+}
+
+/**
+ * Expand `@website` string refs (e.g. WebPage `isPartOf`) to nested WebSite
+ * objects sharing the stable @id. Returns whether any ref was expanded.
+ */
+export function expandWebsiteRefs(
+  doc: Record<string, unknown>,
+  locale: string,
+  contentRoot?: string,
+): boolean {
+  const nested = getWebsiteNestedRef(locale, contentRoot);
+  if (!nested) return false;
+  return expandStringRefs(doc, "@website", nested);
 }
 
 /** Raw course catalog entry (legacy) for migration / ensure seeding. */

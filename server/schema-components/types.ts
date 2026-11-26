@@ -44,11 +44,13 @@ export type SchemaContribution =
       kind: "document";
       schema: Record<string, unknown>;
       dedupeKey?: string;
-      source?: "faq" | "article" | "breadcrumb" | "schema_org" | "organization";
+      source?: "faq" | "article" | "breadcrumb" | "schema_org" | "organization" | "website";
       needsStandaloneOrganization?: boolean;
     }
   /** Request dual-emit of site Organization (deduped by @id). */
-  | { kind: "standalone-organization"; organizationId: string };
+  | { kind: "standalone-organization"; organizationId: string }
+  /** Request dual-emit of site WebSite (deduped by @id). */
+  | { kind: "standalone-website"; websiteId: string };
 
 export type SchemaComponentContributor = (
   section: Record<string, unknown>,
@@ -58,5 +60,5 @@ export type SchemaComponentContributor = (
 /** Preview document with source badge for get_entry_seo / Schema tab. */
 export interface SchemaOrgPreviewDocument {
   schema: Record<string, unknown>;
-  source: "faq" | "article" | "breadcrumb" | "schema_org" | "organization";
+  source: "faq" | "article" | "breadcrumb" | "schema_org" | "organization" | "website";
 }
